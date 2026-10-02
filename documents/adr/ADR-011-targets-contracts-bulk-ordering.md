@@ -3,7 +3,7 @@ type: ADR
 title: "ADR-011 - Target types, contract registry and version graph, bulk at intake, ordering, Kafka records carry ids only, background tenant from the row"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -53,7 +53,7 @@ carries; and how background work finds its tenant.
 
 | Type | Release | Sends with | Idempotent receive, when the target declares it | Notes |
 |---|---|---|---|---|
-| `API` | 1 | `camel-http` | `Idempotency-Key: <delivery id>` header | Allow-listed destinations only; private and loopback ranges refused after DNS resolution and every redirect |
+| `API` | 1 | `camel-http` | `Idempotency-Key: <delivery id>` header | The one outbound destination check of ADR-010 section 8: every resolved address checked and the checked address pinned; refused ranges reachable only through an operator allow-list entry; redirects off unless the target enables them, every hop re-checked |
 | `MQ_CSV` | 1 | `camel-csv` / `camel-bindy` to format, `camel-jms` to send | JMS correlation id = delivery id, deduplicated by the target | Queue-manager product unknown; plugged in through its JMS connection factory, chosen from an allow-list of factory classes |
 | `DB` | 2 | `camel-sql` | Insert-or-update on a natural key the target declares | Only tables on the target's approved list; a restricted per-target database account with no DDL rights; parameterised statements only |
 | `FILE` | 2 | `camel-file` | Deterministic file name from the delivery id; write to a temporary name, then atomic rename | A shared folder; SFTP is out of scope unless Dipesh names it; no half-written file is ever visible |
@@ -67,8 +67,11 @@ carries; and how background work finds its tenant.
   outcome (ADR-010 section 5).
 - **Every type's host field passes the one outbound destination check** of ADR-010 section 8
   (refused ranges, pinned resolved address, operator-maintained per-tenant allow-list): the API
-  URL host, the MQ connection host, the DB host and the Kafka bootstrap servers. A File target's
-  path is normalised and confined under its configured root. The check runs at save, at
+  URL host, the MQ connection host, the DB host, and for Kafka **every broker address the client
+  connects to** - the bootstrap servers and each broker the cluster metadata returns (S-c). Where
+  a driver resolves and connects on its own so the checked address cannot be pinned, an egress
+  network policy enforces the same refused ranges (ADR-010 section 8). A File target's path is
+  normalised and confined under its configured root. The check runs at save, at
   test-connection and at send.
 - Each type's settings declare `max_concurrent_sends` (the bulkhead pool size, ADR-010 section 2)
   and its error dictionary (overrides of the default outcome table, ADR-010 section 5).
@@ -199,13 +202,27 @@ carries; and how background work finds its tenant.
 ## Decision 6 - Ordering and the head-of-line rule
 
 - **Ordering scope:** (tenant, interface, business key, **target endpoint**). Order is the
-  acceptance order: each message gets a database sequence number at insert.
+  **commit order of intake, per key (B5)** - a sequence assigned at insert is not commit order,
+  so two concurrent same-key calls could otherwise be sent out of order. The intake transaction
+  takes the key's counter row in the `ordering_key` table (tenant, interface, business key) with
+  `INSERT ... ON CONFLICT (tenant_id, interface_id, business_key) DO UPDATE SET last_seq =
+  ordering_key.last_seq + 1 RETURNING last_seq`, and stores the value on the message as its
+  **per-key sequence**. The row lock is held to commit: a second intake for the same key waits
+  until the first commits (or rolls back, which also undoes its increment), so per key the
+  sequence follows commit order with no duplicate. A bulk call takes its distinct keys' counter
+  rows **in key-hash order** (SHA-256 of tenant, interface and business key - the Kafka key of
+  Decision 7), so two bulks that share keys cannot deadlock. The wait counts against the 2 s
+  intake budget (a `lock_timeout` inside it; past it -> `503`, nothing stored, safe to repeat
+  with the same idempotency key). Clauses 1 and 2 below compare the **per-key sequence**, never
+  a global sequence or a timestamp. When the interface's `ordering` is `NONE`, no counter row is
+  taken, the message has no per-key sequence and the hold rule is skipped.
 - **Interface setting `ordering`:** `PER_KEY` (default, Dipesh's rule) or `NONE`.
 - **The hold rule (chosen, corrected for B3):** a delivery is held when **either**
-  1. an earlier message (lower sequence number) with the same tenant, interface and business key
+  1. an earlier message (lower per-key sequence) with the same tenant, interface and business key
      is still `ACCEPTED` - not yet `ROUTED` or `ROUTE_FAILED` - so its deliveries do not exist yet;
      **or**
-  2. an earlier delivery to the **same target endpoint** in the same scope is not final.
+  2. an earlier delivery (its message has a lower per-key sequence) to the **same target
+     endpoint** in the same scope is not final.
 
   While either holds, the delivery becomes `HELD`. Without clause 1 a later message routed first
   could be sent before an earlier message was routed at all; clause 1 closes that gap and also
@@ -215,7 +232,14 @@ carries; and how background work finds its tenant.
   key** (tenant, interface, business key) - coarser than the per-target scope so that stage 1's
   `ROUTED` update and stage 2's check serialise. Every claim runs in one transaction in this
   order: lock, read the delivery `FOR UPDATE`, check the hold, then `HELD` or `SENDING` (ADR-010
-  section 7). It holds during consumer rebalances too.
+  section 7). It holds during consumer rebalances too. **Every transaction that changes a
+  message's or a delivery's state takes this lock first, before any row lock** - stage 1
+  (`ROUTED` / `ROUTE_FAILED`), the claim, the bulkhead-full deferral, the classifier's outcome,
+  the release, the delivery-retry job's moves (`RETRY_WAIT -> DUE`, stale claim), the reconciler
+  and an operator replay; inside the lock, rows are locked message first, then deliveries in id
+  order. Intake takes only its `ordering_key` rows (above) and inserts new rows, so it cannot
+  form a lock cycle with them. A serialization failure (40001) or deadlock (40P01) rolls the
+  transaction back and it is retried (ADR-010 section 7).
 - **Release in the same transaction (B4).** The transaction that makes a delivery `DELIVERED`
   **or `DEAD_LETTERED`**, or makes a message `ROUTED` or `ROUTE_FAILED`, takes the same lock,
   re-checks the oldest `HELD` delivery per target in the key's scope, and moves each one whose
@@ -235,8 +259,12 @@ carries; and how background work finds its tenant.
   replay screen states how many later deliveries already went out.
 - **Gate:** 100 same-key updates are received by the target in sequence with **3 relay
   instances** and 2 consumer instances; the same with a **synchronous** interface where some
-  calls fall back to `PENDING`; and the same with message 1's stage 1 delayed until after
-  message 2 is routed (backbone and routing phase tests).
+  calls fall back to `PENDING`; the same with message 1's stage 1 delayed until after
+  message 2 is routed (backbone and routing phase tests); and **two concurrent intake calls for
+  one key on two instances, the first to start committing last** (single and bulk): their
+  per-key sequences follow commit order with no duplicate, and the target receives them in that
+  order; two bulks sharing 100 keys listed in opposite orders both commit with 0 deadlocks
+  (B5; ingest and routing phase tests).
 
 ## Decision 7 - A Kafka record carries ids only
 
@@ -280,13 +308,17 @@ carries; and how background work finds its tenant.
   settings instead of free-text Camel URIs.
 - The hold rule now reads the message table as well as the delivery table under one key lock;
   at 50 messages per second the lock is uncontended except for bursts on one key.
+- Same-key intake is serialised by the `ordering_key` row (B5): a call waits for an earlier
+  uncommitted call with the same key, and a bulk holds one row lock per distinct key until it
+  commits. The table keeps one small row per key ever seen.
 - Sources must send an idempotency key on single calls too - a contract change for any source
   built against the earlier "optional" wording.
 
 **What we give up:** tenant data in Kafka for other consumers to read directly (they must call
 the platform); unlimited bulk size; strict ordering after a dead-letter (the hold releases);
 parallel delivery of two messages with the same key while the earlier one is still being
-routed (it is held for the seconds stage 1 takes); purging a day's payloads on schedule while a
+routed (it is held for the seconds stage 1 takes); parallel intake of two calls with the same
+key (the second waits for the first to commit); purging a day's payloads on schedule while a
 dead letter from that day is unresolved.
 
 ## Revisit if

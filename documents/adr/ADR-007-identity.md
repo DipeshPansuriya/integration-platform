@@ -3,7 +3,7 @@ type: ADR
 title: "ADR-007 - Identity: Keycloak for login and machine credentials, tenant bound from our database, target credentials encrypted with an out-of-database key"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): key-error classes, credential fields named per type, audience scope, revoke order, Keycloak outage gate, token-lifetime trade-off"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): key-error classes, credential fields named per type, audience scope, revoke order, Keycloak outage gate, token-lifetime trade-off. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): a missing key uses no attempt, a not-ready instance stops its consumers and skips the retry job"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -228,10 +228,11 @@ Rules (written against the team's AEAD checklist; each MUST has a conformance te
 5. **Error paths (S-d).** Encryption happens only on credential create and rotate; a rolled-back
    write wastes one random nonce, which is harmless. Two decryption failures are told apart:
    - **unknown key-encryption-key id** - this instance was deployed without a key that a row
-     references (a deployment fault, fixable without touching the row): the outcome is
-     `TRANSIENT` (ADR-010 section 5), the delivery waits in `RETRY_WAIT`, an alert fires, and the
-     instance **fails its readiness health check** so the load balancer and the consumers move
-     work to instances that hold the key. At start-up an instance checks that every key id
+     references (a deployment fault, fixable without touching the row): no call is made, so
+     **no attempt row is written and no attempt is used up**; the delivery waits in `RETRY_WAIT`
+     with a `KEY_UNAVAILABLE` event (ADR-010 section 5), an alert fires, and the instance **fails
+     its readiness health check**, stops its consumers and skips the retry job (ADR-010 section 9),
+     so the load balancer and the consumers move work to instances that hold the key. At start-up an instance checks that every key id
      referenced by a credential row is present, and stays not-ready otherwise;
    - **authentication-tag mismatch** - the ciphertext, its associated data or the key is wrong
      (tampering or a copied row): `PERMANENT`, the delivery is dead-lettered with the reason

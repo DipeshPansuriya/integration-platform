@@ -13,15 +13,15 @@
   "lanes": [
     {
       "id": "main",
-      "label": "Delivery path"
+      "label": "Claim and send"
     },
     {
       "id": "waits",
-      "label": "Waits and re-entry"
+      "label": "Wait and ready"
     },
     {
       "id": "terminal",
-      "label": "Dead letter"
+      "label": "Held for order"
     }
   ],
   "states": [
@@ -34,6 +34,16 @@
       "col": 0,
       "step": "01",
       "width": 96
+    },
+    {
+      "id": "retry",
+      "type": "failure",
+      "label": "RETRY_WAIT",
+      "sublabel": "waits in DB",
+      "lane": "main",
+      "col": 1,
+      "width": 96,
+      "yOffset": 150
     },
     {
       "id": "sending",
@@ -56,30 +66,12 @@
       "width": 96
     },
     {
-      "id": "held",
-      "type": "waiting",
-      "label": "HELD",
-      "sublabel": "same key open",
-      "lane": "waits",
-      "col": 0,
-      "width": 96
-    },
-    {
       "id": "due",
       "type": "active",
       "label": "DUE",
       "sublabel": "ready",
       "lane": "waits",
-      "col": 1,
-      "width": 96
-    },
-    {
-      "id": "retry",
-      "type": "failure",
-      "label": "RETRY_WAIT",
-      "sublabel": "waits in DB",
-      "lane": "waits",
-      "col": 2,
+      "col": 0,
       "width": 96
     },
     {
@@ -87,94 +79,124 @@
       "type": "failure",
       "label": "DEAD_LETTERED",
       "sublabel": "until replay",
-      "lane": "terminal",
+      "lane": "waits",
       "col": 1,
+      "width": 96
+    },
+    {
+      "id": "held",
+      "type": "waiting",
+      "label": "HELD",
+      "sublabel": "same key open",
+      "lane": "terminal",
+      "col": 0,
       "width": 96
     }
   ],
   "transitions": [
     {
+      "id": "t-claim-first",
+      "from": "pending",
+      "to": "sending",
+      "label": "claim + token",
+      "variant": "emphasis"
+    },
+    {
+      "id": "t-bulkhead-pending",
+      "from": "pending",
+      "to": "retry",
+      "label": "bulkhead full",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
       "id": "t-hold",
       "from": "pending",
       "to": "held",
-      "label": "hold applies"
-    },
-    {
-      "id": "t-release",
-      "from": "held",
-      "to": "due",
-      "label": "release",
-      "fromSide": "right",
+      "label": "hold applies",
+      "fromSide": "left",
       "toSide": "left",
-      "route": "straight"
+      "via": [
+        [
+          30,
+          157
+        ],
+        [
+          30,
+          479
+        ]
+      ]
     },
     {
       "id": "t-claim",
       "from": "due",
       "to": "sending",
-      "label": "claim + token",
-      "variant": "emphasis",
-      "fromSide": "top",
-      "toSide": "bottom",
-      "channelY": 250
+      "label": "claim",
+      "variant": "emphasis"
+    },
+    {
+      "id": "t-delivered",
+      "from": "sending",
+      "to": "delivered",
+      "label": "success",
+      "variant": "emphasis"
     },
     {
       "id": "t-retry",
       "from": "sending",
       "to": "retry",
-      "label": "retryable",
+      "label": "retryable or stale claim",
       "variant": "security",
       "fromSide": "bottom",
-      "toSide": "top",
-      "channelY": 218
+      "toSide": "top"
     },
     {
       "id": "t-redrive",
       "from": "retry",
       "to": "due",
       "label": "re-drive",
-      "labelDy": -24
+      "labelDy": -22
     },
     {
-      "id": "t-dead",
+      "id": "t-wait-bulkhead",
+      "from": "due",
+      "to": "retry",
+      "label": "bulkhead full",
+      "variant": "dashed",
+      "labelDy": 50
+    },
+    {
+      "id": "t-to-dead",
       "from": "sending",
       "to": "dead",
-      "label": "permanent",
+      "label": "permanent or stale claim",
       "variant": "security",
-      "fromSide": "top",
-      "toSide": "right",
-      "via": [
-        [
-          402,
-          96
-        ],
-        [
-          800,
-          96
-        ],
-        [
-          800,
-          479
-        ]
-      ]
+      "fromSide": "bottom",
+      "toSide": "top"
     },
     {
       "id": "t-replay",
       "from": "dead",
       "to": "due",
       "label": "replay",
-      "variant": "dashed",
-      "fromSide": "top",
-      "toSide": "bottom",
-      "route": "straight"
+      "variant": "dashed"
     },
     {
-      "id": "t-bulkhead",
+      "id": "t-hold-due",
       "from": "due",
-      "to": "retry",
-      "label": "bulkhead full",
-      "variant": "dashed",
-      "labelDy": 60
+      "to": "held",
+      "label": "hold applies",
+      "labelDx": -46,
+      "labelDy": 70
+    },
+    {
+      "id": "t-release",
+      "from": "held",
+      "to": "due",
+      "label": "release",
+      "labelDx": 31,
+      "labelDy": -44
     }
   ],
   "cards": [
@@ -182,7 +204,7 @@
       "dot": "emerald",
       "title": "Main path",
       "items": [
-        "Claim: lock, hold check, HELD or SENDING",
+        "Claim: key lock, hold check, HELD or SENDING",
         "State changes need the claim token"
       ]
     },
@@ -190,7 +212,7 @@
       "dot": "orange",
       "title": "To RETRY_WAIT",
       "items": [
-        "Transient, circuit open, bulkhead full",
+        "Transient, circuit open, bulkhead full, missing key",
         "Stale claim: 3 x timeout + 65 s"
       ]
     },
@@ -198,7 +220,7 @@
       "dot": "rose",
       "title": "To DEAD_LETTERED",
       "items": [
-        "Permanent, exhausted, or ambiguous",
+        "Permanent, exhausted, ambiguous or stale",
         "Final state releases the next HELD"
       ]
     }

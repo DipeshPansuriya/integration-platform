@@ -3,7 +3,7 @@ type: ADR
 title: "ADR-010 - Apache Camel as the routing core, inside one module, with exactly two retry layers"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): bulkhead-full backoff and re-drive cap, every state change takes the key lock first with 40001/40P01 retry, missing key uses no attempt, not-ready instance stops its consumers, broker-address check and egress policy"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -107,10 +107,19 @@ creates N deliveries for N matched routes, not 2N (test).
   typed target setting `max_concurrent_sends` (team default 4, validated 1-32), queue length 0.
   The implementation (a Resilience4j thread-pool bulkhead or a Camel thread-pool profile) is a
   build choice; the contract is: bounded, non-blocking acquire, no hidden in-memory queue.
-- The permit is taken **before** the claim. No permit -> no claim: in one transaction the
-  delivery gets a `BULKHEAD_FULL` delivery event and moves `PENDING`/`DUE` -> `RETRY_WAIT` with
-  `next_attempt_at` = now + 1-5 s (jittered, configurable), then the offset is committed. **No
-  call is made, so no attempt row is written** and the attempt count is not consumed.
+- The permit is taken **before** the claim. No permit -> no claim: in one transaction (the
+  ordering-key lock first, section 7) the delivery gets a `BULKHEAD_FULL` delivery event and
+  moves `PENDING`/`DUE` -> `RETRY_WAIT` by an update **conditional on `status IN
+  ('PENDING','DUE')`** - 0 rows means another consumer already claimed or moved it, and the
+  record is acknowledged with no effect - then the offset is committed. `next_attempt_at` = now
+  + a backoff that **starts at 1 s and doubles with each consecutive `BULKHEAD_FULL` of that
+  delivery, capped at 30 s**, with full jitter (configurable; the count `bulkhead_deferrals`
+  is reset to 0 by a successful claim). **No call is made, so no attempt row is written** and
+  the attempt count is not consumed.
+- **Per-target re-drive cap:** each run of the delivery-retry job moves at most
+  `max_concurrent_sends` x the configured instance count bulkhead-deferred deliveries per target back to
+  `DUE`; the rest stay in `RETRY_WAIT` for the next run, so a full target is not flooded with
+  records it would only defer again.
 - A claim that ends in `HELD` or finds a duplicate (0 rows) returns the permit at once.
 - The pool is per instance: the effective limit for a target is pool size x instances.
 - **Gate:** with target A answering only after its 10 s timeout, target B delivers the same
@@ -157,7 +166,9 @@ A polling trigger (phase 2; moved onto db-scheduler as the **delivery-retry job*
 scheduler phase) selects due `RETRY_WAIT` rows with `FOR UPDATE SKIP LOCKED`, moves them to
 `DUE` and writes an outbox row, which the relay publishes to `platform.delivery.due`. Retry
 timing lives only in the database, so it survives restarts. The same job runs the reconciler
-of section 9, so the plan's three jobs stay three.
+of section 9, so **the reconciler adds no job of its own**. Credential clean-up (pending and
+`idp_disable_pending` credential rows, ADR-007 Decision 3) is its own scheduled job (Mira's
+decision, memory m-c14c49).
 
 **Kafka retries nothing.** A record that cannot be read, or whose row does not exist, goes once
 to `platform.poison` and is never retried from there (ADR-005). A transient database error is
@@ -170,8 +181,9 @@ re-publishing stuck work (section 9), and the bounded retry of an idempotent rea
 never write an attempt row.
 
 **The report equals the rows:** every call that left the process is exactly one attempt row;
-"retries made" for a delivery = its attempt rows minus 1; a circuit-open deferral and a
-bulkhead-full deferral are not calls and are recorded as delivery events, not attempts.
+"retries made" for a delivery = its attempt rows minus 1; a circuit-open deferral, a
+bulkhead-full deferral and a missing-key deferral are not calls and are recorded as delivery
+events, not attempts.
 
 ### 5. Outcome classes (closed register)
 
@@ -183,11 +195,18 @@ retryable.
 | Class | Examples | Layer 1 | Layer 2 |
 |---|---|---|---|
 | `SUCCESS` | HTTP 2xx; JMS send acknowledged; DB commit; file renamed into place | - | `DELIVERED` |
-| `TRANSIENT` | connection refused or reset **before the request was sent**; HTTP 429 and 503 (honouring `Retry-After`); HTTP **408, 500, 502, 504 from a target that declares idempotent receive**; broker unavailable; DB serialization failure or deadlock (40001, 40P01); target folder temporarily unavailable; **target credential key id unknown on this instance** (ADR-007 Decision 7 - the instance also fails its readiness check) | redeliver | `RETRY_WAIT` |
+| `TRANSIENT` | connection refused or reset **before the request was sent**; HTTP 429 and 503 (honouring `Retry-After`); HTTP **408, 500, 502, 504 from a target that declares idempotent receive**; broker unavailable; DB serialization failure or deadlock (40001, 40P01); target folder temporarily unavailable | redeliver | `RETRY_WAIT` |
 | `AMBIGUOUS` | a timeout after the request was sent; a connection lost while awaiting the reply; HTTP **408, 500, 502, 504 from a target that does not declare idempotent receive** (the request may have been processed); a DB commit outcome unknown | **never redeliver** | `RETRY_WAIT` only if the target declares idempotent receive (ADR-011); otherwise `DEAD_LETTERED` with reason `AMBIGUOUS_TIMEOUT` for an operator decision |
 | `PERMANENT` | HTTP 400, 404, 409, 422; **401, 403**; mapping or contract failure; destination refused by the destination check (section 8); **target credential authentication-tag mismatch** (ADR-007) | never | `DEAD_LETTERED` |
 
 A timeout is treated as ambiguous, never as failed (`ws/_specs/project-plan.md:115`).
+
+**A target credential key id unknown on this instance (S-d)** is found when the credential is
+decrypted, before any call leaves the process (ADR-007 Decision 7). It is not an outcome class:
+**no attempt row is written and no attempt is used up**; the delivery gets a `KEY_UNAVAILABLE`
+delivery event and moves `SENDING` -> `RETRY_WAIT` (conditional on the claim token) with the
+bulkhead-full backoff of section 2; an alert fires and the instance fails its readiness check
+(section 9 item 4), so an instance that holds the key sends it.
 
 ### 6. Delivery states (closed register; phase 2 implements it, illegal transitions are rejected)
 
@@ -199,8 +218,9 @@ A timeout is treated as ambiguous, never as failed (`ws/_specs/project-plan.md:1
 | `PENDING`, `DUE` | `SENDING` | stage 2 claims it (section 7), with a new claim token |
 | `PENDING`, `DUE` | `RETRY_WAIT` | the target's bulkhead is full (section 2) - no call, a `BULKHEAD_FULL` event |
 | `SENDING` | `DELIVERED` / `RETRY_WAIT` / `DEAD_LETTERED` | the classifier, conditional on the claim token |
+| `SENDING` | `RETRY_WAIT` | the target credential key is not on this instance (section 5) - no call, no attempt, a `KEY_UNAVAILABLE` event |
 | `SENDING` | `RETRY_WAIT` or `DEAD_LETTERED` (as `AMBIGUOUS`) | a stale claim: claimed longer than **3 x the target timeout + the layer-1 delay cap (5 s) + 60 s** (instance crash mid-call), found by the delivery-retry job |
-| `RETRY_WAIT` | `DUE` | `next_attempt_at` reached (delivery-retry job) |
+| `RETRY_WAIT` | `DUE` | `next_attempt_at` reached (delivery-retry job); after a bulkhead-full deferral, at most `max_concurrent_sends` x the configured instance count per target per run (section 2) |
 | `RETRY_WAIT` | `DUE` | circuit half-open time reached after a circuit-open deferral - **at most the breaker's trial-call count per target** per half-open window (Resilience4j `permittedNumberOfCallsInHalfOpenState`, default 3); the rest wait until the breaker closes |
 | `DEAD_LETTERED` | `DUE` | operator replay - audited; uses the versions pinned when the message arrived |
 
@@ -230,6 +250,16 @@ Every later update of that delivery's state by the send path is conditional on
 outbox row; the claim makes the duplicate harmless. The synchronous inline path (ADR-011
 Decision 5) uses exactly this transaction.
 
+**Every state-changing transaction takes the ordering-key lock first (S-g),** not only the
+claim: stage 1 (`ROUTED` / `ROUTE_FAILED`), the bulkhead-full deferral, the classifier's outcome
+update, the release (section 9), the delivery-retry job's moves (`RETRY_WAIT -> DUE`, stale
+claim), the reconciler and an operator replay. Inside the lock, rows are locked in one order:
+the message, then its deliveries in id order. The lock is skipped only when the interface's
+ordering is `NONE`. A **serialization failure (40001) or deadlock (40P01)** rolls the
+transaction back; it is retried in place up to 3 times with jittered backoff (it is not a target
+call, so no attempt row), then the consumer pause of section 9 item 3 applies. Test: two
+transactions on one key in opposite row order both finish, with 0 lost updates.
+
 ### 8. The six controls on every target call
 
 The resilient-integration rule's five controls, plus a bulkhead (challenge B1):
@@ -245,7 +275,9 @@ The resilient-integration rule's five controls, plus a bulkhead (challenge B1):
 
 **Outbound destinations - one check for every target type (challenge S-c).** The same check runs
 on the host field of every target type (API URL, MQ connection host, DB host, Kafka bootstrap
-servers) at save, at test-connection and at send:
+servers) at save, at test-connection and at send, and on **every broker address the client
+connects to** - for Kafka, each broker the cluster metadata returns, checked before the client
+connects to it:
 
 - the host is resolved once; **every** resolved address is checked; the connection is made to
   the checked address (the IP is pinned - no second resolution, so DNS rebinding cannot swap
@@ -261,6 +293,13 @@ servers) at save, at test-connection and at send:
   exact host and address range (audited) - needed for a client's on-premises queue manager or
   database. Loopback, link-local and the platform's own hosts can never be allow-listed;
 - redirects are off unless the target enables them, and every hop is re-checked;
+- **where a driver resolves and connects on its own** (the Kafka client after bootstrap, JDBC
+  drivers, JMS connection factories) and the checked address therefore cannot be pinned, the
+  deployment's **egress network policy** enforces the same refused ranges and the platform's own
+  hosts for the outbound traffic of the instances, so a re-resolution cannot reach them. Open
+  research question for neha-research: which of the chosen drivers (Kafka client, the JDBC
+  drivers of the DB target, the allow-listed JMS factories) accept a custom resolver or socket
+  factory, so the checked address can be pinned in-process as well;
 - **File targets:** the path is normalised and must stay under the target's configured root
   after resolving `..` and symbolic links (real-path prefix check); anything else is refused.
 
@@ -277,7 +316,7 @@ leaves accepted work stopped:
    `DEAD_LETTERED`, or a message reaches `ROUTED` or `ROUTE_FAILED`, that transaction takes the
    ordering-key lock, re-evaluates the hold for the oldest `HELD` delivery per target in the
    key's scope, and moves each one with no blocker left to `DUE` with its outbox row.
-2. **The reconciler, inside the delivery-retry job** (Mira's decision: no fourth job). On each
+2. **The reconciler, inside the delivery-retry job** (it adds no job of its own). On each
    run, per tenant (ADR-011 Decision 8), it re-publishes by writing a fresh outbox row:
    - messages `ACCEPTED` for more than 5 minutes (stage 1 never completed);
    - deliveries `PENDING` or `DUE` with no state change for more than 5 minutes and no
@@ -287,10 +326,18 @@ leaves accepted work stopped:
    Re-publishing is safe because both stages detect duplicates (sections 2 and 7). Every action
    is a delivery or message event with its ids. Limits are configuration (team defaults above).
 3. **Consumers pause on a transient database error.** A connection failure, pool timeout,
-   serialization failure or statement timeout while handling a record is not a poison case: the
+   serialization failure (40001), deadlock (40P01) or statement timeout while handling a record,
+   once the in-place retry of section 7 is spent, is not a poison case: the
    consumer does not commit the offset, pauses its partitions, backs off (1 s doubling to a 30 s
    cap, with jitter) and resumes; the record is processed again. Only an unreadable record or a
    referenced row that does not exist goes to `platform.poison`.
+4. **A not-ready instance takes no work (S-d).** While its readiness check fails (for example a
+   missing credential key id, ADR-007 Decision 7), the instance stops its Kafka consumers - they
+   leave the consumer group without committing offsets, so their partitions are reassigned to
+   ready instances (a Kafka pause alone would keep them assigned) - and does not run the
+   delivery-retry job (its scheduler picks up no job). It resumes when it is ready again. Test: an
+   instance started without one key claims 0 deliveries and runs 0 retry-job passes, and the
+   other instance delivers every message.
 
 **Gate:** in an end-to-end test, (a) a `delivery.due` record is deleted from the topic before it
 is consumed, and (b) a consumer instance is killed between the claim commit and the send; in both
@@ -305,7 +352,11 @@ gate); claim order and late outcome with a stale token (sections 6-7); `Retry-Af
 429 and 503; 500 classed `AMBIGUOUS` without idempotent receive and `TRANSIENT` with it; an
 error-dictionary override that tries to make 401 retryable is refused at save; half-open
 re-drives at most the trial-call count (with 50 deliveries waiting on one target, exactly 3 are
-re-driven when the breaker half-opens); every refused destination case of section 8.
+re-driven when the breaker half-opens); every refused destination case of section 8,
+including a Kafka broker address returned by metadata in a refused range; bulkhead-full backoff
+(consecutive deferrals wait 1, 2, 4 ... s up to 30 s, and a run re-drives at most the per-target
+cap); a missing key writes 0 attempt rows and uses 0 attempts; a not-ready instance claims 0
+deliveries; a 40P01 in a state-changing transaction is retried and the state change lands once.
 
 ## Consequences
 
