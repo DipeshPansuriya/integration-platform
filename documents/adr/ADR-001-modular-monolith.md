@@ -9,7 +9,11 @@ provenance: new-decision
 supersedes: none
 related:
   - ADR-002-datastore.md
+  - ADR-005-messaging.md
+  - ADR-007-identity.md
+  - ADR-009-tenant-directory-rls.md
   - ADR-010-camel-routing-core.md
+  - ADR-011-targets-contracts-bulk-ordering.md
   - ../architecture.md
 ---
 
@@ -60,7 +64,16 @@ module; nothing needs an independent release cadence. The reasons that usually j
 ## Decision
 
 **Option A.** One deployable (`platform-app`), several horizontally scaled instances behind a
-load balancer, no local state in any instance. Maven modules per bounded context; the module
+load balancer, **no authoritative local state in any instance** - every fact that must survive
+a restart or be seen by another instance lives in PostgreSQL (or Kafka for work in flight).
+
+**Deliberate local state** (revision 2026-10-02, challenge m-817272): each instance holds some
+state on purpose, all of it rebuildable on demand and none of it a source of truth -
+the lazily built Camel route instances, the per-target bulkheads and circuit breakers
+(ADR-010), the identity provider's signing-key cache (ADR-007) and connection pools. Because
+they are per instance, a bulkhead's or breaker's limit applies per instance (the effective
+concurrency for a target is pool size x instances), and two instances may briefly disagree on a
+breaker's state; both are accepted and named in ADR-010. Maven modules per bounded context; the module
 list is fixed in [architecture.md](../architecture.md). Module boundaries are build-breaking:
 
 1. Spring Modulith's module verification test runs in the non-container build and fails on a
@@ -72,6 +85,15 @@ list is fixed in [architecture.md](../architecture.md). Module boundaries are bu
    versions of it.
 4. The UI (`ui/`, React) is a separate front-end build served as static files; it talks only to
    the platform's admin API.
+5. **Package convention (Spring Modulith).** Each Maven module holds exactly one application
+   module whose base package is `<root>.<module>` (for example `<root>.routing`); `<root>` is
+   fixed by the skeleton phase. A module's public surface is the types in its base package plus
+   sub-packages marked `@NamedInterface` - `port` (interfaces the module owns and others call or
+   implement) and `event` (events it publishes). Everything else lives under
+   `<root>.<module>.internal` and is unreachable from other modules: Maven dependencies stop
+   compile-time access to modules not declared, and the Modulith verification test stops access
+   to `internal` packages. Test: a planted class in another module that imports an `internal`
+   type fails the build.
 
 ## Consequences
 

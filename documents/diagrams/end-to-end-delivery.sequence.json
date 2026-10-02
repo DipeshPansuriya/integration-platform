@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "End to End 2 of 2 - Deliver and Recover",
+    "output": "end-to-end-delivery.archify.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1400,
+      654
+    ],
+    "views": [
+      {
+        "id": "claim",
+        "label": "Claim on the partition thread",
+        "focus": [
+          "kafka",
+          "routing",
+          "bulkhead",
+          "db"
+        ],
+        "note": "Permit, then one claim transaction: lock, hold check, HELD or SENDING; offset after the claim (ADR-010 s2, s7)."
+      },
+      {
+        "id": "send",
+        "label": "Send on the target's bulkhead",
+        "focus": [
+          "bulkhead",
+          "transform",
+          "target",
+          "db"
+        ],
+        "note": "Pinned mapping, checked address, six controls, attempt row, state change only with the claim token."
+      },
+      {
+        "id": "recover",
+        "label": "Retry and reconcile",
+        "focus": [
+          "job",
+          "db"
+        ],
+        "note": "The delivery-retry job re-drives RETRY_WAIT and runs the reconciler: nothing stays stuck (ADR-010 s9)."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "kafka",
+      "type": "messagebus",
+      "label": "Kafka"
+    },
+    {
+      "id": "routing",
+      "type": "backend",
+      "label": "Stage 2 consumer"
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "PostgreSQL"
+    },
+    {
+      "id": "bulkhead",
+      "type": "backend",
+      "label": "Target bulkhead"
+    },
+    {
+      "id": "transform",
+      "type": "backend",
+      "label": "platform-transform"
+    },
+    {
+      "id": "target",
+      "type": "external",
+      "label": "Target system"
+    },
+    {
+      "id": "job",
+      "type": "backend",
+      "label": "Delivery-retry job"
+    }
+  ],
+  "segments": [
+    {
+      "from": 146,
+      "to": 320,
+      "label": "1. Claim (partition thread)"
+    },
+    {
+      "from": 334,
+      "to": 480,
+      "label": "2. Send (bulkhead thread)"
+    },
+    {
+      "from": 494,
+      "to": 584,
+      "label": "3. Retry + reconcile"
+    }
+  ],
+  "messages": [
+    {
+      "id": "m01",
+      "from": "kafka",
+      "to": "routing",
+      "y": 166,
+      "label": "delivery.due"
+    },
+    {
+      "id": "m02",
+      "from": "routing",
+      "to": "bulkhead",
+      "y": 194,
+      "label": "take permit (non-blocking)",
+      "variant": "security"
+    },
+    {
+      "id": "m03",
+      "from": "routing",
+      "to": "db",
+      "y": 222,
+      "label": "full: BULKHEAD_FULL + RETRY_WAIT, no call",
+      "variant": "dashed"
+    },
+    {
+      "id": "m04",
+      "from": "routing",
+      "to": "db",
+      "y": 250,
+      "label": "claim tx: lock, hold check, HELD or SENDING",
+      "variant": "security",
+      "note": "Hold if an earlier same-key message is still ACCEPTED or an earlier delivery to this target is not final"
+    },
+    {
+      "id": "m05",
+      "from": "routing",
+      "to": "kafka",
+      "y": 278,
+      "label": "commit offset after the claim",
+      "variant": "return"
+    },
+    {
+      "id": "m06",
+      "from": "routing",
+      "to": "bulkhead",
+      "y": 306,
+      "label": "hand over the claimed delivery",
+      "variant": "emphasis"
+    },
+    {
+      "id": "m07",
+      "from": "bulkhead",
+      "to": "transform",
+      "y": 354,
+      "label": "pinned mapping"
+    },
+    {
+      "id": "m08",
+      "from": "transform",
+      "to": "bulkhead",
+      "y": 382,
+      "label": "payload or error",
+      "variant": "return"
+    },
+    {
+      "id": "m09",
+      "from": "bulkhead",
+      "to": "target",
+      "y": 410,
+      "label": "send to checked IP, layer-1 redelivery",
+      "variant": "emphasis",
+      "note": "Timeout, transient-only redelivery (2 max, 5 s of delay), breaker, Retry-After honoured"
+    },
+    {
+      "id": "m10",
+      "from": "target",
+      "to": "bulkhead",
+      "y": 438,
+      "label": "outcome class",
+      "variant": "return",
+      "note": "500/502/504/408 are AMBIGUOUS unless the target declares idempotent receive"
+    },
+    {
+      "id": "m11",
+      "from": "bulkhead",
+      "to": "db",
+      "y": 466,
+      "label": "attempt row + state if token matches",
+      "variant": "emphasis",
+      "note": "Final state releases the next HELD delivery in the same transaction"
+    },
+    {
+      "id": "m12",
+      "from": "job",
+      "to": "db",
+      "y": 514,
+      "label": "due RETRY_WAIT to DUE + outbox",
+      "variant": "dashed",
+      "note": "At half-open, at most the breaker's trial count per target"
+    },
+    {
+      "id": "m13",
+      "from": "job",
+      "to": "db",
+      "y": 542,
+      "label": "reconcile: stale ACCEPTED, idle, HELD",
+      "variant": "dashed",
+      "note": "Re-publishes messages ACCEPTED over 5 min, PENDING/DUE idle over 5 min, HELD with no blocker"
+    },
+    {
+      "id": "m14",
+      "from": "job",
+      "to": "db",
+      "y": 570,
+      "label": "stale claim: 3 x timeout + 65 s",
+      "variant": "dashed",
+      "note": "Classed AMBIGUOUS; a late outcome with an old token changes no state"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One slow target stays alone",
+      "items": [
+        "Sends never run on the Kafka partition thread",
+        "A full bulkhead defers in the database, no call"
+      ]
+    },
+    {
+      "dot": "orange",
+      "title": "Exactly two retry layers",
+      "items": [
+        "Layer 1: Camel, transient only, seconds",
+        "Layer 2: RETRY_WAIT rows, the delivery-retry job"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Nothing stays stuck",
+      "items": [
+        "Release in the same transaction as the final state",
+        "Reconciler and consumer pause: 0 lost on a crash"
+      ]
+    }
+  ]
+}

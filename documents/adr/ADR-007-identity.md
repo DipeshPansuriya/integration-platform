@@ -3,6 +3,7 @@ type: ADR
 title: "ADR-007 - Identity: Keycloak for login and machine credentials, tenant bound from our database, target credentials encrypted with an out-of-database key"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): key-error classes, credential fields named per type, audience scope, revoke order, Keycloak outage gate, token-lifetime trade-off"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -10,6 +11,8 @@ related:
   - ADR-009-tenant-directory-rls.md
   - ADR-011-targets-contracts-bulk-ordering.md
   - ADR-010-camel-routing-core.md
+  - ADR-005-messaging.md
+  - ADR-001-modular-monolith.md
   - ../rule.md
 ---
 
@@ -18,6 +21,12 @@ related:
 New record (no earlier ADR-007 file existed; earlier work deferred three questions to it - see
 Context). Source paths starting `ws/` are in the hub repository, project workspace
 `_personal/_project_ipass/integration-platform/`. Memory lines drift; the id is the stable key.
+
+> **Revision 2026-10-02 (challenge m-817272).** Decision 7 separates an unknown key-encryption-key
+> id (transient, fails the instance's health check) from an authentication-tag mismatch
+> (permanent), keeps credential values out of configuration snapshots and names the MQ and DB
+> credentials (S-d). Decision 3 adds a default audience scope and a revoke order (S-j). Decision 4
+> adds the one-hour Keycloak outage gate and states the token lifetime as a trade-off (S-h).
 
 ## Context
 
@@ -103,6 +112,11 @@ Self-registration is disabled (tenants are onboarded by the platform operator -
   credentials grant. Access-token lifetime 5 minutes.
 - Client authentication: client secret by default; `private_key_jwt` when the source supports
   it.
+- **Default audience scope (S-j):** the platform realm has one client scope with an audience
+  mapper that adds the platform API audience; it is a **default** scope of every client the
+  platform creates, so every token carries the `aud` Decision 4 requires without per-client
+  setup. Test: a client created through the console gets a token the API accepts; a client
+  created without the scope gets a token the API refuses (401).
 - **Issue, rotate, revoke** are tenant-admin actions in the console. The platform calls the
   Keycloak Admin REST API with a service account holding only the client-management role of the
   platform realm.
@@ -110,9 +124,14 @@ Self-registration is disabled (tenants are onboarded by the platform operator -
     platform.
   - **Rotation = issue a second credential**, both valid during a grace window (default 7 days),
     then revoke the old one. This needs no provider-specific rotation feature.
-  - **Revocation is immediate:** the client is disabled in Keycloak and the credential row is
-    marked revoked; because every call resolves the tenant through the bootstrap function, which
-    accepts only active credentials, a still-unexpired token of a revoked credential is refused.
+  - **Revocation is immediate, platform first (S-j):** the credential row is marked revoked
+    **first** - from that commit on, every call resolves the tenant through the bootstrap
+    function, which accepts only active credentials, so a still-unexpired token of the revoked
+    credential is refused. **Then** the client is disabled in Keycloak. If that Keycloak call
+    fails, the row carries `idp_disable_pending`, and the credential reconciliation (the same job
+    that clears pending rows below) retries it with backoff until Keycloak confirms; the console
+    shows the pending state. Test: with Keycloak down, a revoke takes effect at once for API
+    calls, and the Keycloak client is disabled after Keycloak returns.
 - Credential creation is ordered so nothing is half-created: the row is written as pending,
   the Keycloak client is created, the row becomes active; a pending row older than 15 minutes
   is reconciled by a job.
@@ -124,6 +143,16 @@ Self-registration is disabled (tenants are onboarded by the platform operator -
   `none`, never HMAC); `aud` must contain the platform API audience; `exp` and `nbf` checked with
   at most 60 seconds of clock skew.
 - 401 and 403 are final: no layer of the platform retries them.
+- **Token lifetime is a conscious trade-off (S-h).** Access tokens live 5 minutes. A longer
+  lifetime would let sources ride out a longer Keycloak outage; a shorter one limits how long a
+  stolen, not-yet-revoked token works. Revocation does not depend on expiry (Decision 3), so the
+  5 minutes bound only the stolen-token window and the outage tolerance. Chosen: 5 minutes;
+  Keycloak availability is therefore on the ingest path (Consequences).
+- **End-to-end gate (S-h):** a one-hour Keycloak outage during a run - tokens already issued keep
+  validating with the cached keys until they expire; new token requests and console logins fail
+  at Keycloak with a clear error; the platform raises no false 5xx for valid tokens; after
+  recovery, sources obtain tokens again and every message accepted before or after the outage is
+  delivered, 0 lost (test in the end-to-end suite; ADR-005 names the same gate).
 - Every call to Keycloak (JWKS fetch, Admin API) carries the five controls of the
   resilient-integration rule: timeout (2 s JWKS, 5 s admin), retry of transient failures of
   idempotent reads only, one circuit breaker for the provider, a fallback (cached keys keep
@@ -134,8 +163,9 @@ Self-registration is disabled (tenants are onboarded by the platform operator -
 
 - Roles are rows in the tenant-scoped, row-level-secured `role_grant` table, not Keycloak roles:
   `TENANT_ADMIN`, `CONFIGURATOR`, `APPROVER`, `SUPPORT`, `READ_ONLY`.
-- `APPROVER` is added to the plan's four roles because a new configuration or contract version
-  needs an approver who is not its author (`ws/_specs/project-plan.md:105`, `:110`; the deleted
+- `APPROVER` is added to the plan's four roles **(a team addition, on the list for Dipesh's
+  review - PRD section 9)** because a new configuration or contract version needs an approver
+  who is not its author (`ws/_specs/project-plan.md:105`, `:110`; the deleted
   API contract had an approver role, quoted at `ws/_specs/f3-plan-brief.md:555`). Tenant admins
   may also approve. Approver-is-never-author is enforced on the record by a database `CHECK`,
   not by the role.
@@ -195,11 +225,20 @@ Rules (written against the team's AEAD checklist; each MUST has a conformance te
    copied to another tenant's or another endpoint's row fails to decrypt.
 4. **Per-direction keys: not applicable** - this is encryption at rest in one direction; no
    value is ever encrypted by a second party.
-5. **Error paths.** Encryption happens only on credential create and rotate; a rolled-back write
-   wastes one random nonce, which is harmless. A failed decryption (tag mismatch, unknown key id)
-   is a configuration error: the delivery is not retried, it is dead-lettered with the reason
-   "target credential unreadable", an alert fires, and neither ciphertext nor plaintext is
-   logged.
+5. **Error paths (S-d).** Encryption happens only on credential create and rotate; a rolled-back
+   write wastes one random nonce, which is harmless. Two decryption failures are told apart:
+   - **unknown key-encryption-key id** - this instance was deployed without a key that a row
+     references (a deployment fault, fixable without touching the row): the outcome is
+     `TRANSIENT` (ADR-010 section 5), the delivery waits in `RETRY_WAIT`, an alert fires, and the
+     instance **fails its readiness health check** so the load balancer and the consumers move
+     work to instances that hold the key. At start-up an instance checks that every key id
+     referenced by a credential row is present, and stays not-ready otherwise;
+   - **authentication-tag mismatch** - the ciphertext, its associated data or the key is wrong
+     (tampering or a copied row): `PERMANENT`, the delivery is dead-lettered with the reason
+     "target credential unreadable", an alert fires.
+
+   In both cases neither ciphertext nor plaintext is logged. Tests: one per case, including the
+   readiness check failing with a missing key id.
 6. **Decryption only at send time,** in `platform-routing`, held in memory for the call only.
    No cache of decrypted values (a cache would silently remove the control's "only at send time"
    property).
@@ -207,6 +246,24 @@ Rules (written against the team's AEAD checklist; each MUST has a conformance te
    0 rows reference its id (a count query is the gate).
 8. **Write-only API:** after creation a secret is never returned; it is masked in logs and
    screens (test in the logging phase).
+9. **Snapshots hold credential ids only.** The interface version's immutable bundle snapshot,
+   audit events and exports reference a target credential by its id; they never hold ciphertext,
+   a wrapped key or a value. Test: the snapshot of a published interface contains no field of
+   `target_credential` other than ids.
+10. **Every credential the platform stores is named** - each is a `target_credential` row under
+    these rules, one per field:
+
+    | Target type | Credential fields |
+    |---|---|
+    | `API` | API key or bearer token; basic-auth password; OAuth client secret; client-certificate private key and its keystore password |
+    | `MQ_CSV` | Queue-manager user password; TLS keystore and truststore passwords |
+    | `DB` | The restricted per-target database account's password (ADR-011 Decision 1) |
+    | `FILE` | The shared folder account's password |
+    | `KAFKA_TOPIC` | SASL password; TLS keystore password |
+
+    The platform's own PostgreSQL, Kafka and Keycloak credentials are **not** target credentials:
+    they come from the deployment's secret store by environment variable name, like the
+    key-encryption key.
 
 ## Consequences
 

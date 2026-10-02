@@ -3,6 +3,7 @@ type: ADR
 title: "ADR-010 - Apache Camel as the routing core, inside one module, with exactly two retry layers"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -12,6 +13,7 @@ related:
   - ADR-005-messaging.md
   - ADR-011-targets-contracts-bulk-ordering.md
   - ADR-007-identity.md
+  - ADR-001-modular-monolith.md
 ---
 
 # ADR-010 - Apache Camel as the routing core, inside one module, with exactly two retry layers
@@ -19,6 +21,14 @@ related:
 Supersedes [ADR-008](ADR-008-camel-adapter-only.md). Source paths starting `ws/` are in the hub
 repository, project workspace `_personal/_project_ipass/integration-platform/`. Memory lines
 drift; the id is the stable key.
+
+> **Revision 2026-10-02 (challenge m-817272).** vikram-cto's challenge found four blockers in
+> this record: stage 2 sent on the Kafka partition thread (B1), stage 1 was not idempotent (B2),
+> the ordering hold missed earlier unrouted messages (B3, fixed in ADR-011 Decision 6), and stuck
+> work had no path back (B4). This revision fixes all four (sections 2, 6, 7, 8, 9) and applies
+> the "should" items on outcome classes (S-a), the stale-claim limit (S-b), outbound destinations
+> (S-c), the claim order (S-g) and the half-open re-drive cap (S-i). Section numbers are unchanged;
+> sections 9 and 10 are new.
 
 ## Context
 
@@ -47,6 +57,7 @@ report-equals-rows (m-273754, point 3).
 | Field mapping | **Not Camel** - the transform module calls the JSONata engine directly (`ws/_specs/project-plan.md:82`) | Keeps Camel inside routing; ADR-006 decides the engine |
 | Validation and rules | **Not Camel** - JSON Schema validator and ZEN (ADR-003, ADR-011) | Runs at intake, before Kafka |
 | Circuit breaking | Resilience4j 2.4.0 (managed by Camel 4.22.1), one breaker per target endpoint | `ws/_specs/project-plan.md:86` |
+| Concurrency per target | **A bounded bulkhead per target endpoint** (section 2) | One slow target must not occupy the Kafka partition threads other targets need (challenge B1) |
 
 ## Options
 
@@ -56,6 +67,14 @@ report-equals-rows (m-273754, point 3).
 | B. Keep ADR-008: Camel only behind an HTTP outbound adapter port, our own dispatcher | Lower | Four target types and fan-out hand-written | High | Rejected: contradicts the binding direction and the v1 scope |
 | C. Camel everywhere, retry via Kafka retry topics and Camel's dead-letter channel to a Kafka queue | Medium | Three retry layers; retry history lives in topics, not rows; replay cannot pin versions | Low | Rejected: breaks report-equals-rows and two-weeks-later replay |
 | D. Spring Integration instead of Camel | Medium | Fewer ready target components | Medium | Rejected: contradicts the binding direction |
+
+**Where stage 2 sends from (challenge B1):**
+
+| Option | For | Against | Verdict |
+|---|---|---|---|
+| Send on the Kafka partition thread (the first draft) | Simplest; offset commit after send | A target with a 10 s timeout blocks every other key on that partition, whatever its target; a slow target lowers every target's throughput; long sends push the consumer past its poll interval and trigger rebalances | Rejected |
+| **Claim on the partition thread, send on a bounded per-target bulkhead** | One slow target uses only its own pool; partition threads stay fast; the offset is committed after the claim | The offset no longer proves the send finished - a crash mid-send is recovered from the database (stale claim, section 6), not from Kafka | **Chosen** |
+| One Kafka topic or consumer group per target | Isolation by topic | Topics multiply with configuration rows; breaks "0 deploys to add a target" | Rejected |
 
 ## Decision
 
@@ -72,8 +91,31 @@ report-equals-rows (m-273754, point 3).
 
 | Stage | Consumes | Does | Never does | Budget |
 |---|---|---|---|---|
-| **1 - route and fan out** | `platform.message.accepted` | Resolves the tenant from the message row (ADR-011), loads the routes of the interface version pinned on the message, evaluates routing conditions, and in **one transaction** creates one Delivery per matched target - each pinning its target contract version and mapping version - plus one outbox row per delivery | Calls a target | 1 s (`ws/_specs/project-plan.md:114`) |
-| **2 - deliver** | `platform.delivery.due` | Claims the delivery, applies the ordering hold (ADR-011), transforms through the transform port, sends through the target's route, records the attempt, moves the state | Decides retry timing outside the database | Transform 5 s; target call within its configured timeout |
+| **1 - route and fan out** | `platform.message.accepted` | Resolves the tenant from the message row (ADR-011), loads the routes of the interface version pinned on the message, evaluates routing conditions, and in **one transaction**: takes the ordering-key lock (ADR-011 Decision 6), moves the message `ACCEPTED -> ROUTED` by conditional update (**0 rows = a duplicate record: acknowledged, no effect**), inserts one Delivery per matched target with `ON CONFLICT (message_id, route_id) DO NOTHING` - each pinning its target contract version and mapping version - plus one outbox row per inserted delivery, and releases any delivery held only behind this message | Calls a target; creates a second delivery for the same (message, route) | 1 s (`ws/_specs/project-plan.md:114`) |
+| **2 - deliver** | `platform.delivery.due` | **On the partition thread:** takes a permit from the target's bulkhead (non-blocking), then the claim transaction of section 7 (lock, hold check, `HELD` or `SENDING`), then commits the offset. **On the target's bulkhead thread:** transforms through the transform port, sends through the target's route, records each attempt, classifies, moves the state | Sends on the Kafka partition thread; decides retry timing outside the database | Claim under 1 s; transform 5 s; target call within its configured timeout |
+
+**Message states (closed register):** `ACCEPTED` (intake committed) -> `ROUTED` (stage 1
+committed, 0 or more deliveries; 0 shows "no route" in the timeline) or `ROUTE_FAILED` (the
+pinned configuration cannot be read - permanent, alerted). `ROUTED` and `ROUTE_FAILED` are final.
+The unique key `delivery (message_id, route_id)` makes a second stage-1 run harmless even if the
+conditional update were bypassed. **Gate:** the same `message.accepted` record published twice
+creates N deliveries for N matched routes, not 2N (test).
+
+**The per-target bulkhead (challenge B1):**
+
+- One bounded executor per (target endpoint, endpoint version) on each instance; pool size is a
+  typed target setting `max_concurrent_sends` (team default 4, validated 1-32), queue length 0.
+  The implementation (a Resilience4j thread-pool bulkhead or a Camel thread-pool profile) is a
+  build choice; the contract is: bounded, non-blocking acquire, no hidden in-memory queue.
+- The permit is taken **before** the claim. No permit -> no claim: in one transaction the
+  delivery gets a `BULKHEAD_FULL` delivery event and moves `PENDING`/`DUE` -> `RETRY_WAIT` with
+  `next_attempt_at` = now + 1-5 s (jittered, configurable), then the offset is committed. **No
+  call is made, so no attempt row is written** and the attempt count is not consumed.
+- A claim that ends in `HELD` or finds a duplicate (0 rows) returns the permit at once.
+- The pool is per instance: the effective limit for a target is pool size x instances.
+- **Gate:** with target A answering only after its 10 s timeout, target B delivers the same
+  number of messages in the same wall-clock time as with target A idle (500 deliveries to B,
+  completion time differs by less than 1 s; test).
 
 Deliveries are independent from creation: one target failing never blocks or rolls back
 another (best-effort, OQ-09), except the same-key hold of ADR-011, which is per target.
@@ -84,7 +126,8 @@ another (best-effort, OQ-09), except the same-key hold of ADR-011, which is per 
   is created from the template for a (target endpoint id, endpoint version) pair **the first
   time a delivery needs it**, on whichever instance consumes it, and removed after 30 minutes
   idle. Publishing a new interface or target therefore needs 0 deploys and 0 restarts, and no
-  broadcast between instances.
+  broadcast between instances. The route instance, its bulkhead and its breaker are deliberate
+  local state: rebuilt on demand, never authoritative (ADR-001).
 - **Endpoint URIs are never free text.** Template parameters come from typed target settings
   validated against the per-type schema (ADR-011). Stage 2 dispatches with `toD` whose
   `allowedSchemes` is `direct` only, so configuration cannot reach an unapproved component.
@@ -93,45 +136,56 @@ another (best-effort, OQ-09), except the same-key hold of ADR-011, which is per 
 
 **Layer 1 - Camel in-attempt redelivery (seconds).** Camel's error handler redelivers only
 **transient** failures (table in section 5): at most 2 redeliveries, 500 ms initial delay,
-doubling, with jitter, and never beyond 5 s in total or beyond the remaining synchronous budget.
-Each try - the first and each redelivery - is a call that left the process and **writes one
-`delivery_attempt` row** (`layer = 1`). When layer 1 ends without success, Camel hands the
-exchange to our outcome classifier through a `direct:` endpoint; Camel's dead-letter channel is
-never pointed at a queue or topic.
+doubling, with jitter. **The 5 s cap is delay time only** - the sum of the waits between tries
+never passes 5 s; each try's own duration is bounded by the target timeout. A redelivery is
+also skipped when it would pass the remaining synchronous budget, or when the target sent a
+`Retry-After` longer than the remaining layer-1 delay. Each try - the first and each redelivery -
+is a call that left the process and **writes one `delivery_attempt` row** (`layer = 1`). When
+layer 1 ends without success, Camel hands the exchange to our outcome classifier through a
+`direct:` endpoint; Camel's dead-letter channel is never pointed at a queue or topic.
 
 **Layer 2 - the Delivery state machine (minutes to days), persisted.** The classifier moves the
-delivery:
+delivery, by an update conditional on the claim token (section 7):
 
 - retryable and attempts remain -> `RETRY_WAIT` with `next_attempt_at` = now + exponential
   backoff with full jitter, capped (per-route `retry_policy`; team defaults 8 attempts,
-  30 s base, 1 h ceiling - configuration, not figures);
+  30 s base, 1 h ceiling - configuration, not figures); when the target sent `Retry-After`,
+  `next_attempt_at` is the later of the backoff and `Retry-After`, still capped by the ceiling;
 - retryable and attempts exhausted, or permanent -> `DEAD_LETTERED` with the reason class.
 
-A polling trigger (phase 2; moved onto db-scheduler in the scheduler phase) selects due
-`RETRY_WAIT` rows with `FOR UPDATE SKIP LOCKED`, moves them to `DUE` and writes an outbox row,
-which the relay publishes to `platform.delivery.due`. Retry timing lives only in the database,
-so it survives restarts.
+A polling trigger (phase 2; moved onto db-scheduler as the **delivery-retry job** in the
+scheduler phase) selects due `RETRY_WAIT` rows with `FOR UPDATE SKIP LOCKED`, moves them to
+`DUE` and writes an outbox row, which the relay publishes to `platform.delivery.due`. Retry
+timing lives only in the database, so it survives restarts. The same job runs the reconciler
+of section 9, so the plan's three jobs stay three.
 
 **Kafka retries nothing.** A record that cannot be read, or whose row does not exist, goes once
-to `platform.poison` and is never retried from there (ADR-005).
+to `platform.poison` and is never retried from there (ADR-005). A transient database error is
+not a poison case: the consumer pauses and backs off (section 9).
 
 **Scope of "exactly two":** the two layers are the only places a **delivery to a target** is
-retried. The outbox relay re-publishing a row Kafka did not acknowledge, and the bounded retry
-of an idempotent read from Keycloak (ADR-007), are infrastructure calls with their own five
-controls; they never call a target and never write an attempt row.
+retried. The outbox relay re-publishing a row Kafka did not acknowledge, the reconciler
+re-publishing stuck work (section 9), and the bounded retry of an idempotent read from Keycloak
+(ADR-007), are infrastructure calls with their own five controls; they never call a target and
+never write an attempt row.
 
 **The report equals the rows:** every call that left the process is exactly one attempt row;
-"retries made" for a delivery = its attempt rows minus 1; a circuit-open deferral is not a call
-and is recorded as a delivery event, not an attempt.
+"retries made" for a delivery = its attempt rows minus 1; a circuit-open deferral and a
+bulkhead-full deferral are not calls and are recorded as delivery events, not attempts.
 
 ### 5. Outcome classes (closed register)
+
+This table is the **default**. A target's error dictionary may override the class of a status
+code or error code for that target (for example, a target documenting that its 500 means "not
+processed" may mark it `TRANSIENT`); an override can never make 401, 403 or a validation error
+retryable.
 
 | Class | Examples | Layer 1 | Layer 2 |
 |---|---|---|---|
 | `SUCCESS` | HTTP 2xx; JMS send acknowledged; DB commit; file renamed into place | - | `DELIVERED` |
-| `TRANSIENT` | connection refused or reset before the request was sent; HTTP 429, 502, 503, 504; broker unavailable; DB serialization failure or deadlock (40001, 40P01); target folder temporarily unavailable | redeliver | `RETRY_WAIT` |
-| `AMBIGUOUS` | a timeout after the request was sent; a connection lost while awaiting the reply; a DB commit outcome unknown | **never redeliver** | `RETRY_WAIT` only if the target declares idempotent receive (ADR-011); otherwise `DEAD_LETTERED` with reason `AMBIGUOUS_TIMEOUT` for an operator decision |
-| `PERMANENT` | HTTP 400, 404, 409, 422; **401, 403**; mapping or contract failure; destination refused by the allow-list; target credential unreadable (ADR-007) | never | `DEAD_LETTERED` |
+| `TRANSIENT` | connection refused or reset **before the request was sent**; HTTP 429 and 503 (honouring `Retry-After`); HTTP **408, 500, 502, 504 from a target that declares idempotent receive**; broker unavailable; DB serialization failure or deadlock (40001, 40P01); target folder temporarily unavailable; **target credential key id unknown on this instance** (ADR-007 Decision 7 - the instance also fails its readiness check) | redeliver | `RETRY_WAIT` |
+| `AMBIGUOUS` | a timeout after the request was sent; a connection lost while awaiting the reply; HTTP **408, 500, 502, 504 from a target that does not declare idempotent receive** (the request may have been processed); a DB commit outcome unknown | **never redeliver** | `RETRY_WAIT` only if the target declares idempotent receive (ADR-011); otherwise `DEAD_LETTERED` with reason `AMBIGUOUS_TIMEOUT` for an operator decision |
+| `PERMANENT` | HTTP 400, 404, 409, 422; **401, 403**; mapping or contract failure; destination refused by the destination check (section 8); **target credential authentication-tag mismatch** (ADR-007) | never | `DEAD_LETTERED` |
 
 A timeout is treated as ambiguous, never as failed (`ws/_specs/project-plan.md:115`).
 
@@ -139,38 +193,119 @@ A timeout is treated as ambiguous, never as failed (`ws/_specs/project-plan.md:1
 
 | From | To | Trigger |
 |---|---|---|
-| (new) | `PENDING` | stage 1 creates the delivery |
-| `PENDING`, `DUE` | `HELD` | an earlier same-key delivery for this target is not final (ADR-011) |
-| `HELD` | `DUE` | the earlier delivery became `DELIVERED` or `DEAD_LETTERED` |
-| `PENDING`, `DUE` | `SENDING` | stage 2 claims it (conditional update - see 7) |
-| `SENDING` | `DELIVERED` / `RETRY_WAIT` / `DEAD_LETTERED` | the classifier |
-| `SENDING` | `RETRY_WAIT` or `DEAD_LETTERED` (as `AMBIGUOUS`) | a stale claim: claimed longer than the target timeout plus 60 s (instance crash mid-call), found by the polling trigger |
-| `RETRY_WAIT` | `DUE` | `next_attempt_at` reached (polling trigger) |
-| `RETRY_WAIT` | `DUE` | circuit half-open time reached after a circuit-open deferral |
+| (new) | `PENDING` | stage 1 inserts the delivery (`ON CONFLICT (message_id, route_id) DO NOTHING`) |
+| `PENDING`, `DUE` | `HELD` | the claim transaction finds the ordering hold applies (ADR-011 Decision 6): an earlier message with the same key is still `ACCEPTED`, or an earlier delivery to the same target is not final |
+| `HELD` | `DUE` | in the **same transaction** that makes the blocking predecessor final (`DELIVERED` or `DEAD_LETTERED`) or moves the earlier message to `ROUTED` / `ROUTE_FAILED`; or the reconciler (section 9) finds no blocker left |
+| `PENDING`, `DUE` | `SENDING` | stage 2 claims it (section 7), with a new claim token |
+| `PENDING`, `DUE` | `RETRY_WAIT` | the target's bulkhead is full (section 2) - no call, a `BULKHEAD_FULL` event |
+| `SENDING` | `DELIVERED` / `RETRY_WAIT` / `DEAD_LETTERED` | the classifier, conditional on the claim token |
+| `SENDING` | `RETRY_WAIT` or `DEAD_LETTERED` (as `AMBIGUOUS`) | a stale claim: claimed longer than **3 x the target timeout + the layer-1 delay cap (5 s) + 60 s** (instance crash mid-call), found by the delivery-retry job |
+| `RETRY_WAIT` | `DUE` | `next_attempt_at` reached (delivery-retry job) |
+| `RETRY_WAIT` | `DUE` | circuit half-open time reached after a circuit-open deferral - **at most the breaker's trial-call count per target** per half-open window (Resilience4j `permittedNumberOfCallsInHalfOpenState`, default 3); the rest wait until the breaker closes |
 | `DEAD_LETTERED` | `DUE` | operator replay - audited; uses the versions pinned when the message arrived |
 
 Terminal: `DELIVERED`. `DEAD_LETTERED` is terminal until an operator replays it.
 
-### 7. Duplicates are detected, not sent
+The stale-claim limit covers the longest legal attempt: three tries (the first and two
+redeliveries) each up to the target timeout, the layer-1 delay cap, and 60 s for clock skew and
+commit time. A late result from a call whose claim was already declared stale finds a different
+claim token (or none): it writes its attempt row (it was a call) and a `LATE_OUTCOME` delivery
+event, and changes no state.
 
-Stage 2 claims a delivery with a conditional update (`... SET status = 'SENDING' WHERE id = ? AND
-status IN ('PENDING','DUE')`). Zero rows updated means a duplicate Kafka record or a held
-delivery: the record is acknowledged with no effect. A crash between commit and publish
-re-publishes the outbox row; the claim makes the duplicate harmless.
+### 7. One claim order; duplicates are detected, not sent (challenge S-g)
 
-### 8. The five controls on every target call
+The claim is **one transaction, always in this order**:
+
+1. take the transaction-level advisory lock on the delivery's ordering key (ADR-011 Decision 6;
+   skipped when the interface's ordering is `NONE`);
+2. read the delivery `FOR UPDATE` where `status IN ('PENDING','DUE')` - **0 rows means a
+   duplicate Kafka record or a delivery already held, claimed or final: the record is
+   acknowledged with no effect** and the bulkhead permit returned;
+3. evaluate the hold rule; if it applies -> `HELD` with a `HOLD` delivery event, permit returned;
+4. otherwise -> `SENDING` with a fresh `claim_token` (UUID) and `claimed_at`;
+5. commit; then the Kafka offset is committed and the work is handed to the bulkhead.
+
+Every later update of that delivery's state by the send path is conditional on
+`status = 'SENDING' AND claim_token = ?`. A crash between commit and publish re-publishes the
+outbox row; the claim makes the duplicate harmless. The synchronous inline path (ADR-011
+Decision 5) uses exactly this transaction.
+
+### 8. The six controls on every target call
+
+The resilient-integration rule's five controls, plus a bulkhead (challenge B1):
 
 | Control | How |
 |---|---|
 | Timeout | Per target endpoint, configurable (figure: per-target timeout configurable); connect and read timeouts on HTTP, send timeout on JMS, query timeout on SQL |
-| Retry of transient failures only | Layer 1 as above, transient class only, backoff with jitter and a cap; never 401/403, validation, ambiguous or non-idempotent |
-| Circuit breaker | One Resilience4j breaker per target endpoint; open -> no call, the delivery waits in `RETRY_WAIT` until half-open time |
+| Retry of transient failures only | Layer 1 as above, transient class only, backoff with jitter and a 5 s delay cap; `Retry-After` honoured; never 401/403, validation, ambiguous or non-idempotent |
+| Circuit breaker | One Resilience4j breaker per target endpoint; open -> no call, the delivery waits in `RETRY_WAIT` until half-open time; at half-open at most the trial-call count is re-driven per target |
 | Fallback | The Delivery state machine: `RETRY_WAIT` or `DEAD_LETTERED`; nothing is ever dropped silently |
-| Observability | Micrometer metrics per target (attempts by outcome, latency histogram, breaker state); an OpenTelemetry span per call (`camel-opentelemetry2`); structured log line with tenant, message and delivery ids |
+| Observability | Micrometer metrics per target (attempts by outcome, latency histogram, breaker state, bulkhead in use and `BULKHEAD_FULL` count); an OpenTelemetry span per call (`camel-opentelemetry2`); structured log line with tenant, message and delivery ids |
+| **Bulkhead** | One bounded pool per target endpoint per instance (`max_concurrent_sends`, default 4, queue 0); full -> a `BULKHEAD_FULL` event and `RETRY_WAIT`, no call made (section 2) |
 
-Outbound destinations: API targets reach only allow-listed destinations and refuse private and
-loopback ranges after DNS resolution and after every redirect (redirects are off unless the
-target enables them, and every hop is re-checked) - `ws/_specs/project-plan.md:115`.
+**Outbound destinations - one check for every target type (challenge S-c).** The same check runs
+on the host field of every target type (API URL, MQ connection host, DB host, Kafka bootstrap
+servers) at save, at test-connection and at send:
+
+- the host is resolved once; **every** resolved address is checked; the connection is made to
+  the checked address (the IP is pinned - no second resolution, so DNS rebinding cannot swap
+  it), with the original name kept for TLS SNI and certificate checks;
+- refused ranges: loopback (127.0.0.0/8, ::1), "this network" (0.0.0.0/8), private
+  (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), link-local including cloud metadata
+  (169.254.0.0/16, fe80::/10), carrier-grade NAT (100.64.0.0/10), IPv6 unique-local
+  (fc00::/7), IPv4-mapped IPv6 (::ffff:0:0/96 - checked as the embedded IPv4 address),
+  multicast and broadcast, and **the platform's own hosts** (its instances, PostgreSQL, Kafka,
+  Keycloak, the observability stack - a configured list);
+- the allow-list is **per tenant but maintained by the platform operator**, never by the tenant;
+  a refused private range can be reached only through an operator allow-list entry naming that
+  exact host and address range (audited) - needed for a client's on-premises queue manager or
+  database. Loopback, link-local and the platform's own hosts can never be allow-listed;
+- redirects are off unless the target enables them, and every hop is re-checked;
+- **File targets:** the path is normalised and must stay under the target's configured root
+  after resolving `..` and symbolic links (real-path prefix check); anything else is refused.
+
+A refused destination is `PERMANENT` (`DESTINATION_REFUSED`). Test: one refused case per range,
+per target type, plus a rebinding case (first lookup public, second private) and a `../` and a
+symlink escape for File.
+
+### 9. Nothing stays stuck (challenge B4)
+
+Three mechanisms, so that a lost Kafka record, a crashed consumer or a crashed instance never
+leaves accepted work stopped:
+
+1. **Release in the same transaction.** Whenever a delivery reaches `DELIVERED` or
+   `DEAD_LETTERED`, or a message reaches `ROUTED` or `ROUTE_FAILED`, that transaction takes the
+   ordering-key lock, re-evaluates the hold for the oldest `HELD` delivery per target in the
+   key's scope, and moves each one with no blocker left to `DUE` with its outbox row.
+2. **The reconciler, inside the delivery-retry job** (Mira's decision: no fourth job). On each
+   run, per tenant (ADR-011 Decision 8), it re-publishes by writing a fresh outbox row:
+   - messages `ACCEPTED` for more than 5 minutes (stage 1 never completed);
+   - deliveries `PENDING` or `DUE` with no state change for more than 5 minutes and no
+     unpublished outbox row (the record was lost or never consumed);
+   - deliveries `HELD` whose blockers are all gone (moved to `DUE` first);
+   - and it applies the stale-claim rule of section 6.
+   Re-publishing is safe because both stages detect duplicates (sections 2 and 7). Every action
+   is a delivery or message event with its ids. Limits are configuration (team defaults above).
+3. **Consumers pause on a transient database error.** A connection failure, pool timeout,
+   serialization failure or statement timeout while handling a record is not a poison case: the
+   consumer does not commit the offset, pauses its partitions, backs off (1 s doubling to a 30 s
+   cap, with jitter) and resumes; the record is processed again. Only an unreadable record or a
+   referenced row that does not exist goes to `platform.poison`.
+
+**Gate:** in an end-to-end test, (a) a `delivery.due` record is deleted from the topic before it
+is consumed, and (b) a consumer instance is killed between the claim commit and the send; in both
+cases every accepted message reaches a final state within reconciler limit + one job interval,
+with 0 messages lost and 0 duplicate sends to a target without idempotent receive (test).
+
+### 10. Conformance tests this ADR adds
+
+Each claimed control carries a test written first: bulkhead isolation (section 2 gate);
+duplicate `message.accepted` gives N deliveries (section 2); stuck-work recovery (section 9
+gate); claim order and late outcome with a stale token (sections 6-7); `Retry-After` honoured on
+429 and 503; 500 classed `AMBIGUOUS` without idempotent receive and `TRANSIENT` with it; an
+error-dictionary override that tries to make 401 retryable is refused at save; half-open
+re-drives at most the trial-call count (with 50 deliveries waiting on one target, exactly 3 are
+re-driven when the breaker half-opens); every refused destination case of section 8.
 
 ## Consequences
 
@@ -178,16 +313,21 @@ target enables them, and every hop is re-checked) - `ws/_specs/project-plan.md:1
   agree by construction.
 - Camel, its components and its upgrade cadence become a core dependency; the next LTS upgrade
   is planned into Release 2 (`ws/_specs/project-plan.md:200`).
-- Debugging crosses Camel exchanges; the trace span per call and the attempt rows are the
-  primary tools.
+- Debugging crosses Camel exchanges and now a thread hand-off; the trace span per call, the
+  claim token and the attempt rows are the primary tools.
 - Some Camel components pull Jackson 2 while Spring Boot 4 uses Jackson 3; the transform module
   avoids `camel-jsonata` for this reason, and the dependency check of phase 0 records what
   remains (`ws/_specs/project-plan.md:199`).
+- The Kafka offset proves the claim, not the send: a crash mid-send is recovered by the
+  stale-claim rule after up to 3 x timeout + 65 s, not at once.
+- The reconciler adds a periodic scan per tenant; its queries use partial indexes on the
+  non-final states so the cost follows stuck work, not table size.
 
 **What we give up:** a smaller framework footprint and a debugging story the team already
 knows; Camel's own dead-letter-to-broker and Kafka's retry-topic patterns (deliberately unused);
 redelivery of ambiguous outcomes to targets that do not declare idempotent receive (they go to
-an operator instead).
+an operator instead); unbounded per-target concurrency (a target never gets more than pool size
+x instances parallel sends, and a burst above that waits seconds in the database).
 
 ## Revisit if
 
@@ -195,3 +335,7 @@ an operator instead).
   idempotent receive, or timeouts are mis-set.
 - A target type needs a component outside the starter list above.
 - Camel 4.22's LTS support ends before the next LTS upgrade is done.
+- A target records more than 1,000 `BULKHEAD_FULL` events a day for a week - raise its pool
+  size or its instances.
+- The reconciler re-drives more than 10 items a day for a week - a systematic defect upstream,
+  not an edge case.

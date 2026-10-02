@@ -184,3 +184,4 @@ payloads; self-service tenant signup.
 | Payload retention (must exceed the two-week replay window) | The scheduler's purge job | **Team default:** 30 days |
 | The reading of "customer" (section 4) | The login phase | As read |
 | The bulk caps (section 6) | The ingest phase | As stated |
+| The `APPROVER` role - a team addition to the plan's four human roles (section 3; ADR-007 Decision 5) | The login phase | **Team default:** added; tenant admins may also approve |

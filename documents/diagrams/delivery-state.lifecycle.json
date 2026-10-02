@@ -5,38 +5,9 @@
     "title": "Integration Platform - Delivery States",
     "output": "delivery-state.archify.html",
     "quality_profile": "showcase",
-    "views": [
-      {
-        "id": "happy",
-        "label": "First attempt succeeds",
-        "focus": [
-          "pending",
-          "sending",
-          "delivered"
-        ],
-        "note": "Stage 1 creates the delivery; stage 2 claims it and the classifier records SUCCESS (ADR-010 section 6)."
-      },
-      {
-        "id": "ordering",
-        "label": "Same-key ordering hold",
-        "focus": [
-          "pending",
-          "held",
-          "due"
-        ],
-        "note": "Held while an earlier same-key delivery for this target is not final (ADR-011 D6)."
-      },
-      {
-        "id": "recovery",
-        "label": "Retry and dead letter",
-        "focus": [
-          "sending",
-          "retry",
-          "dead",
-          "due"
-        ],
-        "note": "Layer 2 retry waits in the database; dead letters wait for an audited operator replay."
-      }
+    "viewBox": [
+      1040,
+      640
     ]
   },
   "lanes": [
@@ -126,7 +97,7 @@
       "id": "t-hold",
       "from": "pending",
       "to": "held",
-      "label": "same key open"
+      "label": "hold applies"
     },
     {
       "id": "t-release",
@@ -141,7 +112,7 @@
       "id": "t-claim",
       "from": "due",
       "to": "sending",
-      "label": "claim",
+      "label": "claim + token",
       "variant": "emphasis",
       "fromSide": "top",
       "toSide": "bottom",
@@ -162,9 +133,7 @@
       "from": "retry",
       "to": "due",
       "label": "re-drive",
-      "fromSide": "left",
-      "toSide": "right",
-      "route": "straight"
+      "labelDy": -24
     },
     {
       "id": "t-dead",
@@ -198,6 +167,14 @@
       "fromSide": "top",
       "toSide": "bottom",
       "route": "straight"
+    },
+    {
+      "id": "t-bulkhead",
+      "from": "due",
+      "to": "retry",
+      "label": "bulkhead full",
+      "variant": "dashed",
+      "labelDy": 60
     }
   ],
   "cards": [
@@ -205,24 +182,24 @@
       "dot": "emerald",
       "title": "Main path",
       "items": [
-        "PENDING to SENDING: stage 2 claims by conditional update; 0 rows = duplicate, acknowledged",
-        "SENDING to DELIVERED on SUCCESS; DUE to HELD also applies"
+        "Claim: lock, hold check, HELD or SENDING",
+        "State changes need the claim token"
       ]
     },
     {
       "dot": "orange",
       "title": "To RETRY_WAIT",
       "items": [
-        "Transient after layer 1, circuit open, or ambiguous with idempotent receive",
-        "Stale claim (timeout + 60 s) goes to RETRY_WAIT or DEAD_LETTERED as ambiguous"
+        "Transient, circuit open, bulkhead full",
+        "Stale claim: 3 x timeout + 65 s"
       ]
     },
     {
       "dot": "rose",
       "title": "To DEAD_LETTERED",
       "items": [
-        "Permanent, attempts exhausted, or ambiguous without idempotent receive",
-        "Replay is audited and uses the versions pinned on arrival"
+        "Permanent, exhausted, or ambiguous",
+        "Final state releases the next HELD"
       ]
     }
   ]

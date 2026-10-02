@@ -3,6 +3,7 @@ type: ADR
 title: "ADR-011 - Target types, contract registry and version graph, bulk at intake, ordering, Kafka records carry ids only, background tenant from the row"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -11,6 +12,7 @@ related:
   - ADR-007-identity.md
   - ADR-009-tenant-directory-rls.md
   - ADR-010-camel-routing-core.md
+  - ADR-001-modular-monolith.md
   - ../architecture.md
 ---
 
@@ -18,6 +20,14 @@ related:
 
 Source paths starting `ws/` are in the hub repository, project workspace
 `_personal/_project_ipass/integration-platform/`. Memory lines drift; the id is the stable key.
+
+> **Revision 2026-10-02 (challenge m-817272).** Decision 6's hold rule now also holds behind an
+> earlier message with the same key that is not yet routed, releases in the same transaction, and
+> follows one lock order (blockers B3, B4; S-g). Decision 5 defers the message's own outbox row too
+> (B2). Decision 4's idempotency key is scoped per credential and required on every call (S-e).
+> Decision 3 keeps retired versions readable and checks mapping pins at publish (S-f, S-k).
+> Decision 1 applies the outbound destination check to every type (S-c). Decision 8 guards the
+> payload purge (S-f).
 
 ## Context
 
@@ -55,6 +65,13 @@ carries; and how background work finds its tenant.
   settings schema, an ADR update).
 - A target that does not declare idempotent receive gets no automatic retry of an ambiguous
   outcome (ADR-010 section 5).
+- **Every type's host field passes the one outbound destination check** of ADR-010 section 8
+  (refused ranges, pinned resolved address, operator-maintained per-tenant allow-list): the API
+  URL host, the MQ connection host, the DB host and the Kafka bootstrap servers. A File target's
+  path is normalised and confined under its configured root. The check runs at save, at
+  test-connection and at send.
+- Each type's settings declare `max_concurrent_sends` (the bulkhead pool size, ADR-010 section 2)
+  and its error dictionary (overrides of the default outcome table, ADR-010 section 5).
 
 ## Decision 2 - The registry extends the flow-configuration tables; one home for every schema
 
@@ -105,8 +122,16 @@ carries; and how background work finds its tenant.
      under; every delivery records the target contract version and mapping version it was
      created with. Replay uses those pins.
   4. A contract version is `RETIRED` only when 0 non-final deliveries pin it (a count query is
-     the gate).
+     the gate). **Retired means "no new pins", never "unreadable":** a retired contract, mapping
+     or interface version stays readable, so an operator replay of a dead letter that pins it
+     still transforms and validates against it (test: replay a dead letter whose versions were
+     retired after it failed).
   5. Proven by a test that adds a target contract version on a running system with 0 deploys.
+  6. **Publish-time pin check (S-k):** publishing an interface version is refused unless, for
+     every route, the mapping version's bound source contract version equals the interface
+     version's pinned source contract version, and its bound target contract version equals the
+     route's pinned target contract version. Test: a mapping bound to source contract 1.0 cannot
+     be published inside an interface version pinned to source contract 1.1.
 
 ## Decision 4 - The one common API, and bulk split and validated at intake
 
@@ -136,9 +161,14 @@ carries; and how background work finds its tenant.
   | Intake budget (2 s) exceeded or the database unavailable | `503` | Nothing persisted; safe to repeat with the same idempotency key |
   | Credential, role or interface access refused | `401` / `403` | Never retried by the platform |
 
-- **Idempotency:** an `Idempotency-Key` header is required on bulk calls and optional on single
-  calls; each record's key is the header plus its index. A repeated call returns the original
-  per-record results. Same business key with a new idempotency key is a new message (an update).
+- **Idempotency (S-e):** an `Idempotency-Key` header is **required on every call**, single and
+  bulk (a call without one is refused with `400`); each record's key is the header plus its
+  index. The key is **scoped per source credential** - the same key from two credentials is two
+  requests. The platform stores the key with a hash of the request body; a repeat with the same
+  body returns the original per-record results; **the same key with a different body is refused
+  with `422`** (`IDEMPOTENCY_KEY_REUSED`). Keys are kept **24 hours**, then purged. Same business
+  key with a new idempotency key is a new message (an update). Tests: repeat, different body,
+  other credential, and a repeat after 24 hours accepted as new.
 - **Gate:** a bulk of N records with k invalid returns N results and writes exactly N - k outbox
   rows (test).
 
@@ -150,10 +180,16 @@ carries; and how background work finds its tenant.
   rule of the deleted data design, quoted at `ws/_specs/f3-plan-brief.md:42`).
 - After the intake transaction commits, the request thread runs routing and delivery for that
   one message **inline, making exactly one target call - no redelivery on the caller thread**.
-- The delivery's outbox row is written with `available_at` = now + the synchronous budget +
-  5 s, so the relay publishes it only if the inline path did not finish (for example, the
-  instance crashed). The inline path claims the delivery like any consumer (ADR-010 section 7),
-  so the two can never both send.
+- **The message's own outbox row** (`message.accepted`) is written by the intake transaction
+  with `available_at` = now + the synchronous budget + 5 s. The inline path runs stage 1 for the
+  message in one transaction - `ACCEPTED -> ROUTED`, the delivery, the delivery's outbox row
+  (also deferred by the same amount) - so if the instance dies before routing, the deferred
+  message row re-drives stage 1, and a late duplicate finds the message already `ROUTED` and does
+  nothing (ADR-010 section 2).
+- The inline path then takes a permit from the target's bulkhead and claims the delivery like
+  any consumer (ADR-010 section 7), so the inline path and the deferred record can never both
+  send. A full bulkhead or a held delivery makes no call: the source gets `202` with status
+  `PENDING`.
 - **Answer to the source:** success -> `200` with the target's response mapped to the source's
   registered response contract; `PERMANENT` failure -> an error mapped through the target's
   error dictionary; anything else, or the 10 s budget reached -> `202` with the tracking id and
@@ -165,11 +201,26 @@ carries; and how background work finds its tenant.
 - **Ordering scope:** (tenant, interface, business key, **target endpoint**). Order is the
   acceptance order: each message gets a database sequence number at insert.
 - **Interface setting `ordering`:** `PER_KEY` (default, Dipesh's rule) or `NONE`.
-- **The hold rule (chosen):** a delivery is sent only when no earlier delivery in its ordering
-  scope is non-final. While an earlier one waits for a retry, later ones become `HELD`. When the
-  earlier one becomes `DELIVERED` **or `DEAD_LETTERED`**, the next held delivery is released
-  (`DUE`). The check and the claim run in one transaction under a transaction-level advisory lock
-  on the ordering scope, so it holds during consumer rebalances too.
+- **The hold rule (chosen, corrected for B3):** a delivery is held when **either**
+  1. an earlier message (lower sequence number) with the same tenant, interface and business key
+     is still `ACCEPTED` - not yet `ROUTED` or `ROUTE_FAILED` - so its deliveries do not exist yet;
+     **or**
+  2. an earlier delivery to the **same target endpoint** in the same scope is not final.
+
+  While either holds, the delivery becomes `HELD`. Without clause 1 a later message routed first
+  could be sent before an earlier message was routed at all; clause 1 closes that gap and also
+  covers a partition-count change (ADR-005 Decision 6) and a deferred synchronous row being
+  overtaken (ADR-005 Decision 11).
+- **One lock, one order (S-g).** The lock is a transaction-level advisory lock on the **ordering
+  key** (tenant, interface, business key) - coarser than the per-target scope so that stage 1's
+  `ROUTED` update and stage 2's check serialise. Every claim runs in one transaction in this
+  order: lock, read the delivery `FOR UPDATE`, check the hold, then `HELD` or `SENDING` (ADR-010
+  section 7). It holds during consumer rebalances too.
+- **Release in the same transaction (B4).** The transaction that makes a delivery `DELIVERED`
+  **or `DEAD_LETTERED`**, or makes a message `ROUTED` or `ROUTE_FAILED`, takes the same lock,
+  re-checks the oldest `HELD` delivery per target in the key's scope, and moves each one whose
+  blockers are gone to `DUE` with its outbox row. The reconciler in the delivery-retry job is the
+  safety net for a release that was missed (ADR-010 section 9).
 - **Options considered:**
 
   | Option | For | Against | Verdict |
@@ -182,7 +233,10 @@ carries; and how background work finds its tenant.
   target; an alert fires when a hold is older than 1 hour (configurable). Replaying a
   dead-lettered delivery after later same-key deliveries were delivered is allowed, and the
   replay screen states how many later deliveries already went out.
-- **Gate:** 100 same-key updates are received by the target in sequence (backbone phase test).
+- **Gate:** 100 same-key updates are received by the target in sequence with **3 relay
+  instances** and 2 consumer instances; the same with a **synchronous** interface where some
+  calls fall back to `PENDING`; and the same with message 1's stage 1 delayed until after
+  message 2 is routed (backbone and routing phase tests).
 
 ## Decision 7 - A Kafka record carries ids only
 
@@ -208,6 +262,11 @@ carries; and how background work finds its tenant.
   No application role bypasses row-level security.
 - **Partition maintenance** (creating and dropping daily partitions for purge) is DDL; it runs
   as a separate maintenance database role, never as the application role, and touches no rows.
+- **Purge guard (S-f):** a daily payload (and message) partition is dropped only when **0
+  deliveries that are `DEAD_LETTERED` or not final** reference a message in it - a count query is
+  the gate, run by the purge job before each drop; a partition that fails the gate is kept and
+  reported, so a dead letter can always be replayed with its payload. Test: a partition holding
+  one dead-lettered delivery's payload survives the purge.
 
 ## Consequences
 
@@ -219,9 +278,16 @@ carries; and how background work finds its tenant.
   negative test.
 - Adding a target type stays a code change; that is the price of typed, validated endpoint
   settings instead of free-text Camel URIs.
+- The hold rule now reads the message table as well as the delivery table under one key lock;
+  at 50 messages per second the lock is uncontended except for bursts on one key.
+- Sources must send an idempotency key on single calls too - a contract change for any source
+  built against the earlier "optional" wording.
 
 **What we give up:** tenant data in Kafka for other consumers to read directly (they must call
-the platform); unlimited bulk size; strict ordering after a dead-letter (the hold releases).
+the platform); unlimited bulk size; strict ordering after a dead-letter (the hold releases);
+parallel delivery of two messages with the same key while the earlier one is still being
+routed (it is held for the seconds stage 1 takes); purging a day's payloads on schedule while a
+dead letter from that day is unresolved.
 
 ## Revisit if
 

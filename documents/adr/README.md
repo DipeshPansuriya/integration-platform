@@ -34,7 +34,7 @@ re-publishes every dependent list in the same change.
 
 | Register | Owner |
 |---|---|
-| Delivery states and transitions; outcome classes | ADR-010 |
+| Delivery states and transitions; message states; outcome classes (default table, overridable per target by its error dictionary); the six controls on a target call | ADR-010 |
 | Target types | ADR-011 |
 | Kafka topics | ADR-005 |
 | Definer functions that cross the tenant boundary | ADR-009, ADR-007, ADR-011 (listed together in [architecture.md](../architecture.md) section 5) |

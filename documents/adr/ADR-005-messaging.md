@@ -3,6 +3,7 @@ type: ADR
 title: "ADR-005 - Messaging backbone: Apache Kafka, carrying work only"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse. Settled by the original ADR-005's own decision rule; the original (Deferred) record was deleted 2026-10-02"
 date: 2026-10-02
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): partition-change claim corrected, offset after claim, relay key-bucket order, five controls and alerts for the relay and consumers"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: "rewrite - context recreated from surviving sources, decision new"
@@ -10,6 +11,8 @@ related:
   - ADR-010-camel-routing-core.md
   - ADR-011-targets-contracts-bulk-ordering.md
   - ADR-002-datastore.md
+  - ADR-007-identity.md
+  - ADR-001-modular-monolith.md
 ---
 
 # ADR-005 - Messaging backbone: Apache Kafka, carrying work only
@@ -21,6 +24,13 @@ related:
 
 Source paths starting `ws/` are in the hub repository, project workspace
 `_personal/_project_ipass/integration-platform/`. Memory lines drift; the id is the stable key.
+
+> **Revision 2026-10-02 (challenge m-817272).** Decision 6's claim that the database hold rule
+> protects ordering across a partition change was false while the hold rule ignored earlier
+> messages not yet routed (blocker B3); it is corrected below together with ADR-011 Decision 6.
+> Decision 7 now commits the stage-2 offset after the claim, not after the send (B1). Decisions
+> 11-13 are new: the relay's per-key publish order (B3), the five controls and alerts for the
+> relay and the consumers (S-h), and the consumer pause on a transient database error (B4).
 
 ## Context
 
@@ -80,18 +90,63 @@ m-703833*):
    "execute delivery D now"; when and whether to retry was decided in the database.
 6. **Partitions:** 12 per work topic at start. At 50 messages per second this is far above the
    need; it bounds consumer parallelism per instance group. The partition count is changed only
-   in a quiet window, because a change remaps keys to partitions (ordering is still protected by
-   the database hold rule in ADR-011).
-7. **Producer:** idempotent producer, `acks=all`. **Consumer:** commits the offset only after
-   the database transaction for the record has committed (at-least-once); a duplicate record is
-   detected by the conditional claim on the delivery row (ADR-010) and acknowledged without
-   effect.
+   in a quiet window, because a change remaps keys to partitions: for a while, two records of one
+   key can sit in two partitions and be consumed in parallel. **Correction (B3):** the first
+   version of this record said the database hold rule protects ordering here; that was false,
+   because the hold rule looked only at earlier *deliveries*, so a later message could be routed
+   and sent before an earlier one was routed at all. Since this revision the hold rule (ADR-011
+   Decision 6) also holds behind an earlier message with the same key that is still `ACCEPTED`,
+   so order is kept at the target even when Kafka hands the records over out of order.
+7. **Producer:** idempotent producer, `acks=all`, `max.in.flight.requests.per.connection` at
+   most 5 (the idempotent producer keeps per-partition order within that bound). **Consumer:**
+   commits the offset only after the database transaction for the record has committed
+   (at-least-once). For stage 1 that is the routing transaction; **for stage 2 it is the claim
+   transaction, not the send** - the send runs afterwards on the target's bulkhead (ADR-010
+   section 2), so no partition thread ever waits on a target. A duplicate record is detected and
+   acknowledged without effect: by the `ACCEPTED -> ROUTED` conditional update in stage 1 and by
+   the conditional claim in stage 2 (ADR-010 sections 2 and 7).
 8. **Poison topic is terminal.** A record goes there once, with the reason in a header; nothing
    consumes it automatically; an alert fires on every arrival; engineers inspect it in Kafbat UI.
 9. **Trace context** travels as the W3C `traceparent` header; the outbox row stores it and the
    relay restores it (*source: `ws/_specs/project-plan.md:87`*).
 10. **Engineers' view: Kafbat UI** (Apache-2.0, free, maintained); the business dashboard is
     built on PostgreSQL (*source: `ws/_specs/project-plan.md:91`; `ws/_reports/2026-09-30-oss-rnd.md:202-205`*).
+11. **The relay publishes one key's rows in order (B3).** Each outbox row carries a bucket number
+    = the record key (SHA-256 of tenant, interface, business key - ADR-011 Decision 7) modulo 64.
+    A relay instance works a bucket only while it holds the transaction-level advisory lock
+    `pg_try_advisory_xact_lock(<relay namespace>, <tenant and bucket>)`; a bucket it cannot lock
+    is skipped this cycle, so **each bucket has exactly one publisher at a time**, whatever the
+    number of instances. Inside a bucket it publishes due rows (`available_at <= now`) in
+    outbox-id order, waits for the broker's acknowledgement, marks them published, and **stops the
+    bucket at the first row that fails** - it never skips ahead of an unpublished row of the same
+    bucket. Rows deferred by `available_at` (synchronous flows) can be overtaken; the hold rule
+    covers that case. **Gate:** 100 same-key updates published through 3 relay instances reach
+    the target in sequence, and the same with a synchronous interface where some updates fall
+    back to the asynchronous path (test, backbone phase).
+12. **Five controls on the relay and the consumers (S-h)** - they are calls that leave the
+    process (resilient-integration rule):
+
+    | Control | Outbox relay (to Kafka) | Stage 1 and 2 consumers (from Kafka, to PostgreSQL) |
+    |---|---|---|
+    | Timeout | `request.timeout.ms` 10 s, `delivery.timeout.ms` 30 s; database statement timeout 5 s | Database statement timeout 5 s; claim transaction under 1 s; `max.poll.interval.ms` 5 minutes is safe because no target call runs on the poll thread |
+    | Retry of transient failures only | The idempotent producer's own retries within `delivery.timeout.ms`; an unacknowledged row stays unpublished and is tried again next cycle with backoff 1 s doubling to 30 s, with jitter; an acknowledged row is never re-sent | Transient database error -> pause and back off (Decision 13); an unreadable record or a missing row is never retried (poison) |
+    | Circuit breaker | One breaker for the Kafka cluster; open -> the relay stops polling, rows wait in the outbox | One breaker on the database per consumer group: 5 consecutive transient errors pause all its partitions for the open period |
+    | Fallback | Rows stay in the outbox (durable); intake keeps accepting | The record stays uncommitted in Kafka; if it is lost, the reconciler re-drives from the database (ADR-010 section 9) |
+    | Observability | Unpublished rows, oldest unpublished age, publish latency and errors per bucket; a span per publish restoring `traceparent` | Lag per group and partition, pauses, poison arrivals, records per outcome; a span per record |
+
+    **Alerts:** oldest due unpublished outbox row older than 60 s; consumer lag above 1,000
+    records, or oldest unconsumed record older than 2 minutes, per group; every poison arrival.
+    Thresholds are configuration; these are the team defaults.
+13. **A transient database error pauses the consumer, never poisons the record (B4).** The
+    consumer does not commit the offset, pauses its partitions, backs off 1 s doubling to a 30 s
+    cap with jitter, and resumes. Only an unreadable record, or a referenced row that does not
+    exist, goes to `platform.poison`. **Gate:** with PostgreSQL stopped for 2 minutes during a
+    run, 0 records reach the poison topic and every message completes after the database returns
+    (test).
+
+**End-to-end gate shared with ADR-007:** a one-hour Keycloak outage during a run - sources with
+unexpired tokens keep being accepted, new token requests fail at Keycloak (not inside the
+platform), and after recovery every accepted message is delivered, 0 lost (ADR-007 Decision 4).
 
 ## Consequences
 
@@ -102,9 +157,13 @@ m-703833*):
 - Running Kafka is a standing operational cost (brokers, disks, monitoring) for a volume
   PostgreSQL alone could carry. Accepted because of the ordering rule and Dipesh's direction.
 - One more container in every end-to-end test suite (one suite at a time on the build PC).
+- One publisher per key bucket caps relay parallelism at 64 buckets per tenant; at 50 messages
+  per second that is far above the need.
 
 **What we give up:** RabbitMQ's simpler operations and per-message delay features; Kafka's own
-retry-topic pattern (deliberately unused - ADR-010 fixes exactly two retry layers).
+retry-topic pattern (deliberately unused - ADR-010 fixes exactly two retry layers); the Kafka
+offset as proof that a delivery was sent (it proves the claim; the database proves the send);
+publishing rows of one key bucket in parallel.
 
 ## Revisit if
 
@@ -114,3 +173,5 @@ retry-topic pattern (deliberately unused - ADR-010 fixes exactly two retry layer
   that would reopen ADR-011's ids-only rule first.
 - The poison topic receives more than 10 records in one day for two weeks - a systematic
   producer or schema defect, not an edge case.
+- The oldest-unpublished-row alert fires more than once a day for a week - the relay or the
+  bucket count needs re-sizing.

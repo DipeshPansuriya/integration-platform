@@ -2,13 +2,13 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "Integration Platform - One Message End to End",
+    "title": "End to End 1 of 2 - Intake and Routing",
     "output": "end-to-end-flow.archify.html",
     "quality_profile": "showcase",
     "column_fit": "spread",
     "viewBox": [
-      1380,
-      1120
+      1400,
+      654
     ],
     "views": [
       {
@@ -20,31 +20,29 @@
           "ingest",
           "db"
         ],
-        "note": "Token, tenant from our DB, validation, bulk split, one intake transaction (architecture.md 4.1 steps 1-5)."
+        "note": "Token, tenant from our DB, idempotency key per credential, one intake transaction (architecture.md 4.1 steps 1-5)."
       },
       {
-        "id": "fan-out",
-        "label": "Route and fan out",
+        "id": "route",
+        "label": "Relay and route",
         "focus": [
           "ingest",
           "kafka",
           "routing",
           "db"
         ],
-        "note": "Outbox relay to Kafka; stage 1 creates one Delivery per matched target (steps 6-8)."
+        "note": "One publisher per key bucket; stage 1 is idempotent: ACCEPTED to ROUTED guard plus unique (message, route) (steps 6-8)."
       },
       {
-        "id": "deliver",
-        "label": "Deliver per target",
+        "id": "sync",
+        "label": "Synchronous variant",
         "focus": [
-          "kafka",
+          "source",
+          "ingest",
           "routing",
-          "transform",
-          "target",
-          "delivery",
           "db"
         ],
-        "note": "Claim, ordering hold, mapping, send with five controls, attempt row, new state (steps 9-14)."
+        "note": "Message and delivery outbox rows deferred; inline stage 1, bulkhead permit, same claim, one call (architecture.md 4.2)."
       }
     ]
   },
@@ -62,7 +60,7 @@
     {
       "id": "ingest",
       "type": "backend",
-      "label": "platform-ingest"
+      "label": "platform-ingest + relay"
     },
     {
       "id": "db",
@@ -77,44 +75,24 @@
     {
       "id": "routing",
       "type": "backend",
-      "label": "platform-routing"
-    },
-    {
-      "id": "transform",
-      "type": "backend",
-      "label": "Transform"
-    },
-    {
-      "id": "target",
-      "type": "external",
-      "label": "Target system"
-    },
-    {
-      "id": "delivery",
-      "type": "backend",
-      "label": "platform-delivery"
+      "label": "platform-routing (stage 1)"
     }
   ],
   "segments": [
     {
-      "from": 160,
-      "to": 404,
+      "from": 146,
+      "to": 348,
       "label": "1. Authenticate + intake"
     },
     {
-      "from": 420,
-      "to": 560,
-      "label": "2. Route + fan out"
+      "from": 362,
+      "to": 508,
+      "label": "2. Relay + route (stage 1)"
     },
     {
-      "from": 576,
-      "to": 886,
-      "label": "3. Deliver per target"
-    },
-    {
-      "from": 900,
-      "to": 1060,
-      "label": "4. Retry, final, sync"
+      "from": 522,
+      "to": 584,
+      "label": "3. SYNC only"
     }
   ],
   "messages": [
@@ -122,15 +100,16 @@
       "id": "m01",
       "from": "source",
       "to": "keycloak",
-      "y": 180,
+      "y": 166,
       "label": "get token (client credentials)",
-      "variant": "security"
+      "variant": "security",
+      "note": "Every platform-created client has the default audience scope (ADR-007 D3)"
     },
     {
       "id": "m02",
       "from": "keycloak",
       "to": "source",
-      "y": 214,
+      "y": 194,
       "label": "access token, 5 min",
       "variant": "return"
     },
@@ -138,15 +117,15 @@
       "id": "m03",
       "from": "source",
       "to": "ingest",
-      "y": 248,
-      "label": "POST /interfaces/{code}/messages[:bulk]",
+      "y": 222,
+      "label": "POST /interfaces/{code}/messages[:bulk] + Idempotency-Key",
       "variant": "emphasis"
     },
     {
       "id": "m04",
       "from": "ingest",
       "to": "db",
-      "y": 282,
+      "y": 250,
       "label": "client bootstrap: tenant, customer",
       "variant": "security",
       "note": "Tenant never from the body; a body customerId is only cross-checked (ADR-007 D2)"
@@ -155,16 +134,16 @@
       "id": "m05",
       "from": "ingest",
       "to": "db",
-      "y": 316,
+      "y": 278,
       "label": "one tx: message + payload + outbox",
       "variant": "emphasis",
-      "note": "Per valid record, after caps, schema, rules, business key and idempotency (ADR-011 D4)"
+      "note": "Idempotency key per source credential, 24 h; same key, other body = 422 (ADR-011 D4)"
     },
     {
       "id": "m06",
       "from": "ingest",
       "to": "source",
-      "y": 350,
+      "y": 306,
       "label": "202 per-record results",
       "variant": "return"
     },
@@ -172,147 +151,68 @@
       "id": "m07",
       "from": "ingest",
       "to": "source",
-      "y": 384,
-      "label": "401/403, 413, 422, 503 (nothing stored)",
+      "y": 334,
+      "label": "400, 401/403, 413, 422, 503 (nothing stored)",
       "variant": "dashed"
     },
     {
       "id": "m08",
       "from": "ingest",
       "to": "kafka",
-      "y": 440,
-      "label": "relay: message.accepted",
-      "variant": "emphasis"
+      "y": 382,
+      "label": "relay: message.accepted, in order per key bucket",
+      "variant": "emphasis",
+      "note": "One publisher per key bucket (advisory lock); stops at the first failed row (ADR-005 D11)"
     },
     {
       "id": "m09",
       "from": "kafka",
       "to": "routing",
-      "y": 474,
+      "y": 410,
       "label": "stage 1 consumes"
     },
     {
       "id": "m10",
       "from": "routing",
       "to": "db",
-      "y": 508,
-      "label": "one tx: delivery per target + outbox",
+      "y": 438,
+      "label": "one tx: ACCEPTED to ROUTED + deliveries + outbox",
       "variant": "emphasis",
-      "note": "Tenant from ipaas_work_tenant; pins endpoint, contract and mapping versions"
+      "note": "Key lock; 0 rows = duplicate; insert on conflict (message, route) do nothing; releases holds"
     },
     {
       "id": "m11",
       "from": "routing",
       "to": "kafka",
-      "y": 542,
+      "y": 466,
       "label": "unreadable record: platform.poison",
       "variant": "dashed"
     },
     {
       "id": "m12",
-      "from": "ingest",
+      "from": "routing",
       "to": "kafka",
-      "y": 596,
-      "label": "relay: delivery.due"
+      "y": 494,
+      "label": "DB error: pause partitions, back off",
+      "variant": "dashed",
+      "note": "A transient database error never poisons a record (ADR-005 D13)"
     },
     {
       "id": "m13",
-      "from": "kafka",
+      "from": "ingest",
       "to": "routing",
-      "y": 630,
-      "label": "stage 2 consumes"
+      "y": 542,
+      "label": "inline stage 1, bulkhead permit, claim, one call",
+      "variant": "dashed",
+      "note": "Message and delivery outbox rows deferred by budget + 5 s (ADR-011 D5)"
     },
     {
       "id": "m14",
-      "from": "routing",
-      "to": "db",
-      "y": 664,
-      "label": "claim + same-key check",
-      "variant": "security",
-      "note": "0 rows = duplicate, acknowledged; earlier same-key delivery open = HELD"
-    },
-    {
-      "id": "m15",
-      "from": "routing",
-      "to": "transform",
-      "y": 698,
-      "label": "pinned mapping"
-    },
-    {
-      "id": "m16",
-      "from": "transform",
-      "to": "routing",
-      "y": 732,
-      "label": "payload or error",
-      "variant": "return"
-    },
-    {
-      "id": "m17",
-      "from": "routing",
-      "to": "target",
-      "y": 766,
-      "label": "send, layer-1 redelivery",
-      "variant": "emphasis",
-      "note": "Timeout, transient-only redelivery (max 2, 5 s), breaker per target"
-    },
-    {
-      "id": "m18",
-      "from": "target",
-      "to": "routing",
-      "y": 800,
-      "label": "outcome class",
-      "variant": "return",
-      "note": "SUCCESS, TRANSIENT, AMBIGUOUS or PERMANENT (ADR-010 section 5)"
-    },
-    {
-      "id": "m19",
-      "from": "routing",
-      "to": "delivery",
-      "y": 834,
-      "label": "attempt row + classify",
-      "variant": "emphasis"
-    },
-    {
-      "id": "m20",
-      "from": "delivery",
-      "to": "db",
-      "y": 868,
-      "label": "DELIVERED / RETRY_WAIT / DEAD_LETTERED",
-      "variant": "emphasis"
-    },
-    {
-      "id": "m21",
-      "from": "delivery",
-      "to": "db",
-      "y": 920,
-      "label": "poll: due RETRY_WAIT to DUE + outbox",
-      "variant": "dashed",
-      "note": "Retry layer 2; the relay re-publishes delivery.due and stage 2 runs again"
-    },
-    {
-      "id": "m22",
-      "from": "delivery",
-      "to": "db",
-      "y": 954,
-      "label": "final: release next HELD, stage times",
-      "note": "Stage timestamps feed the timeline and the daily report (ledger)"
-    },
-    {
-      "id": "m23",
-      "from": "ingest",
-      "to": "routing",
-      "y": 988,
-      "label": "SYNC only: inline, one call",
-      "variant": "dashed"
-    },
-    {
-      "id": "m24",
       "from": "ingest",
       "to": "source",
-      "y": 1022,
+      "y": 570,
       "label": "200 mapped, error, or 202 PENDING",
-      "variant": "return",
-      "note": "Over the 10 s budget the delivery continues on the async path"
+      "variant": "return"
     }
   ],
   "cards": [
@@ -320,27 +220,24 @@
       "dot": "cyan",
       "title": "Accepted means stored",
       "items": [
-        "202 only after message, payload and outbox commit together (RPO zero)",
-        "Bulk is split at intake: N records, k invalid, exactly N - k outbox rows",
+        "202 only after message, payload and outbox commit together",
         "Kafka records carry ids; the payload stays in PostgreSQL"
       ]
     },
     {
       "dot": "orange",
-      "title": "Exactly two retry layers",
+      "title": "Duplicates are harmless",
       "items": [
-        "Layer 1: Camel redelivers transient failures within one attempt",
-        "Layer 2: RETRY_WAIT rows, re-driven by the polling trigger",
-        "Kafka retries nothing; poison is terminal and alerted"
+        "Same record twice: N deliveries, not 2N",
+        "Same key, 3 relay instances: published in order"
       ]
     },
     {
       "dot": "rose",
-      "title": "Failure paths",
+      "title": "Continues in part 2",
       "items": [
-        "Ambiguous timeout: retried only if the target declares idempotent receive",
-        "Permanent, mapping error or exhausted: DEAD_LETTERED, operator replay",
-        "Stale claim (timeout + 60 s) is treated as ambiguous"
+        "Each delivery outbox row goes to delivery.due",
+        "Part 2: claim, bulkhead, send, retry, reconcile"
       ]
     }
   ]

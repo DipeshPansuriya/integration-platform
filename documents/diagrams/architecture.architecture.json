@@ -7,7 +7,7 @@
     "quality_profile": "showcase",
     "viewBox": [
       1390,
-      930
+      660
     ],
     "views": [
       {
@@ -57,7 +57,7 @@
       "sublabel": "React, cookie session",
       "pos": [
         20,
-        110
+        90
       ],
       "size": [
         170,
@@ -72,7 +72,7 @@
       "sublabel": "OIDC, machine clients",
       "pos": [
         20,
-        290
+        210
       ],
       "size": [
         170,
@@ -87,7 +87,7 @@
       "sublabel": "client-credentials token",
       "pos": [
         20,
-        470
+        330
       ],
       "size": [
         170,
@@ -101,7 +101,7 @@
       "sublabel": "systems, contracts, flows",
       "pos": [
         315,
-        110
+        90
       ],
       "size": [
         170,
@@ -116,7 +116,7 @@
       "sublabel": "tenant from our DB, roles",
       "pos": [
         315,
-        290
+        210
       ],
       "size": [
         170,
@@ -131,7 +131,7 @@
       "sublabel": "common API, bulk split",
       "pos": [
         315,
-        470
+        330
       ],
       "size": [
         170,
@@ -143,10 +143,10 @@
       "id": "delivery",
       "type": "backend",
       "label": "platform-delivery",
-      "sublabel": "states, retry, replay",
+      "sublabel": "states, retry, reconciler",
       "pos": [
         610,
-        470
+        330
       ],
       "size": [
         170,
@@ -161,7 +161,7 @@
       "sublabel": "JSONata mapping, 5 s",
       "pos": [
         905,
-        290
+        210
       ],
       "size": [
         170,
@@ -172,10 +172,10 @@
       "id": "routing",
       "type": "backend",
       "label": "platform-routing",
-      "sublabel": "the only Camel module",
+      "sublabel": "only Camel module, bulkheads",
       "pos": [
         905,
-        470
+        330
       ],
       "size": [
         170,
@@ -190,7 +190,7 @@
       "sublabel": "RLS on every tenant table, outbox, deliveries",
       "pos": [
         315,
-        800
+        490
       ],
       "size": [
         465,
@@ -205,7 +205,7 @@
       "sublabel": "accepted, delivery.due, poison",
       "pos": [
         905,
-        800
+        490
       ],
       "size": [
         170,
@@ -220,7 +220,7 @@
       "sublabel": "API, MQ-CSV, DB, File, Kafka",
       "pos": [
         1200,
-        470
+        330
       ],
       "size": [
         170,
@@ -235,7 +235,7 @@
       "sublabel": "metrics, trace per call",
       "pos": [
         1200,
-        110
+        90
       ],
       "size": [
         170,
@@ -367,7 +367,7 @@
       "id": "send",
       "from": "routing",
       "to": "targets",
-      "label": "send, 5 controls",
+      "label": "send, 6 controls",
       "variant": "emphasis",
       "labelDy": 26
     },

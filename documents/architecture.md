@@ -1,7 +1,7 @@
 ---
 type: Architecture
 title: "Architecture - configuration-driven integration platform"
-status: "Recreated 2026-10-02 (phase 0) from surviving sources and updated to ADR-005, 007, 010, 011"
+status: "Recreated 2026-10-02 (phase 0) from surviving sources and updated to ADR-005, 007, 010, 011; revised 2026-10-02 for vikram-cto's challenge (m-817272)"
 date: 2026-10-02
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
@@ -47,9 +47,9 @@ placement of identity, registry, rules and Kafka follows ADR-007, 010, 011.*
 | `platform-tenancy` | shared | Tenant context, per-transaction stamping, the bootstrap resolvers (login, client, work), OIDC resource server and console login, Keycloak admin port, role checks | Read a tenant from a request body, header or Kafka record |
 | `platform-config` | control | Systems, target endpoints and encrypted credentials, contracts and versions, interfaces and versions, routes, mappings, rule sets (ZEN), lookup tables, retry policies, lifecycle and atomic publish, admin API; a read-only API over **published** versions for the data plane | Be written by a data-plane module |
 | `platform-ingest` | data | The common API, size caps, contract and rule validation, bulk split, idempotency, the intake transaction (message, payload, outbox), the outbox relay and its publish port | Call a target; use Camel |
-| `platform-routing` | data | **The only Camel module**: Kafka consumers for stages 1 and 2, route templates per target type, target adapters, circuit breakers, the Kafka implementation of the publish port | Hold retry timing; decide a tenant from a record |
+| `platform-routing` | data | **The only Camel module**: Kafka consumers for stages 1 and 2 (claim on the partition thread, consumer pause on a transient database error), route templates per target type, target adapters, the per-target bulkheads and circuit breakers, the outbound destination check, the Kafka implementation of the publish port | Hold retry timing; decide a tenant from a record; call a target on a Kafka partition thread |
 | `platform-transform` | data | Mapping execution with the JSONata engine called directly (ADR-006 decides), sample tests | Use Camel |
-| `platform-delivery` | data | Delivery and attempt persistence, outcome classifier, retry policy, the polling re-drive trigger, replay | Send anything itself |
+| `platform-delivery` | data | Delivery and attempt persistence, outcome classifier, retry policy, the ordering hold and its same-transaction release, the polling re-drive trigger and the reconciler inside it (the delivery-retry job), replay | Send anything itself |
 | `platform-ledger` | data | Stage timestamps, message timeline, daily pre-aggregates, the daily report, dashboard counts | Read sampled traces for the report |
 | `platform-audit` | shared | Append-only audit events, the tenant's activity view | Update or delete an event |
 | `platform-app` | - | The deployable: wiring, security chain, scheduler jobs (db-scheduler), actuator | Contain business logic |
@@ -75,8 +75,8 @@ Every tenant-owned table has `tenant_id` and a row-level security policy; closed
 | Systems | `system` (code, name, direction, + `type`, `settings` from the registry phase), `target_endpoint` (timeout, circuit settings, error dictionary, idempotent-receive declaration, typed settings), `target_credential` (envelope-encrypted, ADR-007) | One systems table; settings validated per type |
 | Contracts | `contract` (system, role), `contract_version` (label, status, JSON Schema, optional OpenAPI, derived-from, compatibility, author, approver) | The only home of every schema (ADR-011) |
 | Flow configuration | `interface` (code immutable once published, mode `ASYNC`/`SYNC`, `ordering` `PER_KEY`/`NONE`, current and published version), `interface_version` (immutable snapshot `jsonb` of the whole bundle, business-key rule mandatory, change note, rejection comment, author, approver, `CHECK` approver is not author), `route` (target endpoint, condition, single primary for sync), `mapping` and its versions (one per route, bound to two contract versions), `retry_policy`, `rule_set`, `lookup_table`, `lookup_entry` | Lookup **values** are deliberately not versioned: immediate and audited (OQ-07 stays Dipesh's) |
-| Intake | `message` (interface version, source contract version, business key, sequence number, stage timestamps), `payload`, `outbox` (`available_at`, `traceparent`), `idempotency_key` | Daily partitions for message and payload |
-| Delivery | `delivery` (state, pinned target endpoint, contract and mapping versions, ordering scope, `next_attempt_at`, claim), `delivery_attempt` (append-only; layer, outcome class, timings), `delivery_event` (holds, releases, circuit deferrals, replays) | Daily partitions; attempts never updated or deleted |
+| Intake | `message` (interface version, source contract version, business key, sequence number, state `ACCEPTED`/`ROUTED`/`ROUTE_FAILED`, stage timestamps), `payload`, `outbox` (`available_at`, `traceparent`, key bucket 0-63), `idempotency_key` (source credential, key, request-body hash, results; kept 24 hours) | Daily partitions for message and payload; a partition is dropped only when 0 dead-lettered or non-final deliveries reference it (ADR-011 Decision 8) |
+| Delivery | `delivery` (state, message and route - unique together, pinned target endpoint, contract and mapping versions, ordering key, `next_attempt_at`, `claim_token`, `claimed_at`), `delivery_attempt` (append-only; layer, outcome class, timings), `delivery_event` (holds, releases, circuit and bulkhead deferrals, late outcomes, reconciler re-drives, replays) | Daily partitions; attempts never updated or deleted |
 | Ledger | Stage timestamps on message and delivery; `daily_aggregate` per tenant, interface, target, day | The report reads aggregates, which a seeded test proves equal to the rows |
 | Audit | `audit_event` | Append-only; partition drop after 7 years |
 | Scheduler | db-scheduler's task table; `job_definition`, `job_run` | Jobs are configuration rows |
@@ -97,24 +97,27 @@ start, transform end, sent, target responded, completed.
 | 3 | ingest | Size caps; per record contract validation then rules, collecting every violation; business key; idempotency | Over a cap -> 413, nothing stored; invalid records -> listed with all reasons |
 | 4 | ingest | **One transaction:** message, payload and outbox rows for every valid record | Budget 2 s exceeded or database down -> 503, nothing stored; source repeats with the same idempotency key |
 | 5 | ingest | Reply 202 with per-record results and tracking ids | - |
-| 6 | ingest relay | Publishes each outbox row to `platform.message.accepted` (key = hash of tenant, interface, business key; `traceparent` restored) and marks it published | Kafka down -> rows stay, relay retries publishing; a crash after publish -> duplicate record, harmless (step 9) |
-| 7 | routing stage 1 | Resolves the tenant from the message row (work function), loads the pinned interface version, evaluates route conditions | Unreadable record or missing row -> `platform.poison`, alert |
-| 8 | routing stage 1 | **One transaction:** one Delivery per matched target (pinning endpoint, contract and mapping versions) plus one outbox row each | No route matches -> message completed with "no route", visible in the timeline |
-| 9 | routing stage 2 | Consumes `platform.delivery.due`; claims the delivery by conditional update | 0 rows -> duplicate or held -> acknowledged, no effect |
-| 10 | routing stage 2 | Ordering check under an advisory lock on the ordering scope | Earlier same-key delivery not final -> `HELD`, visible on the dashboard |
-| 11 | transform | Mapping version applied to the payload (5 s budget) | Mapping error -> `PERMANENT`, dead-lettered with the reason |
-| 12 | routing stage 2 | Target route sends with timeout, breaker and layer-1 redelivery of transient failures; each call writes one attempt row | Circuit open -> no call, `RETRY_WAIT`; transient after layer 1 -> `RETRY_WAIT`; ambiguous -> retry only if the target declares idempotent receive, else dead-lettered `AMBIGUOUS_TIMEOUT`; permanent -> dead-lettered |
-| 13 | delivery | Polling trigger moves due `RETRY_WAIT` rows to `DUE` with an outbox row -> back to step 9 | Instance crash mid-call -> stale claim found after the target timeout + 60 s, classed ambiguous |
-| 14 | delivery | `DELIVERED` or `DEAD_LETTERED`; the next held same-key delivery is released | Dead letter -> operator replay later, with the versions pinned at arrival, audited |
+| 6 | ingest relay | Publishes each outbox row to `platform.message.accepted` (key = hash of tenant, interface, business key; `traceparent` restored) and marks it published; **one publisher per key bucket** (advisory lock), rows in order, stops a bucket at the first failure (ADR-005 Decision 11) | Kafka down -> breaker opens, rows stay, outbox-age alert after 60 s; a crash after publish -> duplicate record, harmless (step 8) |
+| 7 | routing stage 1 | Resolves the tenant from the message row (work function), loads the pinned interface version, evaluates route conditions | Unreadable record or missing row -> `platform.poison`, alert; transient database error -> consumer pauses and backs off, never poison |
+| 8 | routing stage 1 | **One transaction:** key lock; message `ACCEPTED -> ROUTED` by conditional update; one Delivery per matched target, insert-on-conflict `(message_id, route_id)` do nothing (pinning endpoint, contract and mapping versions), plus one outbox row each; release deliveries held only behind this message | 0 rows on the update -> duplicate record, no effect; no route -> `ROUTED` with 0 deliveries, "no route" in the timeline; pinned configuration unreadable -> `ROUTE_FAILED`, alert |
+| 9 | routing stage 2 | Consumes `platform.delivery.due` on the partition thread; takes a permit from the target's **bulkhead** | Bulkhead full -> no call, `BULKHEAD_FULL` event, `RETRY_WAIT` for 1-5 s |
+| 10 | routing stage 2 | **Claim transaction, one order:** key lock, read the delivery, check the hold (an earlier same-key message still `ACCEPTED`, or an earlier delivery to this target not final), then `HELD` or `SENDING` with a claim token; commit; then commit the Kafka offset | 0 rows -> duplicate, acknowledged; hold applies -> `HELD`, visible on the dashboard |
+| 11 | transform (bulkhead thread) | Mapping version applied to the payload (5 s budget) | Mapping error -> `PERMANENT`, dead-lettered with the reason |
+| 12 | routing stage 2 (bulkhead thread) | Destination check (pinned address); target route sends with timeout, breaker and layer-1 redelivery of transient failures (`Retry-After` honoured); each call writes one attempt row | Circuit open -> no call, `RETRY_WAIT`; transient after layer 1 -> `RETRY_WAIT`; ambiguous (timeout after send, or 408/500/502/504 without idempotent receive) -> retry only if the target declares idempotent receive, else dead-lettered `AMBIGUOUS_TIMEOUT`; permanent -> dead-lettered |
+| 13 | delivery (delivery-retry job) | Moves due `RETRY_WAIT` rows to `DUE` with an outbox row -> back to step 9 (at half-open, at most the breaker's trial count per target); the **reconciler** re-publishes messages `ACCEPTED` over 5 minutes, deliveries `PENDING`/`DUE` idle over 5 minutes, and `HELD` with no blocker left | Instance crash mid-call -> stale claim after 3 x target timeout + 5 s + 60 s, classed ambiguous; a late outcome with an old claim token changes no state |
+| 14 | delivery | `DELIVERED` or `DEAD_LETTERED`, conditional on the claim token; **in the same transaction** the next held same-key delivery per target is released | Dead letter -> operator replay later, with the versions pinned at arrival (retired versions stay readable), audited |
 
 ### 4.2 Synchronous single-target flow
 
-Steps 1-4 as above, with the delivery's outbox row deferred (`available_at` = now + 10 s + 5 s).
-The request thread then runs steps 7-12 inline for that one delivery, making exactly one target
-call with no redelivery. Success -> 200 with the target's response mapped to the source's
+Steps 1-4 as above, with **the message's own outbox row** deferred (`available_at` = now + 10 s +
+5 s). The request thread then runs stage 1 inline (`ROUTED` and the delivery in one transaction,
+the delivery's outbox row deferred the same way) and steps 9-12 for that one delivery - bulkhead
+permit, the same claim transaction - making exactly one target call with no redelivery. A full
+bulkhead or a hold makes no call and answers 202 `PENDING`. Success -> 200 with the target's response mapped to the source's
 response contract; permanent failure -> the mapped error; anything else or the 10 s budget ->
 202 with the tracking id and status `PENDING`, and the delivery continues on the asynchronous
-path. If the instance dies mid-call, the deferred outbox row re-drives it.
+path. If the instance dies before routing, the deferred message row re-drives stage 1; if it
+dies mid-call, the stale-claim rule recovers the delivery (ADR-011 Decision 5).
 
 ### 4.3 Configuration publish
 
@@ -123,7 +126,7 @@ path. If the instance dies mid-call, the deferred outbox row re-drives it.
 | 1 | Configurator edits a draft (never live) | - |
 | 2 | Submits with a change note -> `PENDING_APPROVAL`; snapshot copied | No change note -> refused |
 | 3 | Approver approves - never the author (database `CHECK` and 403) | Author approves -> refused |
-| 4 | Publish: interface, routes and mappings in one transaction | Any part fails -> nothing changes |
+| 4 | Publish: interface, routes and mappings in one transaction, after the pin check - every mapping's source contract version equals the interface version's pin, and its target contract version equals the route's pin (ADR-011 Decision 3 rule 6) | Any part fails, or a pin differs -> nothing changes, the mismatch is named |
 | 5 | Data plane picks the new published version on the next message; routes are created lazily on first use, on any instance | - |
 
 *Source for 4.3: deleted workflows.md W8 and integration-platform-design.md P8, quoted at
@@ -163,12 +166,20 @@ Every container image tag is pinned; every password comes from an environment va
 
 - **Resilient integration:** every call that leaves the process carries timeout, transient-only
   retry with backoff, jitter and a cap, one circuit breaker per dependency, a fallback, and
-  metrics plus a trace span (ADR-010 section 8 for targets; ADR-007 for Keycloak).
+  metrics plus a trace span (ADR-010 section 8 for targets, which adds a per-target bulkhead;
+  ADR-005 Decision 12 for the relay and the consumers; ADR-007 for Keycloak).
+- **Nothing stays stuck:** release in the same transaction, the reconciler inside the
+  delivery-retry job, and the consumer pause on a transient database error (ADR-010 section 9).
+  Alerts: oldest unpublished outbox row over 60 s, consumer lag over 1,000 records or 2 minutes,
+  every poison arrival, a hold older than 1 hour.
 - **Observability:** one correlation id and the W3C trace context follow a message through
   intake, Kafka, Camel, transform, delivery and response; the outbox row carries `traceparent`.
   Logs are structured JSON with tenant and message ids; masked fields never appear.
-- **Outbound destination controls:** allow-list; private and loopback ranges refused after DNS
-  resolution and after every redirect; test-connection audited and rate-limited.
+- **Outbound destination controls:** one check for every target type's host (ADR-010 section
+  8): refused ranges include loopback, private, link-local and cloud metadata, carrier-grade NAT,
+  IPv6 unique-local, IPv4-mapped IPv6 and the platform's own hosts; the resolved address is
+  pinned; the allow-list is per tenant but maintained by the operator; every redirect re-checked;
+  File paths confined under a root; test-connection audited and rate-limited.
 
 ## 8. Decisions
 

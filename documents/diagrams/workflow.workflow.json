@@ -2,44 +2,12 @@
   "schema_version": 2,
   "diagram_type": "workflow",
   "meta": {
-    "title": "Integration Platform - Configuration Workflow",
+    "title": "Configuration Workflow",
     "output": "workflow.archify.html",
     "quality_profile": "showcase",
-    "views": [
-      {
-        "id": "build",
-        "label": "Configure as drafts",
-        "focus": [
-          "login",
-          "systems",
-          "contracts",
-          "approveContract",
-          "flow",
-          "mapping"
-        ],
-        "note": "Everything is rows: systems, contracts, flow, rules and mapping (PRD section 1, FR-03 to FR-07)."
-      },
-      {
-        "id": "approve",
-        "label": "Approve and publish",
-        "focus": [
-          "submit",
-          "approveBundle",
-          "rejected",
-          "publish"
-        ],
-        "note": "Change note, approver never the author, one-transaction publish (architecture.md 4.3)."
-      },
-      {
-        "id": "operate",
-        "label": "Monitor and replay",
-        "focus": [
-          "publish",
-          "monitor",
-          "replay"
-        ],
-        "note": "Timeline, dashboard and daily report; support replays dead letters, audited (FR-13, FR-15, FR-17)."
-      }
+    "viewBox": [
+      1240,
+      776
     ]
   },
   "lanes": [
