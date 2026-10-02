@@ -1,0 +1,411 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Integration Platform - System Architecture",
+    "output": "architecture.archify.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1390,
+      930
+    ],
+    "views": [
+      {
+        "id": "control-plane",
+        "label": "Configuration (control plane)",
+        "focus": [
+          "console",
+          "keycloak",
+          "config",
+          "tenancy"
+        ],
+        "note": "People log in and configure; config is written only here (architecture.md section 2)."
+      },
+      {
+        "id": "data-plane",
+        "label": "Message path (data plane)",
+        "focus": [
+          "source",
+          "ingest",
+          "postgres",
+          "kafka",
+          "routing",
+          "transform",
+          "delivery",
+          "targets"
+        ],
+        "note": "One call in, one delivery per matched target out (architecture.md section 4.1)."
+      },
+      {
+        "id": "tenant-isolation",
+        "label": "Tenant isolation",
+        "focus": [
+          "keycloak",
+          "tenancy",
+          "ingest",
+          "postgres"
+        ],
+        "note": "Tenant bound from our database, never from a token, body, header or Kafka record (T1-T6)."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "console",
+      "type": "frontend",
+      "label": "Console UI",
+      "sublabel": "React, cookie session",
+      "pos": [
+        20,
+        110
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-007"
+    },
+    {
+      "id": "keycloak",
+      "type": "security",
+      "label": "Keycloak",
+      "sublabel": "OIDC, machine clients",
+      "pos": [
+        20,
+        290
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-007"
+    },
+    {
+      "id": "source",
+      "type": "external",
+      "label": "Source system",
+      "sublabel": "client-credentials token",
+      "pos": [
+        20,
+        470
+      ],
+      "size": [
+        170,
+        66
+      ]
+    },
+    {
+      "id": "config",
+      "type": "backend",
+      "label": "platform-config",
+      "sublabel": "systems, contracts, flows",
+      "pos": [
+        315,
+        110
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "control plane"
+    },
+    {
+      "id": "tenancy",
+      "type": "security",
+      "label": "platform-tenancy",
+      "sublabel": "tenant from our DB, roles",
+      "pos": [
+        315,
+        290
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-009"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "platform-ingest",
+      "sublabel": "common API, bulk split",
+      "pos": [
+        315,
+        470
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "data plane"
+    },
+    {
+      "id": "delivery",
+      "type": "backend",
+      "label": "platform-delivery",
+      "sublabel": "states, retry, replay",
+      "pos": [
+        610,
+        470
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-010"
+    },
+    {
+      "id": "transform",
+      "type": "backend",
+      "label": "platform-transform",
+      "sublabel": "JSONata mapping, 5 s",
+      "pos": [
+        905,
+        290
+      ],
+      "size": [
+        170,
+        66
+      ]
+    },
+    {
+      "id": "routing",
+      "type": "backend",
+      "label": "platform-routing",
+      "sublabel": "the only Camel module",
+      "pos": [
+        905,
+        470
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-010"
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL 17",
+      "sublabel": "RLS on every tenant table, outbox, deliveries",
+      "pos": [
+        315,
+        800
+      ],
+      "size": [
+        465,
+        66
+      ],
+      "tag": "ADR-009"
+    },
+    {
+      "id": "kafka",
+      "type": "messagebus",
+      "label": "Apache Kafka (KRaft)",
+      "sublabel": "accepted, delivery.due, poison",
+      "pos": [
+        905,
+        800
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-005"
+    },
+    {
+      "id": "targets",
+      "type": "external",
+      "label": "Target systems",
+      "sublabel": "API, MQ-CSV, DB, File, Kafka",
+      "pos": [
+        1200,
+        470
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-011"
+    },
+    {
+      "id": "observability",
+      "type": "cloud",
+      "label": "Grafana, Prometheus, Tempo",
+      "sublabel": "metrics, trace per call",
+      "pos": [
+        1200,
+        110
+      ],
+      "size": [
+        170,
+        66
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "platform-app - one deployable, modular monolith (ADR-001)",
+      "wraps": [
+        "config",
+        "tenancy",
+        "ingest",
+        "delivery",
+        "transform",
+        "routing"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "console-admin",
+      "from": "console",
+      "to": "config",
+      "label": "admin API"
+    },
+    {
+      "id": "console-login",
+      "from": "console",
+      "to": "keycloak",
+      "label": "log in (PKCE)",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "source-token",
+      "from": "source",
+      "to": "keycloak",
+      "label": "get token",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "source-call",
+      "from": "source",
+      "to": "ingest",
+      "label": "POST messages",
+      "variant": "emphasis"
+    },
+    {
+      "id": "tenancy-oidc",
+      "from": "tenancy",
+      "to": "keycloak",
+      "label": "JWKS, admin API",
+      "variant": "security"
+    },
+    {
+      "id": "ingest-tenant",
+      "from": "ingest",
+      "to": "tenancy",
+      "label": "bind tenant",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "config-tenant",
+      "from": "config",
+      "to": "tenancy",
+      "label": "roles",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "intake-tx",
+      "from": "ingest",
+      "to": "postgres",
+      "label": "one tx: message + outbox",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "relay",
+      "from": "postgres",
+      "to": "kafka",
+      "label": "relay: ids only",
+      "variant": "emphasis"
+    },
+    {
+      "id": "consume",
+      "from": "kafka",
+      "to": "routing",
+      "label": "stage 1 + stage 2",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "map",
+      "from": "routing",
+      "to": "transform",
+      "label": "transform port",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "classify",
+      "from": "routing",
+      "to": "delivery",
+      "label": "attempt + outcome"
+    },
+    {
+      "id": "persist",
+      "from": "delivery",
+      "to": "postgres",
+      "label": "delivery rows",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "send",
+      "from": "routing",
+      "to": "targets",
+      "label": "send, 5 controls",
+      "variant": "emphasis",
+      "labelDy": 26
+    },
+    {
+      "id": "telemetry",
+      "from": "routing",
+      "to": "observability",
+      "label": "metrics, spans",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One deployable",
+      "items": [
+        "Modules are Maven modules inside platform-app (ADR-001)",
+        "Camel only in platform-routing; ArchUnit fails the build otherwise (ADR-010)",
+        "Config written by the control plane, read as published versions only"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Tenant isolation",
+      "items": [
+        "Tenant from the credential via our DB, never a claim or header (ADR-007, T1)",
+        "RLS on every tenant table, stamped per transaction (ADR-009, T3-T4)",
+        "Exactly four definer functions cross the boundary (T5)"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Kafka carries work only",
+      "items": [
+        "Records carry ids; payloads stay in PostgreSQL (ADR-011 D7)",
+        "No retry or delay topics; unreadable records go to platform.poison (ADR-005)",
+        "platform-ledger and platform-audit read the same rows for tracking and audit"
+      ]
+    }
+  ]
+}

@@ -173,3 +173,5 @@ Every container image tag is pinned; every password comes from an environment va
 ## 8. Decisions
 
 See the [ADR index](adr/README.md).
+
+Diagrams (architecture, end-to-end flow, configuration workflow, delivery states): [diagrams/README.md](diagrams/README.md).

@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Integration Platform - Delivery States",
+    "output": "delivery-state.archify.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "happy",
+        "label": "First attempt succeeds",
+        "focus": [
+          "pending",
+          "sending",
+          "delivered"
+        ],
+        "note": "Stage 1 creates the delivery; stage 2 claims it and the classifier records SUCCESS (ADR-010 section 6)."
+      },
+      {
+        "id": "ordering",
+        "label": "Same-key ordering hold",
+        "focus": [
+          "pending",
+          "held",
+          "due"
+        ],
+        "note": "Held while an earlier same-key delivery for this target is not final (ADR-011 D6)."
+      },
+      {
+        "id": "recovery",
+        "label": "Retry and dead letter",
+        "focus": [
+          "sending",
+          "retry",
+          "dead",
+          "due"
+        ],
+        "note": "Layer 2 retry waits in the database; dead letters wait for an audited operator replay."
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Delivery path"
+    },
+    {
+      "id": "waits",
+      "label": "Waits and re-entry"
+    },
+    {
+      "id": "terminal",
+      "label": "Dead letter"
+    }
+  ],
+  "states": [
+    {
+      "id": "pending",
+      "type": "start",
+      "label": "PENDING",
+      "sublabel": "created",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "width": 96
+    },
+    {
+      "id": "sending",
+      "type": "active",
+      "label": "SENDING",
+      "sublabel": "claimed",
+      "lane": "main",
+      "col": 2,
+      "step": "02",
+      "width": 96
+    },
+    {
+      "id": "delivered",
+      "type": "success",
+      "label": "DELIVERED",
+      "sublabel": "terminal",
+      "lane": "main",
+      "col": 4,
+      "step": "03",
+      "width": 96
+    },
+    {
+      "id": "held",
+      "type": "waiting",
+      "label": "HELD",
+      "sublabel": "same key open",
+      "lane": "waits",
+      "col": 0,
+      "width": 96
+    },
+    {
+      "id": "due",
+      "type": "active",
+      "label": "DUE",
+      "sublabel": "ready",
+      "lane": "waits",
+      "col": 1,
+      "width": 96
+    },
+    {
+      "id": "retry",
+      "type": "failure",
+      "label": "RETRY_WAIT",
+      "sublabel": "waits in DB",
+      "lane": "waits",
+      "col": 2,
+      "width": 96
+    },
+    {
+      "id": "dead",
+      "type": "failure",
+      "label": "DEAD_LETTERED",
+      "sublabel": "until replay",
+      "lane": "terminal",
+      "col": 1,
+      "width": 96
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t-hold",
+      "from": "pending",
+      "to": "held",
+      "label": "same key open"
+    },
+    {
+      "id": "t-release",
+      "from": "held",
+      "to": "due",
+      "label": "release",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "t-claim",
+      "from": "due",
+      "to": "sending",
+      "label": "claim",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "channelY": 250
+    },
+    {
+      "id": "t-retry",
+      "from": "sending",
+      "to": "retry",
+      "label": "retryable",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "channelY": 218
+    },
+    {
+      "id": "t-redrive",
+      "from": "retry",
+      "to": "due",
+      "label": "re-drive",
+      "fromSide": "left",
+      "toSide": "right",
+      "route": "straight"
+    },
+    {
+      "id": "t-dead",
+      "from": "sending",
+      "to": "dead",
+      "label": "permanent",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "right",
+      "via": [
+        [
+          402,
+          96
+        ],
+        [
+          800,
+          96
+        ],
+        [
+          800,
+          479
+        ]
+      ]
+    },
+    {
+      "id": "t-replay",
+      "from": "dead",
+      "to": "due",
+      "label": "replay",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "route": "straight"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Main path",
+      "items": [
+        "PENDING to SENDING: stage 2 claims by conditional update; 0 rows = duplicate, acknowledged",
+        "SENDING to DELIVERED on SUCCESS; DUE to HELD also applies"
+      ]
+    },
+    {
+      "dot": "orange",
+      "title": "To RETRY_WAIT",
+      "items": [
+        "Transient after layer 1, circuit open, or ambiguous with idempotent receive",
+        "Stale claim (timeout + 60 s) goes to RETRY_WAIT or DEAD_LETTERED as ambiguous"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "To DEAD_LETTERED",
+      "items": [
+        "Permanent, attempts exhausted, or ambiguous without idempotent receive",
+        "Replay is audited and uses the versions pinned on arrival"
+      ]
+    }
+  ]
+}

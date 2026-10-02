@@ -1,0 +1,327 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Integration Platform - Configuration Workflow",
+    "output": "workflow.archify.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "build",
+        "label": "Configure as drafts",
+        "focus": [
+          "login",
+          "systems",
+          "contracts",
+          "approveContract",
+          "flow",
+          "mapping"
+        ],
+        "note": "Everything is rows: systems, contracts, flow, rules and mapping (PRD section 1, FR-03 to FR-07)."
+      },
+      {
+        "id": "approve",
+        "label": "Approve and publish",
+        "focus": [
+          "submit",
+          "approveBundle",
+          "rejected",
+          "publish"
+        ],
+        "note": "Change note, approver never the author, one-transaction publish (architecture.md 4.3)."
+      },
+      {
+        "id": "operate",
+        "label": "Monitor and replay",
+        "focus": [
+          "publish",
+          "monitor",
+          "replay"
+        ],
+        "note": "Timeline, dashboard and daily report; support replays dead letters, audited (FR-13, FR-15, FR-17)."
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "configurator",
+      "label": "Configurator (tenant admin for credentials)"
+    },
+    {
+      "id": "approver",
+      "label": "Approver - never the author"
+    },
+    {
+      "id": "platform",
+      "label": "Platform"
+    },
+    {
+      "id": "support",
+      "label": "Support"
+    },
+    {
+      "id": "refusals",
+      "label": "Refused or rejected",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "setup",
+      "label": "Log in + register",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "define",
+      "label": "Contracts, rules, mapping",
+      "fromCol": 2,
+      "toCol": 4,
+      "variant": "emphasis"
+    },
+    {
+      "id": "release",
+      "label": "Approve, publish, monitor",
+      "fromCol": 5,
+      "toCol": 5,
+      "variant": "security"
+    }
+  ],
+  "mainPath": [
+    "login",
+    "systems",
+    "contracts",
+    "approveContract",
+    "flow",
+    "mapping",
+    "submit",
+    "approveBundle",
+    "publish",
+    "monitor"
+  ],
+  "nodes": [
+    {
+      "id": "login",
+      "lane": "configurator",
+      "col": 0,
+      "type": "security",
+      "label": "Log in",
+      "sublabel": "console via Keycloak",
+      "width": 136
+    },
+    {
+      "id": "systems",
+      "lane": "configurator",
+      "col": 1,
+      "type": "frontend",
+      "label": "Register systems",
+      "sublabel": "source + targets, test",
+      "width": 136
+    },
+    {
+      "id": "contracts",
+      "lane": "configurator",
+      "col": 2,
+      "type": "frontend",
+      "label": "Contract versions",
+      "sublabel": "per target, e.g. v1.0",
+      "width": 136
+    },
+    {
+      "id": "flow",
+      "lane": "configurator",
+      "col": 3,
+      "type": "frontend",
+      "label": "Interface + rules",
+      "sublabel": "routes, validations",
+      "width": 136
+    },
+    {
+      "id": "mapping",
+      "lane": "configurator",
+      "col": 4,
+      "type": "frontend",
+      "label": "Mapping per target",
+      "sublabel": "tested on a sample",
+      "width": 136
+    },
+    {
+      "id": "submit",
+      "lane": "configurator",
+      "col": 5,
+      "type": "frontend",
+      "label": "Submit bundle",
+      "sublabel": "with change note",
+      "width": 136
+    },
+    {
+      "id": "approveContract",
+      "lane": "approver",
+      "col": 2,
+      "type": "security",
+      "label": "Approve version",
+      "sublabel": "then immutable",
+      "width": 136
+    },
+    {
+      "id": "approveBundle",
+      "lane": "approver",
+      "col": 5,
+      "type": "security",
+      "label": "Approve bundle",
+      "sublabel": "DB CHECK + 403",
+      "width": 136
+    },
+    {
+      "id": "publish",
+      "lane": "platform",
+      "col": 5,
+      "type": "backend",
+      "label": "Publish",
+      "sublabel": "one transaction",
+      "width": 136
+    },
+    {
+      "id": "monitor",
+      "lane": "support",
+      "col": 5,
+      "type": "database",
+      "label": "Monitor",
+      "sublabel": "timeline, dashboard",
+      "width": 136
+    },
+    {
+      "id": "replay",
+      "lane": "support",
+      "col": 4,
+      "type": "backend",
+      "label": "Replay dead letter",
+      "sublabel": "pinned versions",
+      "width": 136
+    },
+    {
+      "id": "rejected",
+      "lane": "refusals",
+      "col": 3,
+      "type": "external",
+      "label": "Rejected",
+      "sublabel": "comment, back to draft",
+      "width": 136
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-login",
+      "from": "login",
+      "to": "systems",
+      "role": "main"
+    },
+    {
+      "id": "e-systems",
+      "from": "systems",
+      "to": "contracts",
+      "role": "main"
+    },
+    {
+      "id": "e-contract-submit",
+      "from": "contracts",
+      "to": "approveContract",
+      "label": "submit",
+      "variant": "security",
+      "role": "main"
+    },
+    {
+      "id": "e-contract-ok",
+      "from": "approveContract",
+      "to": "flow",
+      "label": "approved",
+      "role": "main"
+    },
+    {
+      "id": "e-flow",
+      "from": "flow",
+      "to": "mapping",
+      "role": "main"
+    },
+    {
+      "id": "e-mapping",
+      "from": "mapping",
+      "to": "submit",
+      "role": "main"
+    },
+    {
+      "id": "e-submit",
+      "from": "submit",
+      "to": "approveBundle",
+      "label": "pending",
+      "variant": "security",
+      "role": "main"
+    },
+    {
+      "id": "e-approve",
+      "from": "approveBundle",
+      "to": "publish",
+      "label": "approve",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "e-publish",
+      "from": "publish",
+      "to": "monitor",
+      "label": "live",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "e-reject",
+      "from": "approveBundle",
+      "to": "rejected",
+      "label": "reject",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "e-redraft",
+      "from": "rejected",
+      "to": "flow",
+      "label": "redraft",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "id": "e-replay",
+      "from": "monitor",
+      "to": "replay",
+      "label": "dead letter",
+      "variant": "dashed",
+      "role": "branch"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Configuration is data",
+      "items": [
+        "Every step writes rows: 0 deploys, 0 migrations (PRD section 1)",
+        "Edits are drafts, never live; published versions are immutable"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Approval gates",
+      "items": [
+        "A contract version and a bundle each need an approver who is not the author",
+        "No change note, or the author approving: refused"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "After publish",
+      "items": [
+        "The data plane uses the new version on the next message",
+        "Any publish failure changes nothing (one transaction)"
+      ]
+    }
+  ]
+}
