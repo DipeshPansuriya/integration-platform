@@ -91,11 +91,17 @@ migration owner.
 
 ## Revisit if
 
+*Source: `ws/_memory/shared.md:145-146` (m-c45702, m-6c7ae2: ONE trusted pre-tenant path);
+`ws/_specs/f2-tenant-directory-rls-migration-draft.md:158-159` and `ws/_memory/shared.md:144`
+(m-a474d8: operator no-tenant login scope left open).*
+
 - A second pre-tenant lookup is needed (it must then be its own reviewed definer function - see
   ADR-011's background-work resolver, which follows this pattern).
 - Operator (no-tenant) login is designed.
 
 ## Update 2026-10-02 (rebuild, new - not part of the original record)
+
+*Added in the recreation - new team decision, for Dipesh's re-confirmation.*
 
 - The migration version numbers of the deleted build (V2, V3) are not carried over; the rebuild
   assigns its own Flyway numbers. The shape above is what is binding.

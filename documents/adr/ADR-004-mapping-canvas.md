@@ -64,6 +64,12 @@ licence reading and the effort estimate survive.
 
 ## Consequences
 
+*Source: `ws/_reports/2026-09-30-oss-rnd.md:57-61` (no candidate has the canvas; the schema trees and
+the expression model stay ours), `:150-159` (core MIT, Pro optional, about 60% of the mechanics
+saved; version currency checked 2026-09-30). When the next version-currency check runs (the
+start of the mapping phase) is **Added in the recreation** - new team decision, for Dipesh's
+re-confirmation.*
+
 - The UI depends on one MIT library for canvas mechanics; the mapping semantics stay ours.
 - Version currency is checked when the mapping phase starts.
 
@@ -71,6 +77,10 @@ licence reading and the effort estimate survive.
 trees, the link model and the expression emitter ourselves.
 
 ## Revisit if
+
+*Source: `ws/_reports/2026-09-30-oss-rnd.md:150-152` (the two facts checked: MIT licence, repository
+active and not archived); `ws/_specs/project-plan.md:112` (the drawn graph emits exactly the
+expression; ADR-006 is written before the canvas code).*
 
 - The `@xyflow/react` licence changes, or the core repository is archived.
 - ADR-006 chooses an engine whose expressions the graph cannot emit one-to-one.

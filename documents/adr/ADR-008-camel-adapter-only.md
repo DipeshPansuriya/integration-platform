@@ -55,7 +55,7 @@ workflow engines provides it: "their in-flight retry/execution model is the mism
 
 ## Reopen trigger (as originally written)
 
-*Source: m-6b1152 quoting ADR-008:93.*
+*Source: m-6b1152 (`ws/_memory/shared.md:62`) quoting ADR-008:93.*
 
 **"v2 scope pulled into v1."**
 

@@ -18,7 +18,8 @@ related:
 > 2026-10-02. This file is rebuilt from the approved plan and Dipesh's formal requirement
 > (`ws/_specs/project-plan.md:158`, provenance table). Each section names its source. Text marked
 > **Reading taken** or **Team default** is not in any source and waits for Dipesh's
-> re-confirmation. **The acceptance criteria are the plan's done-when, unchanged; where this file
+> re-confirmation, as does the section "Changing a rule" in rule.md (labelled **Added in the
+> recreation**). **The acceptance criteria are the plan's done-when, unchanged; where this file
 > and the approved plan differ, the plan wins.**
 
 Source paths starting `ws/` are in the hub repository, project workspace
@@ -90,6 +91,10 @@ both targets were configured through the application with 0 deploys and 0 migrat
 | Business key | The value that defines ordering and identity of a record (rule mandatory per interface) |
 
 ## 5. Functional requirements and acceptance criteria
+
+*Sources: per requirement in the right-hand column - the plan's done-when at
+`ws/_specs/project-plan.md:47-52`, `:103-120`, `:126-129`; lifecycle rules at
+`ws/_specs/f3-plan-brief.md:52-58`.*
 
 Each requirement's acceptance criteria are the done-when of the plan phase named; every item is
 test-first (a failing test before the code).

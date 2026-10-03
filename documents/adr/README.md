@@ -27,6 +27,18 @@ re-confirms each recreation; every decision stays reversible on his review.
 | [ADR-011](ADR-011-targets-contracts-bulk-ordering.md) | Target types, contract registry and version graph, bulk at intake, ordering, ids-only Kafka records, background tenant | Accepted (team, 2026-10-02) - Dipesh may reverse | New |
 | ADR-012 | Job scheduler | **Not yet written** - written in the scheduler phase, before its code | - |
 
+## Recreation additions waiting for Dipesh's re-confirmation
+
+Sections and items labelled **Added in the recreation** have no surviving hub source; each is a
+new team decision until Dipesh re-confirms it (ADR-001 as a whole is listed in the table above).
+
+- ADR-002 - Decision, item 7 (the published snapshot is one `jsonb` column)
+- ADR-002 - Revisit if (the point of measurement: end of the Release 1 load test)
+- ADR-003 - Rules carried with the decision, item 4 (contract validation runs before the rules)
+- ADR-004 - Rules carried with the decision, item 3 (each mapping bound to one source and one target contract version)
+- ADR-004 - Consequences (the next version-currency check runs at the start of the mapping phase)
+- ADR-009 - Update 2026-10-02 (rebuild, new - not part of the original record)
+
 ## Closed registers and where they live
 
 A list that other documents index into changes only through the ADR that owns it, and that ADR
