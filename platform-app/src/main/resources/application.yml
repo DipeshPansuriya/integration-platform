@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: integration-platform
+  # R07: connection settings come only from environment variable names; no value, no default.
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
