@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- Stack fixed by the approved plan: Java 25, Spring Boot 4.1.1, Camel 4.22.1, kafka-clients 4.3.1. -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.1</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>io.integrationplatform</groupId>
+  <artifactId>integration-platform-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>integration-platform-parent</name>
+  <description>Configuration-driven integration platform - parent build (modular monolith, ADR-001)</description>
+
+  <modules>
+    <module>platform-routing</module>
+    <module>platform-ingest</module>
+    <module>platform-app</module>
+  </modules>
+
+  <properties>
+    <java.version>25</java.version>
+    <maven.compiler.release>25</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <camel-spring-boot.version>4.22.1</camel-spring-boot.version>
+    <!-- The networknt version Camel 4.22.1 manages (camel-parent 4.22.1); the Camel Spring Boot BOM does not manage it. -->
+    <networknt-json-schema-validator.version>2.0.1</networknt-json-schema-validator.version>
+
+    <!-- Surefire (R03, R06): container tests are excluded unless -Pcontainer. -->
+    <surefire.groups></surefire.groups>
+    <surefire.excludedGroups>container</surefire.excludedGroups>
+    <!-- Empty default so @{argLine} resolves when no agent (e.g. JaCoCo) sets it. -->
+    <argLine></argLine>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.apache.camel.springboot</groupId>
+        <artifactId>camel-spring-boot-bom</artifactId>
+        <version>${camel-spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.networknt</groupId>
+        <artifactId>json-schema-validator</artifactId>
+        <version>${networknt-json-schema-validator.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-routing</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-ingest</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <!-- Every module resolves mockito-core, which the surefire argLine loads as a java agent. -->
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>dependency-paths</id>
+            <goals>
+              <goal>properties</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <groups>${surefire.groups}</groups>
+          <excludedGroups>${surefire.excludedGroups}</excludedGroups>
+          <argLine>@{argLine} -Duser.timezone=Etc/UTC -Xmx256m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true -javaagent:${org.mockito:mockito-core:jar}</argLine>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!-- ./mvnw -Pcontainer test runs ONLY the container group (one Docker suite at a time, R06). -->
+    <profile>
+      <id>container</id>
+      <properties>
+        <surefire.groups>container</surefire.groups>
+        <surefire.excludedGroups></surefire.excludedGroups>
+      </properties>
+    </profile>
+  </profiles>
+</project>
