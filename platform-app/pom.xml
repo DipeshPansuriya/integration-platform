@@ -24,6 +24,10 @@
       <artifactId>platform-ingest</artifactId>
     </dependency>
     <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-tenancy</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
@@ -65,6 +69,11 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <!-- The executable jar is attached as "-exec"; the main artifact stays a plain jar so arch-test can
+               scan platform-app's classes like every other module's (E1 seam, R08). -->
+          <classifier>exec</classifier>
+        </configuration>
       </plugin>
     </plugins>
   </build>

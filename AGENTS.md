@@ -30,7 +30,9 @@ When this file and a document disagree, the document wins.
 ## Modules
 
 Built today: `platform-app` (the deployable: wiring only, no business logic), `platform-routing`
-(the only Camel module) and `platform-ingest` (the common intake API, no Camel). The full module
+(the only Camel module), `platform-ingest` (the common intake API, no Camel), `platform-tenancy`
+(tenant context, bootstrap resolvers, row-level security) and the test-only `arch-test` (ArchUnit
+rules over every module's package). The full module
 list, with what each module owns and must not do, is
 [architecture.md section 2](documents/architecture.md).
 
