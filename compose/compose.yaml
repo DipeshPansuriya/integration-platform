@@ -1,0 +1,29 @@
+# Local development harness: PostgreSQL only (no application image is built yet).
+# R05: image pinned to the exact tag the tests use (TestImages.POSTGRES).
+# R07: no literal credential - every value comes from a variable; POSTGRES_PASSWORD has no default and compose
+#      refuses to start without it. Names are listed in compose.env.example; values live in the OS secret store.
+# Usage: docker compose -f compose/compose.yaml up -d   (one Docker suite at a time on the build PC, R06)
+name: integration-platform
+
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      TZ: Etc/UTC
+      PGTZ: Etc/UTC
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:
