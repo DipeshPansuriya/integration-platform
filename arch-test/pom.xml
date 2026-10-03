@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.integrationplatform</groupId>
+    <artifactId>integration-platform-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>arch-test</artifactId>
+  <name>arch-test</name>
+  <description>Test only - ArchUnit rules over every module's package (ADR-001 item 2, R08); never deployed</description>
+
+  <!-- E1 seam (arjun-fullstack): every production module is a dependency, so its classes are on the test
+       classpath and inside the rules' scope (io.integrationplatform..). A new module is added here in the
+       same change that adds it to the parent pom. -->
+  <dependencies>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-routing</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-ingest</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-tenancy</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-app</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>
