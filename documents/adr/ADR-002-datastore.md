@@ -77,7 +77,11 @@ Elasticsearch/OpenSearch, a distributed cache, free-text search inside payload b
 
 ## Consequences
 
-*Source: derived from the decision above; the measured lessons are in [rule.md](../rule.md).*
+*Source: `ws/_specs/f3-plan-brief.md:66`, `:67` (publish is one transaction), `:74`, `:168`
+(onboarding inserts rows); `ws/_specs/project-plan.md:104`, `:117` (partitions dropped by purge),
+`:229` (MongoDB and free-text search inside payloads out of scope); measured lessons
+`ws/_memory/shared.md:90` (m-af0e71), `:152` (m-13d1a2); otherwise derived from the decision
+above; the measured lessons are in [rule.md](../rule.md).*
 
 - Publish is one transaction; onboarding is inserts; both are testable on a running system.
 - PostgreSQL holds payloads (Kafka carries ids only - ADR-011), so database storage grows with
@@ -89,6 +93,11 @@ Elasticsearch/OpenSearch, a distributed cache, free-text search inside payload b
 write sharding. Free-text search inside payloads is out of scope.
 
 ## Revisit if
+
+*Source: `ws/_specs/f3-plan-brief.md:395` (OQ-08: payload size, volume and retention were open
+inputs); `ws/_specs/project-plan.md:117` (retention figures), `:229` (free-text search inside
+payloads out of scope). The point of measurement (end of the Release 1 load test) is
+**Added in the recreation** - new team decision, for Dipesh's re-confirmation.*
 
 - Payload storage passes what one PostgreSQL primary can hold within the retention window
   (measure at the end of Release 1 load test).

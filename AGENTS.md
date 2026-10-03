@@ -53,7 +53,8 @@ export JAVA_TOOL_OPTIONS=-Duser.timezone=Etc/UTC
 - Run **one Docker suite at a time** on the build machine, with the capped JVM flags in R06.
 - Dependency rules: `build-checks/check-dependency-tree.sh` and
   `build-checks/check-planted-violations.sh`; this file is checked by
-  `build-checks/check-agent-guidance.sh`.
+  `build-checks/check-agent-guidance.sh`; every section of the recreated documents names its
+  source, checked by `build-checks/check-provenance.sh`.
 
 ## Working rules (full text in [rule.md](documents/rule.md))
 

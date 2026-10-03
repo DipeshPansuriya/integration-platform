@@ -164,6 +164,14 @@ Every container image tag is pinned; every password comes from an environment va
 
 ## 7. Cross-cutting
 
+*Sources: `ws/_specs/project-plan.md:86`, `:115` (five controls on a target call, two retry layers);
+`:119`, `:202` (delivery-retry job; hold and release); `ws/_memory/shared.md:44` (m-8bcac7, the
+reconciler stays inside the delivery-retry job); `ws/_specs/project-plan.md:87`, `:117`
+(correlation id, `traceparent` on the outbox row, structured logs, masked fields); `:110`,
+`:115` (destination controls, test-connection audited and rate-limited). The alert thresholds
+and the full refused-range list come from ADR-005 and ADR-010 (team decisions Dipesh may
+reverse).*
+
 - **Resilient integration:** every call that leaves the process carries timeout, transient-only
   retry with backoff, jitter and a cap, one circuit breaker per dependency, a fallback, and
   metrics plus a trace span (ADR-010 section 8 for targets, which adds a per-target bulkhead;
@@ -182,6 +190,8 @@ Every container image tag is pinned; every password comes from an environment va
   File paths confined under a root; test-connection audited and rate-limited.
 
 ## 8. Decisions
+
+*Source: `ws/_specs/project-plan.md:156-169` (the provenance table that lists the ADRs).*
 
 See the [ADR index](adr/README.md).
 

@@ -26,6 +26,10 @@ stable key.
 
 ## Every rule is a MUST; each names how it is checked
 
+*Sources: per rule in the Source column; `ws/_specs/f3-plan-brief.md:348`, `:416` (R16);
+measured lessons `ws/_memory/shared.md:78` (m-d87df7), `:90` (m-af0e71), `:152` (m-13d1a2)
+(R03-R05).*
+
 | # | Rule | Checked by | Source |
 |---|---|---|---|
 | R01 | **Test first.** A failing test is written before the code that satisfies it; a task is done only when that test passes. Design and ADR tasks are doc-first instead | Review: the test's first commit precedes the code | `ws/_specs/project-plan.md:44`; `ws/_specs/work-breakdown.md:22-25` |
@@ -51,6 +55,9 @@ stable key.
 | R21 | **Diagrams stay in sync with the code** - every change that alters what a diagram shows updates and re-renders that diagram in the same change (full rule in the next section) | Arjun at lane integration; kavita-release-manager's per-phase judge (pass/fail) | Dipesh, 2026-10-03 (ledger row 278) |
 
 ## Diagrams stay in sync with the code
+
+*Sources: `ws/_memory/shared.md:31` (m-6e130a, the rule recorded as R21); `ws/_specs/backlog.md:31-35`
+(the Definition of Done line).*
 
 *Source: Dipesh, 2026-10-03 (ledger row 278): "All diagrams are detail level, and we have to make
 sure if anything changes in the code during development, all diagrams are also updated."* This
@@ -100,6 +107,8 @@ touch more than one):
 Re-render command and folder conventions: [diagrams/README.md](diagrams/README.md).
 
 ## Changing a rule
+
+*Added in the recreation - new team decision, for Dipesh's re-confirmation.*
 
 A rule changes by a commit to this file that names the reason and the source; a rule that
 comes from an ADR changes only with that ADR.

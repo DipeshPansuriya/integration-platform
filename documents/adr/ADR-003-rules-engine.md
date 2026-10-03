@@ -80,6 +80,10 @@ over the editor's release cadence.
 
 ## Revisit if
 
+*Source: `ws/_reports/2026-09-30-oss-rnd.md:119-125` (future releases behind a paid wall; about 6
+months with no release arms the fallback), `:98`, `:198-201` ("ZEN everywhere" is what the
+ADR-006 spike decides); `ws/_specs/project-plan.md:112` (the spike's five breaking cases).*
+
 - jdm-editor has no release for 6 months, or its licence changes on a future release.
 - The ADR-006 spike shows ZEN expressions pass all five mapping cases (then one language may
   replace two).
