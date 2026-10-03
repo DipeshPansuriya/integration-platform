@@ -30,6 +30,8 @@
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <camel-spring-boot.version>4.22.1</camel-spring-boot.version>
+    <!-- Overrides Boot's managed 4.2.1: the one kafka-clients version Camel 4.22.1 is built on (plan:198, R12). -->
+    <kafka.version>4.3.1</kafka.version>
     <!-- The networknt version Camel 4.22.1 manages (camel-parent 4.22.1); the Camel Spring Boot BOM does not manage it. -->
     <networknt-json-schema-validator.version>2.0.1</networknt-json-schema-validator.version>
 
@@ -53,6 +55,13 @@
         <groupId>com.networknt</groupId>
         <artifactId>json-schema-validator</artifactId>
         <version>${networknt-json-schema-validator.version}</version>
+      </dependency>
+      <!-- dependencyConvergence: camel-kafka asks for 1.11.1, kafka-clients 4.3.1 for 1.10.2; Maven already
+           resolves 1.11.1 (nearest wins), this entry only makes that one version explicit. -->
+      <dependency>
+        <groupId>at.yawk.lz4</groupId>
+        <artifactId>lz4-java</artifactId>
+        <version>1.11.1</version>
       </dependency>
       <dependency>
         <groupId>io.integrationplatform</groupId>
@@ -78,6 +87,41 @@
 
   <build>
     <plugins>
+      <!-- T-087, R12: the dependency rules fail the build at validate (planted violations: build-checks/). -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce-stack-rules</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <requireJavaVersion>
+                  <version>[25,)</version>
+                </requireJavaVersion>
+                <bannedDependencies>
+                  <message>R12: spring-kafka is never allowed; kafka-clients only at ${kafka.version}; networknt json-schema-validator only at ${networknt-json-schema-validator.version}.</message>
+                  <searchTransitive>true</searchTransitive>
+                  <excludes>
+                    <exclude>org.springframework.kafka</exclude>
+                    <exclude>org.apache.kafka:kafka-clients</exclude>
+                    <exclude>com.networknt:json-schema-validator</exclude>
+                  </excludes>
+                  <includes>
+                    <include>org.apache.kafka:kafka-clients:[${kafka.version}]</include>
+                    <include>com.networknt:json-schema-validator:[${networknt-json-schema-validator.version}]</include>
+                  </includes>
+                </bannedDependencies>
+                <dependencyConvergence/>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-dependency-plugin</artifactId>
