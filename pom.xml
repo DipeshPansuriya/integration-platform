@@ -20,6 +20,9 @@
   <description>Configuration-driven integration platform - parent build (modular monolith, ADR-001)</description>
 
   <modules>
+    <!-- E2 seam (arjun-fullstack): shared value types (no Spring, no other module) and Delivery persistence. -->
+    <module>platform-domain</module>
+    <module>platform-delivery</module>
     <module>platform-routing</module>
     <module>platform-ingest</module>
     <module>platform-tenancy</module>
@@ -77,6 +80,16 @@
         <groupId>at.yawk.lz4</groupId>
         <artifactId>lz4-java</artifactId>
         <version>1.11.1</version>
+      </dependency>
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-domain</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-delivery</artifactId>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>io.integrationplatform</groupId>

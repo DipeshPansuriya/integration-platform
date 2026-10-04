@@ -18,6 +18,16 @@
   <dependencies>
     <dependency>
       <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-domain</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-delivery</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
       <artifactId>platform-routing</artifactId>
       <scope>test</scope>
     </dependency>

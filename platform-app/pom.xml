@@ -17,6 +17,14 @@
   <dependencies>
     <dependency>
       <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-domain</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-delivery</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
       <artifactId>platform-routing</artifactId>
     </dependency>
     <dependency>

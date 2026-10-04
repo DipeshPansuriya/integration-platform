@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.integrationplatform</groupId>
+    <artifactId>integration-platform-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>platform-delivery</artifactId>
+  <name>platform-delivery</name>
+  <description>Data plane - Delivery and attempt persistence, outcome classifier, retry policy, the polling re-drive trigger (delivery-retry job); sends nothing itself</description>
+
+  <!-- E2 seam (arjun-fullstack): lane C (delivery tables, repository, claim) and lane B (retry trigger and policy)
+       both build in this module; no lane edits this pom in E2. -->
+  <dependencies>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-domain</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-tenancy</artifactId>
+    </dependency>
+    <!-- The re-drive writes the delivery's outbox row through the ingest port (architecture.md 4.1 step 13). -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-ingest</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-flyway</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- Container tests (@Tag("container"), -Pcontainer only; R03, R06). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-flyway-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>
