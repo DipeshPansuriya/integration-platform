@@ -12,6 +12,9 @@ import java.util.Date;
 import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -35,6 +38,7 @@ import org.springframework.test.web.servlet.ResultActions;
                 type = FilterType.REGEX, pattern = "io\\.integrationplatform\\.tenancy\\.internal\\.web\\.MeController"),
         properties = "spring.config.import=optional:classpath:config/tenancy-security.yml")
 @Import({TenancySecurityConfiguration.class, TokenValidationTest.FakeBootstrapConfig.class})
+@ExtendWith(OutputCaptureExtension.class)
 class TokenValidationTest {
 
     static final LocalIssuer ISSUER = LocalIssuer.start();
@@ -96,7 +100,7 @@ class TokenValidationTest {
 
     @Test
     void aTokenExpiredWithinTheSixtySecondSkewIsStillAccepted() throws Exception {
-        callMe(ISSUER.rs256(ISSUER.claims(ALICE, c -> c.expirationTime(secondsFromNow(-30)))))
+        callMe(ISSUER.rs256(ISSUER.claims(ALICE, c -> c.issueTime(secondsFromNow(-330)).expirationTime(secondsFromNow(-30)))))
                 .andExpect(status().isOk());
     }
 
@@ -132,7 +136,7 @@ class TokenValidationTest {
 
     @Test
     void aTokenExpiredBeyondTheSixtySecondSkewIsRejected() throws Exception {
-        rejected(ISSUER.rs256(ISSUER.claims(ALICE, c -> c.expirationTime(secondsFromNow(-120)))));
+        rejected(ISSUER.rs256(ISSUER.claims(ALICE, c -> c.issueTime(secondsFromNow(-420)).expirationTime(secondsFromNow(-120)))));
     }
 
     @Test
@@ -143,5 +147,20 @@ class TokenValidationTest {
     @Test
     void aTokenNotYetValidBeyondTheSkewIsRejected() throws Exception {
         rejected(ISSUER.rs256(ISSUER.claims(ALICE, c -> c.notBeforeTime(secondsFromNow(120)))));
+    }
+
+    // E1-F1-S1 "No identity, no tenant": a token that fails validation is no identity either.
+
+    @Test
+    void anInvalidTokenWithATenantQueryGets401AndIsRecordedAsNoIdentity(CapturedOutput output) throws Exception {
+        bootstrap.calls.clear();
+        mvc.perform(get("/api/test/rows").header("Authorization", "Bearer not-a-jwt").queryParam("tenant", "tenant-b"))
+                .andExpect(status().isUnauthorized());
+        org.assertj.core.api.Assertions.assertThat(bootstrap.calls).isEmpty();
+        org.assertj.core.api.Assertions.assertThat(output.getAll().lines()
+                        .filter(l -> l.contains("event=tenant.denied")).toList())
+                .singleElement().satisfies(line -> org.assertj.core.api.Assertions.assertThat(line)
+                        .contains("channel=NO_IDENTITY", "boundTenant=null"));
+        org.assertj.core.api.Assertions.assertThat(output.getAll()).doesNotContain("tenant-b");
     }
 }

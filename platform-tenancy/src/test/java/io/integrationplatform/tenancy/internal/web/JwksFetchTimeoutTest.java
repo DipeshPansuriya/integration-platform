@@ -18,8 +18,9 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * ADR-007 Decision 4: the JWKS fetch carries a 2 s timeout. The loopback provider answers its key set only after 6 s;
- * the request must give up after about 2 s and must not be accepted. (Retry, circuit breaker and metrics for the
+ * ADR-007 Decision 4: the JWKS fetch carries a 2 s timeout. The loopback provider answers its key set only after 30 s;
+ * the request must give up after about 2 s (bound 8 s, so a loaded build PC does not flake; a 10 s timeout or none
+ * fails it) and must not be accepted. (Retry, circuit breaker and metrics for the
  * identity provider come with the login phase - see the hand-off's Limits.)
  */
 @WebMvcTest(
@@ -55,7 +56,7 @@ class JwksFetchTimeoutTest {
 
     @Test
     void aSlowKeySetFetchGivesUpAfterTwoSecondsAndAcceptsNothing() {
-        ISSUER.delayKeys(Duration.ofSeconds(6));
+        ISSUER.delayKeys(Duration.ofSeconds(30));
         String token = ISSUER.rs256(ISSUER.claims(ALICE, c -> { }));
 
         long started = System.nanoTime();
@@ -69,6 +70,6 @@ class JwksFetchTimeoutTest {
         Duration took = Duration.ofNanos(System.nanoTime() - started);
 
         assertThat(status).isNotEqualTo(200);
-        assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(1500)).isLessThan(Duration.ofMillis(4500));
+        assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(1500)).isLessThan(Duration.ofSeconds(8));
     }
 }

@@ -1,0 +1,14 @@
+# Lane B (T-001): the OIDC resource server (ADR-007 Decision 4), imported by platform-app's application.yml.
+# Only environment variable NAMES (R07) and no default: without OIDC_ISSUER_URI and OIDC_AUDIENCE the application does
+# not start (fail closed). The 60 s clock skew and the 2 s JWKS fetch timeout are fixed by ADR-007 in
+# TenancySecurityConfiguration; any algorithm other than RS256 and ES256 is refused at start-up.
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER_URI}
+          audiences: ${OIDC_AUDIENCE}
+          jws-algorithms:
+            - RS256
+            - ES256

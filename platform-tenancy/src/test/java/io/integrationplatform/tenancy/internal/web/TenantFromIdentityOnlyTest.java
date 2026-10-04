@@ -176,6 +176,17 @@ class TenantFromIdentityOnlyTest {
     }
 
     @Test
+    void aBodyLargerThanTheInspectedPartStillReachesTheControllerWhole(CapturedOutput output) throws Exception {
+        String body = "{\"tenantId\":\"" + TENANT_B + "\",\"pad\":\"" + "x".repeat(300 * 1024) + "\",\"name\":\"tail\"}";
+        mvc.perform(post("/api/test/rows/search").with(signedIn(ALICE))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows[*].tenantId", everyItem(is(TENANT_A.toString()))))
+                .andExpect(jsonPath("$.echoName").value("tail"));
+        assertThat(denials(output)).singleElement().satisfies(line -> assertThat(line).contains("channel=BODY_FIELD"));
+    }
+
+    @Test
     void aForgedTenantIdQueryParameterIsIgnoredAndRecorded(CapturedOutput output) throws Exception {
         mvc.perform(get("/api/test/rows").with(signedIn(ALICE)).queryParam("tenantId", TENANT_B.toString()))
                 .andExpect(status().isOk())
@@ -232,17 +243,7 @@ class TenantFromIdentityOnlyTest {
                 .contains("channel=NO_IDENTITY", "boundTenant=null"));
     }
 
-    @Test
-    void anUnauthenticatedRequestWithAnInvalidTokenAndATenantQueryGets401AndIsRecorded(CapturedOutput output)
-            throws Exception {
-        mvc.perform(get("/api/test/rows").header("Authorization", "Bearer not-a-jwt")
-                        .queryParam("tenant", "tenant-b"))
-                .andExpect(status().isUnauthorized());
-        assertThat(bootstrap.calls).isEmpty();
-        assertThat(TenantRowsProbeController.READS).hasValue(0);
-        assertThat(denials(output)).singleElement().satisfies(line -> assertThat(line)
-                .contains("channel=NO_IDENTITY"));
-    }
+    // An invalid token carrying a tenant field: TokenValidationTest (it needs a reachable issuer).
 
     @Test
     void anUnauthenticatedRequestWithoutATenantFieldGets401AndIsNotRecorded(CapturedOutput output)

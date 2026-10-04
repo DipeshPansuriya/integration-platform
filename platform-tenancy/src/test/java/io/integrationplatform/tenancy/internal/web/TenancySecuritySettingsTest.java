@@ -74,6 +74,10 @@ class TenancySecuritySettingsTest {
                         JWT + "jws-algorithms[0]=RS256", JWT + "jws-algorithms[1]=HS256")
                 .run(context -> assertThat(context).hasFailed()
                         .getFailure().rootCause().hasMessageContaining("HS256"));
+        runner.withPropertyValues("OIDC_ISSUER_URI=http://127.0.0.1:9/realms/platform", "OIDC_AUDIENCE=platform-api",
+                        JWT + "jws-algorithms[0]=RS256", JWT + "jws-algorithms[1]=RS512")
+                .run(context -> assertThat(context).hasFailed()
+                        .getFailure().rootCause().hasMessageContaining("RS512"));
     }
 
     @Test
