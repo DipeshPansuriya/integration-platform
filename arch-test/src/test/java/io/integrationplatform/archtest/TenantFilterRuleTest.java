@@ -104,10 +104,12 @@ class TenantFilterRuleTest {
 
     @Test
     void reviewedBoundaryCrossingsInTenancyInternalPass() {
-        JavaClasses crossings = new ClassFileImporter()
-                .importPackages(FIXTURES + ".tenancy.internal.archfixture.crossing");
+        // The compliant class keeps the rule's that() clause non-empty: both crossings are exempt from it.
+        JavaClasses crossings = new ClassFileImporter().importPackages(
+                FIXTURES + ".tenancy.internal.archfixture.crossing",
+                FIXTURES + ".config.archfixture.compliant");
 
-        assertThat(crossings.size()).isEqualTo(2);
+        assertThat(crossings.size()).isEqualTo(3);
         TenantFilterRule.NO_QUERY_WITHOUT_TENANT_FILTER.check(crossings);
         TenantFilterRule.BOUNDARY_CROSSINGS_ARE_REVIEWED.check(crossings);
     }

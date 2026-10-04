@@ -134,6 +134,7 @@ class TenantScopedRepositoryContainerTest {
         assertThatThrownBy(() -> jdbcClient.sql("select title from lane_a_fixture_note where tenant_id = :tenant_id")
                 .param("tenant_id", TENANT_A.toString()).query(String.class).list())
                 .isInstanceOf(DataAccessException.class)
+                .rootCause()
                 .hasMessageContaining("operator does not exist: uuid = character varying");
     }
 }
