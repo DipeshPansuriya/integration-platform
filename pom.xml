@@ -39,6 +39,9 @@
     <networknt-json-schema-validator.version>2.0.1</networknt-json-schema-validator.version>
     <!-- ArchUnit is named by ADR-001 item 2 and architecture.md section 2 (arch-test); not managed by Boot. -->
     <archunit.version>1.4.2</archunit.version>
+    <!-- R13 / ADR-010:59: the platform's one resilience library, at the version Camel 4.22.1 manages for
+         camel-resilience4j; camel-spring-boot-bom does not manage the plain modules. -->
+    <resilience4j.version>2.4.0</resilience4j.version>
 
     <!-- Surefire (R03, R06): container tests are excluded unless -Pcontainer. -->
     <surefire.groups></surefire.groups>
@@ -53,6 +56,13 @@
         <groupId>org.apache.camel.springboot</groupId>
         <artifactId>camel-spring-boot-bom</artifactId>
         <version>${camel-spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.github.resilience4j</groupId>
+        <artifactId>resilience4j-bom</artifactId>
+        <version>${resilience4j.version}</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
