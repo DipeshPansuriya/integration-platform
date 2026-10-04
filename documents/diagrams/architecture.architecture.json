@@ -43,7 +43,8 @@
           "keycloak",
           "tenancy",
           "ingest",
-          "postgres"
+          "postgres",
+          "arch-test"
         ],
         "note": "Tenant bound from our database, never from a token, body, header or Kafka record (T1-T6)."
       }
@@ -235,12 +236,27 @@
       "sublabel": "metrics, trace per call",
       "pos": [
         1200,
-        90
+        210
       ],
       "size": [
         170,
         66
       ]
+    },
+    {
+      "id": "arch-test",
+      "type": "backend",
+      "label": "arch-test (build time)",
+      "sublabel": "ArchUnit, Modulith rules",
+      "pos": [
+        1200,
+        90
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "R08"
     }
   ],
   "boundaries": [
@@ -294,8 +310,9 @@
       "id": "tenancy-oidc",
       "from": "tenancy",
       "to": "keycloak",
-      "label": "JWKS, admin API",
-      "variant": "security"
+      "label": "JWKS, admin API, 5 controls",
+      "variant": "security",
+      "labelDy": -27
     },
     {
       "id": "ingest-tenant",
@@ -387,6 +404,24 @@
       "to": "observability",
       "label": "metrics, spans",
       "variant": "dashed"
+    },
+    {
+      "id": "tenancy-telemetry",
+      "from": "tenancy",
+      "to": "observability",
+      "label": "metrics, spans",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "arch-scan",
+      "from": "arch-test",
+      "to": "config",
+      "label": "scans every module (build only)",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "right"
     }
   ],
   "cards": [
@@ -404,6 +439,7 @@
       "title": "Tenant isolation",
       "items": [
         "Tenant from the credential via our DB, never a claim or header (ADR-007, T1)",
+        "Every query via TenantScopedRepository (R08, T2)",
         "RLS on every tenant table, stamped per transaction (ADR-009, T3-T4)",
         "Exactly four definer functions cross the boundary (T5)"
       ]
