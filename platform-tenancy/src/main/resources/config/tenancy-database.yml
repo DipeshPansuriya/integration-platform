@@ -1,0 +1,8 @@
+# Lane C (E1, T-005 / T-157). Imported by platform-app's application.yml (optional:classpath:config/tenancy-database.yml).
+# Flyway runs as the schema owner - a separate login that owns the tables and the definer function (ADR-009 Decision 3).
+# The application connects as its restricted login (spring.datasource.* in application.yml), a member of the NOLOGIN
+# role ipaas_app that the migrations create. R07: environment variable names only - no value, no default.
+spring:
+  flyway:
+    user: ${DB_MIGRATION_USERNAME}
+    password: ${DB_MIGRATION_PASSWORD}

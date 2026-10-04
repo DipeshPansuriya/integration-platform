@@ -317,6 +317,16 @@
       "labelDy": 24
     },
     {
+      "id": "tenant-directory",
+      "from": "tenancy",
+      "to": "postgres",
+      "label": "login bootstrap, per-tx stamp",
+      "labelDy": 53,
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
       "id": "intake-tx",
       "from": "ingest",
       "to": "postgres",
