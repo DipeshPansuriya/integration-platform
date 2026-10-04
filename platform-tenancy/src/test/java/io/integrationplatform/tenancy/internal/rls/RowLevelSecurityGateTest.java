@@ -168,7 +168,11 @@ class RowLevelSecurityGateTest {
                 try (Statement sql = app.createStatement()) {
                     sql.execute(write);
                 } catch (SQLException e) {
-                    if (PERMISSION_DENIED.equals(e.getSQLState())) {
+                    // 42501 is also the SQLSTATE of a row-level security WITH CHECK violation; only the grant
+                    // refusal ("permission denied for table") counts, so a granted write the policy happens to
+                    // stop does not pass this gate.
+                    if (PERMISSION_DENIED.equals(e.getSQLState())
+                            && e.getMessage().contains("permission denied for table tenant")) {
                         refused++;
                     }
                 }
