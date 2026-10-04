@@ -36,6 +36,12 @@ enum Forgery {
         return channel;
     }
 
+    /** Test reports name the Examples row, so each result traces to the Gherkin. */
+    @Override
+    public String toString() {
+        return example;
+    }
+
     /** Header and query parameter fit every endpoint, a body field only a body-accepting one, a path id only {id}. */
     boolean fits(EndpointMatrix.Entry entry) {
         return switch (this) {
