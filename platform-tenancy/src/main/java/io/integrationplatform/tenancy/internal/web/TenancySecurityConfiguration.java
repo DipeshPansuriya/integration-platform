@@ -5,6 +5,7 @@ import io.integrationplatform.tenancy.internal.principal.RequestTenantContext;
 import io.integrationplatform.tenancy.port.LoginBootstrap;
 import io.integrationplatform.tenancy.port.TenantDenialRecorder;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.util.Arrays;
@@ -12,23 +13,26 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtDecoderInitializationException;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
 import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
@@ -48,8 +52,13 @@ import org.springframework.web.client.RestTemplate;
  *       everything else is denied.</li>
  *   <li>Tokens: issuer and audience from {@code OIDC_ISSUER_URI} / {@code OIDC_AUDIENCE} (tenancy-security.yml, no
  *       default - the application does not start without them), RS256 and ES256 only, {@code exp} required, at most
- *       60 s clock skew, keys from the issuer's JWKS fetched with a 2 s timeout. 401 and 403 are final; nothing
- *       retries them.</li>
+ *       60 s clock skew, keys from the issuer's JWKS. 401 and 403 are final; nothing retries them.</li>
+ *   <li>Every identity-provider call (discovery, JWKS) carries the five controls of R13 / ADR-007 Decision 4:
+ *       (1) a 2 s timeout; (2) retry of transient failures only, with exponential backoff, jitter and a cap;
+ *       (3) one circuit breaker {@code identity-provider}; (4) a fallback - the last fetched keys keep validating
+ *       while the provider is unreachable; (5) metrics and a trace span ({@link IdentityProviderClient},
+ *       {@link OutageTolerantKeySetCache}; settings {@code platform.tenancy.identity-provider.*}). A provider that
+ *       cannot be reached with no matching cached key means 401, never a 5xx.</li>
  *   <li>After authentication {@link PrincipalTenantResolver} binds the tenant through the login bootstrap; then
  *       {@link TenantForgeryFilter} records any tenant the request names itself.</li>
  * </ul>
@@ -90,14 +99,18 @@ class TenancySecurityConfiguration {
     }
 
     @Bean
-    JwtDecoder tenancyJwtDecoder(Environment environment) {
+    JwtDecoder tenancyJwtDecoder(Environment environment, ObjectProvider<MeterRegistry> meters,
+            ObjectProvider<ObservationRegistry> observations) {
         String issuer = required(environment, ISSUER_URI);
         List<String> audiences = Arrays.stream(required(environment, AUDIENCES).split(","))
                 .map(String::strip).filter(a -> !a.isEmpty()).toList();
         Set<SignatureAlgorithm> algorithms = allowedAlgorithms(Binder.get(environment)
                 .bind(JWS_ALGORITHMS, Bindable.listOf(String.class))
                 .orElseThrow(() -> new IllegalStateException(JWS_ALGORITHMS + " is required")));
-        return jwtDecoder(issuer, audiences, algorithms);
+        // Without actuator (platform-tenancy tests) nothing is recorded; platform-app's registries are picked up.
+        return jwtDecoder(issuer, audiences, algorithms, IdentityProviderSettings.from(environment),
+                meters.getIfAvailable(CompositeMeterRegistry::new),
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP));
     }
 
     @Bean
@@ -110,14 +123,14 @@ class TenancySecurityConfiguration {
         return new LoggingTenantDenialRecorder();
     }
 
-    /** R13 skeleton (red commit): the settings and registries are not applied yet. */
+    /**
+     * Lazy: nothing is fetched from the identity provider until the first token arrives; a failed discovery is tried
+     * again on the next token (only a successful one is kept). Discovery and JWKS both go through
+     * {@link IdentityProviderClient}; keys live in the {@link OutageTolerantKeySetCache}. When the provider cannot be
+     * reached and no cached key matches, the token is refused as invalid (401) - never accepted, never a 5xx.
+     */
     static JwtDecoder jwtDecoder(String issuer, List<String> audiences, Set<SignatureAlgorithm> algorithms,
             IdentityProviderSettings settings, MeterRegistry meters, ObservationRegistry observations) {
-        return jwtDecoder(issuer, audiences, algorithms);
-    }
-
-    /** Lazy: nothing is fetched from the identity provider until the first token arrives. */
-    static JwtDecoder jwtDecoder(String issuer, List<String> audiences, Set<SignatureAlgorithm> algorithms) {
         JwtTimestampValidator timestamps = new JwtTimestampValidator(MAX_CLOCK_SKEW);
         timestamps.setAllowEmptyExpiryClaim(false);
         OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
@@ -125,21 +138,31 @@ class TenancySecurityConfiguration {
                 new JwtIssuerValidator(issuer),
                 new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
                         aud -> aud != null && !Collections.disjoint(aud, audiences)));
-        SimpleClientHttpRequestFactory requests = new SimpleClientHttpRequestFactory();
-        requests.setConnectTimeout(JWKS_TIMEOUT);
-        requests.setReadTimeout(JWKS_TIMEOUT);
-        RestTemplate rest = new RestTemplate(requests);
-        return new SupplierJwtDecoder(() -> {
-            NimbusJwtDecoder decoder = NimbusJwtDecoder.withIssuerLocation(issuer)
+        RestTemplate rest = IdentityProviderClient.restTemplate(settings, meters, observations);
+        OutageTolerantKeySetCache keys =
+                new OutageTolerantKeySetCache(settings.keySetTtl(), settings.keySetFallbackMaxAge());
+        JwtDecoder decoder = new SupplierJwtDecoder(() -> {
+            NimbusJwtDecoder nimbus = NimbusJwtDecoder.withIssuerLocation(issuer)
                     .restOperations(rest)
+                    .cache(keys)
                     .jwsAlgorithms(allowed -> {
                         allowed.clear();
                         allowed.addAll(algorithms);
                     })
                     .build();
-            decoder.setJwtValidator(validator);
-            return decoder;
+            nimbus.setJwtValidator(validator);
+            return nimbus;
         });
+        return token -> {
+            try {
+                return decoder.decode(token);
+            } catch (BadJwtException invalid) {
+                throw invalid;
+            } catch (JwtException | JwtDecoderInitializationException providerUnavailable) {
+                throw new BadJwtException("The token cannot be verified: the identity provider is unavailable",
+                        providerUnavailable);
+            }
+        };
     }
 
     private static String required(Environment environment, String key) {

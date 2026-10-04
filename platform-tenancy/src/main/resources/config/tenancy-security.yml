@@ -12,3 +12,19 @@ spring:
           jws-algorithms:
             - RS256
             - ES256
+
+# R13 / ADR-007 Decision 4: the controls on every identity-provider call (discovery, JWKS). No secret here - the
+# values below are the defaults of IdentityProviderSettings, written out so an operator sees them. The 2 s timeout is
+# fixed by ADR-007 and is not a setting.
+platform:
+  tenancy:
+    identity-provider:
+      retry-max-attempts: 3            # first attempt included; transient failures only (refused, connect timeout, 429, 502-504)
+      retry-initial-backoff: 200ms     # exponential random backoff ...
+      retry-multiplier: 2.0
+      retry-randomization: 0.5         # ... with +/- 50 % jitter ...
+      retry-max-backoff: 2s            # ... and a cap
+      breaker-failure-threshold: 5     # consecutive failed calls that open the one 'identity-provider' breaker
+      breaker-wait-in-open: 30s        # then one half-open trial
+      key-set-ttl: 5m                  # keys are fetched again after this
+      key-set-fallback-max-age: 1h     # last fetched keys keep validating this long while the provider is down
