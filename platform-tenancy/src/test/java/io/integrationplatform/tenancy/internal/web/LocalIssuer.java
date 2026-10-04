@@ -28,13 +28,19 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.stream.IntStream;
 
 /**
  * A minimal OpenID provider on the loopback interface for the token-validation tests (no Keycloak in E1, ADR-007
  * Decision 1): it serves the discovery document and the JWKS of one RSA and one EC key, and signs test tokens. No
- * network outside the test JVM, no container.
+ * network outside the test JVM, no container. For the R13 fault tests it counts the requests per endpoint and answers a
+ * programmed status sequence (for example 503, 503, then 200).
  */
 final class LocalIssuer implements AutoCloseable {
 
@@ -44,23 +50,42 @@ final class LocalIssuer implements AutoCloseable {
     private final RSAKey rsa;
     private final ECKey ec;
     private final RSAKey stranger;
+    private final RSAKey unpublished;
     private volatile Duration keysDelay = Duration.ZERO;
+    private final Endpoint discovery = new Endpoint();
+    private final Endpoint keys = new Endpoint();
+
+    /** One provider endpoint: a request counter, arrival times and the statuses it answers. */
+    private static final class Endpoint {
+        final AtomicInteger requests = new AtomicInteger();
+        final List<Long> arrivals = new CopyOnWriteArrayList<>();
+        final Queue<Integer> script = new ConcurrentLinkedQueue<>();
+        volatile int status = 200;
+
+        int next() {
+            requests.incrementAndGet();
+            arrivals.add(System.nanoTime());
+            Integer scripted = script.poll();
+            return scripted != null ? scripted : status;
+        }
+    }
 
     private LocalIssuer() throws Exception {
         rsa = new RSAKeyGenerator(2048).keyID("rsa-1").generate();
         ec = new ECKeyGenerator(Curve.P_256).keyID("ec-1").generate();
         stranger = new RSAKeyGenerator(2048).keyID("rsa-1").generate();
+        unpublished = new RSAKeyGenerator(2048).keyID("rsa-unpublished").generate();
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.setExecutor(Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "local-issuer");
             t.setDaemon(true);
             return t;
         }));
-        server.createContext(REALM_PATH + "/.well-known/openid-configuration", exchange -> answer(exchange, Duration.ZERO,
+        server.createContext(REALM_PATH + "/.well-known/openid-configuration", exchange -> answer(exchange, discovery, Duration.ZERO,
                 "{\"issuer\":\"" + issuer() + "\",\"jwks_uri\":\"" + issuer() + "/protocol/openid-connect/certs\","
                         + "\"subject_types_supported\":[\"public\"],"
                         + "\"id_token_signing_alg_values_supported\":[\"RS256\",\"ES256\"]}"));
-        server.createContext(REALM_PATH + "/protocol/openid-connect/certs", exchange -> answer(exchange, keysDelay,
+        server.createContext(REALM_PATH + "/protocol/openid-connect/certs", exchange -> answer(exchange, keys, keysDelay,
                 new JWKSet(List.of(rsa.toPublicJWK(), ec.toPublicJWK())).toString()));
         server.start();
     }
@@ -80,6 +105,41 @@ final class LocalIssuer implements AutoCloseable {
     /** The JWKS answer waits this long first - the JWKS fetch timeout test. */
     void delayKeys(Duration delay) {
         this.keysDelay = delay;
+    }
+
+    /** The next discovery answers, in order (for example 503, 503); afterwards {@link #discoveryStatus}. */
+    void scriptDiscovery(Integer... statuses) {
+        discovery.script.addAll(List.of(statuses));
+    }
+
+    /** The next JWKS answers, in order (for example 503, 503); afterwards {@link #keysStatus}. */
+    void scriptKeys(Integer... statuses) {
+        keys.script.addAll(List.of(statuses));
+    }
+
+    /** Every later discovery answer has this status (200 = the document). */
+    void discoveryStatus(int status) {
+        discovery.status = status;
+    }
+
+    /** Every later JWKS answer has this status (200 = the key set; 503 = provider down). */
+    void keysStatus(int status) {
+        keys.status = status;
+    }
+
+    int discoveryRequests() {
+        return discovery.requests.get();
+    }
+
+    int keyRequests() {
+        return keys.requests.get();
+    }
+
+    /** Gaps between consecutive JWKS requests, in arrival order. */
+    List<Duration> keyRequestGaps() {
+        List<Long> at = List.copyOf(keys.arrivals);
+        return IntStream.range(1, at.size())
+                .mapToObj(i -> Duration.ofNanos(at.get(i) - at.get(i - 1))).toList();
     }
 
     /** Claims of a token that passes every check; {@code changes} edits them per test. */
@@ -108,6 +168,11 @@ final class LocalIssuer implements AutoCloseable {
         return sign(() -> new RSASSASigner(stranger), JWSAlgorithm.RS256, stranger.getKeyID(), claims);
     }
 
+    /** Signed with a key whose key id the issuer never published. */
+    String rs256WithUnpublishedKeyId(JWTClaimsSet claims) {
+        return sign(() -> new RSASSASigner(unpublished), JWSAlgorithm.RS256, unpublished.getKeyID(), claims);
+    }
+
     String hs256(JWTClaimsSet claims) {
         byte[] secret = new byte[32];
         new SecureRandom().nextBytes(secret);
@@ -133,7 +198,14 @@ final class LocalIssuer implements AutoCloseable {
         }
     }
 
-    private static void answer(HttpExchange exchange, Duration delay, String json) throws IOException {
+    private static void answer(HttpExchange exchange, Endpoint endpoint, Duration delay, String json)
+            throws IOException {
+        int status = endpoint.next();
+        if (status != 200) {
+            exchange.sendResponseHeaders(status, -1);
+            exchange.close();
+            return;
+        }
         try {
             Thread.sleep(delay);
         } catch (InterruptedException e) {

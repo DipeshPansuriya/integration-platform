@@ -4,6 +4,8 @@ import io.integrationplatform.tenancy.internal.principal.PrincipalTenantResolver
 import io.integrationplatform.tenancy.internal.principal.RequestTenantContext;
 import io.integrationplatform.tenancy.port.LoginBootstrap;
 import io.integrationplatform.tenancy.port.TenantDenialRecorder;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
@@ -106,6 +108,12 @@ class TenancySecurityConfiguration {
     @Bean
     TenantDenialRecorder tenantDenialRecorder() {
         return new LoggingTenantDenialRecorder();
+    }
+
+    /** R13 skeleton (red commit): the settings and registries are not applied yet. */
+    static JwtDecoder jwtDecoder(String issuer, List<String> audiences, Set<SignatureAlgorithm> algorithms,
+            IdentityProviderSettings settings, MeterRegistry meters, ObservationRegistry observations) {
+        return jwtDecoder(issuer, audiences, algorithms);
     }
 
     /** Lazy: nothing is fetched from the identity provider until the first token arrives. */

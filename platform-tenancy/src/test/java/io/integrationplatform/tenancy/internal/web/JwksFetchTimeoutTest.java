@@ -20,8 +20,8 @@ import org.springframework.test.web.servlet.MockMvc;
 /**
  * ADR-007 Decision 4: the JWKS fetch carries a 2 s timeout. The loopback provider answers its key set only after 30 s;
  * the request must give up after about 2 s (bound 8 s, so a loaded build PC does not flake; a 10 s timeout or none
- * fails it) and must not be accepted. (Retry, circuit breaker and metrics for the
- * identity provider come with the login phase - see the hand-off's Limits.)
+ * fails it), is not retried (a timeout of a sent request never is, R13) and is refused with 401 - never accepted and
+ * never a server error. The other four controls of R13 are proved by {@link IdentityProviderResilienceTest}.
  */
 @WebMvcTest(
         controllers = TenantRowsProbeController.class,
@@ -55,21 +55,17 @@ class JwksFetchTimeoutTest {
     private MockMvc mvc;
 
     @Test
-    void aSlowKeySetFetchGivesUpAfterTwoSecondsAndAcceptsNothing() {
+    void aSlowKeySetFetchGivesUpAfterTwoSecondsAndAcceptsNothing() throws Exception {
         ISSUER.delayKeys(Duration.ofSeconds(30));
         String token = ISSUER.rs256(ISSUER.claims(ALICE, c -> { }));
 
         long started = System.nanoTime();
-        int status;
-        try {
-            status = mvc.perform(get("/api/test/rows").header("Authorization", "Bearer " + token))
-                    .andReturn().getResponse().getStatus();
-        } catch (Exception failure) {
-            status = -1; // the provider being unreachable surfaces as a server error, never as an acceptance
-        }
+        int status = mvc.perform(get("/api/test/rows").header("Authorization", "Bearer " + token))
+                .andReturn().getResponse().getStatus();
         Duration took = Duration.ofNanos(System.nanoTime() - started);
 
-        assertThat(status).isNotEqualTo(200);
+        assertThat(status).as("refused, never accepted and never a server error").isEqualTo(401);
+        assertThat(ISSUER.keyRequests()).as("the timed-out fetch is not retried").isEqualTo(1);
         assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(1500)).isLessThan(Duration.ofSeconds(8));
     }
 }
