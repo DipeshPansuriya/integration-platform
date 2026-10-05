@@ -5,24 +5,24 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.ingest.port.OutboxEntry;
 import io.integrationplatform.ingest.port.OutboxTopic;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import org.junit.jupiter.api.BeforeEach;
+import javax.sql.DataSource;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
-import org.springframework.boot.jdbc.test.autoconfigure.JdbcTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.dao.DataAccessException;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.TestInstance.Lifecycle;
+import org.postgresql.Driver;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -32,9 +32,15 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * T-007 against a real PostgreSQL (E2-F1-S1 tasks, ADR-005 D11): the writer appends inside the CALLER's open
  * transaction and never its own, returns the new id, and stores every {@link OutboxEntry} field the frozen
  * {@code V2_0_1__outbox.sql} names. Container group (R03): runs only with ./mvnw -Pcontainer, one Docker suite at a
- * time (R06). The connection here is the Flyway owner (Testcontainers default), which bypasses RLS - the app-role
- * proofs are in {@link OutboxRlsContainerTest}. The owner connection lets each test commit or roll back on purpose
- * (a test-managed @Transactional rollback could not show the committed side).
+ * time (R06).
+ *
+ * <p>Clean-room on purpose: no {@code @JdbcTest} and no shared Spring context here. The slice's context binds a
+ * transaction on the shared {@code DataSource} during startup and never clears it, so any
+ * {@code getTransaction()} over that DataSource participates in it and a "rollback" only flags the foreign status
+ * while every read runs in the same open session - commit and rollback become unobservable. This class owns its
+ * {@link DataSource}, its transaction manager and its Flyway run, so the caller commits and rolls back for real;
+ * every assertion after a transaction uses a fresh session and sees only committed state (the connection is the
+ * Flyway owner, which bypasses RLS - the app-role proofs live in {@link OutboxRlsContainerTest}).
  *
  * <pre>
  * Scenario: Append commits and rolls back with the caller's transaction
@@ -50,35 +56,37 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  */
 @Tag("container")
 @Testcontainers
-@JdbcTest(properties = "spring.flyway.locations=classpath:db/migration")
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@TestInstance(Lifecycle.PER_CLASS)
 class OutboxWriterContainerTest {
 
     @Container
-    @ServiceConnection
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(IngestTestImages.POSTGRES);
 
     private static final UUID TENANT_A = UUID.fromString("aaaaaaaa-0000-0000-0000-00000000000a");
     private static final UUID MESSAGE_ID = UUID.fromString("f0000000-0000-4000-8000-000000000001");
 
-    @Autowired
-    private JdbcClient jdbcClient;
-
-    @Autowired
-    private PlatformTransactionManager transactionManager;
-
+    private JdbcClient jdbc;
     private TransactionTemplate txTemplate;
 
-    @BeforeEach
-    void setUp() {
-        txTemplate = new TransactionTemplate(transactionManager);
-        jdbcClient.sql("insert into public.tenant (id, code, status) values (:id::uuid, 'writer-a', 'ACTIVE')")
+    @BeforeAll
+    void migrateAndSeed() {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+        DataSource dataSource = new SimpleDriverDataSource(
+                new Driver(), POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        jdbc = JdbcClient.create(dataSource);
+        txTemplate = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        // FK target for every outbox row, committed once for the whole class (autocommit session).
+        jdbc.sql("insert into public.tenant (id, code, status) values (:id::uuid, 'writer-a', 'ACTIVE')")
                 .param("id", TENANT_A.toString())
                 .update();
     }
 
     private JdbcOutboxWriter writerForTenantA() {
-        return new JdbcOutboxWriter(jdbcClient, () -> Optional.of(TENANT_A));
+        return new JdbcOutboxWriter(jdbc, () -> Optional.of(TENANT_A));
     }
 
     private static OutboxEntry entry(String recordKey) {
@@ -90,8 +98,11 @@ class OutboxWriterContainerTest {
         return id;
     }
 
-    private int outboxRowCount() {
-        Integer count = jdbcClient.sql("select count(*) from public.outbox").query(Integer.class).single();
+    /** Counted on its own committed-state session - the tx is over, so this sees the truth, not the caller's data. */
+    private int outboxRowCountUnder(String recordKeyPrefix) {
+        Integer count = jdbc.sql("select count(*) from public.outbox where record_key like :prefix")
+                .param("prefix", recordKeyPrefix + "%")
+                .query(Integer.class).single();
         return count;
     }
 
@@ -103,31 +114,36 @@ class OutboxWriterContainerTest {
             return null;
         });
 
-        assertThat(outboxRowCount()).as("a rolled-back intake leaves no outbox row").isZero();
+        assertThat(outboxRowCountUnder("tenant-a/order-kill"))
+                .as("a rolled-back intake leaves no outbox row").isZero();
 
         committedAppend(entry("tenant-a/order-alive"));
-        assertThat(outboxRowCount()).as("the same append inside a committing caller is stored").isEqualTo(1);
+        assertThat(outboxRowCountUnder("tenant-a/order-alive"))
+                .as("the same append inside a committing caller is stored").isEqualTo(1);
     }
 
     @Test
     void appendWritesEveryColumnAndReturnsTheNewId() {
         long id = committedAppend(entry("tenant-a/order-1"));
 
-        Map<String, Object> row = jdbcClient.sql("""
+        Map<String, Object> row = jdbc.sql("""
                 select tenant_id, topic, aggregate_id, record_key, key_bucket, traceparent, available_at,
                        created_at, published_at
                 from public.outbox where id = :id""")
                 .param("id", id)
-                .query((rs, rowNum) -> Map.<String, Object>of(
-                        "tenant_id", rs.getObject("tenant_id"),
-                        "topic", rs.getString("topic"),
-                        "aggregate_id", rs.getObject("aggregate_id"),
-                        "record_key", rs.getString("record_key"),
-                        "key_bucket", rs.getInt("key_bucket"),
-                        "traceparent", rs.getString("traceparent"),
-                        "available_at", rs.getObject("available_at", OffsetDateTime.class),
-                        "created_at", rs.getObject("created_at", OffsetDateTime.class),
-                        "published_at", rs.getObject("published_at", OffsetDateTime.class)))
+                .query((rs, rowNum) -> {
+                    Map<String, Object> values = new HashMap<>(); // published_at/traceparent may be NULL
+                    values.put("tenant_id", rs.getObject("tenant_id"));
+                    values.put("topic", rs.getString("topic"));
+                    values.put("aggregate_id", rs.getObject("aggregate_id"));
+                    values.put("record_key", rs.getString("record_key"));
+                    values.put("key_bucket", rs.getInt("key_bucket"));
+                    values.put("traceparent", rs.getString("traceparent"));
+                    values.put("available_at", rs.getObject("available_at", OffsetDateTime.class));
+                    values.put("created_at", rs.getObject("created_at", OffsetDateTime.class));
+                    values.put("published_at", rs.getObject("published_at", OffsetDateTime.class));
+                    return values;
+                })
                 .single();
 
         assertThat(UUID.fromString(row.get("tenant_id").toString())).isEqualTo(TENANT_A);
@@ -159,17 +175,17 @@ class OutboxWriterContainerTest {
         long id = committedAppend(new OutboxEntry(OutboxTopic.DELIVERY_DUE, MESSAGE_ID, "tenant-a/deferred", null,
                 due));
 
-        OffsetDateTime availableAt = jdbcClient.sql("select available_at from public.outbox where id = :id")
+        OffsetDateTime availableAt = jdbc.sql("select available_at from public.outbox where id = :id")
                 .param("id", id)
                 .query((rs, rowNum) -> rs.getObject(1, OffsetDateTime.class))
                 .single();
-        String traceparent = jdbcClient.sql("select traceparent from public.outbox where id = :id")
+        Boolean traceparentIsNull = jdbc.sql("select traceparent is null from public.outbox where id = :id")
                 .param("id", id)
-                .query((rs, rowNum) -> rs.getString(1))
+                .query(Boolean.class)
                 .single();
 
         assertThat(availableAt.toInstant()).isEqualTo(due);
-        assertThat(traceparent).isNull();
+        assertThat(traceparentIsNull).as("null traceparent is stored as NULL").isTrue();
     }
 
     @Test
@@ -178,15 +194,15 @@ class OutboxWriterContainerTest {
         txTemplate.execute(status -> writerForTenantA().append(
                 new OutboxEntry(OutboxTopic.DELIVERY_DUE, MESSAGE_ID, "tenant-a/topic-2", null, null)));
         assertThat(accepted).isPositive();
-        assertThat(outboxRowCount()).isEqualTo(2);
+        assertThat(outboxRowCountUnder("tenant-a/topic-")).as("both seam topics pass the CHECK").isEqualTo(2);
 
         // Only the two seam topics pass the DB CHECK - the writer's enum cannot be widened behind it (R10).
-        assertThatThrownBy(() -> jdbcClient.sql("""
+        assertThatThrownBy(() -> jdbc.sql("""
                 insert into public.outbox (tenant_id, topic, aggregate_id, record_key, key_bucket)
-                values (:tenant_id::uuid, 'platform.unknown', :aggregate_id::uuid, 'raw', 0)""")
+                values (:tenant_id::uuid, 'platform.unknown', :aggregate_id::uuid, 'raw-topic', 0)""")
                 .params(Map.of("tenant_id", TENANT_A.toString(), "aggregate_id", MESSAGE_ID.toString()))
                 .update())
-                .isInstanceOf(DataAccessException.class)
+                .isInstanceOf(org.springframework.dao.DataAccessException.class)
                 .rootCause()
                 .hasMessageContaining("outbox_topic_check");
     }
@@ -199,11 +215,10 @@ class OutboxWriterContainerTest {
                     .append(entry("bulk/interface-9/business-key-" + n + "@source-1")));
         }
 
-        Map<String, Integer> stored = new java.util.HashMap<>();
-        jdbcClient.sql("select record_key, key_bucket from public.outbox")
+        Map<String, Integer> stored = new HashMap<>();
+        jdbc.sql("select record_key, key_bucket from public.outbox where record_key like 'bulk/interface-9/%'")
                 .query((rs, rowNum) -> stored.put(rs.getString("record_key"), rs.getInt("key_bucket")))
                 .list();
-
         assertThat(stored).hasSize(200);
         stored.forEach((recordKey, bucket) -> {
             assertThat(bucket).as("CHECK 0..63 holds for %s", recordKey).isBetween(0, 63);
@@ -214,12 +229,12 @@ class OutboxWriterContainerTest {
 
     @Test
     void theMigrationCheckStillOwnsTheBucketRange() {
-        assertThatThrownBy(() -> jdbcClient.sql("""
+        assertThatThrownBy(() -> jdbc.sql("""
                 insert into public.outbox (tenant_id, topic, aggregate_id, record_key, key_bucket)
-                values (:tenant_id::uuid, 'platform.message.accepted', :aggregate_id::uuid, 'raw', 64)""")
+                values (:tenant_id::uuid, 'platform.message.accepted', :aggregate_id::uuid, 'raw-bucket', 64)""")
                 .params(Map.of("tenant_id", TENANT_A.toString(), "aggregate_id", MESSAGE_ID.toString()))
                 .update())
-                .isInstanceOf(DataAccessException.class)
+                .isInstanceOf(org.springframework.dao.DataAccessException.class)
                 .rootCause()
                 .hasMessageContaining("outbox_key_bucket_check");
     }

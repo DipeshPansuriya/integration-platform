@@ -8,27 +8,24 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.Map;
 import java.util.UUID;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestInstance.Lifecycle;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
-import org.springframework.boot.jdbc.test.autoconfigure.JdbcTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * T-007 / E2-F1 "never lost, never mixed": the frozen {@code V2_0_1__outbox.sql} grants and RLS policy, proven as the
- * application role (the owner connection bypasses RLS, so this class opens a restricted {@code ipaas_app} login).
- * Container group (R03, R06). Seeding runs as the Flyway owner; every asserted statement runs on the app-role
- * connection with the session-local {@code app.tenant_id} setting.
+ * application role (the owner connection bypasses row-level security, so this class opens a restricted
+ * {@code ipaas_app} login). Container group (R03, R06). No Spring context on purpose (same clean-room reason as
+ * {@link OutboxWriterContainerTest}): migration and seeding run on the Flyway-owner autocommit session, every
+ * asserted statement runs on its own connection as the app role with the session-local {@code app.tenant_id}
+ * setting, so what each proof sees is committed state only.
  *
  * <pre>
  * &#64;negative &#64;tenant
@@ -51,47 +48,57 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  */
 @Tag("container")
 @Testcontainers
-@JdbcTest(properties = "spring.flyway.locations=classpath:db/migration")
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestInstance(Lifecycle.PER_CLASS)
 class OutboxRlsContainerTest {
 
     @Container
-    @ServiceConnection
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(IngestTestImages.POSTGRES);
 
     private static final UUID TENANT_A = UUID.fromString("aaaaaaaa-0000-0000-0000-00000000000a");
     private static final UUID TENANT_B = UUID.fromString("bbbbbbbb-0000-0000-0000-00000000000b");
     private static final UUID MESSAGE_ID = UUID.fromString("f0000000-0000-4000-8000-000000000001");
 
-    @Autowired
-    private JdbcClient jdbcClient;
-
     private long rowA;
     private long rowB;
 
     @BeforeAll
-    void seedAsOwner() {
-        jdbcClient.sql("insert into public.tenant (id, code, status) values (:id::uuid, 'rls-a', 'ACTIVE')")
-                .param("id", TENANT_A.toString()).update();
-        jdbcClient.sql("insert into public.tenant (id, code, status) values (:id::uuid, 'rls-b', 'ACTIVE')")
-                .param("id", TENANT_B.toString()).update();
+    void seedAsOwner() throws SQLException {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+        seedTenant(TENANT_A, "rls-a");
+        seedTenant(TENANT_B, "rls-b");
         rowA = seedOutboxRow(TENANT_A, "rls/tenant-a-row");
         rowB = seedOutboxRow(TENANT_B, "rls/tenant-b-row");
     }
 
+    private void seedTenant(UUID id, String code) throws SQLException {
+        try (Connection owner = AppRoleHarness.ownerConnection(POSTGRES);
+                PreparedStatement insert = owner.prepareStatement(
+                        "insert into public.tenant (id, code, status) values (?::uuid, ?, 'ACTIVE')")) {
+            insert.setObject(1, id);
+            insert.setString(2, code);
+            insert.executeUpdate();
+        }
+    }
+
     /** Owner-side direct insert (the fixture the relay would have written): RLS and grants do not apply to it. */
-    private long seedOutboxRow(UUID tenant, String recordKey) {
-        jdbcClient.sql("""
-                insert into public.outbox (tenant_id, topic, aggregate_id, record_key, key_bucket)
-                values (:tenant_id::uuid, :topic, :aggregate_id::uuid, :record_key, 7)""")
-                .params(Map.of("tenant_id", tenant.toString(),
-                        "topic", OutboxTopic.MESSAGE_ACCEPTED.topicName(),
-                        "aggregate_id", MESSAGE_ID.toString(),
-                        "record_key", recordKey))
-                .update();
-        return jdbcClient.sql("select id from public.outbox where record_key = :record_key")
-                .param("record_key", recordKey).query(Long.class).single();
+    private long seedOutboxRow(UUID tenant, String recordKey) throws SQLException {
+        try (Connection owner = AppRoleHarness.ownerConnection(POSTGRES);
+                PreparedStatement insert = owner.prepareStatement("""
+                        insert into public.outbox (tenant_id, topic, aggregate_id, record_key, key_bucket)
+                        values (?::uuid, ?, ?::uuid, ?, 7) returning id""")) {
+            insert.setObject(1, tenant);
+            insert.setString(2, OutboxTopic.MESSAGE_ACCEPTED.topicName());
+            insert.setObject(3, MESSAGE_ID);
+            insert.setString(4, recordKey);
+            try (ResultSet rs = insert.executeQuery()) {
+                rs.next();
+                return rs.getLong(1);
+            }
+        }
     }
 
     private Connection appRole(String tenantId) throws SQLException {
