@@ -56,6 +56,13 @@
       <artifactId>spring-boot-starter-flyway-test</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- E2 seam (arjun-fullstack): the relay's "no vendor client in the relay's package" proof (T-041) is an
+         ArchUnit rule on this module's production classes, next to the relay it guards. -->
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-testcontainers</artifactId>
