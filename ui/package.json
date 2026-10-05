@@ -1,0 +1,34 @@
+{
+  "name": "integration-platform-console",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The console (E3, lane D): React + TypeScript Vite app. The typed API client is generated from the backend's own OpenAPI document (/v3/api-docs) and never hand-edited.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/slow-page-negative.test.mjs",
+    "generate:client": "node scripts/save-openapi.mjs",
+    "test:container": "node --test tests/openapi-contract.docker.test.mjs",
+    "test:screens": "playwright test",
+    "perf": "node scripts/measure-p95.mjs --base $API_BASE --config tests/perf/pages.json --loads 100",
+    "test:perf-negative": "node --test tests/slow-page-negative.test.mjs"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.13.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.19.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jose": "^5.9.6",
+    "openapi-typescript": "^7.5.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  }
+}
