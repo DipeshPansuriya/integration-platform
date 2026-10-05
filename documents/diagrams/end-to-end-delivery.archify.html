@@ -5258,13 +5258,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="730" y="456" class="t-dim" font-size="7">500/502/504/408 are AMBIGUOUS unless the target declares idempotent receive</text>
         </g>
 
-        <g data-edge-from="bulkhead" data-edge-to="db" data-edge-label="attempt row + state if token matches" data-edge-key="10" data-edge-id="m11">
+        <g data-edge-from="bulkhead" data-edge-to="db" data-edge-label="attempt row, delivery_event, state (token)" data-edge-key="10" data-edge-id="m11">
           <path data-composition-edge-from="bulkhead" data-composition-edge-to="db" data-composition-edge-id="m11" data-composition-points="704,466;528,466" d="M 704 466 L 528 466" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="516.4" y="446" width="199.20000000000002" height="16" rx="3" class="c-mask"/>
-          <text x="616" y="456" class="t-backend" font-size="9" text-anchor="middle">attempt row + state if token matches</text>
+          <rect x="500.8" y="446" width="230.4" height="16" rx="3" class="c-mask"/>
+          <text x="616" y="456" class="t-backend" font-size="9" text-anchor="middle">attempt row, delivery_event, state (token)</text>
         </g>
-        <text data-detail="fine" x="540" y="484" class="t-dim" font-size="7">Final state releases the next HELD delivery in the same transaction</text>
+        <text data-detail="fine" x="540" y="484" class="t-dim" font-size="7">A matching claim token writes the state row, delivery_event records the transition, and the final state releases the next HELD delivery in the same transaction</text>
         </g>
 
         <g data-edge-from="job" data-edge-to="db" data-edge-label="due RETRY_WAIT to DUE + outbox" data-edge-key="11" data-edge-id="m12">
@@ -5291,7 +5291,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="814.4" y="550" width="173.20000000000002" height="16" rx="3" class="c-mask"/>
           <text x="901" y="560" class="t-messagebus" font-size="9" text-anchor="middle">stale claim: 3 x timeout + 65 s</text>
         </g>
-        <text data-detail="fine" x="540" y="588" class="t-dim" font-size="7">Classed AMBIGUOUS; a late outcome with an old token changes no state</text>
+        <text data-detail="fine" x="540" y="588" class="t-dim" font-size="7">Classed AMBIGUOUS; a late outcome with an old token writes only a LATE_OUTCOME delivery_event and changes no state</text>
         </g>
 
         <!-- Segment Labels -->
