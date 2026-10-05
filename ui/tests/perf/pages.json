@@ -1,0 +1,6 @@
+{
+  "_comment": "T-096 (E3-F1-S2): the admin pages measured for the p95 under 1.5 s figure. Entries are added as the screens land (T-017 flow definition, T-022 versions/approvals); paths are relative to the --base of the running system. The seeded run (50 interfaces and 200 targets) is started through the same boot-backend.mjs protocol.",
+  "pages": [
+    { "name": "console-home", "path": "/" }
+  ]
+}
