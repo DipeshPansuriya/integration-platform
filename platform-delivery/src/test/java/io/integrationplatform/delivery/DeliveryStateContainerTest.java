@@ -75,15 +75,17 @@ class DeliveryStateContainerTest {
         assertThat(state(id)).isEqualTo(DeliveryState.DELIVERED);
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> repository().nextAttemptAt(id))).isEmpty();
 
-        List<DeliveryEventType> events = jdbc.sql("select type from public.delivery_event"
-                        + " where delivery_id = :id::uuid order by id")
-                .params(java.util.Map.of("id", id.toString()))
-                .query((RowMapper<DeliveryEventType>) (rs, rowNum) -> DeliveryEventType.valueOf(rs.getString(1)))
-                .list();
+        List<DeliveryEventType> events = tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> jdbc.sql("select type from public.delivery_event where delivery_id = :id::uuid order by id")
+                        .params(java.util.Map.of("id", id.toString()))
+                        .query((RowMapper<DeliveryEventType>) (rs, rowNum) -> DeliveryEventType.valueOf(rs.getString(1)))
+                        .list());
         assertThat(events).containsExactly(DeliveryEventType.CLAIM, DeliveryEventType.RETRY,
                 DeliveryEventType.REDRIVE, DeliveryEventType.CLAIM, DeliveryEventType.DELIVER);
-        assertThat(jdbc.sql("select occurred_at is not null from public.delivery_event where delivery_id"
-                + " = :id::uuid").params(java.util.Map.of("id", id.toString())).query(Boolean.class).list())
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> jdbc.sql("select occurred_at is not null from public.delivery_event where delivery_id"
+                        + " = :id::uuid").params(java.util.Map.of("id", id.toString()))
+                        .query(Boolean.class).list()))
                 .containsExactly(true, true, true, true, true);
     }
 
@@ -99,8 +101,9 @@ class DeliveryStateContainerTest {
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> repository().markDelivered(id, UUID.randomUUID(), at))).isFalse();
         assertThat(state(id)).isEqualTo(DeliveryState.PENDING);
-        assertThat(jdbc.sql("select count(*) from public.delivery_event where delivery_id = :id::uuid")
-                .params(java.util.Map.of("id", id.toString())).query(Long.class).single()).isZero();
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> jdbc.sql("select count(*) from public.delivery_event where delivery_id = :id::uuid")
+                        .params(java.util.Map.of("id", id.toString())).query(Long.class).single())).isZero();
     }
 
     @Test

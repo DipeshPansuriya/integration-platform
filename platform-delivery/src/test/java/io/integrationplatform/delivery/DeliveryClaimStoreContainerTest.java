@@ -86,9 +86,9 @@ class DeliveryClaimStoreContainerTest {
     }
 
     private long eventCount(UUID id, DeliveryEventType type) {
-        return jdbc.sql("select count(*) from public.delivery_event where delivery_id = :id::uuid"
-                        + " and type = :type")
-                .params(Map.of("id", id.toString(), "type", type.name())).query(Long.class).single();
+        return tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> jdbc
+                .sql("select count(*) from public.delivery_event where delivery_id = :id::uuid and type = :type")
+                .params(Map.of("id", id.toString(), "type", type.name())).query(Long.class).single());
     }
 
     @Test
@@ -165,19 +165,20 @@ class DeliveryClaimStoreContainerTest {
 
         // a foreign token: 0 rows -> false, LATE_OUTCOME event, state untouched (E2-F2-S4 @negative)
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> store().scheduleRetry(id, UUID.randomUUID(), base.plusSeconds(90), base.plusSeconds(2))))
-                .isFalse();
+                () -> store().scheduleRetry(id, UUID.randomUUID(), base.plusSeconds(90)))).isFalse();
         assertThat(state(id)).isEqualTo(DeliveryState.SENDING);
         assertThat(eventCount(id, DeliveryEventType.LATE_OUTCOME)).isEqualTo(1);
 
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> store().deadLetter(id, token, OutcomeClass.TRANSIENT, base.plusSeconds(3)))).isTrue();
+                () -> store().deadLetter(id, token, OutcomeClass.TRANSIENT))).isTrue();
         assertThat(state(id)).isEqualTo(DeliveryState.DEAD_LETTERED);
-        assertThat(jdbc.sql("select dead_letter_class from public.delivery where id = :id::uuid")
-                .params(Map.of("id", id.toString())).query(String.class).single()).isEqualTo("TRANSIENT");
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> jdbc.sql("select dead_letter_class from public.delivery where id = :id::uuid")
+                        .params(Map.of("id", id.toString())).query(String.class).single()))
+                .isEqualTo("TRANSIENT");
         // a stale token after the final state: event only
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> store().scheduleRetry(id, token, base.plusSeconds(120), base.plusSeconds(4)))).isFalse();
+                () -> store().scheduleRetry(id, token, base.plusSeconds(120)))).isFalse();
         assertThat(eventCount(id, DeliveryEventType.LATE_OUTCOME)).isEqualTo(2);
     }
 
@@ -189,13 +190,14 @@ class DeliveryClaimStoreContainerTest {
             UUID token = UUID.randomUUID();
             Instant at = base.plusSeconds(attempt * 60L);
             int layer = attempt;
+            boolean last = attempt == 3;
             tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> {
                 var repository = repository();
                 repository.claimSend(id, token, at);
                 repository.recordAttempt(id, 2, OutcomeClass.TRANSIENT, at, at.plusSeconds(5),
                         "transient failure " + layer);
                 repository.scheduleRetry(id, token, at.plusSeconds(60), at.plusSeconds(6));
-                if (attempt < 3) {
+                if (!last) {
                     repository.redrive(id, at.plusSeconds(60));
                 }
             });
@@ -217,8 +219,7 @@ class DeliveryClaimStoreContainerTest {
             return null;
         });
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> store().deadLetter(id, finalToken, OutcomeClass.TRANSIENT, base.plusSeconds(310))))
-                .isTrue();
+                () -> store().deadLetter(id, finalToken, OutcomeClass.TRANSIENT))).isTrue();
 
         assertThat(state(id)).isEqualTo(DeliveryState.DEAD_LETTERED);
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
@@ -234,12 +235,13 @@ class DeliveryClaimStoreContainerTest {
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> claimService().claim("t|order-free", free, freeToken, base.plusSeconds(1))))
                 .isEqualTo(Outcome.CLAIMED);
-        Map<String, Object> sentRow = jdbc.sql("select state, claim_token, claimed_at from public.delivery"
-                        + " where id = :id::uuid").params(Map.of("id", free.toString()))
-                .query((RowMapper<Map<String, Object>>) (rs, n) -> Map.of(
-                        "state", rs.getString(1),
-                        "token", String.valueOf(rs.getObject(2)),
-                        "claimed", rs.getObject(3) != null)).single();
+        Map<String, Object> sentRow = tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> jdbc.sql("select state, claim_token, claimed_at from public.delivery"
+                                + " where id = :id::uuid").params(Map.of("id", free.toString()))
+                        .query((RowMapper<Map<String, Object>>) (rs, n) -> Map.of(
+                                "state", rs.getString(1),
+                                "token", String.valueOf(rs.getObject(2)),
+                                "claimed", rs.getObject(3) != null)).single());
         assertThat(sentRow).containsEntry("state", "SENDING")
                 .containsEntry("token", freeToken.toString())
                 .containsEntry("claimed", true);
@@ -284,8 +286,7 @@ class DeliveryClaimStoreContainerTest {
 
         // the stale-claim path (lane B's trigger calls these store methods): RETRY_WAIT -> DUE -> re-claim
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> store().scheduleRetry(id, staleToken, base.plusSeconds(120), base.plusSeconds(10))))
-                .isTrue();
+                () -> store().scheduleRetry(id, staleToken, base.plusSeconds(120)))).isTrue();
         tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> {
             store().lockDue(base.plusSeconds(121), 10);
             store().markDue(id);
@@ -301,8 +302,7 @@ class DeliveryClaimStoreContainerTest {
                 .recordAttempt(id, 2, OutcomeClass.AMBIGUOUS, base.plusSeconds(5), base.plusSeconds(130),
                         "the slow original call answered late"));
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> store().scheduleRetry(id, staleToken, base.plusSeconds(300), base.plusSeconds(131))))
-                .isFalse();
+                () -> store().scheduleRetry(id, staleToken, base.plusSeconds(300)))).isFalse();
         assertThat(state(id)).isEqualTo(DeliveryState.SENDING);
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> repository().nextAttemptAt(id))).isEmpty();

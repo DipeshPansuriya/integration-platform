@@ -24,5 +24,12 @@
       <groupId>org.apache.camel.springboot</groupId>
       <artifactId>camel-kafka-starter</artifactId>
     </dependency>
+    <!-- E2 lane C (T-193): the stage-2 claim runs the delivery tables' one claim order inside this module's
+         claim transaction; spring-jdbc/spring-tx come with it transitively (R12: Camel stays in this module,
+         the claim code itself imports no Camel or Kafka client). -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-delivery</artifactId>
+    </dependency>
   </dependencies>
 </project>

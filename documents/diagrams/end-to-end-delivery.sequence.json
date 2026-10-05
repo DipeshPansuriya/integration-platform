@@ -185,9 +185,9 @@
       "from": "bulkhead",
       "to": "db",
       "y": 466,
-      "label": "attempt row + state if token matches",
+      "label": "attempt row, delivery_event, state (token)",
       "variant": "emphasis",
-      "note": "Final state releases the next HELD delivery in the same transaction"
+      "note": "A matching claim token writes the state row, delivery_event records the transition, and the final state releases the next HELD delivery in the same transaction"
     },
     {
       "id": "m12",
@@ -214,7 +214,7 @@
       "y": 570,
       "label": "stale claim: 3 x timeout + 65 s",
       "variant": "dashed",
-      "note": "Classed AMBIGUOUS; a late outcome with an old token changes no state"
+      "note": "Classed AMBIGUOUS; a late outcome with an old token writes only a LATE_OUTCOME delivery_event and changes no state"
     }
   ],
   "cards": [

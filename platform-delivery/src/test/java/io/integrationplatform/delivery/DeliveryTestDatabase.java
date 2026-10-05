@@ -125,7 +125,13 @@ public final class DeliveryTestDatabase {
         return table + "_" + isoDate.replace("-", "");
     }
 
-    /** Creates a day partition of {@code table} for [isoDate, isoDate + 1 day) as the owner; no-op when present. */
+    /**
+     * Creates a day partition of {@code table} for [isoDate, isoDate + 1 day) as the owner; no-op when present.
+     * Every maintenance-made child - migration-predated or created here - carries the parent's
+     * {@code ipaas_app} DML grants: PostgreSQL routes parent-scoped DML with only the parent's grant, but a
+     * partition-level repair or a direct-day lock (the purge-isolation proof) must be runnable without an
+     * escalation of the role's rights (T6). Idempotent: the grants re-apply to a partition that already exists.
+     */
     public void createDayPartition(String table, String isoDate) throws SQLException {
         String name = dayPartitionName(table, isoDate);
         boolean exists;
@@ -137,6 +143,17 @@ public final class DeliveryTestDatabase {
         if (!exists) {
             asOwner("create table public." + name + " partition of public." + table
                     + " for values from ('" + isoDate + "'::date) to (('" + isoDate + "'::date) + interval '1 day')");
+        }
+        try (Connection owner = owner(); PreparedStatement grants = owner.prepareStatement(
+                "select privilege_type from information_schema.role_table_grants"
+                        + " where grantee = ? and table_schema = 'public' and table_name = ?")) {
+            grants.setString(1, APP_ROLE);
+            grants.setString(2, table);
+            try (var privileges = grants.executeQuery(); Statement sql = owner.createStatement()) {
+                while (privileges.next()) {
+                    sql.execute("grant " + privileges.getString(1) + " on public." + name + " to " + APP_ROLE);
+                }
+            }
         }
     }
 
@@ -195,14 +212,19 @@ public final class DeliveryTestDatabase {
         }
 
         private void stamp(UUID tenantId) {
-            try (Connection connection = org.springframework.jdbc.datasource.DataSourceUtils
-                    .doGetConnection(dataSource)) {
+            Connection connection = null;
+            try {
+                connection = org.springframework.jdbc.datasource.DataSourceUtils.doGetConnection(dataSource);
                 try (PreparedStatement set = connection.prepareStatement(
                         "select set_config('app.tenant_id', ?, true)")) {
                     set.setString(1, tenantId.toString());
                     set.execute();
-                } catch (SQLException e) {
-                    throw new IllegalStateException("cannot stamp the tenant", e);
+                }
+            } catch (SQLException e) {
+                throw new IllegalStateException("cannot stamp the tenant", e);
+            } finally {
+                if (connection != null) {
+                    org.springframework.jdbc.datasource.DataSourceUtils.releaseConnection(connection, dataSource);
                 }
             }
         }
