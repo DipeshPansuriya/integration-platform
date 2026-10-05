@@ -7,6 +7,6 @@ package org.apache.kafka.clients.producer;
  */
 public final class KafkaProducerStub {
 
-    private KafkaProducerStub() {
+    public KafkaProducerStub() {
     }
 }

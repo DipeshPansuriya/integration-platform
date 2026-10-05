@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 import io.integrationplatform.ingest.internal.publish.InMemoryPublishPort;
 import io.integrationplatform.ingest.port.OutboundRecord;
@@ -45,6 +46,11 @@ class PostgresOutboxRelayTest {
         FakeOutboxAccess access = new FakeOutboxAccess(context);
         access.add(TENANT_A, 7, 1, OutboxTopic.MESSAGE_ACCEPTED);
         PublishPort port = mock(PublishPort.class);
+        when(port.publish(any(OutboundRecord.class))).thenAnswer(invocation -> {
+            OutboundRecord record = invocation.getArgument(0);
+            return (PublishReceipt) () -> record.outboxId();
+        });
+        when(port.acknowledge(any(PublishReceipt.class), eq(ACK_TIMEOUT))).thenReturn(true);
         PostgresOutboxRelay relay = new PostgresOutboxRelay(() -> List.of(TENANT_A), access, context,
                 new FakeTransactions(access), port, ACK_TIMEOUT, BATCH);
 
@@ -92,6 +98,7 @@ class PostgresOutboxRelayTest {
         assertThat(access.publishedCount()).as("a crashed transaction marks nothing").isZero();
         assertThat(port.published()).as("rows 1 and 2 were already published to the broker").hasSize(2);
 
+        access.clearCrash(); // the "process" restarts clean - the next cycle is an ordinary one
         port.reset();
         int marked = relay.runOnce();
 
@@ -270,6 +277,10 @@ class PostgresOutboxRelayTest {
 
         void failMarkingAt(long id) {
             crashAtMarkId = id;
+        }
+
+        void clearCrash() {
+            crashAtMarkId = 0;
         }
 
         int publishedCount() {

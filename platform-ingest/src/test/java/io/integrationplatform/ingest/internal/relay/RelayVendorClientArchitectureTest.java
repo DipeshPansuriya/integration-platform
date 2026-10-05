@@ -29,9 +29,9 @@ class RelayVendorClientArchitectureTest {
 
     @Test
     void relayProductionClassesExistForTheRuleToGuard() {
-        assertThat(relayProductionClasses().sizeOfAllClasses())
+        assertThat(relayProductionClasses())
                 .as("the rule is not vacuous: the relay package holds production classes")
-                .isPositive();
+                .isNotEmpty();
     }
 
     @Test
