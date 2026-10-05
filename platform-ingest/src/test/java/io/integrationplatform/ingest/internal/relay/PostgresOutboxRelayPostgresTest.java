@@ -158,7 +158,9 @@ class PostgresOutboxRelayPostgresTest {
         Thread one = new Thread(() -> {
             try {
                 go.await();
-                relayOne.runOnce();
+                for (int cycle = 0; cycle < 4; cycle++) {
+                    relayOne.runOnce(); // a cycle claims one batch per bucket: the rest is for the next cycle
+                }
             } catch (Throwable thrown) {
                 failure.compareAndSet(null, thrown);
             }
@@ -166,7 +168,9 @@ class PostgresOutboxRelayPostgresTest {
         Thread two = new Thread(() -> {
             try {
                 go.await();
-                relayTwo.runOnce();
+                for (int cycle = 0; cycle < 4; cycle++) {
+                    relayTwo.runOnce();
+                }
             } catch (Throwable thrown) {
                 failure.compareAndSet(null, thrown);
             }
