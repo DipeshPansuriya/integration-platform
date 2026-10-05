@@ -2,8 +2,6 @@
 // approval screens (T-022) attach here; both use ONE imported typed client (src/api/client.ts)
 // - never a hand-written fetch, never a mock (E3-F3-S1).
 
-import React from 'react';
-
 export function App() {
   return <main data-page="console-home">Integration Platform Console</main>;
 }
