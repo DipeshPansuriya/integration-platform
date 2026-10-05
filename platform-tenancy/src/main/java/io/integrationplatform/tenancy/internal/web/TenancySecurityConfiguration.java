@@ -84,6 +84,10 @@ class TenancySecurityConfiguration {
         http.authorizeHttpRequests(requests -> requests
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/api/**").authenticated()
+                        // The springdoc document the console's typed client is generated against (E3 T-158/T-094,
+                        // wave-0 glue): metadata, not tenant data - reachable to an authenticated caller only,
+                        // never anonymously (fail-closed; the tenancy chain denies everything else).
+                        .requestMatchers("/v3/api-docs/**").authenticated()
                         .anyRequest().denyAll())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))

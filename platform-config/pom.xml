@@ -22,12 +22,44 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
-    <!-- The tables these APIs serve are rows (no JPA): JDBC (ADR-001, the delivery module's pattern). -->
+    <!-- Tenant-scoped persistence base (the arch gate's CompliantRouteRepository pattern) - wave-0 glue
+         (arjun-fullstack), requested by lane B's handoff: the persisted repositories build on it. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-tenancy</artifactId>
+    </dependency>
+    <!-- The tables these APIs serve are rows (no JPA): JDBC (ADR-001, the delivery module's pattern),
+         deployed by Flyway (V2_2_* configuration schema, lane B's checked-in migrations). -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-jdbc</artifactId>
     </dependency>
+    <!-- Wave-0 glue (arjun-fullstack, the named pending-integration owner): Flyway + the PostgreSQL driver
+         so the checked-in migrations deploy through the real mechanism and the container suites reach the DB. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-flyway</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
     <!-- spring-boot-starter-test comes from the parent for every module. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-flyway-test</artifactId>
+      <scope>test</scope>
+    </dependency>
 
     <!-- E3 seam continued (arjun-fullstack): lane A's Testcontainers suites (T-016 rows-only onboarding, T-092/T-093
          real-API defect tests) boot a composed system from this module, and lane B/C's DB tests reuse the same deps -
