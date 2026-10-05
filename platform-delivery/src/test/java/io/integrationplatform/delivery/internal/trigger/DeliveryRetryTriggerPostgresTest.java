@@ -10,10 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * T-090 (E2-F2-S3): the container proof that the delivery-retry trigger is reachable to the REAL store - and the
@@ -29,9 +28,11 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers
 class DeliveryRetryTriggerPostgresTest {
 
+    /** Pinned image (R05) - the same tag {@code TestImages.POSTGRES} names in platform-app's suite. */
+    private static final String POSTGRES_IMAGE = "postgres:17.11-alpine";
+
     @Container
-    private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
-            DockerImageName.parse("postgres:17.11-alpine")).withDatabaseName("ipaas_t31");
+    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE);
 
     @Test
     void theComposedDeliveryContextExposesLanesRetryStore() {
