@@ -218,7 +218,11 @@ final class E3ConfigDatabase {
         }
         int applied = deployCheckedInMigrations(postgres().getJdbcUrl(), postgres().getUsername(),
                 postgres().getPassword(), locations.toArray(String[]::new), SCHEMA_HISTORY);
-        if (applied <= 0) {
+        // Wave-0 glue (integration idempotency): the suites share one container per JVM, so a later suite's
+        // deployment legitimately applies 0 scripts (they are all applied already) - the gate means "nothing is
+        // deployed", not "nothing was newly deployed".
+        if (applied <= 0 && snapshot().appliedVersionRows().stream().noneMatch(
+                row -> row.contains("V1_3_") || row.contains("V2_"))) {
             pendingIntegration("the migrations deployed 0 scripts - the tenant directory or the config tables are "
                     + "missing (owner: lane B T-014 / the lead's composition)", "arjun-fullstack");
         }
