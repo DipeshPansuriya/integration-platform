@@ -35,12 +35,14 @@ class DeliveryRetryTriggerPostgresTest {
 
     @Test
     void theComposedDeliveryContextExposesLanesRetryStore() {
-        try (ConfigurableApplicationContext context = SpringApplication.run(TestApplication.class, Map.of(
+        SpringApplication application = new SpringApplication(TestApplication.class);
+        application.setDefaultProperties(Map.of(
                 "spring.datasource.url", POSTGRES.getJdbcUrl(),
                 "spring.datasource.username", POSTGRES.getUsername(),
                 "spring.datasource.password", POSTGRES.getPassword(),
                 "spring.main.banner-mode", "off",
-                "logging.level.root", "warn"), "--spring.main.web-application-type=none")) {
+                "logging.level.root", "warn"));
+        try (ConfigurableApplicationContext context = application.run("--spring.main.web-application-type=none")) {
 
             assertThat(context.getBean(DataSource.class))
                     .as("Flyway has applied the migrations: the database side of the seam is live")

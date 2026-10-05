@@ -94,13 +94,13 @@ class OutcomeRecorderTest {
 
     @Test
     void anAmbiguousOutcomeAgainstAnIdempotentTargetWaitsForTheNextRetry() {
-        recorder.record(DELIVERY, CLAIM_TOKEN, 1, OutcomeClass.AMBIGUOUS, NOW, Duration.ofSeconds(45), true);
+        recorder.record(DELIVERY, CLAIM_TOKEN, 1, OutcomeClass.AMBIGUOUS, NOW, Duration.ofSeconds(90), true);
         store.commitTransaction();
 
         assertThat(store.stateOf(DELIVERY)).isEqualTo(DeliveryState.RETRY_WAIT);
         assertThat(store.nextAttemptAtOf(DELIVERY))
-                .as("Retry-After beats the 30 s backoff (ADR-010 section 4)")
-                .isEqualTo(NOW.plusSeconds(45));
+                .as("Retry-After beats the 60 s second-step backoff (ADR-010 section 4)")
+                .isEqualTo(NOW.plusSeconds(90));
     }
 
     @Test
