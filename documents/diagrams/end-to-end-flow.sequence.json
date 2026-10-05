@@ -8,7 +8,7 @@
     "column_fit": "spread",
     "viewBox": [
       1400,
-      654
+      682
     ],
     "views": [
       {
@@ -31,7 +31,7 @@
           "routing",
           "db"
         ],
-        "note": "One publisher per key bucket; stage 1 is idempotent: ACCEPTED to ROUTED guard plus unique (message, route) (steps 6-8)."
+        "note": "One publisher per key bucket; consumers claim the record key first; stage 1 idempotent: ACCEPTED to ROUTED guard + unique (message, route)"
       },
       {
         "id": "sync",
@@ -86,12 +86,12 @@
     },
     {
       "from": 362,
-      "to": 508,
+      "to": 536,
       "label": "2. Relay + route (stage 1)"
     },
     {
-      "from": 522,
-      "to": 584,
+      "from": 550,
+      "to": 612,
       "label": "3. SYNC only"
     }
   ],
@@ -172,10 +172,18 @@
       "label": "stage 1 consumes"
     },
     {
-      "id": "m10",
+      "id": "m09b",
       "from": "routing",
       "to": "db",
       "y": 438,
+      "label": "claim idempotency_key \"outbox:<id>\"",
+      "note": "Consumer-side duplicate guard (T-010): the key is stable per outbox row, so a crash re-publish finds a committed claim - duplicate, acknowledged, no effect (architecture.md section 3, ADR-001)"
+    },
+    {
+      "id": "m10",
+      "from": "routing",
+      "to": "db",
+      "y": 466,
       "label": "one tx: ACCEPTED to ROUTED + deliveries + outbox",
       "variant": "emphasis",
       "note": "Key lock; 0 rows = duplicate; insert on conflict (message, route) do nothing; releases holds"
@@ -184,7 +192,7 @@
       "id": "m11",
       "from": "routing",
       "to": "kafka",
-      "y": 466,
+      "y": 494,
       "label": "unreadable record: platform.poison",
       "variant": "dashed"
     },
@@ -192,7 +200,7 @@
       "id": "m12",
       "from": "routing",
       "to": "kafka",
-      "y": 494,
+      "y": 522,
       "label": "DB error: pause partitions, back off",
       "variant": "dashed",
       "note": "A transient database error never poisons a record (ADR-005 D13)"
@@ -201,7 +209,7 @@
       "id": "m13",
       "from": "ingest",
       "to": "routing",
-      "y": 542,
+      "y": 570,
       "label": "inline stage 1, bulkhead permit, claim, one call",
       "variant": "dashed",
       "note": "Message and delivery outbox rows deferred by budget + 5 s (ADR-011 D5)"
@@ -210,7 +218,7 @@
       "id": "m14",
       "from": "ingest",
       "to": "source",
-      "y": 570,
+      "y": 598,
       "label": "200 mapped, error, or 202 PENDING",
       "variant": "return"
     }
@@ -228,7 +236,7 @@
       "dot": "orange",
       "title": "Duplicates are harmless",
       "items": [
-        "Same record twice: N deliveries, not 2N",
+        "Same record twice: the guard's claim detects it; N deliveries, not 2N",
         "Same key, 3 relay instances: published in order"
       ]
     },
