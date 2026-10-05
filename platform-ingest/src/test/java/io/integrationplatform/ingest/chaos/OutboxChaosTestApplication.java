@@ -1,6 +1,15 @@
 package io.integrationplatform.ingest.chaos;
 
+import io.integrationplatform.ingest.internal.relay.ActiveTenantSource;
+import io.integrationplatform.ingest.internal.relay.RelayTenantContext;
 import io.integrationplatform.ingest.port.PublishPort;
+import io.integrationplatform.tenancy.TenantContext;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 import javax.sql.DataSource;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -52,6 +61,54 @@ class OutboxChaosTestApplication {
     @Primary
     FaultInjectingPublishPort faultInjectingPublishPort() {
         return new FaultInjectingPublishPort();
+    }
+
+    // ------------------------------------------------------------------ integration glue (row 278, the lead)
+
+    /**
+     * The relay's binding (integration glue, wave-0 integration): the real relay binds and unbinds its own
+     * job context per cycle (ADR-011 Decision 8) - never the request context, never the suite's seeding context.
+     * {@code RelayTenantContext} is package-private where it binds and unbinds; constructing the one shared
+     * instance here is the composition the lanes agreed the integration lead owns.
+     */
+    @Bean
+    RelayTenantContext relayTenantContext() {
+        return new RelayTenantContext();
+    }
+
+    /**
+     * The stamp source (integration glue): whichever context is bound wins, so one stamping transaction
+     * manager serves both phases - seeding reads the suite's binding, a relay cycle reads the relay's. The
+     * {@code @Primary} makes this the single candidate lane A's unqualified {@code TenantContext} injections
+     * (R08) and the stamping manager's per-transaction lookup (R11) both resolve.
+     */
+    @Bean
+    @Primary
+    TenantContext stampSource(ChaosTenantContext chaosTenantContext, RelayTenantContext relayTenantContext) {
+        return () -> chaosTenantContext.currentTenantId()
+                .or(() -> relayTenantContext.currentTenantId());
+    }
+
+    /**
+     * The active tenants the relay loops over (integration glue): read from the fixture's owner identity, the
+     * way a deployment's directory crossing does - the application role sees the own directory row only
+     * (V1_3_2 {@code tenant_dir_self}), so no app-path query can list every tenant.
+     */
+    @Bean
+    ActiveTenantSource chaosActiveTenants() {
+        return () -> {
+            try (Connection owner = OutboxChaosDatabase.get().ownerConnection();
+                    ResultSet rows = owner.createStatement()
+                            .executeQuery("select id from public.tenant where status = 'ACTIVE'")) {
+                List<UUID> ids = new ArrayList<>();
+                while (rows.next()) {
+                    ids.add(UUID.fromString(rows.getString(1)));
+                }
+                return ids;
+            } catch (SQLException e) {
+                throw new IllegalStateException("the fixture's active-tenant read failed", e);
+            }
+        };
     }
 
     @Bean
