@@ -28,5 +28,24 @@
       <artifactId>spring-boot-starter-jdbc</artifactId>
     </dependency>
     <!-- spring-boot-starter-test comes from the parent for every module. -->
+
+    <!-- E3 seam continued (arjun-fullstack): lane A's Testcontainers suites (T-016 rows-only onboarding, T-092/T-093
+         real-API defect tests) boot a composed system from this module, and lane B/C's DB tests reuse the same deps -
+         so the container test dependencies are armed here once and no lane edits this pom again. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>
