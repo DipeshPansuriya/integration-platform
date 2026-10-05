@@ -1,6 +1,7 @@
 package io.integrationplatform.ingest.internal.relay;
 
 import io.integrationplatform.ingest.port.OutboxTopic;
+import java.sql.Timestamp;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.TenantScopedRepository;
 import java.time.Instant;
@@ -45,8 +46,10 @@ final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRow
 
     @Override
     public List<ClaimedOutboxRow> claimUnpublished(int keyBucket, Instant availableAtOrBefore, int limit) {
+        // the driver cannot infer the SQL type of an Instant - the explicit Timestamp is the cast of R09 for timestamptz
+        Timestamp instant = Timestamp.from(availableAtOrBefore);
         return query(CLAIM_SELECT_FROM, null,
-                Map.of("key_bucket", keyBucket, "available_at_or_before", availableAtOrBefore, "limit", limit),
+                Map.of("key_bucket", keyBucket, "available_at_or_before", instant, "limit", limit),
                 (rs, rowNum) -> new ClaimedOutboxRow(rs.getLong("id"), topicOf(rs.getString("topic")),
                         rs.getObject("aggregate_id", java.util.UUID.class), rs.getString("record_key"),
                         rs.getString("traceparent")));

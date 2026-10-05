@@ -29,7 +29,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -66,7 +66,7 @@ class PostgresOutboxRelayPostgresTest {
     private DataSource appPool;
     private RelayTenantContext context;
     private JdbcOutboxAccess access;
-    private StampingTransactions transactions;
+    private TransactionTemplate transactions;
 
     @BeforeAll
     static void migrateAsOwnerAndCreateTheRestrictedLogin() throws Exception {
@@ -84,8 +84,8 @@ class PostgresOutboxRelayPostgresTest {
             statement.execute("CREATE ROLE " + loginUser + " LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB "
                     + "NOCREATEROLE NOREPLICATION PASSWORD '" + loginPassword + "'");
             statement.execute("GRANT ipaas_app TO " + loginUser);
-            statement.execute("INSERT INTO tenant (id, code) VALUES ('" + TENANT_A + "', 't31-a'), ('"
-                    + TENANT_B + "', 't31-b')");
+            statement.execute("INSERT INTO tenant (id, code, status, time_zone) VALUES ('" + TENANT_A
+                    + "', 't31-a', 'ACTIVE', 'Etc/UTC'), ('" + TENANT_B + "', 't31-b', 'ACTIVE', 'Etc/UTC')");
         }
     }
 
@@ -98,7 +98,7 @@ class PostgresOutboxRelayPostgresTest {
         appPool = pool;
         context = new RelayTenantContext();
         access = new JdbcOutboxAccess(JdbcClient.create(pool), context);
-        transactions = new StampingTransactions(pool);
+        transactions = new TransactionTemplate(new StampingManager(pool));
     }
 
     @Test
@@ -193,23 +193,22 @@ class PostgresOutboxRelayPostgresTest {
                 Duration.ofSeconds(5), batchSize);
     }
 
-    /** TransactionTemplate that stamps the bound tenant on the transaction, exactly as the app's manager does. */
-    private final class StampingTransactions extends TransactionTemplate {
+    private final class StampingManager extends JdbcTransactionManager {
 
-        private final JdbcTemplate jdbc;
-
-        StampingTransactions(DataSource dataSource) {
-            super(new JdbcTransactionManager(dataSource));
-            this.jdbc = new JdbcTemplate(dataSource);
+        private StampingManager(DataSource dataSource) {
+            super(dataSource);
         }
 
         @Override
-        public <T> T execute(TransactionCallback<T> action) {
-            return super.execute(status -> {
-                jdbc.update("select set_config('app.tenant_id', ?, true)",
-                        context.requireTenantId().toString());
-                return action.doInTransaction(status);
-            });
+        protected void prepareTransactionalConnection(Connection connection, TransactionDefinition definition)
+                throws SQLException {
+            super.prepareTransactionalConnection(connection, definition);
+            // the production manager stamps exactly this way on the same SQL (TenantStampingTransactionManager)
+            try (PreparedStatement stamp = connection.prepareStatement(
+                    "select set_config('app.tenant_id', ?, true)")) {
+                stamp.setString(1, context.requireTenantId().toString());
+                stamp.execute();
+            }
         }
     }
 
