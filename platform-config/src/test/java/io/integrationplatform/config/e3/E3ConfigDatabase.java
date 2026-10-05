@@ -1,6 +1,5 @@
 package io.integrationplatform.config.e3;
 
-import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.flywaydb.core.Flyway;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
@@ -216,7 +216,7 @@ final class E3ConfigDatabase {
             pendingIntegration("no checked-in migrations to deploy - the config tables of T-014 (owner lane B) do "
                     + "not exist yet", "lane B (T-014)");
         }
-        int applied = ReflectFlyway.migrate(postgres().getJdbcUrl(), postgres().getUsername(),
+        int applied = deployCheckedInMigrations(postgres().getJdbcUrl(), postgres().getUsername(),
                 postgres().getPassword(), locations.toArray(String[]::new), SCHEMA_HISTORY);
         if (applied <= 0) {
             pendingIntegration("the migrations deployed 0 scripts - the tenant directory or the config tables are "
@@ -225,47 +225,23 @@ final class E3ConfigDatabase {
     }
 
     /**
-     * The platform's real Flyway invoked reflectively: its classes are not on this module's test classpath (the
-     * pom is the lead's seam) and lane A may not add dependencies, but the fixture must deploy real migration SQL
-     * the real way. The reflection keeps no state a green run could hide behind; when the lead arms the pom, this
-     * one class's calls simply resolve.
+     * The platform's real Flyway, deployed the real way. Wave-0 integration glue (arjun-fullstack): lane A wrote
+     * this invocation reflectively while the pom had no Flyway; the arming commit put Flyway 12.4.0 on the test
+     * classpath, whose API changed (Flyway 11.x removed {@code locations(String...)}'s old shape around version
+     * numbering and {@code migrate()} now returns {@code MigrateResult}), so the reflection is replaced by the
+     * direct type-checked call - the same deployments, no reflective state a green run could hide behind.
      */
-    private static final class ReflectFlyway {
-
-        private ReflectFlyway() {
-        }
-
-        static int migrate(String url, String user, String password, String[] locations, String historyTable) {
-            try {
-                Class<?> flywayClass = Class.forName("org.flywaydb.core.Flyway");
-                Object config = flywayClass.getMethod("configure").invoke(null);
-                invoke(config, "dataSource", String.class, String.class, String.class, url, user, password);
-                invoke(config, "locations", String[][].class, (Object) locations);
-                invoke(config, "table", String.class, historyTable);
-                invoke(config, "baselineOnMigrate", boolean.class, true);
-                invoke(config, "baselineVersion", String.class, "0");
-                Object flyway = config.getClass().getMethod("load").invoke(config);
-                return ((Number) flywayClass.getMethod("migrate").invoke(flyway)).intValue();
-            } catch (ReflectiveOperationException e) {
-                throw new IllegalStateException("the reflective Flyway migrate failed", e);
-            }
-        }
-
-        private static void invoke(Object target, String name, Class<?> singleParameterType, Object singleArgument)
-                throws ReflectiveOperationException {
-            Method method = target.getClass().getMethod(name, singleParameterType);
-            method.setAccessible(true);
-            method.invoke(target, singleArgument);
-        }
-
-        private static void invoke(Object target, String name, Class<?> firstParameterType,
-                Class<?> secondParameterType, Class<?> thirdParameterType, Object a, Object b, Object c)
-                throws ReflectiveOperationException {
-            Method method = target.getClass().getMethod(name, firstParameterType, secondParameterType,
-                    thirdParameterType);
-            method.setAccessible(true);
-            method.invoke(target, a, b, c);
-        }
+    static int deployCheckedInMigrations(String url, String user, String password, String[] locations,
+            String historyTable) {
+        return Flyway.configure()
+                .dataSource(url, user, password)
+                .locations(locations)
+                .table(historyTable)
+                .baselineOnMigrate(true)
+                .baselineVersion("0")
+                .load()
+                .migrate()
+                .migrationsExecuted;
     }
 
     // ------------------------------------------------------------------ the rows-only gate
