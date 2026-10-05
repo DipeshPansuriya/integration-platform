@@ -18,10 +18,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * <p>Used by the RLS proofs: the container's owner user is a superuser and bypasses row-level security, so only a
  * connection through this login shows what the application role really can see and do.
  */
-final class AppRoleHarness {
+public final class AppRoleHarness {
 
     /** The restricted application role created by V1_3_1. */
-    static final String APPLICATION_ROLE = "ipaas_app";
+    public static final String APPLICATION_ROLE = "ipaas_app";
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -29,7 +29,7 @@ final class AppRoleHarness {
     }
 
     /** A LOGIN user; its random password never leaves memory. */
-    record Login(String username, String password) {
+    public record Login(String username, String password) {
 
         @Override
         public String toString() {
@@ -38,7 +38,7 @@ final class AppRoleHarness {
     }
 
     /** Creates the restricted login and grants it {@code ipaas_app}; call after Flyway has created the role. */
-    static Login grantAppRoleLogin(PostgreSQLContainer postgres) {
+    public static Login grantAppRoleLogin(PostgreSQLContainer postgres) {
         String username = "ingest_app_" + Long.toUnsignedString(RANDOM.nextLong(), 36);
         byte[] secret = new byte[24];
         RANDOM.nextBytes(secret);
@@ -57,19 +57,19 @@ final class AppRoleHarness {
     }
 
     /** A connection as the app login (not the owner): RLS and grants apply to every statement on it. */
-    static Connection connectAsAppRole(PostgreSQLContainer postgres, Login login) throws SQLException {
+    public static Connection connectAsAppRole(PostgreSQLContainer postgres, Login login) throws SQLException {
         Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), login.username(), login.password());
         connection.setAutoCommit(true);
         return connection;
     }
 
     /** A connection as the container's owner user (the Flyway owner): seeding and fixtures only, never the app. */
-    static Connection ownerConnection(PostgreSQLContainer postgres) throws SQLException {
+    public static Connection ownerConnection(PostgreSQLContainer postgres) throws SQLException {
         return DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
     }
 
     /** Binds app.tenant_id on the connection (session scope: this connection is one proof, then it closes). */
-    static void bindTenantSetting(Connection connection, String tenantId) throws SQLException {
+    public static void bindTenantSetting(Connection connection, String tenantId) throws SQLException {
         try (PreparedStatement stamp = connection.prepareStatement("select set_config('app.tenant_id', ?, false)")) {
             stamp.setString(1, tenantId);
             stamp.execute();
