@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2000/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.integrationplatform</groupId>
+    <artifactId>integration-platform-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>platform-config</artifactId>
+  <name>platform-config</name>
+  <description>Flow configuration (E3): interfaces, routes, mappings, systems, contract drafts and version snapshots, and their admin/lifecycle APIs. No routing, no delivery, no registry roles yet (E5 extends this module's tables).</description>
+
+  <!-- E3 seam (arjun-fullstack): the skeleton only. Lane B owns db/migration V2_2_* (T-014, T-018, T-020); lane C
+       owns the APIs in adapter/in and application (T-015, T-019, T-021). Package root: io.integrationplatform.config. -->
+  <dependencies>
+    <!-- Configuration rows are served over the admin HTTP API (E3-F1-S1 / E3-F2-S1). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <!-- The tables these APIs serve are rows (no JPA): JDBC (ADR-001, the delivery module's pattern). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <!-- spring-boot-starter-test comes from the parent for every module. -->
+  </dependencies>
+</project>

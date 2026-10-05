@@ -36,6 +36,12 @@
       <artifactId>platform-ingest</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- E3 seam (arjun-fullstack): configuration module in ArchUnit scope like every production module (R08). -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-config</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>

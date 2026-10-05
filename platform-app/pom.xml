@@ -31,6 +31,12 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-ingest</artifactId>
     </dependency>
+    <!-- E3 seam (arjun-fullstack): configuration module wired into the deployable so T-015/T-019's controllers and
+         T-014/T-018's Flyway resources are on the runtime classpath. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-config</artifactId>
+    </dependency>
     <dependency>
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>
@@ -46,6 +52,12 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <!-- E3 seam (arjun-fullstack): publishes the backend's OpenAPI document (/v3/api-docs) for T-158's typed
+         client generation and T-094's contract test. api variant only - no swagger-ui webjars needed. -->
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
     </dependency>
     <dependency>
       <groupId>org.postgresql</groupId>

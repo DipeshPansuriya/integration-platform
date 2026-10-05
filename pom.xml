@@ -25,6 +25,9 @@
     <module>platform-delivery</module>
     <module>platform-routing</module>
     <module>platform-ingest</module>
+    <!-- E3 seam (arjun-fullstack): platform-config skeleton registered so lanes B/C compile without touching this
+         file; its insides (tables, API, lifecycle) stay in the lanes' own diffs. -->
+    <module>platform-config</module>
     <module>platform-tenancy</module>
     <module>platform-app</module>
     <!-- Test-only module: ArchUnit rules over every module's package (ADR-001 item 2, R08). Not part of the deployable. -->
@@ -42,6 +45,9 @@
     <networknt-json-schema-validator.version>2.0.1</networknt-json-schema-validator.version>
     <!-- ArchUnit is named by ADR-001 item 2 and architecture.md section 2 (arch-test); not managed by Boot. -->
     <archunit.version>1.4.2</archunit.version>
+    <!-- E3 seam (arjun-fullstack): springdoc publishes the backend's OpenAPI document (/v3/api-docs) for T-158's
+         generated client and T-094's contract test. The 3.x line targets Spring Boot 4; not managed by Boot. -->
+    <springdoc.version>3.1.1</springdoc.version>
     <!-- R13 / ADR-010:59: the platform's one resilience library, at the version Camel 4.22.1 manages for
          camel-resilience4j; camel-spring-boot-bom does not manage the plain modules. -->
     <resilience4j.version>2.4.0</resilience4j.version>
@@ -105,6 +111,18 @@
         <groupId>io.integrationplatform</groupId>
         <artifactId>platform-tenancy</artifactId>
         <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <!-- E3 seam: lane B/C's configuration module; the deployable wires it in (ADR-001). -->
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-config</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <!-- E3 seam: OpenAPI document generation for the UI's typed client (T-158) and the contract test (T-094). -->
+      <dependency>
+        <groupId>org.springdoc</groupId>
+        <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+        <version>${springdoc.version}</version>
       </dependency>
       <dependency>
         <groupId>com.tngtech.archunit</groupId>
