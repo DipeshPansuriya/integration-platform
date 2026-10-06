@@ -2,12 +2,12 @@ package io.integrationplatform.config.e3;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.integrationplatform.config.e3.ConfigAdminApi.Bearer;
 import io.integrationplatform.config.e3.ConfigAdminApi.Response;
 import io.integrationplatform.config.e3.E3ConfigDatabase.PendingIntegration;
 import io.integrationplatform.config.e3.E3ConfigDatabase.RestrictedLogin;
 import io.integrationplatform.config.e3.E3ConfigDatabase.SchemaSnapshot;
 import io.integrationplatform.config.e3.E3ConfigDatabase.SeededTenant;
+import io.integrationplatform.e3lanea.E3LaneASuiteApp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -49,22 +49,28 @@ import tools.jackson.databind.JsonNode;
  * </pre>
  *
  * <p>Tagged {@code container} (R03): runs only under {@code ./mvnw -Pcontainer}, one Docker suite at a time (R06).
- * The system under test is composed from test configuration ({@link ConfigE3App}) and served on a real port; every
- * scenario drives the real admin API (no mock - E3-C6).
+ * The system under test is composed from test configuration ({@link E3LaneASuiteApp}) and served on a real port;
+ * every scenario drives the real admin API (no mock - E3-C6).
  *
- * <p>State today (written test-first, the committed RED): the flow admin API is lane C's T-015 and has not landed,
- * so every scenario fails at its first unfulfilled named gate (the missing driver, then the missing Flyway, then
- * the 404 the real API should answer) - the committed RED the node's owner fixes through arjun-fullstack. Nothing
- * here stubs a seam to green.
+ * <p>Written test-first (the committed RED of the red-first lane); E3 fix round 1 binds its composition to the
+ * real ADR-007 identity chain (lane C's proven pattern). The flow admin and lifecycle APIs (lane C's T-015/T-019)
+ * have landed since; the lifecycle walk therefore needs "another user" as ADR-007 Decision 2 means it - an
+ * approver of the author's own tenant, seeded beside lane A's own directory seed
+ * ({@link LaneCIdentities#seedApproverOfTenantA()}), never a user of another tenant.
  */
 @Tag("container")
-@SpringBootTest(classes = ConfigE3App.class, webEnvironment = WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = E3LaneASuiteApp.class, webEnvironment = WebEnvironment.RANDOM_PORT)
 class T016RowsOnlyOnboardingContainerTest {
 
     private static final AtomicBoolean SEEDED = new AtomicBoolean();
 
+    /** The suite's one signing key, shared with the composed app's decoder bean (see {@link E3LaneASuiteApp}). */
+    private static final LaneCIdentities TOKENS = E3LaneASuiteApp.TOKENS;
+
     private static RestrictedLogin login;
+    private static String approverSubject;
     private static String bearerOfTenantA;
+    private static String bearerOfApprover;
     private static String bearerOfTenantB;
 
     @LocalServerPort
@@ -75,6 +81,7 @@ class T016RowsOnlyOnboardingContainerTest {
         PostgreSQLContainer postgres = E3ConfigDatabase.postgres(); // starts once, on first use
         if (SEEDED.compareAndSet(false, true)) {
             E3ConfigDatabase.seedDirectory(); // named gates first (driver, Flyway, migrations), then the seed
+            approverSubject = LaneCIdentities.seedApproverOfTenantA(); // the tenant-A approver (not the author)
         }
         login = E3ConfigDatabase.restrictedLogin();
         // The fixed environment names of the platform (R07) - the composed context maps them like platform-app's
@@ -83,6 +90,13 @@ class T016RowsOnlyOnboardingContainerTest {
         registry.add("spring.datasource.username", () -> login.username());
         registry.add("spring.datasource.password", () -> login.password());
         registerFlywayDeployment(registry);
+        // The real ADR-007 resource-server chain (the ForgedTenantDenialSuiteTest pattern): only the JWT
+        // verification key is the suite's (E3LaneASuiteApp's decoder), every other link is production code.
+        registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri",
+                () -> E3ConfigDatabase.OIDC_ISSUER.toString());
+        registry.add("spring.security.oauth2.resourceserver.jwt.audiences",
+                () -> E3ConfigDatabase.OIDC_AUDIENCE);
+        registry.add("spring.security.oauth2.resourceserver.jwt.jws-algorithms", () -> "RS256");
     }
 
     private static void registerFlywayDeployment(DynamicPropertyRegistry registry) {
@@ -96,11 +110,11 @@ class T016RowsOnlyOnboardingContainerTest {
 
     @BeforeEach
     void bearerTokens() {
-        Bearer bearer = new Bearer();
         SeededTenant a = E3ConfigDatabase.tenantA();
         SeededTenant b = E3ConfigDatabase.tenantB();
-        bearerOfTenantA = bearer.forSubject(a.subject());
-        bearerOfTenantB = bearer.forSubject(b.subject());
+        bearerOfTenantA = TOKENS.accessToken(a.subject());
+        bearerOfApprover = TOKENS.accessToken(approverSubject); // same tenant, different user (ADR-007 Decision 2)
+        bearerOfTenantB = TOKENS.accessToken(b.subject());
     }
 
     // ------------------------------------------------------------------ scenarios
@@ -157,13 +171,14 @@ class T016RowsOnlyOnboardingContainerTest {
                 .as("no table was created or removed behind the flow's rows (0 deploys)")
                 .isEqualTo(before.relations());
 
-        // And the flow is available to ingest once published: the real lifecycle runs, rows only.
+        // And the flow is available to ingest once published: the real lifecycle runs, rows only. The approver is
+        // a second user of tenant A ("another user", ADR-007 Decision 2) - never a user of another tenant.
         Response submit = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS + "/" + flowId + "/submit",
                 bearerOfTenantA, ConfigAdminApi.submit("rows-only onboarding"));
         Response approve = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS + "/" + flowId + "/approve",
-                bearerOfTenantB, "{}");
+                bearerOfApprover, "{}");
         Response publish = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS + "/" + flowId + "/publish",
-                bearerOfTenantB, "{}");
+                bearerOfApprover, "{}");
         assertThat(submit.status())
                 .as("the flow lifecycle exists (owner lane C, T-019) - submit, body: %s", submit.body())
                 .isEqualTo(200);

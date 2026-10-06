@@ -2,10 +2,10 @@ package io.integrationplatform.config.e3;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.integrationplatform.config.e3.ConfigAdminApi.Bearer;
 import io.integrationplatform.config.e3.ConfigAdminApi.Response;
 import io.integrationplatform.config.e3.E3ConfigDatabase.PendingIntegration;
 import io.integrationplatform.config.e3.E3ConfigDatabase.RestrictedLogin;
+import io.integrationplatform.e3lanea.E3LaneASuiteApp;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,14 +33,19 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * changeNote the submit sends is what the approval audit reads later (the ConfigVersion's {@code changeNote},
  * the flow's version history).
  *
- * <p>Tagged {@code container} (R03), the committed RED: today the lifecycle API is lane C's T-019 and has not
- * landed; every missing node is gated by name with its owner.
+ * <p>Tagged {@code container} (R03), written test-first: the lifecycle API (lane C's T-019) has landed since,
+ * and E3 fix round 1 bound this suite's composition to the real ADR-007 identity chain
+ * ({@link E3LaneASuiteApp} - lane C's proven pattern, the suite's decoder on the key that mints this bearer);
+ * a still-missing node is gated by name with its owner.
  */
 @Tag("container")
-@SpringBootTest(classes = ConfigE3App.class, webEnvironment = WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = E3LaneASuiteApp.class, webEnvironment = WebEnvironment.RANDOM_PORT)
 class T093SubmitChangeNoteContainerTest {
 
     private static final AtomicBoolean SEEDED = new AtomicBoolean();
+
+    /** The suite's one signing key, shared with the composed app's decoder bean (see {@link E3LaneASuiteApp}). */
+    private static final LaneCIdentities TOKENS = E3LaneASuiteApp.TOKENS;
 
     private static RestrictedLogin login;
     private static String bearerOfTenantA;
@@ -61,11 +66,18 @@ class T093SubmitChangeNoteContainerTest {
         registry.add("spring.flyway.url", postgres::getJdbcUrl);
         registry.add("spring.flyway.user", postgres::getUsername);
         registry.add("spring.flyway.password", postgres::getPassword);
+        // The real ADR-007 resource-server chain (the ForgedTenantDenialSuiteTest pattern): only the JWT
+        // verification key is the suite's (E3LaneASuiteApp's decoder), every other link is production code.
+        registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri",
+                () -> E3ConfigDatabase.OIDC_ISSUER.toString());
+        registry.add("spring.security.oauth2.resourceserver.jwt.audiences",
+                () -> E3ConfigDatabase.OIDC_AUDIENCE);
+        registry.add("spring.security.oauth2.resourceserver.jwt.jws-algorithms", () -> "RS256");
     }
 
     @BeforeEach
     void bearerToken() {
-        bearerOfTenantA = new Bearer().forSubject(E3ConfigDatabase.tenantA().subject());
+        bearerOfTenantA = TOKENS.accessToken(E3ConfigDatabase.tenantA().subject());
     }
 
     @Test
