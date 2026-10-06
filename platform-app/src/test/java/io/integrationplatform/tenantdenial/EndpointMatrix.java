@@ -27,32 +27,97 @@ final class EndpointMatrix {
     record Seed(SeededTenant a, SeededTenant b) {
     }
 
-    /** One tenant with its ACTIVE user and its probe rows (labels carry the tenant's word, e.g. "alpha-1"). */
-    record SeededTenant(UUID id, String code, UUID userId, String subject, List<UUID> rowIds, List<String> labels) {
+    /** One tenant with its ACTIVE user, its probe rows and its seeded config chain (labels carry the tenant's word). */
+    record SeededTenant(UUID id, String code, UUID userId, String subject, List<UUID> rowIds, List<String> labels,
+            Config config) {
 
         /** Every value that identifies this tenant's data; none of them may reach the other tenant's user. */
         List<String> markers() {
             List<String> markers = new ArrayList<>(List.of(id.toString(), code, userId.toString(), subject));
             rowIds.forEach(row -> markers.add(row.toString()));
             markers.addAll(labels);
+            markers.addAll(config.markers());
             return markers;
         }
     }
 
     /**
+     * The tenant's config chain the admin API drives (T-015/T-019/T-021 surface): one system pair, a source
+     * contract with its 1.0 draft version, and six flows in the states the lifecycle endpoints need. The suite
+     * re-writes these exact ids before every test, so one entry's write never leaks into the next entry's run.
+     */
+    record Config(String word, UUID srcSystemId, UUID dstSystemId, UUID dstEndpointId, UUID contractId,
+            UUID sourceContractVersionId, UUID flowMainId, UUID flowDraftId, UUID flowSubmitId,
+            UUID flowApproveId, UUID flowPublishId, UUID flowImmutableId, UUID immutableVersionId,
+            UUID pubRouteId, UUID pubMappingId, UUID otherAuthorId) {
+
+        String srcCode() {
+            return "src-" + word;
+        }
+
+        String dstCode() {
+            return "dst-" + word;
+        }
+
+        String flowCode(String kind) {
+            return "flow-" + word + "-" + kind;
+        }
+
+        String freshSystemCode() {
+            return "sys-" + word + "-fresh";
+        }
+
+        List<String> markers() {
+            return List.of(srcCode(), dstCode(), freshSystemCode(),
+                    flowCode("main"), flowCode("draft"), flowCode("submit"), flowCode("approve"),
+                    flowCode("publish"), flowCode("immutable"),
+                    srcSystemId.toString(), dstSystemId.toString(), dstEndpointId.toString(),
+                    contractId.toString(), sourceContractVersionId.toString(),
+                    flowMainId.toString(), flowDraftId.toString(), flowSubmitId.toString(),
+                    flowApproveId.toString(), flowPublishId.toString(), flowImmutableId.toString(),
+                    immutableVersionId.toString(), otherAuthorId.toString());
+        }
+    }
+
+    /**
+     * The row-state probe of a lifecycle endpoint: {@code stateSql} (run on the owner connection) answers one
+     * text scalar naming the seeded state and the state the legitimate write must leave behind. The suite
+     * checks it after the legitimate call and after every forgery: a forged call must answer 404 without
+     * touching tenant A's rows, and an ignored forgery must still write only inside tenant A.
+     */
+    record WriteProbe(Function<Seed, String> stateSql, String seeded, String afterWrite) {
+    }
+
+    /**
      * One endpoint and how the suite calls it for tenant A.
      *
-     * @param method        the HTTP method
-     * @param pattern       the mapping pattern exactly as registered
-     * @param acceptsBody   whether the handler takes a {@code @RequestBody} (the guard checks it)
-     * @param pathForA      the concrete path of a legitimate tenant-A call
-     * @param foreignIdPath the same path naming a tenant-B record id (only for {@code {id}} patterns)
-     * @param bodyForA      the JSON body of a legitimate call (only when it accepts a body)
-     * @param tenantAData   the tenant-A values a legitimate answer must contain
+     * @param method         the HTTP method
+     * @param pattern        the mapping pattern exactly as registered
+     * @param acceptsBody    whether the handler takes a {@code @RequestBody} (the guard checks it)
+     * @param pathForA       the concrete path of a legitimate tenant-A call
+     * @param foreignIdPath  the same path naming a tenant-B record id (only for {@code {id}} patterns)
+     * @param bodyForA       the JSON body of a legitimate call (only when it accepts a body)
+     * @param tenantAData    the tenant-A values a legitimate answer must contain (empty for an endpoint that
+     *                       answers with static text: the marker check still runs, there is simply nothing to echo)
+     * @param expectedStatus the status the scenario's legitimate call answers with (200 unless the API is designed
+     *                       to answer otherwise: a create is 201, the immutable-version refusal is 409)
+     * @param write          the row-state probe of a lifecycle endpoint, null when the endpoint writes nothing
      */
     record Entry(String method, String pattern, boolean acceptsBody, Function<Seed, String> pathForA,
             Function<Seed, String> foreignIdPath, Function<Seed, String> bodyForA,
-            Function<Seed, List<String>> tenantAData) {
+            Function<Seed, List<String>> tenantAData, int expectedStatus, WriteProbe write) {
+
+        Entry(String method, String pattern, boolean acceptsBody, Function<Seed, String> pathForA,
+                Function<Seed, String> foreignIdPath, Function<Seed, String> bodyForA,
+                Function<Seed, List<String>> tenantAData) {
+            this(method, pattern, acceptsBody, pathForA, foreignIdPath, bodyForA, tenantAData, 200, null);
+        }
+
+        Entry(String method, String pattern, boolean acceptsBody, Function<Seed, String> pathForA,
+                Function<Seed, String> foreignIdPath, Function<Seed, String> bodyForA,
+                Function<Seed, List<String>> tenantAData, int expectedStatus) {
+            this(method, pattern, acceptsBody, pathForA, foreignIdPath, bodyForA, tenantAData, expectedStatus, null);
+        }
 
         String key() {
             return method + " " + pattern;
@@ -69,8 +134,12 @@ final class EndpointMatrix {
     }
 
     private static final String PROBE = "/api/v1/test-probe/rows";
+    private static final String FLOWS = "/api/v1/admin/flows";
+    private static final String FLOW_VERSIONS = "/api/v1/admin/flows/{flowId}/versions/{versionId}";
+    private static final String CONTRACT_VERSIONS = "/api/v1/admin/contracts/versions";
+    private static final String SYSTEMS = "/api/v1/admin/systems";
 
-    /** Every /api/** endpoint in E1: lane B's /api/v1/me (fixed contract) and the test probe. */
+    /** Every /api/** endpoint in E1 and E3: lane B's /api/v1/me, the test probe, and lane C's config admin API. */
     static final List<Entry> REGISTRY = List.of(
             new Entry("GET", "/api/v1/me", false,
                     s -> "/api/v1/me", null, null,
@@ -86,9 +155,132 @@ final class EndpointMatrix {
             new Entry("POST", PROBE + "/search", true,
                     s -> PROBE + "/search", null,
                     s -> "{\"labelPrefix\":\"\"}",
-                    s -> ids(s.a().rowIds())));
+                    s -> ids(s.a().rowIds())),
+
+            // --- T-015: systems, flows create/read (lane C's config admin API) ---------------------------------
+            new Entry("POST", SYSTEMS, true,
+                    s -> SYSTEMS, null,
+                    s -> "{\"code\":\"" + s.a().config().freshSystemCode()
+                            + "\",\"name\":\"fresh system\",\"direction\":\"OUTBOUND\"}",
+                    s -> List.of(s.a().config().freshSystemCode(), "OUTBOUND"),
+                    201,
+                    new WriteProbe(tenantState("system", "target_endpoint"), "2|1", "3|2")),
+            new Entry("GET", FLOWS, false,
+                    s -> FLOWS, null, null,
+                    s -> List.of(s.a().config().flowMainId().toString(),
+                            s.a().config().flowPublishId().toString(),
+                            s.a().config().flowCode("main"))),
+            new Entry("GET", FLOWS + "/{flowId}", false,
+                    s -> FLOWS + "/" + s.a().config().flowMainId(),
+                    s -> FLOWS + "/" + s.b().config().flowMainId(),
+                    null,
+                    s -> List.of(s.a().config().flowMainId().toString(),
+                            s.a().config().flowCode("main"), s.a().config().srcCode())),
+
+            // --- T-019: the draft-save and the lifecycle walk --------------------------------------------------
+            new Entry("PUT", FLOWS + "/{flowId}", true,
+                    s -> FLOWS + "/" + s.a().config().flowDraftId(),
+                    s -> FLOWS + "/" + s.b().config().flowDraftId(),
+                    s -> flowBody(s),
+                    s -> List.of(s.a().config().flowDraftId().toString()),
+                    200,
+                    new WriteProbe(s -> "SELECT (SELECT count(*) FROM public.interface_version"
+                            + " WHERE interface_id = '" + s.a().config().flowDraftId() + "')"
+                            + " || '|' || (SELECT current_version FROM public.interface"
+                            + " WHERE id = '" + s.a().config().flowDraftId() + "')", "1|1", "2|2")),
+            new Entry("PUT", FLOW_VERSIONS, false,
+                    s -> FLOWS + "/" + s.a().config().flowImmutableId() + "/versions/"
+                            + s.a().config().immutableVersionId(),
+                    s -> FLOWS + "/" + s.b().config().flowImmutableId() + "/versions/"
+                            + s.b().config().immutableVersionId(),
+                    null,
+                    s -> List.of(), 409),
+            new Entry("POST", FLOWS + "/{flowId}/submit", true,
+                    s -> FLOWS + "/" + s.a().config().flowSubmitId() + "/submit",
+                    s -> FLOWS + "/" + s.b().config().flowSubmitId() + "/submit",
+                    s -> "{\"changeNote\":\"submit frozen note\"}",
+                    s -> List.of(s.a().config().flowSubmitId().toString()),
+                    200,
+                    new WriteProbe(s -> "SELECT version || '|' || status || '/n=' || coalesce(change_note, '-')"
+                            + " FROM public.interface_version WHERE interface_id = '"
+                            + s.a().config().flowSubmitId() + "'",
+                            "1|DRAFT/n=-", "1|PENDING_APPROVAL/n=submit frozen note")),
+            new Entry("POST", FLOWS + "/{flowId}/approve", false,
+                    s -> FLOWS + "/" + s.a().config().flowApproveId() + "/approve",
+                    s -> FLOWS + "/" + s.b().config().flowApproveId() + "/approve",
+                    null,
+                    s -> List.of(s.a().config().flowApproveId().toString()),
+                    200,
+                    new WriteProbe(s -> "SELECT status || '/appr=' || (approver_id IS NOT NULL)::text"
+                            + " FROM public.interface_version WHERE interface_id = '"
+                            + s.a().config().flowApproveId() + "'",
+                            "PENDING_APPROVAL/appr=false", "APPROVED/appr=true")),
+            new Entry("POST", FLOWS + "/{flowId}/publish", false,
+                    s -> FLOWS + "/" + s.a().config().flowPublishId() + "/publish",
+                    s -> FLOWS + "/" + s.b().config().flowPublishId() + "/publish",
+                    null,
+                    s -> List.of(s.a().config().flowPublishId().toString()),
+                    200,
+                    new WriteProbe(s -> "SELECT i.status || '|' || coalesce(i.published_version::text, '-')"
+                            + " || '|' || v.status || '|r'"
+                            + " || (SELECT count(*) FROM public.route r WHERE r.interface_id = i.id) || '|m'"
+                            + " || (SELECT count(*) FROM public.mapping m WHERE m.route_id IN"
+                            + " (SELECT r.id FROM public.route r WHERE r.interface_id = i.id))"
+                            + " FROM public.interface i, public.interface_version v"
+                            + " WHERE i.id = '" + s.a().config().flowPublishId() + "'"
+                            + " AND v.interface_id = i.id AND v.version = 1",
+                            "DRAFT|-|APPROVED|r0|m0", "PUBLISHED|1|PUBLISHED|r1|m1")),
+
+            // --- T-019: the contract draft-save, read and submit -----------------------------------------------
+            new Entry("POST", CONTRACT_VERSIONS, true,
+                    s -> CONTRACT_VERSIONS, null,
+                    s -> "{\"system\":\"" + s.a().config().srcCode()
+                            + "\",\"role\":\"SOURCE_REQUEST\",\"name\":\"fresh draft\","
+                            + "\"sourceSchema\":{\"type\":\"object\"}}",
+                    s -> List.of("1.1", "DRAFT"),
+                    200,
+                    new WriteProbe(s -> "SELECT count(*) || '|@' || coalesce(string_agg(version_label, ','"
+                            + " ORDER BY version_label), '-') FROM public.contract_version WHERE tenant_id = '"
+                            + s.a().id() + "'", "1|@1.0", "2|@1.0,1.1")),
+            new Entry("GET", CONTRACT_VERSIONS + "/{versionId}", false,
+                    s -> CONTRACT_VERSIONS + "/" + s.a().config().sourceContractVersionId(),
+                    s -> CONTRACT_VERSIONS + "/" + s.b().config().sourceContractVersionId(),
+                    null,
+                    s -> List.of(s.a().config().sourceContractVersionId().toString(), "1.0",
+                            s.a().config().srcCode())),
+            new Entry("POST", CONTRACT_VERSIONS + "/{versionId}/submit", true,
+                    s -> CONTRACT_VERSIONS + "/" + s.a().config().sourceContractVersionId() + "/submit",
+                    s -> CONTRACT_VERSIONS + "/" + s.b().config().sourceContractVersionId() + "/submit",
+                    s -> "{\"changeNote\":\"contract frozen note\"}",
+                    s -> List.of(s.a().config().sourceContractVersionId().toString()),
+                    200,
+                    new WriteProbe(s -> "SELECT status || '/n=' || coalesce(change_note, '-')"
+                            + " FROM public.contract_version WHERE id = '"
+                            + s.a().config().sourceContractVersionId() + "'",
+                            "DRAFT/n=-", "PENDING_APPROVAL/n=contract frozen note")),
+
+            // --- T-015: the flow creation (POST /flows answers 201, its rows land in tenant A only) -------------
+            new Entry("POST", FLOWS, true,
+                    s -> FLOWS, null,
+                    s -> flowBody(s),
+                    s -> List.of(),
+                    201,
+                    new WriteProbe(tenantState("interface", "interface_version"), "6|6", "7|7")));
 
     private EndpointMatrix() {
+    }
+
+    /** The legitimate flow body both write entries send: a real tenant-A onboarding shape. */
+    private static String flowBody(Seed s) {
+        return "{\"businessKeyRule\":\"$.orderId\",\"sourceSystem\":\"" + s.a().config().srcCode()
+                + "\",\"destinations\":[\"" + s.a().config().dstCode() + "\"]}";
+    }
+
+    /** The row count of two config tables inside tenant A, e.g. "6|6" before and "7|7" after the legitimate write. */
+    private static Function<Seed, String> tenantState(String table, String childTable) {
+        return s -> "SELECT (SELECT count(*) FROM public." + table + " WHERE tenant_id = '" + s.a().id() + "')"
+                + " || '|' || (SELECT count(*) FROM public." + childTable
+                + " WHERE tenant_id = '" + s.a().id() + "')";
     }
 
     /** Every (entry, forgery) pair that fits - the scenario outline's rows. */
