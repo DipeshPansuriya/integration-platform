@@ -15,12 +15,15 @@ import { chromium } from 'playwright';
 export const P95_BUDGET_MS = 1500;
 
 /** One measured page load: full load time in ms after navigation + settle. */
-async function loadOnce(browser, url, settle) {
+async function loadOnce(browser, url, settle, wait) {
   const context = await browser.newContext();
   const page = await context.newPage();
   const start = performance.now();
   await page.goto(url, { waitUntil: 'load', timeout: 30000 });
   await page.waitForLoadState('load');
+  // A page entry may wait for a selector INSIDE the timed window (e.g. the row a seeded
+  // listing renders): then the measurement covers the real data load, not just the shell.
+  if (wait) await page.waitForSelector(wait, { timeout: 30000 });
   if (settle) await page.waitForTimeout(settle);
   const ms = performance.now() - start;
   await context.close();
@@ -39,10 +42,10 @@ export function p95(samples) {
  * Measures one page `loads` times; returns { p95, samples }.
  * Exposed for the negative test (the runner and the test use the SAME measurement).
  */
-export async function measurePage(browser, url, loads, settle = 0) {
+export async function measurePage(browser, url, loads, settle = 0, wait = null) {
   const samples = [];
   for (let i = 0; i < loads; i++) {
-    samples.push(await loadOnce(browser, url, settle));
+    samples.push(await loadOnce(browser, url, settle, wait));
   }
   return { p95: p95(samples), samples };
 }
@@ -59,7 +62,7 @@ export async function runP95Check(config, { base, loads = 100, headless = true }
     const pages = [];
     for (const entry of config.pages ?? []) {
       const url = new URL(entry.path, base);
-      const result = await measurePage(browser, url.toString(), entry.loads ?? loads);
+      const result = await measurePage(browser, url.toString(), entry.loads ?? loads, entry.settle ?? 0, entry.wait ?? null);
       pages.push({ name: entry.name, url: url.toString(), p95: result.p95, loads: result.samples.length });
     }
     const failures = pages.filter((p) => !(p.p95 < P95_BUDGET_MS));

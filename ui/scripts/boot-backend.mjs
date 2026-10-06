@@ -150,7 +150,10 @@ function jarPath() {
 
 function buildJar() {
   console.log('boot-backend: building platform-app (mvnw -pl platform-app -am package -DskipTests)');
-  const cmd = isWin() ? 'mvnw.cmd' : './mvnw';
+  // Win11 26300 with NoDefaultCurrentDirectoryInExePath: cmd.exe (spawned via shell:true) does
+  // NOT resolve a bare name against the cwd - 'mvnw.cmd' dies "is not recognized". The Maven
+  // wrapper's own docs spawn it by absolute path; the non-Windows branch keeps './mvnw'.
+  const cmd = isWin() ? path.resolve(REPO, 'mvnw.cmd') : './mvnw';
   const result = spawnSync(
     cmd,
     ['-pl', 'platform-app', '-am', 'package', '-DskipTests'],
@@ -183,12 +186,15 @@ async function healthy(appPort) {
 function psql(container, sql) {
   // The initdb phase runs a temporary postgres that answers pg_isready and then shuts down
   // (measured 2026-10-05, lane D: FATAL "the database system is shutting down" after an early
-  // CREATE ROLE). Retry transient shutdown/connect failures until the REAL cluster is up.
+  // CREATE ROLE; measured 2026-10-06 run 4: "connection to server on socket ... No such file
+  // or directory" between pg_isready and the real cluster's socket). Retry transient
+  // startup/shutdown states until the REAL cluster is up.
   for (let i = 0; i < 60; i++) {
     const result = spawnSync('docker', ['exec', container, 'psql', '-U', 'owner', '-d', 'platform', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8', windowsHide: true });
     if (result.status === 0) return result.stdout.trim();
     const out = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-    if (!out.includes('shutting down') && !out.includes('still starting up') && !out.includes('the database system')) {
+    if (!out.includes('shutting down') && !out.includes('still starting up') && !out.includes('the database system')
+      && !out.includes('No such file or directory') && !out.includes('Connection refused')) {
       throw new Error(`psql failed (${result.status}): ${out.trim()}`);
     }
   }
@@ -284,8 +290,32 @@ export default async function bootBackend() {
     psql(pgName,
       `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${idp.issuer}', '${subject}', 'ACTIVE' FROM public.tenant WHERE code='${tenantCode}'`);
 
+    // The harness's extra bindings (T-022/E3-F2-S1 and E3-F1-S1 @negative @tenant): a second user
+    // of tenant A (the approver who is never the author) and one configurator of ANOTHER tenant.
+    // Same directory pattern; the tokens below never leave the harness (the console proxy swaps
+    // them in for the X-Harness-Login marker - no token is ever sent to the browser).
+    const approverSubject = 'lane-d-approver';
+    const otherTenantCode = `${tenantCode}-b`;
+    const otherTenantSubject = 'lane-d-other-tenant';
+    psql(pgName,
+      `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${idp.issuer}', '${approverSubject}', 'ACTIVE' FROM public.tenant WHERE code='${tenantCode}'`);
+    psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${otherTenantCode}', 'ACTIVE')`);
+    psql(pgName,
+      `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${idp.issuer}', '${otherTenantSubject}', 'ACTIVE' FROM public.tenant WHERE code='${otherTenantCode}'`);
+
     const token = await idp.token(subject);
     const baseUrl = `http://127.0.0.1:${appPort}`;
+
+    // E3-F1-S1's onboarding premise, through the REAL systems seam (T-015): the source system S
+    // the flow-definition and lifecycle screens name is registered for the seeded tenant.
+    const systemSeed = await fetch(new URL('/api/v1/admin/systems', baseUrl), {
+      method: 'POST',
+      headers: { ...{ Authorization: `Bearer ${token}` }, 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'S', name: 'orders source', direction: 'INBOUND' })
+    });
+    if (systemSeed.status !== 201 && systemSeed.status !== 409) {
+      throw new Error(`boot-backend: seeding the source system answered ${systemSeed.status} (expected 201/409)`);
+    }
 
     return {
       baseUrl,
@@ -293,7 +323,12 @@ export default async function bootBackend() {
       pgName,
       subject,
       tenantCode,
-      seededVia: 'directory rows (tenant + app_user) as the migration owner',
+      seededVia: 'directory rows (tenant + app_user) as the migration owner; the source system through the real systems API',
+      tokens: {
+        default: token,
+        approver: await idp.token(approverSubject),
+        'other-tenant': await idp.token(otherTenantSubject)
+      },
       logDump() {
         return appLog.join('');
       },

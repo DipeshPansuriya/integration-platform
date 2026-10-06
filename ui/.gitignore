@@ -1,6 +1,6 @@
-node_modules/
+# Generated test-protocol artifact (written by tests/screens/global-setup before the build).
+# NEVER committed: it declares harness logins, which exist only inside a screen-suite run.
+public/console-config.json
+# Build and Playwright run outputs.
 dist/
-playwright-report/
 test-results/
-perf-results/
-*.local
