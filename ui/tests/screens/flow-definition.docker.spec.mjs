@@ -65,3 +65,24 @@ test('the ordering setting defaults to PER_KEY (ADR-011) and persists on save', 
   await page.reload();
   await expect(setting).toHaveValue('PER_KEY');
 });
+
+// E3-F1-S1 @negative @tenant "Another tenant's flow is invisible": a configurator of tenant B
+// opens tenant A's flow by id THROUGH THE SCREEN - the real API answers 404 (the flow is not
+// hidden behind a 403 hint, no tenant-A row is read) and the screen shows the not-found state.
+// The tenant-B identity is the harness's second-tenant binding (boot-backend seeds it); the
+// test attaches it through the console proxy with the X-Harness-Login marker, so the browser
+// never holds a token - the backend still enforces the isolation for real.
+test('another tenant opening the flow by id is refused 404 through the screen', async ({ page, request }) => {
+  await page.goto(consoleUrl());
+  const list = await (await request.get(`${consoleUrl()}/api/v1/admin/flows`)).json();
+  const flowId = list[0]?.id ?? await (async () => {
+    const created = await request.post(`${consoleUrl()}/api/v1/admin/flows`, {
+      data: { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' }
+    });
+    return (await created.json()).id;
+  })();
+
+  await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
+  await page.goto(`${consoleUrl()}/#/flow/${flowId}`);
+  await expect(page.locator('[data-refusal="flow-not-found"]')).toBeVisible();
+});

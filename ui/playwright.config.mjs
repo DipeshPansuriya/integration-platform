@@ -10,6 +10,8 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: 'tests/screens',
   timeout: 15000,
+  workers: 1, // ONE booted backend serves the whole suite (global-setup): the lifecycle walks real
+  // server state, so the specs run serially - file order alphabetical, no cross-worker races.
   globalSetup: 'tests/screens/global-setup.mjs',
   globalTeardown: 'tests/screens/global-teardown.mjs',
   use: {
