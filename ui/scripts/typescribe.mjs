@@ -33,11 +33,29 @@ export async function fetchDocumentFrom(apiUrl) {
   return response.json();
 }
 
+/**
+ * Object keys sorted recursively (arrays keep their order). springdoc serializes schema
+ * properties in JVM reflection order, which was measured to vary across boots of the same
+ * jar (lane D, 2026-10-06: the JsonNode boolean getters emitted differently in two boots) -
+ * without this, the generated client is not a pure function of the API CONTRACT, and the
+ * drift test fails on serialization order instead of real change. Content drift still fails:
+ * a property added/removed/type-changed alters the canonical document and the generated text.
+ */
+export function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = canonicalize(value[key]);
+    return out;
+  }
+  return value;
+}
+
 /** Emits the typed client for the given document object; returns its full text. */
 export async function regenerateClientTypes(documentObject) {
   const openapiTS = (await import('openapi-typescript')).default;
   const { astToString } = await import('openapi-typescript');
-  const ast = await openapiTS(documentObject);
+  const ast = await openapiTS(canonicalize(documentObject));
   return astToString(ast);
 }
 
@@ -45,7 +63,7 @@ export async function regenerateClientTypes(documentObject) {
 export async function persistGeneratedClient(documentObject) {
   fs.mkdirSync(path.dirname(generatedTypesPath()), { recursive: true });
   fs.writeFileSync(generatedTypesPath(), await regenerateClientTypes(documentObject));
-  fs.writeFileSync(committedDocumentPath(), `${JSON.stringify(documentObject, null, 2)}\n`);
+  fs.writeFileSync(committedDocumentPath(), `${JSON.stringify(canonicalize(documentObject), null, 2)}\n`);
   return { types: generatedTypesPath(), doc: committedDocumentPath() };
 }
 
