@@ -5,13 +5,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyFactory;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.Signature;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import tools.jackson.databind.JsonNode;
@@ -131,54 +125,6 @@ final class ConfigAdminApi {
             return new Response(response.statusCode(), response.body());
         } catch (Exception e) {
             throw new IllegalStateException("the real HTTP call to the running system failed: " + url, e);
-        }
-    }
-
-    // ------------------------------------------------------------------ the bearer of "a configurator" (ADR-007: the tenant travels in the credential)
-
-    /**
-     * An RS256 access token signed with the suite's in-memory key pair (no key material in any file, R07,
-     * generated per run). The claims mirror what ADR-007 Decision 4 validates (issuer, audience, exp, nbf) and
-     * what the denial suite binds tenants by: the subject of a directory app_user of the named tenant.
-     */
-    static final class Bearer {
-
-        private final KeyPair key;
-
-        Bearer() {
-            try {
-                KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-                generator.initialize(2048);
-                key = generator.generateKeyPair();
-            } catch (Exception e) {
-                throw new IllegalStateException("could not create the suite's signing key", e);
-            }
-        }
-
-        String forSubject(String subject) {
-            Instant now = Instant.now();
-            String header = base64Url("{\"alg\":\"RS256\"}");
-            String claims = "{\"iss\":\"" + E3ConfigDatabase.OIDC_ISSUER + "\",\"sub\":\"" + subject
-                    + "\",\"aud\":[\"" + E3ConfigDatabase.OIDC_AUDIENCE + "\"]"
-                    + ",\"exp\":" + now.plusSeconds(300).getEpochSecond()
-                    + ",\"nbf\":" + now.minusSeconds(5).getEpochSecond()
-                    + ",\"iat\":" + now.getEpochSecond()
-                    + ",\"jti\":\"" + UUID.randomUUID() + "\"}";
-            String payload = base64Url(claims);
-            try {
-                Signature signer = Signature.getInstance("SHA256withRSA");
-                signer.initSign(key.getPrivate());
-                signer.update((header + "." + payload).getBytes(StandardCharsets.UTF_8));
-                String signature = Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
-                return header + "." + payload + "." + signature;
-            } catch (Exception e) {
-                throw new IllegalStateException("could not sign the suite's access token", e);
-            }
-        }
-
-        private static String base64Url(String value) {
-            return Base64.getUrlEncoder().withoutPadding()
-                    .encodeToString(value.getBytes(StandardCharsets.UTF_8));
         }
     }
 }
