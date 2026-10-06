@@ -1,7 +1,15 @@
 package io.integrationplatform.tenantdenial;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
+import io.integrationplatform.config.adapter.in.ConfigActors;
+import io.integrationplatform.config.contract.adapter.in.ContractVersionAdminController;
+import io.integrationplatform.config.contract.application.ContractAdminService;
+import io.integrationplatform.config.flow.adapter.in.FlowAdminController;
+import io.integrationplatform.config.flow.application.FlowAdminService;
+import io.integrationplatform.config.system.adapter.in.SystemAdminController;
+import io.integrationplatform.config.system.application.SystemAdminService;
 import io.integrationplatform.tenancy.port.DeniedTenantAttempt.Channel;
 import java.util.Arrays;
 import java.util.List;
@@ -28,7 +36,7 @@ class EndpointMatrixCoverageTest {
 
     @Test
     void theE1EndpointsAreFullyCovered() {
-        Map<RequestMappingInfo, HandlerMethod> mappings = mappingsOf(probeController(), new MeContract());
+        Map<RequestMappingInfo, HandlerMethod> mappings = mappingsOf(allHandlers());
 
         assertThat(EndpointMatrix.coverageProblems(mappings, EndpointMatrix.REGISTRY)).isEmpty();
     }
@@ -36,9 +44,10 @@ class EndpointMatrixCoverageTest {
     @Test
     void aPlantedUnregisteredEndpointFailsTheGuard() {
         Map<RequestMappingInfo, HandlerMethod> mappings =
-                mappingsOf(probeController(), new MeContract(), new PlantedUnregisteredEndpoint());
+                mappingsOf(withPlanted(new PlantedUnregisteredEndpoint()));
 
         assertThat(EndpointMatrix.coverageProblems(mappings, EndpointMatrix.REGISTRY))
+                .filteredOn(problem -> problem.startsWith("no matrix entry"))
                 .singleElement().asString()
                 .startsWith("no matrix entry for GET /api/v1/planted-records/{id}");
     }
@@ -55,7 +64,7 @@ class EndpointMatrixCoverageTest {
     @Test
     void anEntryWithoutAnEndpointFailsTheGuard() {
         assertThat(EndpointMatrix.coverageProblems(mappingsOf(probeController()), EndpointMatrix.REGISTRY))
-                .containsExactly("stale matrix entry, no such endpoint: GET /api/v1/me");
+                .contains("stale matrix entry, no such endpoint: GET /api/v1/me");
     }
 
     @Test
@@ -122,6 +131,24 @@ class EndpointMatrixCoverageTest {
 
     private static TestProbeController probeController() {
         return new TestProbeController(null, null, null); // only its mappings are read
+    }
+
+    /**
+     * Every handler the running application registers for /api/**: the probe, lane B's /me contract and lane C's
+     * three config admin controllers. The admin controllers are constructed with mocked services - only their
+     * mappings (pattern, verb, @RequestBody) are read here; no method is ever invoked.
+     */
+    private static Object[] allHandlers() {
+        return new Object[] {probeController(), new MeContract(),
+                new FlowAdminController(mock(FlowAdminService.class), mock(ConfigActors.class)),
+                new ContractVersionAdminController(mock(ContractAdminService.class), mock(ConfigActors.class)),
+                new SystemAdminController(mock(SystemAdminService.class), mock(ConfigActors.class))};
+    }
+
+    private static Object[] withPlanted(Object planted) {
+        Object[] handlers = Arrays.copyOf(allHandlers(), allHandlers().length + 1);
+        handlers[handlers.length - 1] = planted;
+        return handlers;
     }
 
     private static Map<RequestMappingInfo, HandlerMethod> mappingsOf(Object... handlers) {

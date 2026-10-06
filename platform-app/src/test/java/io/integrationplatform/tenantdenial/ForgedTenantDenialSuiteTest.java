@@ -10,11 +10,16 @@ import static org.mockito.Mockito.verify;
 import io.integrationplatform.PlatformTestWiring;
 import io.integrationplatform.PlatformTestWiring.RestrictedLogin;
 import io.integrationplatform.TestImages;
+import io.integrationplatform.config.flow.application.FlowBundle;
+import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.MappingRow;
+import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.RouteRow;
 import io.integrationplatform.tenancy.port.DeniedTenantAttempt;
 import io.integrationplatform.tenancy.port.TenantDenialRecorder;
+import io.integrationplatform.tenantdenial.EndpointMatrix.Config;
 import io.integrationplatform.tenantdenial.EndpointMatrix.Entry;
 import io.integrationplatform.tenantdenial.EndpointMatrix.Seed;
 import io.integrationplatform.tenantdenial.EndpointMatrix.SeededTenant;
+import io.integrationplatform.tenantdenial.EndpointMatrix.WriteProbe;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -24,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Types;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -94,6 +100,12 @@ import tools.jackson.databind.node.ObjectNode;
  * </pre>
  *
  * <p>Container group (R03), one Docker suite at a time (R06). It moves to platform-e2e when that module exists.
+ *
+ * <p>The lifecycle endpoints of the config admin API (T-015/T-019/T-021) write rows, so the matrix carries a
+ * row-state probe per write entry ({@link WriteProbe}): the suite re-seeds both tenants' config chains before
+ * every test (fixed ids, guard-trigger-safe inserts) and after every call checks that tenant A's rows stand where
+ * the scenario says (a legitimate write lands; an ignored forgery still lands; a tenant-B id and a 401 write
+ * nothing) and that tenant B's whole config chain is byte-identical to its seeded fingerprint.
  */
 @Tag("container")
 @Tag("tenant")
@@ -112,6 +124,7 @@ class ForgedTenantDenialSuiteTest {
 
     private static RestrictedLogin login;
     private static Seed seed;
+    private static String fingerprintBeforeTest;
 
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
@@ -147,6 +160,11 @@ class ForgedTenantDenialSuiteTest {
         if (seed == null) {
             seed = seedTenantsAandB();
         }
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
+            writeConfigChain(owner, seed.a());
+            writeConfigChain(owner, seed.b());
+            fingerprintBeforeTest = configFingerprint(owner, seed.b().id());
+        }
         clearInvocations(recorder);
         probe.resetReads();
     }
@@ -169,8 +187,11 @@ class ForgedTenantDenialSuiteTest {
     void aTenantAUserSeesOnlyTenantARows(Entry entry) throws Exception {
         HttpResponse<String> response = send(entry, null, signedInAsTenantA());
 
-        assertThat(response.statusCode()).as(entry + " status, body: " + response.body()).isEqualTo(200);
+        assertThat(response.statusCode()).as(entry + " status, body: " + response.body())
+                .isEqualTo(entry.expectedStatus());
         assertOnlyTenantAData(entry, response);
+        assertRowState(entry, "the legitimate call wrote tenant A's own rows", false);
+        assertTenantBUnchanged();
         verify(recorder, never()).record(any());
     }
 
@@ -184,10 +205,14 @@ class ForgedTenantDenialSuiteTest {
         if (forgery == Forgery.PATH_ID) {
             assertThat(response.statusCode()).as(entry + " with a tenant-B id, body: " + response.body()).isEqualTo(404);
             assertNoMarkerOf(seed.b(), response);
+            assertRowState(entry, "a tenant-B id reached no tenant-A row", true);
         } else {
-            assertThat(response.statusCode()).as(entry + " with " + forgery + ", body: " + response.body()).isEqualTo(200);
+            assertThat(response.statusCode()).as(entry + " with " + forgery + ", body: " + response.body())
+                    .isEqualTo(entry.expectedStatus());
             assertOnlyTenantAData(entry, response);
+            assertRowState(entry, "the ignored forgery still wrote tenant A's own rows only", false);
         }
+        assertTenantBUnchanged();
         DeniedTenantAttempt attempt = theOneRecordedAttempt();
         assertThat(attempt.channel()).isEqualTo(forgery.channel());
         assertThat(attempt.boundTenantId()).isEqualTo(seed.a().id());
@@ -207,6 +232,7 @@ class ForgedTenantDenialSuiteTest {
         assertNoMarkerOf(seed.a(), response);
         assertNoMarkerOf(seed.b(), response);
         assertThat(probe.reads()).as("tenant data reads").isZero();
+        assertRowState(entry, "no identity, no config write", true);
         DeniedTenantAttempt attempt = theOneRecordedAttempt();
         assertThat(attempt.channel()).isEqualTo(DeniedTenantAttempt.Channel.NO_IDENTITY);
         assertThat(attempt.boundTenantId()).isNull();
@@ -264,8 +290,10 @@ class ForgedTenantDenialSuiteTest {
 
     private void assertOnlyTenantAData(Entry entry, HttpResponse<String> response) {
         assertNoMarkerOf(seed.b(), response);
-        assertThat(response.body()).as(entry + " answers with the tenant-A data")
-                .contains(entry.tenantAData().apply(seed));
+        List<String> expectedData = entry.tenantAData().apply(seed);
+        if (!expectedData.isEmpty()) {
+            assertThat(response.body()).as(entry + " answers with the tenant-A data").contains(expectedData);
+        }
         JsonNode json = JSON.readTree(response.body());
         for (JsonNode tenantId : json.findValues(Forgery.TENANT_FIELD)) {
             assertThat(tenantId.asString()).as(entry + " tenantId in the answer").isEqualTo(seed.a().id().toString());
@@ -283,6 +311,68 @@ class ForgedTenantDenialSuiteTest {
         verify(recorder, times(1)).record(attempt.capture());
         return attempt.getValue();
     }
+
+    /** The write entry's row state, read as the owner: {@code expectSeeded} picks seeded vs after-the-write. */
+    private static void assertRowState(Entry entry, String label, boolean expectSeeded) throws Exception {
+        WriteProbe chain = entry.write();
+        if (chain == null) {
+            return;
+        }
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES);
+             PreparedStatement state = owner.prepareStatement(chain.stateSql().apply(seed));
+             ResultSet rs = state.executeQuery()) {
+            assertThat(rs.next()).as(entry.key() + " answers a state row").isTrue();
+            assertThat(rs.getString(1)).as(entry.key() + " - " + label)
+                    .isEqualTo(expectSeeded ? chain.seeded() : chain.afterWrite());
+        }
+    }
+
+    /** Tenant B's config chain must be byte-identical (ids included) to what the per-test reset wrote. */
+    private static void assertTenantBUnchanged() throws Exception {
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
+            assertThat(configFingerprint(owner, seed.b().id()))
+                    .as("tenant B's config chain unchanged by tenant A's traffic")
+                    .isEqualTo(fingerprintBeforeTest);
+        }
+    }
+
+    /** One md5 over every config table's row ids and count for one tenant (the owner bypasses RLS). */
+    private static String configFingerprint(Connection owner, UUID tenantId) throws Exception {
+        try (PreparedStatement fingerprint = owner.prepareStatement(CONFIG_FINGERPRINT)) {
+            for (int position = 1; position <= 9; position++) {
+                fingerprint.setString(position, tenantId.toString());
+            }
+            try (ResultSet rs = fingerprint.executeQuery()) {
+                assertThat(rs.next()).as("the fingerprint always answers").isTrue();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private static final String CONFIG_FINGERPRINT = "SELECT md5(string_agg(fact, ';' ORDER BY fact)) FROM ("
+            + " SELECT 'config_version_refusal:' || count(*) || '@'"
+            + " || coalesce(string_agg(id::text, ',' ORDER BY id), '') AS fact"
+            + "   FROM public.config_version_refusal WHERE tenant_id = ?::uuid"
+            + " UNION ALL SELECT 'contract:' || count(*) || '@'"
+            + " || coalesce(string_agg(id::text, ',' ORDER BY id), '') FROM public.contract WHERE tenant_id = ?::uuid"
+            + " UNION ALL SELECT 'contract_version:' || count(*) || '@'"
+            + " || coalesce(string_agg(id::text, ',' ORDER BY id), '')"
+            + "   FROM public.contract_version WHERE tenant_id = ?::uuid"
+            + " UNION ALL SELECT 'interface:' || count(*) || '@'"
+            + " || coalesce(string_agg(id::text, ',' ORDER BY id), '') FROM public.interface WHERE tenant_id = ?::uuid"
+            + " UNION ALL SELECT 'interface_version:' || count(*) || '@'"
+            + " || coalesce(string_agg(id::text, ',' ORDER BY id), '')"
+            + "   FROM public.interface_version WHERE tenant_id = ?::uuid"
+            + " UNION ALL SELECT 'mapping:' || count(*) || '@'"
+            + " || coalesce(string_agg(id::text, ',' ORDER BY id), '') FROM public.mapping WHERE tenant_id = ?::uuid"
+            + " UNION ALL SELECT 'route:' || count(*) || '@'"
+            + " || coalesce(string_agg(id::text, ',' ORDER BY id), '') FROM public.route WHERE tenant_id = ?::uuid"
+            + " UNION ALL SELECT 'system:' || count(*) || '@'"
+            + " || coalesce(string_agg(id::text, ',' ORDER BY id), '') FROM public.system WHERE tenant_id = ?::uuid"
+            + " UNION ALL SELECT 'target_endpoint:' || count(*) || '@'"
+            + " || coalesce(string_agg(id::text, ',' ORDER BY id), '')"
+            + "   FROM public.target_endpoint WHERE tenant_id = ?::uuid"
+            + ") facts";
 
     // --- seed (as the Flyway owner; the app login never writes the directory) ------------------------------------
 
@@ -345,6 +435,95 @@ class ForgedTenantDenialSuiteTest {
             rowIds.add(rowId);
             labels.add(label);
         }
-        return new SeededTenant(tenantId, code, userId, subject, List.copyOf(rowIds), List.copyOf(labels));
+        Config config = new Config(word,
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        return new SeededTenant(tenantId, code, userId, subject, List.copyOf(rowIds), List.copyOf(labels), config);
+    }
+
+    /**
+     * Rewrites one tenant's config chain to exactly the seeded rows: every lifecycle endpoint can run per test
+     * without order effects. The delete/insert pair is guard-trigger-safe (the V2_2_4 trigger fires on UPDATE
+     * only) and satisfies every composite FK inside the tenant, so the chain stands where the matrix expects it:
+     * two systems and an endpoint, the source contract with its 1.0 draft, and six flows - plain, draft (PUT),
+     * submittable, approvable (authored by a different user), publishable (APPROVED snapshot of one route and
+     * one mapping) and immutable (the version-edit refusal target).
+     */
+    private static void writeConfigChain(Connection owner, SeededTenant tenant) throws Exception {
+        for (String table : List.of("config_version_refusal", "interface_version", "mapping", "route",
+                "contract_version", "contract", "target_endpoint", "interface", "system")) {
+            execute(owner, "DELETE FROM public." + table + " WHERE tenant_id = ?::uuid", tenant.id());
+        }
+        Config c = tenant.config();
+        execute(owner, "INSERT INTO public.system (id, tenant_id, code, name, direction)"
+                        + " VALUES (?::uuid, ?::uuid, ?, ?, 'SOURCE')",
+                c.srcSystemId(), tenant.id(), c.srcCode(), c.srcCode() + " source");
+        execute(owner, "INSERT INTO public.system (id, tenant_id, code, name, direction)"
+                        + " VALUES (?::uuid, ?::uuid, ?, ?, 'TARGET')",
+                c.dstSystemId(), tenant.id(), c.dstCode(), c.dstCode() + " target");
+        execute(owner, "INSERT INTO public.target_endpoint (id, tenant_id, system_id, code, name, base_url,"
+                        + " http_method, auth_method, timeout_ms)"
+                        + " VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, 'https://endpoint.invalid/', 'POST',"
+                        + " 'NO_AUTH', 5000)",
+                c.dstEndpointId(), tenant.id(), c.dstSystemId(), c.dstCode() + "-default", c.dstCode() + " endpoint");
+        execute(owner, "INSERT INTO public.contract (id, tenant_id, system_id, code, role, name)"
+                        + " VALUES (?::uuid, ?::uuid, ?::uuid, ?, 'SOURCE_REQUEST', ?)",
+                c.contractId(), tenant.id(), c.srcSystemId(), c.srcCode(), c.srcCode() + " contract");
+        execute(owner, "INSERT INTO public.contract_version (id, tenant_id, contract_id, version_label, status,"
+                        + " json_schema_draft_2020_12, author_id)"
+                        + " VALUES (?::uuid, ?::uuid, ?::uuid, '1.0', 'DRAFT', '{\"type\":\"object\"}'::jsonb,"
+                        + " ?::uuid)",
+                c.sourceContractVersionId(), tenant.id(), c.contractId(), tenant.userId());
+        insertFlow(owner, tenant, c, "main", c.flowMainId(), "DRAFT", null, tenant.userId(), null);
+        insertFlow(owner, tenant, c, "draft", c.flowDraftId(), "DRAFT", null, tenant.userId(), null);
+        insertFlow(owner, tenant, c, "submit", c.flowSubmitId(), "DRAFT", null, tenant.userId(), null);
+        insertFlow(owner, tenant, c, "approve", c.flowApproveId(), "PENDING_APPROVAL", null, c.otherAuthorId(), null);
+        insertFlow(owner, tenant, c, "publish", c.flowPublishId(), "APPROVED", publishSnapshot(c),
+                c.otherAuthorId(), tenant.userId());
+        insertFlow(owner, tenant, c, "immutable", c.flowImmutableId(), "DRAFT", null, tenant.userId(), null);
+    }
+
+    /** The only version id the matrix names outside a status query is the immutable flow's (the refusal target). */
+    private static void insertFlow(Connection owner, SeededTenant tenant, Config c, String kind, UUID flowId,
+            String status, String snapshot, UUID authorId, UUID approverId) throws Exception {
+        execute(owner, "INSERT INTO public.interface (id, tenant_id, code, name, ordering, current_version)"
+                        + " VALUES (?::uuid, ?::uuid, ?, ?, 'PER_KEY', 1)",
+                flowId, tenant.id(), c.flowCode(kind), c.flowCode(kind) + " " + kind);
+        // The lifecycle timestamps are SQL literals, not parameters: a varchar-bound "now()" is not assignable
+        // to a timestamptz column, and NULL keeps the DRAFT row's shape honest (nothing was submitted yet).
+        String submitted = status.equals("PENDING_APPROVAL") || status.equals("APPROVED") ? "now()" : "NULL";
+        String decided = status.equals("APPROVED") ? "now()" : "NULL";
+        execute(owner, "INSERT INTO public.interface_version (id, tenant_id, interface_id, version, status,"
+                        + " business_key_rule, snapshot, source_contract_version_id, author_id, approver_id,"
+                        + " submitted_at, decided_at)"
+                        + " VALUES (?::uuid, ?::uuid, ?::uuid, 1, ?, '$.orderId', ?::jsonb, ?::uuid, ?::uuid,"
+                        + " ?::uuid, " + submitted + ", " + decided + ")",
+                kind.equals("immutable") ? c.immutableVersionId() : UUID.randomUUID(), tenant.id(), flowId, status,
+                snapshot == null ? "{\"interface\":{},\"routes\":[],\"mappings\":[]}" : snapshot,
+                c.sourceContractVersionId(), authorId, approverId);
+    }
+
+    /** The APPROVED version's bundle, in the one serialization the publish materializes (T-021). */
+    private static String publishSnapshot(Config c) {
+        return FlowBundle.serialize(c.flowCode("publish"), c.flowCode("publish") + " publish", "PER_KEY",
+                "$.orderId",
+                List.of(new RouteRow(c.pubRouteId().toString(), 1, null, false, "ACTIVE",
+                        c.dstEndpointId().toString())),
+                List.of(new MappingRow(c.pubMappingId().toString(), c.pubRouteId().toString(), "[]", "$")));
+    }
+
+    private static void execute(Connection owner, String sql, Object... values) throws Exception {
+        try (PreparedStatement statement = owner.prepareStatement(sql)) {
+            for (int position = 0; position < values.length; position++) {
+                Object value = values[position];
+                if (value == null) {
+                    statement.setNull(position + 1, Types.OTHER);
+                } else {
+                    statement.setObject(position + 1, value instanceof UUID id ? id.toString() : value);
+                }
+            }
+            statement.executeUpdate();
+        }
     }
 }
