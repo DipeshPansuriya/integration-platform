@@ -150,7 +150,10 @@ function jarPath() {
 
 function buildJar() {
   console.log('boot-backend: building platform-app (mvnw -pl platform-app -am package -DskipTests)');
-  const cmd = isWin() ? 'mvnw.cmd' : './mvnw';
+  // Win11 26300 with NoDefaultCurrentDirectoryInExePath: cmd.exe (spawned via shell:true) does
+  // NOT resolve a bare name against the cwd - 'mvnw.cmd' dies "is not recognized". The Maven
+  // wrapper's own docs spawn it by absolute path; the non-Windows branch keeps './mvnw'.
+  const cmd = isWin() ? path.resolve(REPO, 'mvnw.cmd') : './mvnw';
   const result = spawnSync(
     cmd,
     ['-pl', 'platform-app', '-am', 'package', '-DskipTests'],
