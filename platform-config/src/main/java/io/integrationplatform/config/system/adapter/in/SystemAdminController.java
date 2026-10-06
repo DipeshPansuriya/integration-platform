@@ -1,0 +1,42 @@
+package io.integrationplatform.config.system.adapter.in;
+
+import io.integrationplatform.config.adapter.in.ConfigActors;
+import io.integrationplatform.config.application.ConfigApiException;
+import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemRow;
+import io.integrationplatform.config.system.application.SystemAdminService;
+import java.util.Map;
+import java.util.Objects;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.JsonNode;
+
+/**
+ * The systems admin API (T-015's onboarding premise): register a system; an OUTBOUND registration carries its
+ * default target endpoint so a flow can name it as a destination. HTTP-only seam - the rules are the service's.
+ */
+@RestController
+@RequestMapping(SystemAdminController.PATH)
+public class SystemAdminController {
+
+    static final String PATH = "/api/v1/admin/systems";
+
+    private final SystemAdminService service;
+    private final ConfigActors actors;
+
+    public SystemAdminController(SystemAdminService service, ConfigActors actors) {
+        this.service = Objects.requireNonNull(service, "service");
+        this.actors = Objects.requireNonNull(actors, "actors");
+    }
+
+    @PostMapping
+    public ResponseEntity<Map<String, Object>> create(@RequestBody JsonNode body) {
+        actors.requireActor();
+        SystemRow created = service.create(body);
+        return ResponseEntity.status(201).body(ConfigApiException.body(
+                "id", created.id(), "code", created.code(), "name", created.name(),
+                "direction", created.direction()));
+    }
+}
