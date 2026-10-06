@@ -18,7 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * The contract registry rules (ADR-011 Decision 2, the T-092/T-093 nodes the lifecycle keeps): the draft-save
  * stores the {@code sourceSchema} as a new draft source contract version (one per save, the schema never
- * rewritten), and the submit moves a draft to pending approval through the V2_3_2 definer function, storing the
+ * rewritten), and the submit moves a draft to pending approval through the V2_2_5 definer function, storing the
  * change note beside it. The flow creation asks this service for the source system's draft version id - the
  * interface version's source contract is a required composite reference (V2_2_4), so a flow's own onboarding
  * row set includes the skeleton contract version the rows-only story speaks of.

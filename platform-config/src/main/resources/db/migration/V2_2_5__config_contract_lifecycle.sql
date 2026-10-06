@@ -1,15 +1,18 @@
 -- E3 lane C, T-019: the contract version's submit step. Lane B's phase-3 cut (V2_2_2) left
 -- contract_version with SELECT+INSERT only for the application role - correct for immutability, but it
 -- gave the DRAFT -> PENDING_APPROVAL walk (the T-093 node the lifecycle API keeps, and the change-note
--- the submit body carries) nowhere to live. This migration is the additive fix inside lane C's own
--- prefix, following V2_2_4's established pattern exactly: a nullable column added by the owning lane's
+-- the submit body carries) nowhere to live. This migration is the additive fix in the config module's
+-- own series, following V2_2_4's established pattern exactly: a nullable column added by the owning lane's
 -- migration (the fixed contract V2_2_1 allows it), and a SECURITY DEFINER function owned by the
 -- migration user that moves the lifecycle columns, scoped to the CALLER'S stamped tenant, never to a
 -- caller argument (ADR-007 Decision 6). Content (the schema itself) stays unreachable: like
 -- config_approve_version, only status and the change note move, and only from a DRAFT row.
 --
--- Flagged back through arjun-fullstack in the T-015 handoff: if lane B prefers to amend V2_2_2 itself
--- instead, this file is a single revert away (DROP FUNCTION, then DROP COLUMN).
+-- Renamed at wave-1 integration (arjun-fullstack, glue): the lane wrote it as V2_3_2 per the wave-0 seam
+-- note, but platform-app composes every module's db/migration into ONE schema and delivery already owns
+-- V2_3_2 - the merged app context failed Flyway validation ('Found more than one migration with version
+-- 2.3.2'). Config's slice therefore continues its own V2_2_* series as V2_2_5; nothing deployed had ever
+-- applied the old version outside lane test containers, so the rename is safe.
 
 ALTER TABLE public.contract_version ADD COLUMN change_note text;
 

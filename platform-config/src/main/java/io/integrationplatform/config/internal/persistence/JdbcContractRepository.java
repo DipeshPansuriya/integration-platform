@@ -12,7 +12,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 /**
  * The contract registry reads and writes (T-019's contract nodes, ADR-011 Decision 2): the draft-save inserts a
  * new {@code contract_version} row per save, and the submit runs the {@code config_submit_contract_version}
- * definer function (V2_3_2) because lane B's cut left {@code contract_version} without any UPDATE grant - the
+ * definer function (V2_2_5) because lane B's cut left {@code contract_version} without any UPDATE grant - the
  * lifecycle move belongs to the database path, mirroring {@code config_approve_version}.
  */
 public final class JdbcContractRepository extends TenantScopedRepository {
@@ -68,7 +68,7 @@ public final class JdbcContractRepository extends TenantScopedRepository {
             + "     where c.id = cv.contract_id) as system_code"
             + " from public.contract_version cv";
 
-    /** The definer submit: runs once, its tenant stub keeps the base's predicate honest (see V2_3_2). */
+    /** The definer submit: runs once, its tenant stub keeps the base's predicate honest (see V2_2_5). */
     private static final String SUBMIT_VERSION = "select result from ("
             + "    select public.config_submit_contract_version(:version_id::uuid, :change_note) as result,"
             + "    current_setting('app.tenant_id')::uuid as tenant_id) called";
