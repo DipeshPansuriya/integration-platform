@@ -13,6 +13,7 @@
     "test:container": "node --test tests/openapi-contract.docker.test.mjs",
     "test:screens": "playwright test",
     "perf": "node scripts/measure-p95.mjs --base $API_BASE --config tests/perf/pages.json --loads 100",
+    "test:perf": "npm run test:perf-negative && node scripts/run-perf-suite.mjs",
     "test:perf-negative": "node --test tests/slow-page-negative.test.mjs"
   },
   "dependencies": {
