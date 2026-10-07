@@ -56,7 +56,7 @@
       "id": "console",
       "type": "frontend",
       "label": "Console UI",
-      "sublabel": "React, cookie session",
+      "sublabel": "no token in browser",
       "pos": [
         20,
         90
@@ -204,7 +204,7 @@
       "id": "postgres",
       "type": "database",
       "label": "PostgreSQL 17",
-      "sublabel": "RLS on every tenant table, outbox, deliveries",
+      "sublabel": "RLS on every tenant table, outbox, console session store",
       "pos": [
         315,
         490
@@ -301,11 +301,12 @@
       "id": "console-login",
       "from": "console",
       "to": "keycloak",
-      "label": "log in (PKCE)",
+      "label": "authorization code + PKCE, browser holds only the session (BFF)",
       "variant": "security",
       "fromSide": "bottom",
       "toSide": "top",
-      "labelDy": 24
+      "labelDy": 24,
+      "labelDx": 120
     },
     {
       "id": "source-token",
@@ -354,7 +355,7 @@
       "id": "tenant-directory",
       "from": "tenancy",
       "to": "postgres",
-      "label": "login bootstrap, per-tx stamp",
+      "label": "login bootstrap, console sessions, per-tx stamp",
       "labelDy": 53,
       "variant": "security",
       "fromSide": "right",

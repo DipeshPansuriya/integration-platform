@@ -74,7 +74,7 @@
       "col": 0,
       "type": "security",
       "label": "Log in",
-      "sublabel": "console via Keycloak",
+      "sublabel": "Keycloak -> session",
       "width": 136
     },
     {

@@ -1,0 +1,33 @@
+# E4 lane D (T-097, ADR-007 Decision 1): the console's login as a backend for frontend, imported by platform-app's
+# application.yml. R07: only environment variable NAMES, no default for the client or its secret - without them the
+# application does not start (fail closed). The issuer is the resource server's (OIDC_ISSUER_URI, tenancy-security.yml).
+platform:
+  tenancy:
+    console:
+      client-id: ${CONSOLE_OIDC_CLIENT_ID}
+      client-secret: ${CONSOLE_OIDC_CLIENT_SECRET}
+      # the backend's /login/oauth2/code/keycloak as the browser reaches it (same value as the realm's redirect URI)
+      redirect-uri: ${CONSOLE_OIDC_REDIRECT_URI}
+      # where the identity provider sends the browser after the sign-out (registered on the realm's console client)
+      post-logout-redirect-uri: ${CONSOLE_POST_LOGOUT_REDIRECT_URI}
+      # the console entry after a login; "/" when the console and the API share one origin
+      post-login-uri: ${CONSOLE_URL:/}
+
+# The browser holds only this cookie: HttpOnly (no script reads it), Secure, SameSite=Lax. Never an access token.
+server:
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        name: SESSION
+        http-only: true
+        secure: true
+        same-site: lax
+
+# Sessions in PostgreSQL (Spring Session JDBC, assembled by platform-app): tables of migration V2_4_1, never created by
+# the application.
+spring:
+  session:
+    jdbc:
+      initialize-schema: never
+      table-name: console_session.spring_session

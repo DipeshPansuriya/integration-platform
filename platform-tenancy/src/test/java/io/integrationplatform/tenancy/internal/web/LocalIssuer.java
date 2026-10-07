@@ -84,6 +84,10 @@ final class LocalIssuer implements AutoCloseable {
         server.createContext(REALM_PATH + "/.well-known/openid-configuration", exchange -> answer(exchange, discovery, Duration.ZERO,
                 "{\"issuer\":\"" + issuer() + "\",\"jwks_uri\":\"" + issuer() + "/protocol/openid-connect/certs\","
                         + "\"subject_types_supported\":[\"public\"],"
+                        // E4 (T-097): the console's authorization code endpoints (never called by the bare tests).
+                        + "\"authorization_endpoint\":\"" + issuer() + "/protocol/openid-connect/auth\","
+                        + "\"token_endpoint\":\"" + issuer() + "/protocol/openid-connect/token\","
+                        + "\"end_session_endpoint\":\"" + issuer() + "/protocol/openid-connect/logout\","
                         + "\"id_token_signing_alg_values_supported\":[\"RS256\",\"ES256\"]}"));
         server.createContext(REALM_PATH + "/protocol/openid-connect/certs", exchange -> answer(exchange, keys, keysDelay,
                 new JWKSet(List.of(rsa.toPublicJWK(), ec.toPublicJWK())).toString()));

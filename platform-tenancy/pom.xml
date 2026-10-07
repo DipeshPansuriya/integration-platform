@@ -28,6 +28,13 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
     </dependency>
+    <!-- E4 lane D (T-097, ADR-007 Decision 1): console login as a backend for frontend - the OAuth2 client
+         (Authorization Code + PKCE, confidential client). Version from the Boot BOM. The session store (Spring Session
+         JDBC) is assembled by platform-app, so no other module's test context gains a session repository. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security-oauth2-client</artifactId>
+    </dependency>
     <!-- Lane B, R13 / ADR-007 Decision 4: five controls on every identity-provider call (Resilience4j plain modules,
          no Camel and no Spring Boot starter - R12 keeps Camel in platform-routing; Micrometer metrics and spans). -->
     <dependency>

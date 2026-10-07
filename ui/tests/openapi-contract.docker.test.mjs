@@ -9,8 +9,9 @@
 //               authenticated HTTP (probe: status stays below 500, backend handles the route).
 //   3. compile: the console compiles with the generated client (tsc).
 //
-// Container group: boots the backend against its own PostgreSQL plus a local test identity
-// provider (only this lane's harness; no platform-*.java file is touched). Mirrors the Java
+// Container group: boots the backend against its own PostgreSQL plus the real Keycloak (realm
+// `platform`; the harness logs in through the realm form and calls with the console session -
+// E4 T-097). Mirrors the Java
 // lanes' @Tag("container") rule: excluded from the default `npm test` run, run by
 // `npm run test:container` under the one-docker-suite-at-a-time lock (which boot-backend.mjs
 // takes itself, the same lock file /d/Projects/ipass/.docker-suite.lock the Maven gate uses).

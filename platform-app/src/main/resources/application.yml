@@ -2,11 +2,13 @@ spring:
   application:
     name: integration-platform
   # E1 seam: each lane's settings live in its own file in platform-tenancy (no two lanes edit one file).
-  # tenancy-security.yml - lane B (OIDC resource server); tenancy-database.yml - lane C (Flyway owner, app role).
+  # tenancy-security.yml - lane B (OIDC resource server); tenancy-database.yml - lane C (Flyway owner, app role);
+  # tenancy-console.yml - E4 lane D (console login as a backend for frontend, sessions in PostgreSQL).
   config:
     import:
       - optional:classpath:config/tenancy-security.yml
       - optional:classpath:config/tenancy-database.yml
+      - optional:classpath:config/tenancy-console.yml
   # R07: connection settings come only from environment variable names; no value, no default.
   datasource:
     url: ${DB_URL}

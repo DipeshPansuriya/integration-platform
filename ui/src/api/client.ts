@@ -4,12 +4,53 @@
 // console's calls are checked against the backend's real contract (E3-F3-S1: no mock can hide
 // a mismatch). The base URL comes from VITE_API_URL (R07: a name only - this file never holds
 // a secret value).
+//
+// T-097 (E4-F1-S1, ADR-007 Decision 1): the browser holds only the backend's HttpOnly session
+// cookie - never an access token. Every call sends it (credentials 'include', so a cross-origin
+// deployment behaves like the same-origin console); a state-changing call carries the CSRF
+// header from the readable XSRF-TOKEN cookie; and a 401 (the JSON no-session answer, never a
+// redirect) sends the browser to the backend's login entry point, which starts the
+// Authorization Code + PKCE flow with Keycloak.
 
 import createClient from 'openapi-fetch';
 import type { paths } from './openapi.d';
 
+/** The backend's login entry point (Spring Security's authorization endpoint, registration `keycloak`). */
+export const LOGIN_ENTRY = '/oauth2/authorization/keycloak';
+
+const CSRF_COOKIE = 'XSRF-TOKEN';
+const CSRF_HEADER = 'X-XSRF-TOKEN';
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/** The last browser-visible cookie of the name (Spring rewrites it on rotation/refresh; the last wins). */
+export function readCookie(name: string): string | null {
+  const hit = document.cookie.split('; ').filter((pair) => pair.startsWith(`${name}=`)).pop();
+  return hit ? decodeURIComponent(hit.slice(name.length + 1)) : null;
+}
+
+/** The console's one fetch: session cookie, CSRF header on writes, 401 -> the Keycloak login. */
+export async function consoleFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  // openapi-fetch (v0.13) calls fetch(request, requestInitExt): the method and headers live on the
+  // Request object and `init` is undefined - an earlier draft read them off `init` only, which (with
+  // the fetch(request, {headers}) override) stripped Content-Type and sent no CSRF header, so every
+  // console write was refused 403 by the backend's CSRF check (measured 2026-10-07, lane D).
+  const request = input instanceof Request ? input : null;
+  const method = (init?.method ?? request?.method ?? 'GET').toUpperCase();
+  const headers = new Headers(init?.headers ?? request?.headers);
+  if (MUTATING_METHODS.has(method)) {
+    const token = readCookie(CSRF_COOKIE);
+    if (token) headers.set(CSRF_HEADER, token);
+  }
+  const response = await fetch(input, { ...init, headers, credentials: 'include' });
+  if (response.status === 401 && typeof window !== 'undefined') {
+    // The backend answered the JSON 401 (no session) - the browser's data is the login form.
+    window.location.assign(LOGIN_ENTRY);
+  }
+  return response;
+}
+
 export function createConsoleClient(baseUrl: string) {
-  return createClient<paths>({ baseUrl });
+  return createClient<paths>({ baseUrl, fetch: consoleFetch });
 }
 
 /** The console's client; the base URL arrives as a runtime variable name, no value in source. */

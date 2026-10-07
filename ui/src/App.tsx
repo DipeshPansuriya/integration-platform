@@ -3,12 +3,23 @@
 // the version + approval screen (T-022) hang off the [data-nav] entries. Both use ONE typed
 // client (src/api/client.ts) against the real API - never a mock (E3-F3-S1). No visual design
 // is invented here: design.md (T-095, mahesh-architect) is the agreed look.
+//
+// T-097 (E4-F1-S1): the shell shows the session's bound tenant (GET /api/v1/me) and signs
+// out by POSTing /logout (CSRF header) and navigating to the answer's sign-out address.
 
 import { useEffect, useState } from 'react';
+import { api, readCookie } from './api/client';
 import { FlowDefinition } from './pages/FlowDefinition';
 import { Versions } from './pages/Versions';
 
 type Route = { page: 'home' | 'flows' | 'versions'; flowId: string | null };
+
+type Me = {
+  userId?: string;
+  tenantId?: string;
+  tenantCode?: string;
+  timeZone?: string;
+};
 
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#\/?/, '');
@@ -21,12 +32,30 @@ function parseHash(): Route {
 
 export function App() {
   const [route, setRoute] = useState<Route>(parseHash());
+  // The bound tenant of the browser's console session; a 401 sends the browser to the Keycloak
+  // login in client.ts, so `me` stays null exactly while there is no session.
+  const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
     const onHashChange = () => setRoute(parseHash());
     window.addEventListener('hashchange', onHashChange);
+
+    api
+      .GET('/api/v1/me')
+      .then(({ data }) => setMe(data ?? null))
+      .catch(() => null);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  /** RP-initiated logout: POST /logout (CSRF-protected), then the answer names the sign-out URL. */
+  async function logout() {
+    const headers = new Headers();
+    const token = readCookie('XSRF-TOKEN');
+    if (token) headers.set('X-XSRF-TOKEN', token);
+    const answer = await fetch('/logout', { method: 'POST', headers, credentials: 'include' });
+    const body = (await answer.json().catch(() => null)) as { redirect?: string } | null;
+    window.location.assign(body?.redirect || '/');
+  }
 
   return (
     <div>
@@ -37,6 +66,12 @@ export function App() {
         <button type="button" data-nav="versions" onClick={() => (window.location.hash = '#/versions')}>
           Versions
         </button>
+        {me?.tenantCode && <span data-session-tenant>{me.tenantCode}</span>}
+        {me && (
+          <button type="button" data-action="logout" onClick={() => void logout()}>
+            Sign out
+          </button>
+        )}
       </nav>
       {route.page === 'flows' && <FlowDefinition openFlowId={route.flowId} />}
       {route.page === 'versions' && <Versions />}

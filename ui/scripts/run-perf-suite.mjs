@@ -4,7 +4,8 @@
 //   Given configuration seeded for 50 interfaces and 200 targets  (seeded through the same
 //   boot-backend.mjs container protocol - real jar, pinned postgres, real API writes)
 //   When  each admin page of tests/perf/pages.json is loaded 100 times                  (the
-//   built console, served exactly like the screen harness, /api proxied + bearer-stamped)
+//   built console, served exactly like the screen harness, signed in once through the real
+//   Keycloak login form - E4 T-097 - every load carrying the backend's session cookie)
 //   Then  every page's 95th-percentile (nearest-rank) load time is under 1.5 s.
 //
 // R03 parity: this boots docker, so `npm test` must never run it - it is its own command
@@ -16,8 +17,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
 import bootBackend from './boot-backend.mjs';
 import { startConsole } from '../tests/screens/console-server.mjs';
+import { browserLogin } from '../tests/screens/keycloak-login.mjs';
 import { runP95Check, formatReport } from './measure-p95.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -30,7 +33,7 @@ const LOADS = 100;
 async function api(boot, method, urlPath, body) {
   const response = await fetch(new URL(urlPath, boot.baseUrl), {
     method,
-    headers: { ...boot.authHeaders(), ...(body ? { 'content-type': 'application/json' } : {}) },
+    headers: { ...boot.authHeaders(method), ...(body ? { 'content-type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined
   });
   return { status: response.status, data: await response.json().catch(() => null) };
@@ -67,6 +70,18 @@ async function seedFixture(boot) {
   console.log(`run-perf-suite: seeded ${INTERFACES} interfaces and ${targets} targets through the real API`);
 }
 
+/** One login through the realm's real form; its storage state (the session cookie) signs every load in. */
+async function signedInState(consoleUrl, user) {
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext();
+    await browserLogin(await context.newPage(), consoleUrl, user);
+    return await context.storageState();
+  } finally {
+    await browser.close();
+  }
+}
+
 const build = spawnSync('npm', ['run', 'build'], { cwd: UI, encoding: 'utf8', shell: process.platform === 'win32' });
 if (build.status !== 0) {
   console.error(`run-perf-suite: the console build failed:\n${build.stdout}\n${build.stderr}`);
@@ -78,8 +93,9 @@ const boot = await bootBackend();
 let consoleServer = null;
 try {
   await seedFixture(boot);
-  consoleServer = await startConsole(boot.baseUrl, boot.tokens);
-  const result = await runP95Check(config, { base: consoleServer.url, loads: LOADS });
+  consoleServer = await startConsole(boot.baseUrl, boot.sessions);
+  const storageState = await signedInState(consoleServer.url, boot.users.default);
+  const result = await runP95Check(config, { base: consoleServer.url, loads: LOADS, storageState });
   console.log(formatReport(result));
   if (result.failures.length) {
     console.error(`run-perf-suite: FAIL - ${result.failures.map((f) => f.name).join(', ')} at or above the 1500 ms budget`);

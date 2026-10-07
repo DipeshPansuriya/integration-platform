@@ -59,6 +59,13 @@
       <groupId>org.springdoc</groupId>
       <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
     </dependency>
+    <!-- E4 lane D (T-097, ADR-007 Decision 1): the console's server sessions live in PostgreSQL (Spring Session JDBC),
+         so instances stay stateless. Tables: platform-tenancy's V2_4_1 migration; settings: tenancy-console.yml.
+         Version from the Boot BOM. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-session-jdbc</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
