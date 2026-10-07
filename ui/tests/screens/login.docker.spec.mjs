@@ -61,13 +61,19 @@ test('Logout ends the session: back at the Keycloak login, and the API answers 4
   await Promise.all([page.waitForURL((url) => url.toString().startsWith(consoleUrl())), page.click('#kc-login')]);
   await expect(page.locator('[data-session-tenant]')).toBeVisible();
 
-  const session = (await context.cookies(consoleUrl())).find((c) => c.name === 'SESSION');
+  const session = (await context.cookies(`https://${new URL(consoleUrl()).host}`)).find((c) => c.name === 'SESSION');
   expect(session?.httpOnly, 'the session cookie is HttpOnly').toBe(true);
   expect(session?.sameSite).toBe('Lax');
 
   await page.click('[data-action="logout"]');
   await page.waitForURL(atTheRealmLogin);
-  const answer = await context.request.get(`${consoleUrl()}/api/v1/me`, { maxRedirects: 0 });
-  expect(answer.status()).toBe(401);
+  // The session is really over (server-side, not just out of the jar): the console reloads, the
+  // API answers 401 and the client sends the browser back to the realm login. (A request-level
+  // context.request check cannot prove this: it never carries the Secure session cookie over the
+  // console's http://127.0.0.1 origin, so its 401 is true with a dead AND with a live session -
+  // measured lane D; the browser's own cookies are the session here.)
+  await page.goto(consoleUrl());
+  await page.waitForURL(atTheRealmLogin);
+  await expect(page.locator('#kc-form-login')).toBeVisible();
   await context.close();
 });

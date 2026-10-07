@@ -5160,13 +5160,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
         <!-- Connection paths (before components for correct z-order) -->
         <path data-edge-from="console" data-edge-to="config" data-edge-label="admin API" data-edge-key="0" data-edge-id="console-admin" data-composition-points="190,123;315,123" d="M 190 123 L 315 123" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="console" data-edge-to="keycloak" data-edge-label="log in (PKCE)" data-edge-key="1" data-edge-id="console-login" data-composition-points="105,156;105,210" d="M 105 156 L 105 210" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="console" data-edge-to="keycloak" data-edge-label="authorization code + PKCE, browser holds only the session (BFF)" data-edge-key="1" data-edge-id="console-login" data-composition-points="105,156;105,210" d="M 105 156 L 105 210" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="source" data-edge-to="keycloak" data-edge-label="get token" data-edge-key="2" data-edge-id="source-token" data-composition-points="105,330;105,276" d="M 105 330 L 105 276" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="source" data-edge-to="ingest" data-edge-label="POST messages" data-edge-key="3" data-edge-id="source-call" data-composition-points="190,363;315,363" d="M 190 363 L 315 363" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="tenancy" data-edge-to="keycloak" data-edge-label="JWKS, admin API, 5 controls" data-edge-key="4" data-edge-id="tenancy-oidc" data-composition-points="315,243;190,243" d="M 315 243 L 190 243" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="ingest" data-edge-to="tenancy" data-edge-label="bind tenant" data-edge-key="5" data-edge-id="ingest-tenant" data-composition-points="400,330;400,276" d="M 400 330 L 400 276" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="config" data-edge-to="tenancy" data-edge-label="roles" data-edge-key="6" data-edge-id="config-tenant" data-composition-points="400,156;400,210" d="M 400 156 L 400 210" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="tenancy" data-edge-to="postgres" data-edge-label="login bootstrap, per-tx stamp" data-edge-key="7" data-edge-id="tenant-directory" data-composition-points="485,250;547.5,250;547.5,490" d="M 485 250 L 539.5 250 Q 547.5 250 547.5 258 L 547.5 490" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="tenancy" data-edge-to="postgres" data-edge-label="login bootstrap, console sessions, per-tx stamp" data-edge-key="7" data-edge-id="tenant-directory" data-composition-points="485,250;547.5,250;547.5,490" d="M 485 250 L 539.5 250 Q 547.5 250 547.5 258 L 547.5 490" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="ingest" data-edge-to="postgres" data-edge-label="one tx: message + outbox" data-edge-key="8" data-edge-id="intake-tx" data-composition-points="400,396;400,443;533.5,443;533.5,490" d="M 400 396 L 400 435 Q 400 443 408 443 L 525.5 443 Q 533.5 443 533.5 451 L 533.5 490" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="postgres" data-edge-to="kafka" data-edge-label="relay: ids only" data-edge-key="9" data-edge-id="relay" data-composition-points="780,523;905,523" d="M 780 523 L 905 523" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="kafka" data-edge-to="routing" data-edge-label="stage 1 + stage 2" data-edge-key="10" data-edge-id="consume" data-composition-points="990,490;990,396" d="M 990 490 L 990 396" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
@@ -5180,8 +5180,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <path data-edge-from="arch-test" data-edge-to="config" data-edge-label="scans every module (build only)" data-edge-key="18" data-edge-id="arch-scan" data-composition-points="1200,123;485,123" d="M 1200 123 L 485 123" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
 
         <!-- Components -->
-        <g id="node-console" data-node-id="console" data-node-label="Console UI" tabindex="0" role="button" aria-label="Focus Console UI, React, cookie session, Architecture component" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="React, cookie session" data-node-tag="ADR-007" data-node-context="Architecture component">
-          <title>Console UI · React, cookie session · Architecture component · ADR-007</title>
+        <g id="node-console" data-node-id="console" data-node-label="Console UI" tabindex="0" role="button" aria-label="Focus Console UI, no token in browser, Architecture component" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="no token in browser" data-node-tag="ADR-007" data-node-context="Architecture component">
+          <title>Console UI · no token in browser · Architecture component · ADR-007</title>
           <rect x="20" y="90" width="170" height="66" rx="6" class="c-mask"/>
           <rect x="20" y="90" width="170" height="66" rx="6" class="c-frontend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(26 96) scale(0.6875)">
@@ -5191,7 +5191,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="105" y="121" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Console UI</text>
-        <text data-detail="context" x="105" y="137" class="t-muted" font-size="9" text-anchor="middle">React, cookie session</text>
+        <text data-detail="context" x="105" y="137" class="t-muted" font-size="9" text-anchor="middle">no token in browser</text>
         <text data-detail="fine" x="105" y="148" class="t-frontend" font-size="7" text-anchor="middle">ADR-007</text>
         </g>
 
@@ -5304,8 +5304,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="990" y="388" class="t-backend" font-size="7" text-anchor="middle">ADR-010</text>
         </g>
 
-        <g id="node-postgres" data-node-id="postgres" data-node-label="PostgreSQL 17" tabindex="0" role="button" aria-label="Focus PostgreSQL 17, RLS on every tenant table, outbox, deliveries, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="RLS on every tenant table, outbox, deliveries" data-node-tag="ADR-009" data-node-context="Architecture component">
-          <title>PostgreSQL 17 · RLS on every tenant table, outbox, deliveries · Architecture component · ADR-009</title>
+        <g id="node-postgres" data-node-id="postgres" data-node-label="PostgreSQL 17" tabindex="0" role="button" aria-label="Focus PostgreSQL 17, RLS on every tenant table, outbox, console session store, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="RLS on every tenant table, outbox, console session store" data-node-tag="ADR-009" data-node-context="Architecture component">
+          <title>PostgreSQL 17 · RLS on every tenant table, outbox, console session store · Architecture component · ADR-009</title>
           <rect x="315" y="490" width="465" height="66" rx="6" class="c-mask"/>
           <rect x="315" y="490" width="465" height="66" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(321 496) scale(0.6875)">
@@ -5313,7 +5313,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="547.5" y="521" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">PostgreSQL 17</text>
-        <text data-detail="context" x="547.5" y="537" class="t-muted" font-size="9" text-anchor="middle">RLS on every tenant table, outbox, deliveries</text>
+        <text data-detail="context" x="547.5" y="537" class="t-muted" font-size="9" text-anchor="middle">RLS on every tenant table, outbox, console session store</text>
         <text data-detail="fine" x="547.5" y="548" class="t-database" font-size="7" text-anchor="middle">ADR-009</text>
         </g>
 
@@ -5373,9 +5373,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="225.9" y="103" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
           <text x="252.5" y="113" class="t-muted" font-size="8" text-anchor="middle">admin API</text>
         </g>
-        <g data-detail="context" data-edge-from="console" data-edge-to="keycloak" data-edge-label="log in (PKCE)" data-edge-key="1" data-edge-id="console-login">
-          <rect x="68.8" y="160" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="105" y="170" class="t-security" font-size="8" text-anchor="middle">log in (PKCE)</text>
+        <g data-detail="context" data-edge-from="console" data-edge-to="keycloak" data-edge-label="authorization code + PKCE, browser holds only the session (BFF)" data-edge-key="1" data-edge-id="console-login">
+          <rect x="-51.19999999999999" y="160" width="312.4" height="14" rx="3" class="c-mask"/>
+          <text x="105" y="170" class="t-security" font-size="8" text-anchor="middle">authorization code + PKCE, browser holds only the session (BFF)</text>
         </g>
         <g data-detail="context" data-edge-from="source" data-edge-to="keycloak" data-edge-label="get token" data-edge-key="2" data-edge-id="source-token">
           <rect x="78.4" y="310" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
@@ -5397,9 +5397,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="383" y="160" width="34" height="14" rx="3" class="c-mask"/>
           <text x="400" y="170" class="t-security" font-size="8" text-anchor="middle">roles</text>
         </g>
-        <g data-detail="context" data-edge-from="tenancy" data-edge-to="postgres" data-edge-label="login bootstrap, per-tx stamp" data-edge-key="7" data-edge-id="tenant-directory">
-          <rect x="472.9" y="403" width="149.2" height="14" rx="3" class="c-mask"/>
-          <text x="547.5" y="413" class="t-security" font-size="8" text-anchor="middle">login bootstrap, per-tx stamp</text>
+        <g data-detail="context" data-edge-from="tenancy" data-edge-to="postgres" data-edge-label="login bootstrap, console sessions, per-tx stamp" data-edge-key="7" data-edge-id="tenant-directory">
+          <rect x="429.7" y="403" width="235.6" height="14" rx="3" class="c-mask"/>
+          <text x="547.5" y="413" class="t-security" font-size="8" text-anchor="middle">login bootstrap, console sessions, per-tx stamp</text>
         </g>
         <g data-detail="context" data-edge-from="ingest" data-edge-to="postgres" data-edge-label="one tx: message + outbox" data-edge-key="8" data-edge-id="intake-tx">
           <rect x="404.15" y="423" width="125.19999999999999" height="14" rx="3" class="c-mask"/>
@@ -5689,6 +5689,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </div>
         <ul>
           <li>&bull; Tenant from the credential via our DB, never a claim or header (ADR-007, T1)</li>
+          <li>&bull; The console&#39;s browser holds only the HttpOnly session cookie, never an access token (ADR-007 D1)</li>
           <li>&bull; Every query via TenantScopedRepository (R08, T2)</li>
           <li>&bull; RLS on every tenant table, stamped per transaction (ADR-009, T3-T4)</li>
           <li>&bull; Exactly four definer functions cross the boundary (T5)</li>

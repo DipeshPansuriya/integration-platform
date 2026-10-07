@@ -31,8 +31,16 @@ export default async function globalSetup() {
     throw new Error(`global-setup: the console build failed (an unbuilt console is the suite's own red):\n${build.stdout}\n${build.stderr}`);
   }
 
-  const backend = await bootBackend();
-  const consoleServer = await startConsole(backend.baseUrl, backend.sessions);
+  const backend = await bootBackend({ loginSeed: true });
+  let consoleServer;
+  try {
+    consoleServer = await startConsole(backend.baseUrl, backend.sessions);
+  } catch (e) {
+    // startConsole's failure would strand the booted backend (its containers, JVM and the
+    // docker-suite lock) with no global teardown having run yet - release before rethrowing.
+    await backend.teardown();
+    throw e;
+  }
   setBooted(backend, consoleServer);
 
   const browser = await chromium.launch();

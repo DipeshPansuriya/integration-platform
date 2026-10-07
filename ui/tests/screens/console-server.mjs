@@ -23,7 +23,14 @@ export async function startConsole(baseUrlOfBackend, sessions = {}) {
     target: baseUrlOfBackend,
     configure(proxy) {
       if (process.env.CONSOLE_PROXY_TRACE) {
-        proxy.on('proxyRes', (proxyRes, req) => console.error(`CONSOLE-PROXY ${req.method} ${req.url} -> ${proxyRes.statusCode}`));
+        proxy.on('proxyReq', (proxyReq, req) => {
+          const names = String(req.headers.cookie ?? '').split('; ').map((pair) => pair.split('=')[0]).filter(Boolean);
+          console.error(`CONSOLE-REQ ${req.method} ${req.url} cookies=[${names.join(',')}] xsrf=${req.headers['x-xsrf-token'] ? String(req.headers['x-xsrf-token']).slice(0, 12) : '<none>'}`);
+        });
+        proxy.on('proxyRes', (proxyRes, req) => {
+          const setc = (proxyRes.headers['set-cookie'] ?? []).map((c) => c.slice(0, 110)).join(' | ');
+          console.error(`CONSOLE-PROXY ${req.method} ${req.url} -> ${proxyRes.statusCode}${setc ? ` set-cookie=${setc}` : ''}`);
+        });
       }
       proxy.on('proxyReq', (proxyReq, req) => {
         const marker = req.headers[LOGIN_MARKER];

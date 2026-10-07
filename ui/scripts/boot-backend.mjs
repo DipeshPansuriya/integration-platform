@@ -193,7 +193,7 @@ export async function fetchOpenApiDocument(boot) {
   return response.json();
 }
 
-export default async function bootBackend() {
+export default async function bootBackend({ loginSeed = false } = {}) {
   const releaseLock = await acquireSuiteLock();
   const javaExe = javaCommand(); // resolves before any container starts - a missing JVM fails the boot immediately
   let container, app, keycloak;
@@ -330,12 +330,24 @@ export default async function bootBackend() {
     if (otherFlow.status !== 201) {
       throw new Error(`boot-backend: seeding the other tenant's flow answered ${otherFlow.status}`);
     }
+    // The login scenario's tenant-A flow row, only when asked for: the perf suite's seed
+    // verification counts tenant A's rows exactly (run-perf-suite.mjs), so an unconditional seed
+    // here would silently make 51 the seeded row count (measured 2026-10-07, lane D).
+    let ownFlow = null;
+    if (loginSeed) {
+      ownFlow = await call('default', 'POST', '/api/v1/admin/flows',
+        { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' });
+      if (ownFlow.status !== 201) {
+        throw new Error(`boot-backend: seeding tenant A's flow answered ${ownFlow.status}`);
+      }
+    }
 
     return {
       baseUrl,
       issuer: keycloak.issuer,
       pgName,
       tenantCode,
+      ownTenantFlowId: ownFlow?.data?.id,
       otherTenantCode,
       otherTenantFlowId: otherFlow.data.id,
       seededVia: 'directory rows (tenant + app_user) as the migration owner for realm users; systems and flows through the real API with console sessions',
