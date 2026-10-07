@@ -16,7 +16,8 @@ provenance - each section names the surviving source it came from, or is labelle
 | [PRD.md](PRD.md) | Purpose, the worked example, roles, requirements with acceptance criteria, figures, out of scope |
 | [architecture.md](architecture.md) | Modules, data model, the message path with failure paths, tenant isolation controls, deployment |
 | [rule.md](rule.md) | Engineering rules, including the lessons measured on the deleted build |
+| [design.md](design.md) | The console's look and feel: reference design C (TBD for Dipesh), the console as built, what a restyle must keep |
 | [adr/README.md](adr/README.md) | The ADR index |
 
 Recreated in the phase that first needs them: `fetch.md` and `interface.md` (systems and
-contract registry phase), `design.md` (flow configuration phase).
+contract registry phase); `design.md` was recreated in the flow configuration phase (E3, T-095).

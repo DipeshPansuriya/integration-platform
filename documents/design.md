@@ -1,0 +1,171 @@
+---
+type: Design
+title: "Design - the console's look and feel (configuration-driven integration platform)"
+status: "Recreated 2026-10-07 (E3, T-095). Reference design C has no surviving description in words - two TBD lines wait for Dipesh. The console as built in E3 is described from the code. The redesign itself is the last phase (Release 2)."
+date: 2026-10-07
+author: "mahesh-architect (ledger row 278, T-095)"
+project: ipass/integration-platform
+provenance: recreation
+related:
+  - PRD.md
+  - architecture.md
+  - rule.md
+  - diagrams/README.md
+  - adr/ADR-004-mapping-canvas.md
+---
+
+# Design - the console's look and feel
+
+> **Recreation, with nothing invented.** The earlier design document was deleted with the old
+> repository on 2026-10-02, and no description of reference design C survives in words
+> (`ws/_specs/project-plan.md:162`, searched again 2026-10-07 - section 6). This file therefore
+> holds **no visual rule** - no colour, font, spacing, layout or component style - that is not
+> sourced or marked TBD (E3-F3-S2 @negative, `ws/_specs/backlog.md:1117-1121`). What it does hold:
+> where design C stands and what only Dipesh can supply (section 2), and the console as it really
+> is after E3, the baseline the redesign restyles (sections 3-4).
+
+**Grades.** Every statement carries one: **[Verified]** - read this session in the file cited;
+**[Inferred]** - deduced from the neighbour named; **[TBD]** - a fact only Dipesh holds, one line
+naming the question. Source paths starting `ws/` are in the hub repository, project workspace
+`_personal/_project_ipass/integration-platform/`; all others are in this repository. Memory lines
+drift; the id (`m-xxxxxx`) is the stable key. Rule R19 applies: no product or organisation name
+appears here, so the design skill is named only by where it is recorded.
+
+## 1. What this document is for, and when the redesign happens
+
+| Statement | Grade | Source |
+|---|---|---|
+| The look-and-feel redesign comes **last**, after all functionality: it is plan phase 19, the end of Release 2, and starts only after the full end-to-end suite passes | [Verified] | `ws/_specs/project-plan.md:63`, `:98`, `:129`; `ws/_specs/backlog.md:4400`; PRD FR-19 (`PRD.md:122`); rule R20 (`rule.md:54`) |
+| The redesign makes **no functional change**: the full suite must re-pass on the restyled build, and Dipesh reviews it screen by screen | [Verified] | `ws/_specs/project-plan.md:129`; `ws/_specs/backlog.md:4416-4430` (E19-F1-S1) |
+| Every restyled screen must pass **WCAG AA contrast** and work **by keyboard with a visible focus** | [Verified] | `ws/_specs/project-plan.md:129`; `ws/_specs/backlog.md:4436-4448` (E19-F1-S2) |
+| E3 needs this file only to (a) record design C in words or a TBD line for Dipesh, and (b) stay free of invented design. It does not restyle anything | [Verified] | `ws/_specs/backlog.md:1103-1124` (E3-F3-S2, T-095), `:1139` (E3-C10); `ws/_specs/project-plan.md:105` |
+| The redesign task (T-154) restyles every screen "to design.md", so this file is its single reference | [Verified] | `ws/_specs/backlog.md:4413-4419`, `:4434`, `:4486` (E19-C1) |
+| UI work, the redesign included, uses the design skill named on the project's Skills line in the hub | [Verified] | rule R20 (`rule.md:54`); `ws/_memory/overview.md:12`; m-2446fd (`ws/_memory/shared.md:204`, Dipesh 2026-10-01, row 268) |
+
+## 2. Reference design C
+
+| Statement | Grade | Source |
+|---|---|---|
+| Design C is the agreed reference for the redesign (ledger row 276) | [Verified] | `ws/_specs/project-plan.md:129`; `ws/_specs/backlog.md:4416`, `:4486` |
+| Its origin: on 2026-10-02 Dipesh rejected both directions the team had built (A and B) as "not like new modern design", and the team asked him for a named visual reference instead of adjectives | [Verified] | m-b5697d (`ws/_memory/shared.md:146`) |
+| "C" is the third direction, the one to be reworked only from his reference | [Inferred] | m-b5697d: "Direction C rework only after his reference" |
+| What he sent: a **screenshot of a schema editor in an API-design tool**, as his modern reference | [Verified] (as recorded) | m-dbda93 (`ws/_memory/shared.md:145`), m-5916ad (`:144`), m-13338f (`:143`); ledger row 276 |
+| The screenshot was kept **in that chat session only** - no file, and no description of it in words, was ever written | [Verified] | m-5916ad ("saved in this chat only"); `ws/_specs/project-plan.md:162`; search of 2026-10-07 (section 6) |
+| Directions A and B are **not** the reference; their branches were in the repository deleted on 2026-10-02 and no branch of them exists here | [Verified] | m-b5697d; `git branch -a` in this repository on 2026-10-07: no row-276 branch |
+| His words on colour (row 276): he asked for a modern design and said that for "color and such thing" the design skill can be used | [Verified] (paraphrased: the original names the skill) | ledger row 276, request column |
+| Visual rules in force today (colour, type, spacing, layout, components): **none** | [Verified] | sections 2 and 3 of this file; no stylesheet in `ui/` (section 3) |
+| Styling tokens: **none recorded** - the project has no `_mockups/tokens/` folder and no token in `_memory/` | [Verified] | listing of `ws/` (`_documents`, `_memory`, `_reports`, `_specs` only), 2026-10-07 |
+
+**TBD-1 - Dipesh: what does reference design C look like?** Please describe it in words, or send the
+schema-editor screenshot again so it can be written down here and you confirm the wording in one
+reply. The description needs: navigation placement (top bar or side bar), page layout and
+density, colour (background, one accent or several), type, and how the schema editor shows a
+field (tree, table or form; type, required flag, description). *Recommendation:* send the
+screenshot again when Release 2's redesign phase starts (E19); mahesh-architect writes the
+description with each point traced to the screenshot, and you confirm it before T-154 begins.
+This does not block Release 1 (`ws/_specs/project-plan.md:189`). [TBD]
+
+**TBD-2 - Dipesh: when design C and the design skill disagree, which wins?** Rule R20 makes the
+design skill mandatory for UI work (2026-10-01), and design C came a day later (2026-10-02).
+*Recommendation:* the design skill supplies colour, type and spacing tokens - this matches your
+row-276 words about colour - and design C supplies layout, navigation and the schema-editor
+pattern; on a true conflict, design C wins, because it is the later and more specific choice.
+[TBD]
+
+## 3. The console as built in E3 - the baseline the redesign restyles
+
+Read at `row278-integration` 762061c on 2026-10-07.
+
+| Statement | Grade | Source |
+|---|---|---|
+| Stack: React 18 with TypeScript, built by Vite; the typed API client is generated from the backend's own OpenAPI document and never hand-edited | [Verified] | `ui/package.json:6`, `:20-22`, `:29` |
+| The console is served as static files and calls only the admin API | [Verified] | `architecture.md:58` |
+| **No visual design is applied**: no stylesheet file in `ui/`, and no `style` or `className` anywhere in `ui/src` - every screen renders with browser defaults | [Verified] | `git ls-files ui` (no `.css`); search of `ui/src` for `style\|className`: 0 hits |
+| The code states the same: nothing beyond the scaffold is invented, and this file governs the look | [Verified] | `ui/src/main.tsx:1-2`; `ui/src/App.tsx:4-5`; `ui/src/pages/FlowDefinition.tsx:5-6` |
+| Browser title "Integration Platform Console"; page language English | [Verified] | `ui/index.html:2`, `:6` |
+
+### 3.1 Screens
+
+| Screen | Route | What it shows | Grade | Source |
+|---|---|---|---|---|
+| Shell | every route | A navigation bar with two buttons, **Flows** and **Versions**; hash routing so every screen loads directly by URL | [Verified] | `ui/src/App.tsx:1-2`, `:11-19`, `:33-40` |
+| Home | `#/` | The text "Integration Platform Console" only | [Verified] | `ui/src/App.tsx:43` |
+| Flow definition (T-017, E3-F1-S1) | `#/flows`, `#/flow/{id}` | Heading "Flow definition"; a form with Source system, Destination 1 and 2, Interface name, Business-key rule (mandatory), Ordering (`PER_KEY` default or `NONE`), Source schema (JSON Schema, a text area); a **Save draft** button | [Verified] | `ui/src/pages/FlowDefinition.tsx:25`, `:32`, `:117-175` |
+| Versions and approval (T-022, E3-F2-S1) | `#/versions` | Heading "Versions and approval"; a list of flows, each with its version status; a Change note field; buttons **Submit for approval**, **Approve**, **Save draft**, **Publish** (enabled only when the version is `APPROVED`); **New draft** appears only after the immutable-version refusal | [Verified] | `ui/src/pages/Versions.tsx:176-224`, `:209` |
+| Versions - test-harness only | `#/versions` | "Approve as the harness approver" renders only while the screen-test harness exposes its second login; it is not a product control | [Verified] | `ui/src/pages/Versions.tsx:6-7`, `:201-205` |
+
+### 3.2 Messages each screen can show
+
+| Situation | Text shown | Grade | Source |
+|---|---|---|---|
+| Business-key rule missing (API 400) | "The mandatory business-key rule is missing: businessKeyRule" | [Verified] | `ui/src/pages/FlowDefinition.tsx:149-153` |
+| Source schema not a JSON object | "sourceSchema must be a JSON Schema object" | [Verified] | `ui/src/pages/FlowDefinition.tsx:165-167` |
+| Source system missing | "sourceSystem is required" | [Verified] | `ui/src/pages/FlowDefinition.tsx:168-170` |
+| Draft saved | "Draft saved." | [Verified] | `ui/src/pages/FlowDefinition.tsx:174` |
+| Flow of another tenant, or absent (API 404) | "This flow does not exist for your tenant." - no hint of whose row it is | [Verified] | `ui/src/pages/FlowDefinition.tsx:43-44`, `:119-121` |
+| Author tries to approve own version (API 403) | "Refused: the author cannot approve their own version (AUTHOR_IS_APPROVER)." | [Verified] | `ui/src/pages/Versions.tsx:212-214` |
+| Edit of a submitted version | "The submitted version cannot be edited: a new draft version is the only way." plus **New draft** | [Verified] | `ui/src/pages/Versions.tsx:215-224` |
+| Nothing pending approval (API 409) | "No version is pending approval." | [Verified] | `ui/src/pages/Versions.tsx:225` |
+| Any other refusal | "The API refused this action (...)." | [Verified] | `ui/src/pages/Versions.tsx:226-228` |
+| Published | "Published." and whether the published bundle equals the snapshot taken at submit | [Verified] | `ui/src/pages/Versions.tsx:229-234` |
+
+### 3.3 What a restyle must keep
+
+These are functional constraints, not visual rules; they follow from "no functional change" and
+"the full suite re-passes" (`ws/_specs/project-plan.md:129`).
+
+| Statement | Grade | Source |
+|---|---|---|
+| The screen tests and the page-load measurement find elements by `data-*` attributes: `data-nav`, `data-page`, `data-field`, `data-action`, `data-saved`, `data-validation-error`, `data-refusal`, `data-version-status`, `data-published`, `data-bundle-equals-snapshot`, `data-flow-row` | [Verified] | `ui/tests/screens/flow-definition.docker.spec.mjs:22-87`; `ui/tests/screens/lifecycle.docker.spec.mjs:25-54`; `ui/tests/perf/pages.json:4-6` |
+| A restyle therefore keeps every one of those attributes, and every visible text a test asserts, unchanged | [Inferred] | the row above plus `ws/_specs/project-plan.md:129` |
+| Every API refusal stays visible, never hidden, and the not-found text keeps giving no hint of another tenant's data | [Verified] | `ui/src/pages/Versions.tsx:2-5`; `ui/src/pages/FlowDefinition.tsx:43` |
+| Hash routes stay, so every admin screen remains directly loadable for the page-load figure | [Verified] | `ui/src/App.tsx:1-2`; `ui/tests/perf/pages.json:2` |
+| Figure: admin page load p95 under 1.5 s | [Verified] | `PRD.md:158`; `ws/_specs/project-plan.md:105` |
+| Last measured 117 / 103 / 120 ms (home, flow definition, versions) by the E3 judge on 2026-10-07; not re-run for this file | [Inferred] | m-a16de7 (`ws/_memory/shared.md:23`) |
+
+### 3.4 Accessibility today (the bar is checked at E19)
+
+| Statement | Grade | Source |
+|---|---|---|
+| Every input, select and text area sits inside its own `<label>`, so each has an accessible name | [Verified] | `ui/src/pages/FlowDefinition.tsx:123-164`; `ui/src/pages/Versions.tsx:191-194` |
+| All actions are native `<button>` elements, so they are reachable by keyboard | [Inferred] | native element behaviour; `ui/src/App.tsx:34-39`, `ui/src/pages/Versions.tsx:195-211` |
+| No `aria-*` or `role` attribute exists in `ui/src`: refusal and saved messages are plain paragraphs, so a screen reader may not announce them when they appear | [Verified] (0 hits) / [Inferred] (effect) | search of `ui/src` for `aria-\|role=`: 0 hits |
+| Colour contrast and visible focus are not measured in E3; they are measured on the restyled build | [Verified] | `ws/_specs/project-plan.md:129`; `ws/_specs/backlog.md:4448` |
+
+## 4. Screens still to come (function first, look at E19)
+
+| Screen | Phase | Grade | Source |
+|---|---|---|---|
+| Console login | Login and identity (FR-04) | [Verified] | `PRD.md:107` |
+| Systems and contract registry | FR-05 | [Verified] | `PRD.md:108` |
+| Validation and conditional rules (decision tables) | FR-06 | [Verified] | `PRD.md:109` |
+| Mapping designer - the product's core screen, on the React Flow canvas | FR-07; ADR-004 | [Verified] | `PRD.md:110`; [ADR-004](adr/ADR-004-mapping-canvas.md) |
+| Tracking, stage timings, daily report | FR-13 | [Verified] | `PRD.md:116` |
+| Queue dashboard | FR-17 (Release 2) | [Verified] | `PRD.md:120` |
+| Each is built functional and unstyled like the E3 screens, and restyled only at E19 | [Inferred] | rule R20; `ws/_specs/project-plan.md:98` |
+
+## 5. Diagrams
+
+| Diagram | Why it matters here |
+|---|---|
+| [Configuration workflow](diagrams/workflow.archify.html) | The user journey the screens serve: log in, register systems, contract versions, interface and rules, mapping, submit, approve, publish, monitor and replay |
+| [Architecture](diagrams/architecture.archify.html) | Where `ui/` sits: static console calling only the admin API |
+| [Diagram index](diagrams/README.md) | All five diagrams with their sources |
+
+This file adds no module, flow or state, so no diagram changes with it (rule R21). [Inferred]
+
+## 6. Search for design C, 2026-10-07
+
+| Where | Result | Grade |
+|---|---|---|
+| Hub repository, every tracked text file (`git grep` for "design C", "API-design-tool", "schema-editor screenshot", "direction C") | Only the memory and ledger lines cited in section 2 - none describes the look | [Verified] |
+| Project memory (`ws/_memory/`) and ledger row 276 | The lines cited in section 2 - none describes the look | [Verified] |
+| Project workspace (`ws/`) | No `_mockups/` folder, no image, no token file | [Verified] |
+| This repository (`documents/`, `ui/`) | No earlier design document, no stylesheet; images are never committed here (hub rule) | [Verified] |
+| Scratch screenshot folder named in memory (m-a5cf0d) | The folder no longer exists | [Verified] |
+
+## Changing this file
+
+When Dipesh answers TBD-1 or TBD-2, the answer replaces the TBD line in the same commit, with his
+words (or the confirmed screenshot description) as the source, and the grades of section 2 move to
+[Verified]. A visual rule enters this file only with a source.
