@@ -338,13 +338,16 @@ class RowLevelSecurityGateTest {
                     .isEqualTo("app_user:true:false,tenant:true:false");
             assertThat(text(admin, "select string_agg(tablename || ':' || policyname || ':' || cmd, ','"
                     + " order by tablename) from pg_policies where schemaname = 'public'"))
-                    .isEqualTo("app_user:app_user_tenant_isolation:ALL,tenant:tenant_dir_self:ALL");
+                    // E4 T-098 adds source_credential's error-deny policy (V2_3_4).
+                    .isEqualTo("app_user:app_user_tenant_isolation:ALL,"
+                            + "source_credential:source_credential_tenant_isolation:ALL,tenant:tenant_dir_self:ALL");
             assertThat(text(admin, "select string_agg(c.relname || ':' || a.privilege_type, ',' order by c.relname,"
                     + " a.privilege_type) from pg_class c, aclexplode(c.relacl) a"
                     + " where c.relnamespace = 'public'::regnamespace"
                     + " and a.grantee = (select oid from pg_roles where rolname = '" + APP_ROLE + "')"))
-                    .as("E1 grants of ipaas_app: SELECT only")
-                    .isEqualTo("app_user:SELECT,tenant:SELECT");
+                    .as("E1 grants of ipaas_app: SELECT only; E4 T-098 source_credential: SELECT, INSERT (its UPDATE"
+                            + " is column-level, never table-level)")
+                    .isEqualTo("app_user:SELECT,source_credential:INSERT,source_credential:SELECT,tenant:SELECT");
         }
     }
 

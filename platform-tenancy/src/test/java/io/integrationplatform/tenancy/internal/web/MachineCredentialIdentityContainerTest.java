@@ -40,6 +40,7 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -60,6 +61,7 @@ import org.springframework.test.web.servlet.ResultActions;
 })
 @AutoConfigureMockMvc
 @ExtendWith(OutputCaptureExtension.class)
+@Import(MachineCredentialIdentityContainerTest.RestrictedLogin.class)
 class MachineCredentialIdentityContainerTest {
 
     static final LocalIssuer ISSUER = LocalIssuer.start();

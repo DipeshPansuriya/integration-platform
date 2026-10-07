@@ -2,6 +2,7 @@ package io.integrationplatform.tenancy.internal.principal;
 
 import io.integrationplatform.tenancy.port.LoginBinding;
 import java.util.Objects;
+import java.util.UUID;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -30,11 +31,16 @@ public final class TenantBoundAuthentication extends AbstractAuthenticationToken
 
     /** Whether a client-supplied value names the bound tenant, by id (any case) or by code. */
     public static boolean namesBoundTenant(LoginBinding binding, String value) {
+        return namesTenant(binding.tenantId(), binding.tenantCode(), value);
+    }
+
+    /** Whether a client-supplied value names this tenant, by id (any case) or by code - humans and sources alike. */
+    public static boolean namesTenant(UUID tenantId, String tenantCode, String value) {
         if (value == null) {
             return false;
         }
         String candidate = value.strip();
-        return candidate.equalsIgnoreCase(binding.tenantId().toString()) || candidate.equals(binding.tenantCode());
+        return candidate.equalsIgnoreCase(tenantId.toString()) || candidate.equals(tenantCode);
     }
 
     @Override

@@ -8,7 +8,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.integrationplatform.tenancy.TenantContext;
+import io.integrationplatform.tenancy.port.ClientBootstrap;
 import io.integrationplatform.tenancy.port.LoginBootstrap;
+import io.integrationplatform.tenancy.port.SourceCredentialStore;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration;
+import org.springframework.boot.jdbc.autoconfigure.JdbcClientAutoConfiguration;
 import org.springframework.boot.jdbc.autoconfigure.JdbcTemplateAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.core.env.PropertySource;
@@ -47,7 +50,8 @@ class TenancyPersistenceConfigurationTest {
         when(connection.prepareStatement(anyString())).thenReturn(statement);
         runner = new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(
-                        DataSourceTransactionManagerAutoConfiguration.class, JdbcTemplateAutoConfiguration.class))
+                        DataSourceTransactionManagerAutoConfiguration.class, JdbcTemplateAutoConfiguration.class,
+                        JdbcClientAutoConfiguration.class))
                 .withBean(DataSource.class, () -> dataSource)
                 .withUserConfiguration(TenancyPersistenceConfiguration.class);
     }
@@ -59,6 +63,9 @@ class TenancyPersistenceConfigurationTest {
             assertThat(context.getBeansOfType(TransactionManager.class)).hasSize(1);
             assertThat(context.getBean(TransactionManager.class)).isInstanceOf(TenantStampingTransactionManager.class);
             assertThat(context.getBean(LoginBootstrap.class)).isInstanceOf(JdbcLoginBootstrap.class);
+            // E4 T-098: the source-system ports are the JDBC adapters too.
+            assertThat(context.getBean(ClientBootstrap.class)).isInstanceOf(JdbcClientBootstrap.class);
+            assertThat(context.getBean(SourceCredentialStore.class)).isInstanceOf(JdbcSourceCredentialStore.class);
         });
     }
 

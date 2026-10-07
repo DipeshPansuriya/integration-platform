@@ -2,6 +2,7 @@ package io.integrationplatform.tenancy.internal.web;
 
 import io.integrationplatform.tenancy.internal.principal.PrincipalTenantResolver;
 import io.integrationplatform.tenancy.internal.principal.RequestTenantContext;
+import io.integrationplatform.tenancy.port.ClientBootstrap;
 import io.integrationplatform.tenancy.port.LoginBootstrap;
 import io.integrationplatform.tenancy.port.TenantDenialRecorder;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -59,8 +60,10 @@ import org.springframework.web.client.RestTemplate;
  *       while the provider is unreachable; (5) metrics and a trace span ({@link IdentityProviderClient},
  *       {@link OutageTolerantKeySetCache}; settings {@code platform.tenancy.identity-provider.*}). A provider that
  *       cannot be reached with no matching cached key means 401, never a 5xx.</li>
- *   <li>After authentication {@link PrincipalTenantResolver} binds the tenant through the login bootstrap; then
- *       {@link TenantForgeryFilter} records any tenant the request names itself.</li>
+ *   <li>After authentication {@link PrincipalTenantResolver} binds the tenant through the login bootstrap - or, for a
+ *       source system's machine token, through the client bootstrap (E4 T-098); then {@link TenantForgeryFilter}
+ *       records any tenant the request names itself, and {@link SourceCustomerFilter} refuses a source call whose
+ *       body names another customer (403, recorded).</li>
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
@@ -78,7 +81,8 @@ class TenancySecurityConfiguration {
 
     @Bean
     SecurityFilterChain tenancySecurityFilterChain(HttpSecurity http, LoginBootstrap loginBootstrap,
-            TenantDenialRecorder tenantDenialRecorder, RequestTenantContext requestTenantContext) throws Exception {
+            ObjectProvider<ClientBootstrap> clientBootstrap, TenantDenialRecorder tenantDenialRecorder,
+            RequestTenantContext requestTenantContext) throws Exception {
         AuthenticationEntryPoint entryPoint =
                 new NoIdentityEntryPoint(new BearerTokenAuthenticationEntryPoint(), tenantDenialRecorder);
         http.authorizeHttpRequests(requests -> requests
@@ -95,10 +99,14 @@ class TenancySecurityConfiguration {
                         .authenticationEntryPoint(entryPoint)
                         .jwt(Customizer.withDefaults()))
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(entryPoint))
-                .addFilterAfter(new PrincipalTenantResolver(loginBootstrap, tenantDenialRecorder),
+                // Humans first, then source systems (E4 T-098); no ClientBootstrap bean means humans only.
+                .addFilterAfter(new PrincipalTenantResolver(loginBootstrap, clientBootstrap.getIfAvailable(),
+                                tenantDenialRecorder),
                         BearerTokenAuthenticationFilter.class)
                 .addFilterAfter(new TenantForgeryFilter(requestTenantContext, tenantDenialRecorder),
-                        PrincipalTenantResolver.class);
+                        PrincipalTenantResolver.class)
+                .addFilterAfter(new SourceCustomerFilter(requestTenantContext, tenantDenialRecorder),
+                        TenantForgeryFilter.class);
         return http.build();
     }
 

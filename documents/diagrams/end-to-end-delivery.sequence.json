@@ -176,9 +176,9 @@
       "from": "target",
       "to": "bulkhead",
       "y": 438,
-      "label": "outcome class",
+      "label": "HTTP status -> outcome class",
       "variant": "return",
-      "note": "500/502/504/408 are AMBIGUOUS unless the target declares idempotent receive"
+      "note": "OutcomeClassifier: 401/403 (and 400/422) PERMANENT - one attempt, dead-lettered, never retried; 500/502/504/408 AMBIGUOUS unless idempotent receive"
     },
     {
       "id": "m11",

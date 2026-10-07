@@ -8,7 +8,7 @@
     "column_fit": "spread",
     "viewBox": [
       1400,
-      682
+      766
     ],
     "views": [
       {
@@ -17,10 +17,11 @@
         "focus": [
           "source",
           "keycloak",
+          "tenancy",
           "ingest",
           "db"
         ],
-        "note": "Token, tenant from our DB, idempotency key per credential, one intake transaction (architecture.md 4.1 steps 1-5)."
+        "note": "Token; tenant and customer from our DB (client bootstrap); body customerId cross-check; one intake transaction (4.1 steps 1-5)."
       },
       {
         "id": "route",
@@ -58,6 +59,11 @@
       "label": "Keycloak"
     },
     {
+      "id": "tenancy",
+      "type": "security",
+      "label": "platform-tenancy"
+    },
+    {
       "id": "ingest",
       "type": "backend",
       "label": "platform-ingest + relay"
@@ -75,23 +81,23 @@
     {
       "id": "routing",
       "type": "backend",
-      "label": "platform-routing (stage 1)"
+      "label": "platform-routing"
     }
   ],
   "segments": [
     {
       "from": 146,
-      "to": 348,
+      "to": 432,
       "label": "1. Authenticate + intake"
     },
     {
-      "from": 362,
-      "to": 536,
+      "from": 446,
+      "to": 620,
       "label": "2. Relay + route (stage 1)"
     },
     {
-      "from": 550,
-      "to": 612,
+      "from": 634,
+      "to": 696,
       "label": "3. SYNC only"
     }
   ],
@@ -116,25 +122,52 @@
     {
       "id": "m03",
       "from": "source",
-      "to": "ingest",
+      "to": "tenancy",
       "y": 222,
-      "label": "POST /interfaces/{code}/messages[:bulk] + Idempotency-Key",
-      "variant": "emphasis"
+      "label": "POST /interfaces/{code}/messages[:bulk] + Bearer + Idempotency-Key",
+      "variant": "emphasis",
+      "note": "Token validated: issuer, JWKS signature, RS256/ES256, aud, exp (ADR-007 D4)"
     },
     {
       "id": "m04",
-      "from": "ingest",
+      "from": "tenancy",
       "to": "db",
       "y": 250,
-      "label": "client bootstrap: tenant, customer",
+      "label": "ipaas_client_bootstrap(iss, azp): tenant, customer",
       "variant": "security",
-      "note": "Tenant never from the body; a body customerId is only cross-checked (ADR-007 D2)"
+      "note": "Humans first; then the credential: ACTIVE credentials of ACTIVE tenants only, so a revoke bites at once (ADR-007 D2-D3)"
+    },
+    {
+      "id": "m04b",
+      "from": "tenancy",
+      "to": "source",
+      "y": 278,
+      "label": "401 credential not active (recorded)",
+      "variant": "dashed"
+    },
+    {
+      "id": "m04c",
+      "from": "tenancy",
+      "to": "source",
+      "y": 306,
+      "label": "403 body customerId names another customer (recorded)",
+      "variant": "dashed",
+      "note": "Every customerId / customer_id of the body, per bulk record; none = the credential's customer; nothing stored (ADR-007 D2)"
+    },
+    {
+      "id": "m04d",
+      "from": "tenancy",
+      "to": "ingest",
+      "y": 334,
+      "label": "bound source: tenant + customer",
+      "variant": "security",
+      "note": "Tenant never from the body or a header: a forged one is ignored and recorded"
     },
     {
       "id": "m05",
       "from": "ingest",
       "to": "db",
-      "y": 278,
+      "y": 362,
       "label": "one tx: message + payload + outbox",
       "variant": "emphasis",
       "note": "Idempotency key per source credential, 24 h; same key, other body = 422 (ADR-011 D4)"
@@ -143,7 +176,7 @@
       "id": "m06",
       "from": "ingest",
       "to": "source",
-      "y": 306,
+      "y": 390,
       "label": "202 per-record results",
       "variant": "return"
     },
@@ -151,15 +184,15 @@
       "id": "m07",
       "from": "ingest",
       "to": "source",
-      "y": 334,
-      "label": "400, 401/403, 413, 422, 503 (nothing stored)",
+      "y": 418,
+      "label": "400, 413, 422, 503 (nothing stored)",
       "variant": "dashed"
     },
     {
       "id": "m08",
       "from": "ingest",
       "to": "kafka",
-      "y": 382,
+      "y": 466,
       "label": "relay: message.accepted, in order per key bucket",
       "variant": "emphasis",
       "note": "One publisher per key bucket (advisory lock); stops at the first failed row (ADR-005 D11)"
@@ -168,14 +201,14 @@
       "id": "m09",
       "from": "kafka",
       "to": "routing",
-      "y": 410,
+      "y": 494,
       "label": "stage 1 consumes"
     },
     {
       "id": "m09b",
       "from": "routing",
       "to": "db",
-      "y": 438,
+      "y": 522,
       "label": "claim idempotency_key \"outbox:<id>\"",
       "note": "Consumer-side duplicate guard (T-010): the key is stable per outbox row, so a crash re-publish finds a committed claim - duplicate, acknowledged, no effect (architecture.md section 3, ADR-001)"
     },
@@ -183,7 +216,7 @@
       "id": "m10",
       "from": "routing",
       "to": "db",
-      "y": 466,
+      "y": 550,
       "label": "one tx: ACCEPTED to ROUTED + deliveries + outbox",
       "variant": "emphasis",
       "note": "Key lock; 0 rows = duplicate; insert on conflict (message, route) do nothing; releases holds"
@@ -192,7 +225,7 @@
       "id": "m11",
       "from": "routing",
       "to": "kafka",
-      "y": 494,
+      "y": 578,
       "label": "unreadable record: platform.poison",
       "variant": "dashed"
     },
@@ -200,7 +233,7 @@
       "id": "m12",
       "from": "routing",
       "to": "kafka",
-      "y": 522,
+      "y": 606,
       "label": "DB error: pause partitions, back off",
       "variant": "dashed",
       "note": "A transient database error never poisons a record (ADR-005 D13)"
@@ -209,7 +242,7 @@
       "id": "m13",
       "from": "ingest",
       "to": "routing",
-      "y": 570,
+      "y": 654,
       "label": "inline stage 1, bulkhead permit, claim, one call",
       "variant": "dashed",
       "note": "Message and delivery outbox rows deferred by budget + 5 s (ADR-011 D5)"
@@ -218,7 +251,7 @@
       "id": "m14",
       "from": "ingest",
       "to": "source",
-      "y": 598,
+      "y": 682,
       "label": "200 mapped, error, or 202 PENDING",
       "variant": "return"
     }

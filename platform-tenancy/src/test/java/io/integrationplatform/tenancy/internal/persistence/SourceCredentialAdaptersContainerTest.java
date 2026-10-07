@@ -26,6 +26,7 @@ import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -69,6 +70,11 @@ class SourceCredentialAdaptersContainerTest {
         }
     }
 
+    /** One stamped transaction; a no-argument lambda keeps assertThat's overloads unambiguous. */
+    private <T> T inTenantTx(Supplier<T> work) {
+        return transaction.execute(status -> work.get());
+    }
+
     @Test
     @DisplayName("S2: the client bootstrap adapter binds the credential's source system, customer and tenant")
     void theClientBootstrapResolvesAnActiveCredential() {
@@ -97,10 +103,10 @@ class SourceCredentialAdaptersContainerTest {
         assertThat(clients.resolve(ISSUER, client)).isPresent();
 
         bound.set(TENANT_A);
-        assertThat(transaction.execute(status -> store.markRevoked(id))).isTrue();
+        assertThat(inTenantTx(() -> store.markRevoked(id))).isTrue();
 
         assertThat(clients.resolve(ISSUER, client)).as("refused from the revoke's commit on").isEmpty();
-        assertThat(transaction.execute(status -> store.markRevoked(id))).as("already revoked: no effect").isFalse();
+        assertThat(inTenantTx(() -> store.markRevoked(id))).as("already revoked: no effect").isFalse();
     }
 
     @Test
@@ -111,8 +117,8 @@ class SourceCredentialAdaptersContainerTest {
         SourceCredentialFixtures.insertCredential(id, ISSUER, TENANT_B, SYSTEM_B, "CUSTOMER-B", client, "ACTIVE");
 
         bound.set(TENANT_A);
-        assertThat(transaction.execute(status -> store.markRevoked(id))).isFalse();
-        assertThat(transaction.execute(status -> store.setIdpDisablePending(id, true))).isFalse();
+        assertThat(inTenantTx(() -> store.markRevoked(id))).isFalse();
+        assertThat(inTenantTx(() -> store.setIdpDisablePending(id, true))).isFalse();
         assertThat(clients.resolve(ISSUER, client)).as("still active for tenant B").isPresent();
     }
 
@@ -124,30 +130,30 @@ class SourceCredentialAdaptersContainerTest {
         SourceCredentialFixtures.insertCredential(id, ISSUER, TENANT_A, SYSTEM_A, CUSTOMER_A, client, "ACTIVE");
         bound.set(TENANT_A);
 
-        assertThat(transaction.execute(status -> store.setIdpDisablePending(id, true)))
+        assertThat(inTenantTx(() -> store.setIdpDisablePending(id, true)))
                 .as("only a REVOKED credential can wait for the identity provider").isFalse();
-        transaction.execute(status -> store.markRevoked(id));
-        assertThat(transaction.execute(status -> store.setIdpDisablePending(id, true))).isTrue();
+        inTenantTx(() -> store.markRevoked(id));
+        assertThat(inTenantTx(() -> store.setIdpDisablePending(id, true))).isTrue();
 
-        assertThat(transaction.execute(status -> store.findIdpDisablePending()))
+        assertThat(inTenantTx(() -> store.findIdpDisablePending()))
                 .contains(new PendingDisable(id, ISSUER, client))
                 .allSatisfy(pending -> assertThat(pending.clientId()).isNotEqualTo(CLIENT_A));
 
         bound.set(TENANT_B);
-        assertThat(transaction.execute(status -> store.findIdpDisablePending()))
+        assertThat(inTenantTx(() -> store.findIdpDisablePending()))
                 .as("tenant B's reconciliation step never sees tenant A's rows")
                 .noneMatch(pending -> pending.credentialId().equals(id));
 
         bound.set(TENANT_A);
-        assertThat(transaction.execute(status -> store.setIdpDisablePending(id, false))).isTrue();
-        assertThat(transaction.execute(status -> store.findIdpDisablePending()))
+        assertThat(inTenantTx(() -> store.setIdpDisablePending(id, false))).isTrue();
+        assertThat(inTenantTx(() -> store.findIdpDisablePending()))
                 .noneMatch(pending -> pending.credentialId().equals(id));
     }
 
     @Test
     @DisplayName("R11: the store refuses to run with no bound tenant")
     void theStoreFailsClosedWithoutABoundTenant() {
-        assertThatThrownBy(() -> transaction.execute(status -> store.markRevoked(CRED_A)))
+        assertThatThrownBy(() -> inTenantTx(() -> store.markRevoked(CRED_A)))
                 .isInstanceOf(NoTenantBoundException.class);
     }
 }

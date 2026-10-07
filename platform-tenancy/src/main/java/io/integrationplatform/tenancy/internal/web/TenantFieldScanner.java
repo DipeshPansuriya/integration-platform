@@ -30,10 +30,48 @@ final class TenantFieldScanner {
 
     private static final Set<String> FIELD_NAMES = Set.of("tenantid", "tenant_id", "tenant");
 
+    /** The JSON body fields that name a customer (E4 T-098, ADR-007 Decision 2 body cross-check). */
+    private static final Set<String> CUSTOMER_FIELD_NAMES = Set.of("customerid", "customer_id");
+
     record TenantField(Channel channel, String value) {
     }
 
+    /**
+     * A JSON body field naming a customer.
+     *
+     * @param value the scalar value, or {@code null} for a structured value (which never names the bound customer)
+     */
+    record CustomerField(String value) {
+    }
+
     private TenantFieldScanner() {
+    }
+
+    /**
+     * Every customerId / customer_id field of a JSON body, at any depth (a bulk body names it per record), any case.
+     * A JSON null names no customer (absent); a structured value is kept with a null value. A malformed body keeps
+     * the fields found before the break - the controller rejects such a body itself.
+     */
+    static List<CustomerField> customerFields(byte[] body) {
+        List<CustomerField> found = new ArrayList<>();
+        if (body.length == 0) {
+            return found;
+        }
+        try (JsonParser parser = JsonMapper.shared().createParser(body)) {
+            for (JsonToken token = parser.nextToken(); token != null; token = parser.nextToken()) {
+                if (token == JsonToken.PROPERTY_NAME
+                        && CUSTOMER_FIELD_NAMES.contains(parser.currentName().toLowerCase(Locale.ROOT))) {
+                    JsonToken value = parser.nextToken();
+                    if (value == null || value == JsonToken.VALUE_NULL) {
+                        continue;
+                    }
+                    found.add(new CustomerField(value.isScalarValue() ? parser.getString() : null));
+                }
+            }
+        } catch (JacksonException truncatedOrMalformed) {
+            // ponytail: as scanJson - the controller rejects a malformed body; the fields found so far still count.
+        }
+        return found;
     }
 
     static List<TenantField> scan(HttpServletRequest request, byte[] jsonBodyPrefix) {
