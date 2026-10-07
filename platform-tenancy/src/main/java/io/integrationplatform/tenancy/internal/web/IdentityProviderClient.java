@@ -19,6 +19,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpConnectTimeoutException;
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpRequestExecution;
@@ -29,7 +32,9 @@ import org.springframework.web.client.RestTemplate;
 
 /**
  * R13 (documents/rule.md:47) and ADR-007 Decision 4: the HTTP client of every identity-provider call - issuer
- * discovery and the JWKS fetch today, the Admin API later. Each call runs through, outermost first:
+ * discovery, the JWKS fetch, the console's token endpoint (code exchange, refresh; E4 T-097), the Admin API later.
+ * Every client built on one {@link MeterRegistry} shares ONE breaker and retry ({@link #restTemplate}), so the
+ * application has one {@value #NAME} breaker however many clients it builds. Each call runs through, outermost first:
  *
  * <ol>
  *   <li><b>metrics and a trace span</b> - a Micrometer observation {@value #OBSERVATION} with low-cardinality tags
@@ -37,9 +42,10 @@ import org.springframework.web.client.RestTemplate;
  *       {@code name=identity-provider};</li>
  *   <li><b>one circuit breaker</b> {@value #NAME} for the whole provider: after the configured number of consecutive
  *       failed calls it refuses every call without contacting the provider until a half-open trial succeeds;</li>
- *   <li><b>retry of transient failures only</b> - refused connection, connect timeout, 429, 502, 503, 504 - with
- *       exponential random backoff and a cap. A 4xx answer (401 and 403 included) and a read timeout of a sent request
- *       are never retried;</li>
+ *   <li><b>retry of transient failures only</b> - refused connection, connect timeout, and for idempotent reads (GET,
+ *       HEAD) a 429, 502, 503 or 504 answer - with exponential random backoff and a cap. A 4xx answer (401 and 403
+ *       included), a read timeout of a sent request and any answer to a non-idempotent call (a token POST: the
+ *       provider may have used the authorization code) are never retried;</li>
  *   <li><b>the timeout</b> - 2 s to connect and 2 s to answer ({@link TenancySecurityConfiguration#JWKS_TIMEOUT}).</li>
  * </ol>
  *
@@ -53,12 +59,30 @@ final class IdentityProviderClient implements ClientHttpRequestInterceptor {
 
     private static final List<Integer> TRANSIENT_STATUSES = List.of(429, 502, 503, 504);
 
+    /** One breaker and retry per meter registry - per application context (weak: a closed context's go away). */
+    private static final Map<MeterRegistry, Resilience> SHARED = new WeakHashMap<>();
+
     private final CircuitBreaker breaker;
     private final Retry retry;
     private final ObservationRegistry observations;
 
-    private IdentityProviderClient(IdentityProviderSettings settings, MeterRegistry meters,
-            ObservationRegistry observations) {
+    /** The breaker and retry of one application (the first settings given for its meter registry win). */
+    private record Resilience(CircuitBreaker breaker, Retry retry) {
+    }
+
+    private IdentityProviderClient(Resilience resilience, ObservationRegistry observations) {
+        this.breaker = resilience.breaker();
+        this.retry = resilience.retry();
+        this.observations = observations;
+    }
+
+    private static Resilience resilience(IdentityProviderSettings settings, MeterRegistry meters) {
+        synchronized (SHARED) {
+            return SHARED.computeIfAbsent(meters, registry -> create(settings, registry));
+        }
+    }
+
+    private static Resilience create(IdentityProviderSettings settings, MeterRegistry meters) {
         int failures = settings.breakerFailureThreshold();
         CircuitBreakerRegistry breakers = CircuitBreakerRegistry.of(CircuitBreakerConfig.custom()
                 .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
@@ -75,12 +99,10 @@ final class IdentityProviderClient implements ClientHttpRequestInterceptor {
                 .build());
         TaggedCircuitBreakerMetrics.ofCircuitBreakerRegistry(breakers).bindTo(meters);
         TaggedRetryMetrics.ofRetryRegistry(retries).bindTo(meters);
-        this.breaker = breakers.circuitBreaker(NAME);
-        this.retry = retries.retry(NAME);
-        this.observations = observations;
+        return new Resilience(breakers.circuitBreaker(NAME), retries.retry(NAME));
     }
 
-    /** The client for discovery and JWKS: the five controls around the 2 s timeout. */
+    /** A client for any identity-provider call: the five controls around the 2 s timeout, the application's breaker. */
     static RestTemplate restTemplate(IdentityProviderSettings settings, MeterRegistry meters,
             ObservationRegistry observations) {
         // The JDK client tells a connect timeout (retryable) from a read timeout (never retried) by type.
@@ -88,7 +110,7 @@ final class IdentityProviderClient implements ClientHttpRequestInterceptor {
                 HttpClient.newBuilder().connectTimeout(TenancySecurityConfiguration.JWKS_TIMEOUT).build());
         requests.setReadTimeout(TenancySecurityConfiguration.JWKS_TIMEOUT);
         RestTemplate rest = new RestTemplate(requests);
-        rest.getInterceptors().add(new IdentityProviderClient(settings, meters, observations));
+        rest.getInterceptors().add(new IdentityProviderClient(resilience(settings, meters), observations));
         return rest;
     }
 
@@ -113,7 +135,7 @@ final class IdentityProviderClient implements ClientHttpRequestInterceptor {
                 .start();
         try (Observation.Scope scope = observation.openScope()) {
             ClientHttpResponse response = breaker.executeCheckedSupplier(() -> retry.executeCheckedSupplier(
-                    () -> failIfTransient(execution.execute(request, body))));
+                    () -> failIfTransient(request.getMethod(), execution.execute(request, body))));
             observation.lowCardinalityKeyValue("outcome", outcome(response.getStatusCode()));
             return response;
         } catch (CallNotPermittedException open) {
@@ -127,11 +149,15 @@ final class IdentityProviderClient implements ClientHttpRequestInterceptor {
         }
     }
 
-    private static ClientHttpResponse failIfTransient(ClientHttpResponse response) throws IOException {
+    private static ClientHttpResponse failIfTransient(HttpMethod method, ClientHttpResponse response)
+            throws IOException {
         int status = response.getStatusCode().value();
         if (TRANSIENT_STATUSES.contains(status)) {
             response.close();
-            throw new TransientStatus(status);
+            if (HttpMethod.GET.equals(method) || HttpMethod.HEAD.equals(method)) {
+                throw new TransientStatus(status);
+            }
+            throw new UnavailableStatus(status); // counted by the breaker, never retried
         }
         return response;
     }
@@ -143,16 +169,27 @@ final class IdentityProviderClient implements ClientHttpRequestInterceptor {
     }
 
     private static String operation(URI uri) {
-        return uri.getPath().contains("/.well-known/") ? "discovery" : "jwks";
+        String path = uri.getPath();
+        if (path.contains("/.well-known/")) {
+            return "discovery";
+        }
+        return path.endsWith("/token") ? "token" : "jwks";
     }
 
     private static String outcome(HttpStatusCode status) {
         return status.is2xxSuccessful() ? "success" : status.is4xxClientError() ? "client_error" : "other";
     }
 
-    /** A 429 or 5xx gateway answer: the provider said "try again later". */
+    /** A 429 or 5xx gateway answer to an idempotent read: the provider said "try again later". */
     static final class TransientStatus extends IOException {
         TransientStatus(int status) {
+            super("Identity provider answered " + status);
+        }
+    }
+
+    /** The same answer to a non-idempotent call: a failure for the breaker, never retried. */
+    static final class UnavailableStatus extends IOException {
+        UnavailableStatus(int status) {
             super("Identity provider answered " + status);
         }
     }

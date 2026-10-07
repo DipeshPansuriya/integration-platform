@@ -248,7 +248,9 @@ class ConsoleLoginContainerTest {
                 assertThat(JWT.matcher(cookie).find()).as("cookie %s", cookie).isFalse();
             }
         }
-        assertThat(browser.history()).filteredOn(e -> e.location().orElse("").contains("/login/oauth2/code/"))
+        // The identity provider's redirect back to the callback carries the authorization code only.
+        assertThat(browser.history())
+                .filteredOn(e -> e.location().orElse("").startsWith(BACKEND + "/login/oauth2/code/"))
                 .isNotEmpty()
                 .allSatisfy(e -> assertThat(e.location().orElseThrow()).contains("code=")
                         .doesNotContain("access_token").doesNotContain("id_token"));
