@@ -1,9 +1,14 @@
 package io.integrationplatform.config.contract.adapter.in;
 
 import io.integrationplatform.config.adapter.in.ConfigActors;
+import io.integrationplatform.config.adapter.in.ConfigErrorBody;
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.contract.application.ContractAdminService;
 import io.integrationplatform.config.internal.persistence.JdbcContractRepository.VersionRow;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.http.ResponseEntity;
@@ -35,6 +40,14 @@ public class ContractVersionAdminController {
         this.actors = Objects.requireNonNull(actors, "actors");
     }
 
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "OK"),
+        @ApiResponse(responseCode = "400", description = "A validation refusal names the refused field or value",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER: the bearer resolves to no directory user",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "409", description = "Conflict: a concurrent save took the same contract or version label",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping
     public ResponseEntity<Map<String, Object>> saveDraft(@RequestBody JsonNode body) {
         VersionRow saved = service.saveDraft(body, actors.requireActor().userId());
@@ -42,6 +55,12 @@ public class ContractVersionAdminController {
                 "id", saved.id(), "versionLabel", saved.versionLabel(), "status", saved.status()));
     }
 
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "OK"),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER: the bearer resolves to no directory user",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "404", description = "Not found: the row is not visible to the bound tenant",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @GetMapping("/{versionId}")
     public ResponseEntity<Map<String, Object>> read(@PathVariable String versionId) {
         actors.requireActor();
@@ -56,6 +75,16 @@ public class ContractVersionAdminController {
                 "changeNote", row.changeNote()));
     }
 
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "OK"),
+        @ApiResponse(responseCode = "400", description = "A validation refusal names the refused field or value",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER: the bearer resolves to no directory user",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "404", description = "Not found: the row is not visible to the bound tenant",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "409", description = "Conflict: only a DRAFT contract version submits",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping("/{versionId}/submit")
     public ResponseEntity<Map<String, Object>> submit(@PathVariable String versionId, @RequestBody JsonNode body) {
         actors.requireActor();
