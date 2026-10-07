@@ -22,6 +22,12 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
+    <!-- E3 T36: annotations only - the admin controllers declare the statuses they really answer in the OpenAPI
+         document (springdoc itself stays in platform-app); the version is the one springdoc already pulls. -->
+    <dependency>
+      <groupId>io.swagger.core.v3</groupId>
+      <artifactId>swagger-annotations-jakarta</artifactId>
+    </dependency>
     <!-- Tenant-scoped persistence base (the arch gate's CompliantRouteRepository pattern) - wave-0 glue
          (arjun-fullstack), requested by lane B's handoff: the persisted repositories build on it. -->
     <dependency>

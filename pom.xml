@@ -48,6 +48,9 @@
     <!-- E3 seam (arjun-fullstack): springdoc publishes the backend's OpenAPI document (/v3/api-docs) for T-158's
          generated client and T-094's contract test. The 3.x line targets Spring Boot 4; not managed by Boot. -->
     <springdoc.version>3.1.1</springdoc.version>
+    <!-- E3 T36: the OpenAPI annotations platform-config declares its admin responses with - exactly the version
+         springdoc ${springdoc.version} already pulls transitively (swagger-core-jakarta), so no new library. -->
+    <swagger-annotations.version>2.2.55</swagger-annotations.version>
     <!-- R13 / ADR-010:59: the platform's one resilience library, at the version Camel 4.22.1 manages for
          camel-resilience4j; camel-spring-boot-bom does not manage the plain modules. -->
     <resilience4j.version>2.4.0</resilience4j.version>
@@ -123,6 +126,11 @@
         <groupId>org.springdoc</groupId>
         <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
         <version>${springdoc.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.swagger.core.v3</groupId>
+        <artifactId>swagger-annotations-jakarta</artifactId>
+        <version>${swagger-annotations.version}</version>
       </dependency>
       <dependency>
         <groupId>com.tngtech.archunit</groupId>

@@ -1,9 +1,14 @@
 package io.integrationplatform.config.system.adapter.in;
 
 import io.integrationplatform.config.adapter.in.ConfigActors;
+import io.integrationplatform.config.adapter.in.ConfigErrorBody;
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemRow;
 import io.integrationplatform.config.system.application.SystemAdminService;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.http.ResponseEntity;
@@ -31,6 +36,14 @@ public class SystemAdminController {
         this.actors = Objects.requireNonNull(actors, "actors");
     }
 
+    @ApiResponses({
+        @ApiResponse(responseCode = "201", description = "Created"),
+        @ApiResponse(responseCode = "400", description = "A validation refusal names the refused field or value",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER: the bearer resolves to no directory user",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "409", description = "Conflict: a system with this code is already registered",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping
     public ResponseEntity<Map<String, Object>> create(@RequestBody JsonNode body) {
         actors.requireActor();
