@@ -15,8 +15,9 @@ import { chromium } from 'playwright';
 export const P95_BUDGET_MS = 1500;
 
 /** One measured page load: full load time in ms after navigation + settle. */
-async function loadOnce(browser, url, settle, wait) {
-  const context = await browser.newContext();
+async function loadOnce(browser, url, settle, wait, storageState) {
+  // E4 (T-097): a signed-in run starts each load from the same session (the backend's cookie).
+  const context = await browser.newContext(storageState ? { storageState } : {});
   const page = await context.newPage();
   const start = performance.now();
   await page.goto(url, { waitUntil: 'load', timeout: 30000 });
@@ -42,10 +43,10 @@ export function p95(samples) {
  * Measures one page `loads` times; returns { p95, samples }.
  * Exposed for the negative test (the runner and the test use the SAME measurement).
  */
-export async function measurePage(browser, url, loads, settle = 0, wait = null) {
+export async function measurePage(browser, url, loads, settle = 0, wait = null, storageState = null) {
   const samples = [];
   for (let i = 0; i < loads; i++) {
-    samples.push(await loadOnce(browser, url, settle, wait));
+    samples.push(await loadOnce(browser, url, settle, wait, storageState));
   }
   return { p95: p95(samples), samples };
 }
@@ -55,14 +56,15 @@ export async function measurePage(browser, url, loads, settle = 0, wait = null) 
  * running system; a page whose p95 is at or above the budget fails the run and is named.
  * Returns { failures: [...], pages: [...] }.
  */
-export async function runP95Check(config, { base, loads = 100, headless = true } = {}) {
+export async function runP95Check(config, { base, loads = 100, headless = true, storageState = null } = {}) {
   if (!base) throw new Error('runP95Check needs the base URL of the running system (--base)');
   const browser = await chromium.launch({ headless });
   try {
     const pages = [];
     for (const entry of config.pages ?? []) {
       const url = new URL(entry.path, base);
-      const result = await measurePage(browser, url.toString(), entry.loads ?? loads, entry.settle ?? 0, entry.wait ?? null);
+      const result = await measurePage(browser, url.toString(), entry.loads ?? loads, entry.settle ?? 0, entry.wait ?? null,
+        storageState);
       pages.push({ name: entry.name, url: url.toString(), p95: result.p95, loads: result.samples.length });
     }
     const failures = pages.filter((p) => !(p.p95 < P95_BUDGET_MS));

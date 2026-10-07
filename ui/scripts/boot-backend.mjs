@@ -1,12 +1,14 @@
-// T-158 / T-017 / T-022 / T-096 (E3 lane D): the console's container harness.
+// T-158 / T-017 / T-022 / T-096 (E3 lane D), moved to the real login by T-097 (E4 lane D): the
+// console's container harness.
 //
 // Boots the REAL backend for the console's tests: the built platform-app jar against its own
-// pinned PostgreSQL container, with a LOCAL test identity provider (an HTTP server this script
-// serves; its tokens validate because the app is pointed at its JWKS) and a seeded login binding.
-// This is exactly the wiring PlatformTestWiring.java:47 does for the Java container tests,
-// reproduced here without touching any platform-*.java source: the same fixed environment
-// variable names (R07), a generated random password that exists in memory only (R07), the same
-// pinned image tag as compose/compose.yaml + TestImages.java (R05).
+// pinned PostgreSQL container and the REAL Keycloak (realm `platform` from the compose realm file,
+// scripts/keycloak-harness.mjs), with seeded login bindings. The console logs in exactly as in a
+// deployment: Authorization Code + PKCE through the backend (ADR-007 Decision 1), a server
+// session cookie, never a token in the browser. The harness's own server-side logins (the second
+// bindings, the seeds) go through the same realm login form (sessionLogin). Same fixed
+// environment variable names as PlatformTestWiring.java (R07), random secrets in memory only
+// (R07), the pinned image tags of compose/compose.yaml + TestImages.java (R05).
 //
 // R06 one-docker-suite-at-a-time: this module takes the PC-wide lock at
 // D:/Projects/ipass/.docker-suite.lock - the same file build-checks/check-container-exclusion.sh
@@ -19,16 +21,23 @@ import net from 'node:net';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { generateKeyPair, SignJWT, exportJWK } from 'jose';
+import { sessionHeaders, sessionLogin, startKeycloak } from './keycloak-harness.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const UI = path.resolve(HERE, '..');
 export const REPO = path.resolve(UI, '..');
 export const PG_IMAGE = 'postgres:17.11-alpine'; // R05: the exact tag compose/compose.yaml + TestImages.java use
 const AUDIENCE = 'integration-platform-api';
-const LOCK_PATH = process.env.DOCKER_SUITE_LOCK ?? path.resolve(REPO, '..', '.docker-suite.lock');
+/** The console's origin in the screen and perf protocols (tests/screens/console-server.mjs). */
+export const CONSOLE_ORIGIN = 'http://127.0.0.1:4173';
+// The PC-wide lock sits beside the MAIN checkout, also from a worktree - resolved exactly as
+// build-checks/check-container-exclusion.sh does (git's common dir), never beside the worktree.
+const LOCK_PATH = process.env.DOCKER_SUITE_LOCK ?? (() => {
+  const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: REPO, encoding: 'utf8', windowsHide: true });
+  const gitDir = common.status === 0 && common.stdout.trim() ? common.stdout.trim() : path.join(REPO, '.git');
+  return path.resolve(path.dirname(path.dirname(gitDir)), '.docker-suite.lock');
+})();
 
 function docker(args, timeout = 60000) {
   const result = spawnSync('docker', args, { encoding: 'utf8', timeout, windowsHide: true });
@@ -70,7 +79,7 @@ async function acquireSuiteLock() {
       await sleep(20000);
       continue;
     }
-    fs.writeFileSync(path.join(LOCK_PATH, 'owner'), `laneD-t37 ${new Date().toISOString()}`);
+    fs.writeFileSync(path.join(LOCK_PATH, 'owner'), `vijay-developer ui-harness ${new Date().toISOString()}`);
     return () => fs.rmSync(LOCK_PATH, { recursive: true, force: true });
   }
 }
@@ -84,54 +93,6 @@ async function freePort() {
     });
     server.on('error', reject);
   });
-}
-
-// --- the local test identity provider -------------------------------------------------
-
-const KEY_KID = 'lane-d-local-test-key';
-
-async function startIdentityProvider() {
-  const { privateKey, publicKey } = await generateKeyPair('RS256');
-  const jwk = await exportJWK(publicKey);
-  jwk.kid = KEY_KID;
-  jwk.use = 'sig';
-  jwk.alg = 'RS256';
-
-  let issuer = ''; // known only once the port is bound
-  const server = createServer((req, res) => {
-    res.setHeader('content-type', 'application/json');
-    // Spring fetches <issuer>/.well-known/openid-configuration, i.e. WITH the /realms/platform
-    // prefix (measured 2026-10-05: the bare path 404ed and every token validated as 401).
-    const discoveryPath = issuer ? new URL(issuer).pathname : '/realms/platform';
-    if (req.url === '/.well-known/openid-configuration' || req.url === `${discoveryPath}/.well-known/openid-configuration`) {
-      res.end(JSON.stringify({ issuer, jwks_uri: `${issuer}/protocol/openid-connect/certs` }));
-      return;
-    }
-    if (req.url === '/protocol/openid-connect/certs' || req.url === `${discoveryPath}/protocol/openid-connect/certs`) {
-      res.end(JSON.stringify({ keys: [jwk] }));
-      return;
-    }
-    res.statusCode = 404;
-    res.end();
-  });
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  issuer = `http://127.0.0.1:${server.address().port}/realms/platform`;
-
-  function token(subject) {
-    return new SignJWT({})
-      .setProtectedHeader({ alg: 'RS256', kid: KEY_KID })
-      .setIssuer(issuer)
-      .setSubject(subject)
-      .setAudience(AUDIENCE)
-      .setIssuedAt()
-      .setExpirationTime('10m')
-      .sign(privateKey);
-  }
-
-  return { issuer, token, server };
 }
 
 // --- the platform-app jar -------------------------------------------------------------
@@ -174,6 +135,26 @@ function buildJar() {
   }
 }
 
+/** The JVM to spawn: JAVA_HOME's bin first (the shell's PATH may not carry it through npm),
+ *  then the bare name. Fails the boot with what the harness saw if neither resolves. */
+function javaCommand() {
+  const home = process.env.JAVA_HOME ?? '';
+  if (home) {
+    for (const name of ['java.exe', 'java']) {
+      const candidate = path.join(home, 'bin', name);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {}
+    }
+  }
+  const probe = spawnSync('java', ['-version'], { encoding: 'utf8', windowsHide: true });
+  if (probe.error || probe.status !== 0) {
+    throw new Error(`boot-backend: no JVM found (JAVA_HOME=${home || '<unset>'}, spawn java: ${probe.error?.message ?? 'exit ' + probe.status})`);
+  }
+  return 'java';
+}
+
 async function healthy(appPort) {
   try {
     const response = await fetch(`http://127.0.0.1:${appPort}/actuator/health`, { signal: AbortSignal.timeout(2000) });
@@ -203,7 +184,7 @@ function psql(container, sql) {
 
 // --- one booted backend ---------------------------------------------------------------
 
-/** The backend's own OpenAPI document, fetched from the really running app (never a mock). */
+/** The backend's own OpenAPI document, fetched from the really running app (never a mock), with a console session. */
 export async function fetchOpenApiDocument(boot) {
   const response = await fetch(new URL('/v3/api-docs', boot.baseUrl), { headers: boot.authHeaders() });
   if (!response.ok) {
@@ -214,9 +195,10 @@ export async function fetchOpenApiDocument(boot) {
 
 export default async function bootBackend() {
   const releaseLock = await acquireSuiteLock();
-  let container, app, idp;
+  const javaExe = javaCommand(); // resolves before any container starts - a missing JVM fails the boot immediately
+  let container, app, keycloak;
   try {
-    const pgName = `ipass-ui-t37-pg-${crypto.randomBytes(4).toString('hex')}`;
+    const pgName = `ipass-ui-t41-pg-${crypto.randomBytes(4).toString('hex')}`;
     const pgPassword = crypto.randomBytes(18).toString('base64url'); // memory-only (R07)
     const loginName = `console_login_${crypto.randomBytes(5).toString('hex')}`;
     const loginPassword = crypto.randomBytes(18).toString('base64url');
@@ -228,7 +210,15 @@ export default async function bootBackend() {
     }
     if (!jar) throw new Error('platform-app jar not found after the maven build');
 
-    idp = await startIdentityProvider();
+    // The backend's port is chosen first: the realm's redirect URI (the code callback) names it.
+    const appPort = await freePort();
+    const baseUrl = `http://127.0.0.1:${appPort}`;
+    keycloak = await startKeycloak({
+      repo: REPO,
+      audience: AUDIENCE,
+      consoleRedirectUri: `${baseUrl}/login/oauth2/code/keycloak`,
+      postLogoutRedirectUri: `${CONSOLE_ORIGIN}/`
+    });
 
     docker(['run', '-d', '--rm', '--name', pgName, '-P', '-e', 'POSTGRES_USER=owner', '-e', `POSTGRES_PASSWORD=${pgPassword}`, '-e', 'POSTGRES_DB=platform', PG_IMAGE]);
     container = pgName;
@@ -241,9 +231,8 @@ export default async function bootBackend() {
 
     psql(pgName, `CREATE ROLE ${loginName} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${loginPassword}'`);
 
-    const appPort = await freePort();
     app = spawn(
-      'java',
+      javaExe,
       ['-XX:+UseSerialGC', '-Xmx256m', `-Dserver.port=${appPort}`, '-jar', jar],
       {
         env: {
@@ -254,8 +243,14 @@ export default async function bootBackend() {
           DB_PASSWORD: loginPassword,
           DB_MIGRATION_USERNAME: 'owner',
           DB_MIGRATION_PASSWORD: pgPassword,
-          OIDC_ISSUER_URI: idp.issuer,
-          OIDC_AUDIENCE: AUDIENCE
+          OIDC_ISSUER_URI: keycloak.issuer,
+          OIDC_AUDIENCE: AUDIENCE,
+          // E4 (T-097): the console login - the realm's confidential console client (tenancy-console.yml).
+          CONSOLE_OIDC_CLIENT_ID: keycloak.consoleClientId,
+          CONSOLE_OIDC_CLIENT_SECRET: keycloak.consoleClientSecret,
+          CONSOLE_OIDC_REDIRECT_URI: `${baseUrl}/login/oauth2/code/keycloak`,
+          CONSOLE_POST_LOGOUT_REDIRECT_URI: `${CONSOLE_ORIGIN}/`,
+          CONSOLE_URL: `${CONSOLE_ORIGIN}/`
         },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
@@ -282,61 +277,79 @@ export default async function bootBackend() {
     // same step PlatformTestWiring.grantApplicationRole does for the Java suite.
     psql(pgName, `GRANT ${'ipaas_app'} TO ${loginName}`);
 
-    // The seeded configurator: bound through the directory the migrations own (owner psql; the app
-    // login only reads the directory through ipaas_login_bootstrap, ADR-009).
+    // The harness's bindings: realm users, bound through the directory the migrations own (owner
+    // psql; the app login only reads the directory through ipaas_login_bootstrap, ADR-009) to the
+    // (issuer, subject) of their Keycloak account. The configurator and the approver (T-022: never
+    // the author) are users of tenant A; one configurator belongs to ANOTHER tenant (E3-F1-S1
+    // @negative @tenant, E4-F1-S1 own tenant only).
     const tenantCode = `lane-d-${crypto.randomBytes(3).toString('hex')}`;
-    const subject = 'lane-d-configurator';
-    psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${tenantCode}', 'ACTIVE')`);
-    psql(pgName,
-      `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${idp.issuer}', '${subject}', 'ACTIVE' FROM public.tenant WHERE code='${tenantCode}'`);
-
-    // The harness's extra bindings (T-022/E3-F2-S1 and E3-F1-S1 @negative @tenant): a second user
-    // of tenant A (the approver who is never the author) and one configurator of ANOTHER tenant.
-    // Same directory pattern; the tokens below never leave the harness (the console proxy swaps
-    // them in for the X-Harness-Login marker - no token is ever sent to the browser).
-    const approverSubject = 'lane-d-approver';
     const otherTenantCode = `${tenantCode}-b`;
-    const otherTenantSubject = 'lane-d-other-tenant';
-    psql(pgName,
-      `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${idp.issuer}', '${approverSubject}', 'ACTIVE' FROM public.tenant WHERE code='${tenantCode}'`);
+    psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${tenantCode}', 'ACTIVE')`);
     psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${otherTenantCode}', 'ACTIVE')`);
-    psql(pgName,
-      `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${idp.issuer}', '${otherTenantSubject}', 'ACTIVE' FROM public.tenant WHERE code='${otherTenantCode}'`);
+    const users = {
+      default: await keycloak.createUser('lane-d-configurator'),
+      approver: await keycloak.createUser('lane-d-approver'),
+      'other-tenant': await keycloak.createUser('lane-d-other-tenant')
+    };
+    for (const [login, user] of Object.entries(users)) {
+      const code = login === 'other-tenant' ? otherTenantCode : tenantCode;
+      psql(pgName,
+        `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${keycloak.issuer}', '${user.subject}', 'ACTIVE' FROM public.tenant WHERE code='${code}'`);
+    }
 
-    const token = await idp.token(subject);
-    const baseUrl = `http://127.0.0.1:${appPort}`;
+    // The harness's server-side sessions, each through the realm's real login form. The console
+    // proxy swaps one in for the X-Harness-Login marker; the browser never holds any of them.
+    const sessions = {};
+    for (const [login, user] of Object.entries(users)) {
+      sessions[login] = await sessionLogin(baseUrl, user);
+      if (sessions[login].status !== 200) {
+        throw new Error(`boot-backend: the ${login} session's first call answered ${sessions[login].status}`);
+      }
+    }
+
+    async function call(login, method, urlPath, body) {
+      const response = await fetch(new URL(urlPath, baseUrl), {
+        method,
+        headers: { ...sessionHeaders(sessions[login], method), ...(body ? { 'content-type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      return { status: response.status, data: await response.json().catch(() => null) };
+    }
 
     // E3-F1-S1's onboarding premise, through the REAL systems seam (T-015): the source system S
-    // the flow-definition and lifecycle screens name is registered for the seeded tenant.
-    const systemSeed = await fetch(new URL('/api/v1/admin/systems', baseUrl), {
-      method: 'POST',
-      headers: { ...{ Authorization: `Bearer ${token}` }, 'content-type': 'application/json' },
-      body: JSON.stringify({ code: 'S', name: 'orders source', direction: 'INBOUND' })
-    });
-    if (systemSeed.status !== 201 && systemSeed.status !== 409) {
-      throw new Error(`boot-backend: seeding the source system answered ${systemSeed.status} (expected 201/409)`);
+    // the flow-definition and lifecycle screens name is registered for the seeded tenant - and for
+    // the other tenant, whose one flow must never appear on tenant A's screens (E4-F1-S1).
+    for (const login of ['default', 'other-tenant']) {
+      const systemSeed = await call(login, 'POST', '/api/v1/admin/systems', { code: 'S', name: 'orders source', direction: 'INBOUND' });
+      if (systemSeed.status !== 201 && systemSeed.status !== 409) {
+        throw new Error(`boot-backend: seeding the source system (${login}) answered ${systemSeed.status} (expected 201/409)`);
+      }
+    }
+    const otherFlow = await call('other-tenant', 'POST', '/api/v1/admin/flows',
+      { sourceSystem: 'S', destinations: ['T-OTHER'], businessKeyRule: 'customer_id' });
+    if (otherFlow.status !== 201) {
+      throw new Error(`boot-backend: seeding the other tenant's flow answered ${otherFlow.status}`);
     }
 
     return {
       baseUrl,
-      issuer: idp.issuer,
+      issuer: keycloak.issuer,
       pgName,
-      subject,
       tenantCode,
-      seededVia: 'directory rows (tenant + app_user) as the migration owner; the source system through the real systems API',
-      tokens: {
-        default: token,
-        approver: await idp.token(approverSubject),
-        'other-tenant': await idp.token(otherTenantSubject)
-      },
+      otherTenantCode,
+      otherTenantFlowId: otherFlow.data.id,
+      seededVia: 'directory rows (tenant + app_user) as the migration owner for realm users; systems and flows through the real API with console sessions',
+      /** The realm users (passwords in memory only) - the browser logs in with `users.default`. */
+      users,
+      /** The harness's server-side console sessions per login (cookie + CSRF token, never a token). */
+      sessions,
+      call,
       logDump() {
         return appLog.join('');
       },
-      async tokenFor(otherSubject = subject) {
-        return idp.token(otherSubject);
-      },
-      authHeaders() {
-        return { Authorization: `Bearer ${token}` };
+      /** Headers of a backend call with the default login's session (CSRF header on writes). */
+      authHeaders(method = 'GET') {
+        return sessionHeaders(sessions.default, method);
       },
       async teardown() {
         try {
@@ -345,7 +358,7 @@ export default async function bootBackend() {
         } catch (e) {
           console.error(`teardown: ${e.message}`);
         }
-        idp.server.close();
+        keycloak?.stop();
         releaseLock();
       }
     };
@@ -358,7 +371,7 @@ export default async function bootBackend() {
         // already gone
       }
     }
-    idp?.server.close();
+    keycloak?.stop();
     releaseLock();
     throw e;
   }
