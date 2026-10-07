@@ -22,6 +22,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  *   <li>{@code DB_URL} / {@code DB_USERNAME} / {@code DB_PASSWORD}: a LOGIN user created at runtime with a random
  *       password; it is made a member of {@code ipaas_app} once Flyway has created that role.</li>
  *   <li>{@code OIDC_ISSUER_URI} / {@code OIDC_AUDIENCE}: test values (lane B); the issuer is never contacted.</li>
+ *   <li>{@code CONSOLE_OIDC_*} / {@code CONSOLE_POST_LOGOUT_REDIRECT_URI} (E4, T-097): the console login client; the
+ *       secret is random per run and nothing contacts the issuer until a console login starts. A suite that logs in
+ *       through Keycloak overrides them (identity.ConsoleLoginContainerTest).</li>
  * </ul>
  */
 public final class PlatformTestWiring {
@@ -59,6 +62,11 @@ public final class PlatformTestWiring {
         registry.add("DB_MIGRATION_PASSWORD", postgres::getPassword);
         registry.add("OIDC_ISSUER_URI", OIDC_ISSUER::toString);
         registry.add("OIDC_AUDIENCE", () -> OIDC_AUDIENCE);
+        String consoleSecret = randomSecret();
+        registry.add("CONSOLE_OIDC_CLIENT_ID", () -> "platform-console");
+        registry.add("CONSOLE_OIDC_CLIENT_SECRET", () -> consoleSecret);
+        registry.add("CONSOLE_OIDC_REDIRECT_URI", () -> "http://localhost/login/oauth2/code/keycloak");
+        registry.add("CONSOLE_POST_LOGOUT_REDIRECT_URI", () -> "http://localhost/");
         return login;
     }
 
@@ -70,6 +78,12 @@ public final class PlatformTestWiring {
     /** Makes the restricted login a member of {@code ipaas_app}; call after Flyway has created the role. */
     public static void grantApplicationRole(PostgreSQLContainer postgres, RestrictedLogin login) throws SQLException {
         executeFormatted(postgres, "GRANT %I TO %I", APPLICATION_ROLE, login.username());
+    }
+
+    private static String randomSecret() {
+        byte[] secret = new byte[24];
+        RANDOM.nextBytes(secret);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
     }
 
     private static RestrictedLogin createRestrictedLogin(PostgreSQLContainer postgres) {

@@ -104,6 +104,11 @@ public final class ConsoleBrowser {
         return Optional.ofNullable(jars.getOrDefault(authority(backend), Map.of()).get(name));
     }
 
+    /** Puts a cookie of the backend into the jar, as a browser holding it would send it (for example a dead session). */
+    public void setCookie(String name, String value) {
+        jars.computeIfAbsent(authority(backend), k -> new HashMap<>()).put(name, value);
+    }
+
     /** Forgets every cookie of the backend (a browser with no session). */
     public void clearBackendCookies() {
         jars.remove(authority(backend));
