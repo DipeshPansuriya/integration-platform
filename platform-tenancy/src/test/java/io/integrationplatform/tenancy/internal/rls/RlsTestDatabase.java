@@ -97,7 +97,8 @@ public final class RlsTestDatabase {
         }
         Flyway.configure()
                 .dataSource(container.getJdbcUrl(), OWNER, ownerPassword)
-                .locations("classpath:db/migration")
+                // E4 T-098: the stub of platform-config's public.system, so source_credential gets its composite key.
+                .locations("classpath:db/migration", "classpath:db/fixture/lane-c-system")
                 .load()
                 .migrate();
         try (Connection admin = superuserConnection(); Statement sql = admin.createStatement()) {

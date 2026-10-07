@@ -23,9 +23,14 @@ final class BoundedBodyRequest extends HttpServletRequestWrapper {
     private final ServletInputStream body;
 
     BoundedBodyRequest(HttpServletRequest request) throws IOException {
+        this(request, TenantFieldScanner.BODY_LIMIT);
+    }
+
+    /** Inspects the first {@code limit} bytes instead (the source customer cross-check reads a whole bulk body). */
+    BoundedBodyRequest(HttpServletRequest request, int limit) throws IOException {
         super(request);
         ServletInputStream original = request.getInputStream();
-        this.prefix = original.readNBytes(TenantFieldScanner.BODY_LIMIT);
+        this.prefix = original.readNBytes(limit);
         this.body = new ReplayStream(new SequenceInputStream(new ByteArrayInputStream(prefix), original));
     }
 

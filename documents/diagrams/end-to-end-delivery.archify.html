@@ -5249,13 +5249,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="730" y="428" class="t-dim" font-size="7">Timeout, transient-only redelivery (2 max, 5 s of delay), breaker, Retry-After honoured</text>
         </g>
 
-        <g data-edge-from="target" data-edge-to="bulkhead" data-edge-label="outcome class" data-edge-key="9" data-edge-id="m10">
+        <g data-edge-from="target" data-edge-to="bulkhead" data-edge-label="HTTP status -&gt; outcome class" data-edge-key="9" data-edge-id="m10">
           <path data-composition-edge-from="target" data-composition-edge-to="bulkhead" data-composition-edge-id="m10" data-composition-points="1084,438;718,438" d="M 1084 438 L 718 438" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="861.2" y="418" width="79.60000000000001" height="16" rx="3" class="c-mask"/>
-          <text x="901" y="428" class="t-muted" font-size="9" text-anchor="middle">outcome class</text>
+          <rect x="822.2" y="418" width="157.6" height="16" rx="3" class="c-mask"/>
+          <text x="901" y="428" class="t-muted" font-size="9" text-anchor="middle">HTTP status -&gt; outcome class</text>
         </g>
-        <text data-detail="fine" x="730" y="456" class="t-dim" font-size="7">500/502/504/408 are AMBIGUOUS unless the target declares idempotent receive</text>
+        <text data-detail="fine" x="730" y="456" class="t-dim" font-size="7">OutcomeClassifier: 401/403 (and 400/422) PERMANENT - one attempt, dead-lettered, never retried; 500/502/504/408 AMBIGUOUS unless idempotent receive</text>
         </g>
 
         <g data-edge-from="bulkhead" data-edge-to="db" data-edge-label="attempt row, delivery_event, state (token)" data-edge-key="10" data-edge-id="m11">

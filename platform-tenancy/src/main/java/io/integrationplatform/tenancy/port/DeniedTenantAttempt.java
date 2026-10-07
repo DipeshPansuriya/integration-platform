@@ -24,7 +24,11 @@ public record DeniedTenantAttempt(UUID boundTenantId, Channel channel, String me
         BODY_FIELD,
         PATH_ID,
         TOKEN_CLAIM,
-        NO_IDENTITY
+        NO_IDENTITY,
+        /** A machine token whose (issuer, client id) resolves to no ACTIVE credential of an ACTIVE tenant (T-098). */
+        INACTIVE_CREDENTIAL,
+        /** A source call whose body names a customer other than the calling credential's (T-098). */
+        BODY_CUSTOMER
     }
 
     public DeniedTenantAttempt {
