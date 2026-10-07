@@ -353,14 +353,22 @@ class ConsoleLoginContainerTest {
     }
 
     private static void user(Connection owner, UUID tenant, RealmUser user, String status) throws SQLException {
+        UUID userId = UUID.randomUUID();
         try (PreparedStatement insert = owner.prepareStatement("insert into public.app_user"
                 + " (id, tenant_id, issuer, subject, status) values (?::uuid, ?::uuid, ?, ?, ?)")) {
-            insert.setString(1, UUID.randomUUID().toString());
+            insert.setString(1, userId.toString());
             insert.setString(2, tenant.toString());
             insert.setString(3, KEYCLOAK.issuerUri());
             insert.setString(4, user.subject());
             insert.setString(5, status);
             insert.executeUpdate();
+        }
+        // E4 T-099 seeding: roles are role_grant rows; this login suite's users are tenant admins (roles are not its subject)
+        try (PreparedStatement grant = owner.prepareStatement("insert into public.role_grant (tenant_id, user_id, role)"
+                + " values (?::uuid, ?::uuid, 'TENANT_ADMIN')")) {
+            grant.setString(1, tenant.toString());
+            grant.setString(2, userId.toString());
+            grant.executeUpdate();
         }
     }
 

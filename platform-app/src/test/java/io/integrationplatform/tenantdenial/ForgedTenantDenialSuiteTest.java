@@ -420,6 +420,13 @@ class ForgedTenantDenialSuiteTest {
             user.setString(4, subject);
             user.executeUpdate();
         }
+        // E4 T-099 seeding: roles are role_grant rows; the matrix user drives every admin operation (tenant admin)
+        try (PreparedStatement grant = owner.prepareStatement(
+                "INSERT INTO role_grant (tenant_id, user_id, role) VALUES (?::uuid, ?::uuid, 'TENANT_ADMIN')")) {
+            grant.setString(1, tenantId.toString());
+            grant.setString(2, userId.toString());
+            grant.executeUpdate();
+        }
         List<UUID> rowIds = new ArrayList<>();
         List<String> labels = new ArrayList<>();
         for (int i = 1; i <= 2; i++) {

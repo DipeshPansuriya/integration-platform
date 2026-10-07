@@ -355,7 +355,7 @@
       "id": "tenant-directory",
       "from": "tenancy",
       "to": "postgres",
-      "label": "login bootstrap, console sessions, per-tx stamp",
+      "label": "bootstrap, role grants, sessions, per-tx stamp",
       "labelDy": 53,
       "variant": "security",
       "fromSide": "right",

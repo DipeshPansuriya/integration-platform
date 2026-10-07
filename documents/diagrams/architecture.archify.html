@@ -5166,7 +5166,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <path data-edge-from="tenancy" data-edge-to="keycloak" data-edge-label="JWKS, admin API, 5 controls" data-edge-key="4" data-edge-id="tenancy-oidc" data-composition-points="315,243;190,243" d="M 315 243 L 190 243" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="ingest" data-edge-to="tenancy" data-edge-label="bind tenant" data-edge-key="5" data-edge-id="ingest-tenant" data-composition-points="400,330;400,276" d="M 400 330 L 400 276" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="config" data-edge-to="tenancy" data-edge-label="roles" data-edge-key="6" data-edge-id="config-tenant" data-composition-points="400,156;400,210" d="M 400 156 L 400 210" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="tenancy" data-edge-to="postgres" data-edge-label="login bootstrap, console sessions, per-tx stamp" data-edge-key="7" data-edge-id="tenant-directory" data-composition-points="485,250;547.5,250;547.5,490" d="M 485 250 L 539.5 250 Q 547.5 250 547.5 258 L 547.5 490" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="tenancy" data-edge-to="postgres" data-edge-label="bootstrap, role grants, sessions, per-tx stamp" data-edge-key="7" data-edge-id="tenant-directory" data-composition-points="485,250;547.5,250;547.5,490" d="M 485 250 L 539.5 250 Q 547.5 250 547.5 258 L 547.5 490" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="config" data-edge-to="postgres" data-edge-label="config rows, snapshots, one-tx publish" data-edge-key="8" data-edge-id="config-persist" data-composition-points="400,90;400,56;4,56;4,523;315,523" d="M 400 90 L 400 64 Q 400 56 392 56 L 12 56 Q 4 56 4 64 L 4 515 Q 4 523 12 523 L 315 523" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="ingest" data-edge-to="postgres" data-edge-label="one tx: message + outbox" data-edge-key="9" data-edge-id="intake-tx" data-composition-points="400,396;400,443;533.5,443;533.5,490" d="M 400 396 L 400 435 Q 400 443 408 443 L 525.5 443 Q 533.5 443 533.5 451 L 533.5 490" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="postgres" data-edge-to="kafka" data-edge-label="relay: ids only" data-edge-key="10" data-edge-id="relay" data-composition-points="780,523;905,523" d="M 780 523 L 905 523" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
@@ -5398,9 +5398,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="383" y="160" width="34" height="14" rx="3" class="c-mask"/>
           <text x="400" y="170" class="t-security" font-size="8" text-anchor="middle">roles</text>
         </g>
-        <g data-detail="context" data-edge-from="tenancy" data-edge-to="postgres" data-edge-label="login bootstrap, console sessions, per-tx stamp" data-edge-key="7" data-edge-id="tenant-directory">
-          <rect x="429.7" y="403" width="235.6" height="14" rx="3" class="c-mask"/>
-          <text x="547.5" y="413" class="t-security" font-size="8" text-anchor="middle">login bootstrap, console sessions, per-tx stamp</text>
+        <g data-detail="context" data-edge-from="tenancy" data-edge-to="postgres" data-edge-label="bootstrap, role grants, sessions, per-tx stamp" data-edge-key="7" data-edge-id="tenant-directory">
+          <rect x="432.1" y="403" width="230.79999999999998" height="14" rx="3" class="c-mask"/>
+          <text x="547.5" y="413" class="t-security" font-size="8" text-anchor="middle">bootstrap, role grants, sessions, per-tx stamp</text>
         </g>
         <g data-detail="context" data-edge-from="config" data-edge-to="postgres" data-edge-label="config rows, snapshots, one-tx publish" data-edge-key="8" data-edge-id="config-persist">
           <rect x="105.8" y="36" width="192.4" height="14" rx="3" class="c-mask"/>

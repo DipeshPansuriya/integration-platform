@@ -114,15 +114,23 @@ public final class LaneCIdentities {
     static String seedApproverOfTenantA() {
         E3ConfigDatabase.SeededTenant tenantA = E3ConfigDatabase.tenantA();
         String subject = "sub-approver-" + UUID.randomUUID();
+        UUID approverId = UUID.randomUUID();
         try (Connection owner = E3ConfigDatabase.ownerConnection()) {
             try (PreparedStatement user = owner.prepareStatement(
                     "INSERT INTO app_user (id, tenant_id, issuer, subject, status) "
                             + "VALUES (?::uuid, ?::uuid, ?, ?, 'ACTIVE')")) {
-                user.setString(1, UUID.randomUUID().toString());
+                user.setString(1, approverId.toString());
                 user.setString(2, tenantA.id().toString());
                 user.setString(3, E3ConfigDatabase.OIDC_ISSUER.toString());
                 user.setString(4, subject);
                 user.executeUpdate();
+            }
+            // E4 T-099 seeding: the approver holds the APPROVER role (approves and publishes, ADR-007 Decision 5)
+            try (PreparedStatement grant = owner.prepareStatement(
+                    "INSERT INTO role_grant (tenant_id, user_id, role) VALUES (?::uuid, ?::uuid, 'APPROVER')")) {
+                grant.setString(1, tenantA.id().toString());
+                grant.setString(2, approverId.toString());
+                grant.executeUpdate();
             }
         } catch (SQLException e) {
             throw new IllegalStateException("could not seed the tenant-A approver", e);
