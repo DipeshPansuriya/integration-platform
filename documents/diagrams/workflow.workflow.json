@@ -137,7 +137,7 @@
       "col": 5,
       "type": "security",
       "label": "Approve bundle",
-      "sublabel": "DB CHECK + 403",
+      "sublabel": "role + DB CHECK",
       "width": 136
     },
     {
@@ -280,7 +280,7 @@
       "title": "Approval gates",
       "items": [
         "A contract version and a bundle each need an approver who is not the author",
-        "No change note, or the author approving: refused"
+        "No change note, the author approving, or a missing role: refused"
       ]
     },
     {

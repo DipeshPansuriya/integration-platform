@@ -126,6 +126,7 @@ class T094TypedClientContractContainerTest {
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
             UUID tenantId = UUID.randomUUID();
             seededSubject = "sub-t094-" + UUID.randomUUID();
+            UUID userId = UUID.randomUUID();
             try (PreparedStatement tenant = owner.prepareStatement(
                     "INSERT INTO tenant (id, code, status, time_zone) VALUES (?::uuid, ?, 'ACTIVE', 'Etc/UTC')")) {
                 tenant.setString(1, tenantId.toString());
@@ -136,11 +137,18 @@ class T094TypedClientContractContainerTest {
             try (PreparedStatement user = owner.prepareStatement(
                     "INSERT INTO app_user (id, tenant_id, issuer, subject, status) "
                             + "VALUES (?::uuid, ?::uuid, ?, ?, 'ACTIVE')")) {
-                user.setString(1, UUID.randomUUID().toString());
+                user.setString(1, userId.toString());
                 user.setString(2, tenantId.toString());
                 user.setString(3, PlatformTestWiring.OIDC_ISSUER.toString());
                 user.setString(4, seededSubject);
                 user.executeUpdate();
+            }
+            // E4 T-099 seeding: roles are role_grant rows; the typed client exercises every admin operation
+            try (PreparedStatement grant = owner.prepareStatement(
+                    "INSERT INTO role_grant (tenant_id, user_id, role) VALUES (?::uuid, ?::uuid, 'TENANT_ADMIN')")) {
+                grant.setString(1, tenantId.toString());
+                grant.setString(2, userId.toString());
+                grant.executeUpdate();
             }
         }
         PlatformTestWiring.grantApplicationRole(POSTGRES, login);

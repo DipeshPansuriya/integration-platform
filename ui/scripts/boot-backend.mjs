@@ -291,10 +291,15 @@ export default async function bootBackend({ loginSeed = false } = {}) {
       approver: await keycloak.createUser('lane-d-approver'),
       'other-tenant': await keycloak.createUser('lane-d-other-tenant')
     };
+    // E4 T-099 seeding: roles are role_grant rows (ADR-007 Decision 5). The default login authors AND is refused
+    // its own approval on screen, so it must pass the role check: tenant admin (admins may also approve).
+    const roles = { default: 'TENANT_ADMIN', approver: 'APPROVER', 'other-tenant': 'CONFIGURATOR' };
     for (const [login, user] of Object.entries(users)) {
       const code = login === 'other-tenant' ? otherTenantCode : tenantCode;
       psql(pgName,
         `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${keycloak.issuer}', '${user.subject}', 'ACTIVE' FROM public.tenant WHERE code='${code}'`);
+      psql(pgName,
+        `INSERT INTO public.role_grant (tenant_id, user_id, role) SELECT tenant_id, id, '${roles[login]}' FROM public.app_user WHERE issuer='${keycloak.issuer}' AND subject='${user.subject}'`);
     }
 
     // The harness's server-side sessions, each through the realm's real login form. The console
