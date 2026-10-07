@@ -361,6 +361,28 @@
       "toSide": "top"
     },
     {
+      "id": "config-persist",
+      "from": "config",
+      "to": "postgres",
+      "label": "config rows, snapshots, one-tx publish",
+      "fromSide": "top",
+      "toSide": "left",
+      "via": [
+        [
+          400,
+          56
+        ],
+        [
+          4,
+          56
+        ],
+        [
+          4,
+          523
+        ]
+      ]
+    },
+    {
       "id": "intake-tx",
       "from": "ingest",
       "to": "postgres",
