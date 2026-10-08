@@ -17,7 +17,8 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 
 /**
  * The forged-tenant matrix (T-002, release gate): one entry per {@code /api/**} endpoint of the whole application.
- * Every new endpoint of every module adds its entry here; the coverage guard fails the suite when an endpoint has
+ * Every new endpoint of every module adds its entry here (from E5 on: in its lane's {@link LaneMatrix} file); the
+ * coverage guard fails the suite when an endpoint has
  * none, when an entry no longer matches an endpoint, or when an entry misstates whether the endpoint takes a body.
  * Which forgeries apply is derived from the entry ({@link Forgery#fits}).
  */
@@ -53,6 +54,7 @@ final class EndpointMatrix {
             rowIds.forEach(row -> markers.add(row.toString()));
             markers.addAll(labels);
             markers.addAll(config.markers());
+            LANES.forEach(lane -> markers.addAll(lane.markers(this)));
             return markers;
         }
     }
@@ -161,7 +163,7 @@ final class EndpointMatrix {
     private static final String SYSTEMS = "/api/v1/admin/systems";
 
     /** Every /api/** endpoint in E1 and E3: lane B's /api/v1/me, the test probe, and lane C's config admin API. */
-    static final List<Entry> REGISTRY = List.of(
+    private static final List<Entry> CORE = List.of(
             new Entry("GET", "/api/v1/me", false,
                     s -> "/api/v1/me", null, null,
                     s -> List.of(s.a().userId().toString(), s.a().id().toString(), s.a().code())),
@@ -288,6 +290,16 @@ final class EndpointMatrix {
                     s -> List.of(),
                     201,
                     new WriteProbe(tenantState("interface", "interface_version"), "6|6", "7|7")));
+
+    /**
+     * E5 seam (arjun-fullstack, F13): each epic lane's part of the matrix, in its own file ({@link LaneMatrix}). A new
+     * lane part is one line here, written by the integrator, never by a lane.
+     */
+    static final List<LaneMatrix> LANES = List.of(new E5ContractMatrix(), new E5SystemMatrix(), new E5SecretMatrix());
+
+    /** The whole matrix: the core entries above, then every lane's entries. */
+    static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),
+            LANES.stream().flatMap(lane -> lane.entries().stream())).toList();
 
     private EndpointMatrix() {
     }

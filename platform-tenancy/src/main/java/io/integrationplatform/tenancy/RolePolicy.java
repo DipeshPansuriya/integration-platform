@@ -26,6 +26,7 @@ import java.util.Set;
  * MANAGE_USERS_AND_ROLES    role           TENANT_ADMIN
  * ISSUE_SOURCE_CREDENTIAL   role           TENANT_ADMIN               (E5 T-103 binds its endpoint)
  * REVOKE_SOURCE_CREDENTIAL  role           TENANT_ADMIN               (E5 binds its endpoint)
+ * MANAGE_TARGET_CREDENTIAL  role           TENANT_ADMIN               (E5 T-103: save, rotate, remove a target secret)
  * READ_MESSAGE_TIMELINE     role           TENANT_ADMIN, SUPPORT, READ_ONLY   (E13 binds its endpoint)
  * REPLAY_DEAD_LETTER        role           TENANT_ADMIN, SUPPORT      (replay or discard; E13)
  * SUBMIT_MESSAGE            source system  (no human role: the common API, E5 binds it)
@@ -56,6 +57,10 @@ public final class RolePolicy {
         MANAGE_USERS_AND_ROLES(Caller.ROLE, TENANT_ADMIN),
         ISSUE_SOURCE_CREDENTIAL(Caller.ROLE, TENANT_ADMIN),
         REVOKE_SOURCE_CREDENTIAL(Caller.ROLE, TENANT_ADMIN),
+        // E5 seam (arjun-fullstack, F13): a target secret is a tenant-admin action like a source one
+        // (E5-F1-S3 "Only a tenant admin manages credentials"); rotating a SOURCE one is issuing a second one
+        // (ADR-007 Decision 3), so that stays ISSUE_SOURCE_CREDENTIAL.
+        MANAGE_TARGET_CREDENTIAL(Caller.ROLE, TENANT_ADMIN),
         READ_MESSAGE_TIMELINE(Caller.ROLE, TENANT_ADMIN, SUPPORT, READ_ONLY),
         REPLAY_DEAD_LETTER(Caller.ROLE, TENANT_ADMIN, SUPPORT),
         SUBMIT_MESSAGE(Caller.SOURCE_SYSTEM);

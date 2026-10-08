@@ -9,6 +9,12 @@ spring:
       - optional:classpath:config/tenancy-security.yml
       - optional:classpath:config/tenancy-database.yml
       - optional:classpath:config/tenancy-console.yml
+      # E5 seam (F13): one settings file per E5 lane, in that lane's module - config-contracts.yml (lane A,
+      # platform-config), config-systems.yml (lane B: destination allow-list, test-connection rate limit),
+      # config-secrets.yml (lane C: key-encryption-key env names, Keycloak admin client controls).
+      - optional:classpath:config/config-contracts.yml
+      - optional:classpath:config/config-systems.yml
+      - optional:classpath:config/config-secrets.yml
   # R07: connection settings come only from environment variable names; no value, no default.
   datasource:
     url: ${DB_URL}

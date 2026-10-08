@@ -11,8 +11,12 @@ import { useEffect, useState } from 'react';
 import { api, readCookie } from './api/client';
 import { FlowDefinition } from './pages/FlowDefinition';
 import { Versions } from './pages/Versions';
+// E5 seam (arjun-fullstack, F13): route + menu stubs for E5 lane D's screens (T-159 systems registry, T-160
+// contract versions); lane D fills the two page files and never edits this shell.
+import { Systems } from './pages/Systems';
+import { ContractVersions } from './pages/ContractVersions';
 
-type Route = { page: 'home' | 'flows' | 'versions'; flowId: string | null };
+type Route = { page: 'home' | 'flows' | 'versions' | 'systems' | 'contracts'; flowId: string | null };
 
 type Me = {
   userId?: string;
@@ -27,6 +31,8 @@ function parseHash(): Route {
   if (flow) return { page: 'flows', flowId: flow[1] };
   if (hash.startsWith('flows')) return { page: 'flows', flowId: null };
   if (hash.startsWith('versions')) return { page: 'versions', flowId: null };
+  if (hash.startsWith('systems')) return { page: 'systems', flowId: null };
+  if (hash.startsWith('contracts')) return { page: 'contracts', flowId: null };
   return { page: 'home', flowId: null };
 }
 
@@ -66,6 +72,12 @@ export function App() {
         <button type="button" data-nav="versions" onClick={() => (window.location.hash = '#/versions')}>
           Versions
         </button>
+        <button type="button" data-nav="systems" onClick={() => (window.location.hash = '#/systems')}>
+          Systems
+        </button>
+        <button type="button" data-nav="contracts" onClick={() => (window.location.hash = '#/contracts')}>
+          Contracts
+        </button>
         {me?.tenantCode && <span data-session-tenant>{me.tenantCode}</span>}
         {me && (
           <button type="button" data-action="logout" onClick={() => void logout()}>
@@ -75,6 +87,8 @@ export function App() {
       </nav>
       {route.page === 'flows' && <FlowDefinition openFlowId={route.flowId} />}
       {route.page === 'versions' && <Versions />}
+      {route.page === 'systems' && <Systems />}
+      {route.page === 'contracts' && <ContractVersions />}
       {route.page === 'home' && <main data-page="console-home">Integration Platform Console</main>}
     </div>
   );

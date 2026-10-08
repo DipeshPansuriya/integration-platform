@@ -34,6 +34,43 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>
     </dependency>
+    <!-- E5 seam (arjun-fullstack, F13): every library an E5 lane needs in this module, declared once so no E5 lane
+         edits this pom (E6 edits it too). Lane A (T-105): JSON Schema validation (the one networknt version, R12)
+         and the OpenAPI 3.x import (ADR-011:103). Lane B (T-104): the five controls of R13 on test-connection
+         (breaker, retry, metrics) and its rate limit, from the platform's one resilience library (ADR-010:59).
+         Lane C (T-185): the readiness health indicator for a missing key-encryption key (ADR-007 Decision 7 rule 5). -->
+    <dependency>
+      <groupId>com.networknt</groupId>
+      <artifactId>json-schema-validator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.swagger.parser.v3</groupId>
+      <artifactId>swagger-parser-v3</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.swagger.core.v3</groupId>
+      <artifactId>swagger-core-jakarta</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-circuitbreaker</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-retry</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-ratelimiter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-micrometer</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-health</artifactId>
+    </dependency>
     <!-- The tables these APIs serve are rows (no JPA): JDBC (ADR-001, the delivery module's pattern),
          deployed by Flyway (V2_2_* configuration schema, lane B's checked-in migrations). -->
     <dependency>
