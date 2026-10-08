@@ -3,6 +3,7 @@ package io.integrationplatform.tenancy;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.APPROVE_VERSION;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.EDIT_CONFIGURATION;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.ISSUE_SOURCE_CREDENTIAL;
+import static io.integrationplatform.tenancy.RolePolicy.Operation.MANAGE_TARGET_CREDENTIAL;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.MANAGE_USERS_AND_ROLES;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.PUBLISH_VERSION;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.READ_CONFIGURATION;
@@ -52,6 +53,7 @@ class RolePolicyTest {
     @ParameterizedTest(name = "{0} may not {1}")
     @CsvSource({
         "CONFIGURATOR, ISSUE_SOURCE_CREDENTIAL",
+        "CONFIGURATOR, MANAGE_TARGET_CREDENTIAL",
         "SUPPORT,      EDIT_CONFIGURATION",
         "READ_ONLY,    REPLAY_DEAD_LETTER",
         // approver-is-never-author is the record's CHECK, not the role: the role check lets an approver through,
@@ -79,6 +81,7 @@ class RolePolicyTest {
                 Map.entry(MANAGE_USERS_AND_ROLES, EnumSet.of(Role.TENANT_ADMIN)),
                 Map.entry(ISSUE_SOURCE_CREDENTIAL, EnumSet.of(Role.TENANT_ADMIN)),
                 Map.entry(REVOKE_SOURCE_CREDENTIAL, EnumSet.of(Role.TENANT_ADMIN)),
+                Map.entry(MANAGE_TARGET_CREDENTIAL, EnumSet.of(Role.TENANT_ADMIN)),
                 Map.entry(READ_MESSAGE_TIMELINE, EnumSet.of(Role.TENANT_ADMIN, Role.SUPPORT, Role.READ_ONLY)),
                 Map.entry(REPLAY_DEAD_LETTER, EnumSet.of(Role.TENANT_ADMIN, Role.SUPPORT)),
                 Map.entry(READ_OWN_IDENTITY, EnumSet.noneOf(Role.class)),

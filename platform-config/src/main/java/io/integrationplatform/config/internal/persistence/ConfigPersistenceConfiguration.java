@@ -19,34 +19,17 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * <p>The repositories take {@link TenantContext} through an {@code ObjectProvider} with a fail-closed fallback:
  * a composition without the identity chain (lane A's {@code ConfigE3App}) still boots, and its calls refuse
  * because no tenant is bound - the same documented behaviour as the stamping transaction manager's.
+ *
+ * <p>E5 seam (arjun-fullstack, F13): the systems wiring moved to {@link SystemPersistenceConfiguration} (E5 lane B)
+ * and the contracts wiring to {@link ContractPersistenceConfiguration} (E5 lane A), so no two lanes edit one
+ * composition file. This class keeps the flows and the actor resolver; a new E5 bean goes into its lane's own file.
  */
 @Configuration(proxyBeanMethods = false)
 class ConfigPersistenceConfiguration {
 
     @Bean
-    JdbcSystemRepository jdbcSystemRepository(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts) {
-        return new JdbcSystemRepository(jdbcClient, tenantContexts);
-    }
-
-    @Bean
-    JdbcContractRepository jdbcContractRepository(JdbcClient jdbcClient,
-            ObjectProvider<TenantContext> tenantContexts) {
-        return new JdbcContractRepository(jdbcClient, tenantContexts);
-    }
-
-    @Bean
     JdbcFlowRepository jdbcFlowRepository(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts) {
         return new JdbcFlowRepository(jdbcClient, tenantContexts);
-    }
-
-    @Bean
-    SystemAdminService systemAdminService(JdbcSystemRepository systems) {
-        return new SystemAdminService(systems);
-    }
-
-    @Bean
-    ContractAdminService contractAdminService(JdbcContractRepository contracts, JdbcSystemRepository systems) {
-        return new ContractAdminService(contracts, systems);
     }
 
     @Bean

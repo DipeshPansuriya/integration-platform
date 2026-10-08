@@ -240,8 +240,17 @@ class ForgedTenantDenialSuiteTest {
             }
         }
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
+            // E5 seam (F13): lane rows go first (they may reference the core chain) and come back after it
+            for (LaneMatrix lane : EndpointMatrix.LANES) {
+                lane.clearTenantRows(owner, seed.a());
+                lane.clearTenantRows(owner, seed.b());
+            }
             writeConfigChain(owner, seed.a());
             writeConfigChain(owner, seed.b());
+            for (LaneMatrix lane : EndpointMatrix.LANES) {
+                lane.writeTenantRows(owner, seed.a());
+                lane.writeTenantRows(owner, seed.b());
+            }
             FINGERPRINT_BEFORE_TEST.put(seed.a().id(), configFingerprint(owner, seed.a().id()));
             FINGERPRINT_BEFORE_TEST.put(seed.b().id(), configFingerprint(owner, seed.b().id()));
         }
@@ -534,7 +543,11 @@ class ForgedTenantDenialSuiteTest {
             }
             try (ResultSet rs = fingerprint.executeQuery()) {
                 assertThat(rs.next()).as("the fingerprint always answers").isTrue();
-                return rs.getString(1);
+                StringBuilder facts = new StringBuilder(rs.getString(1));
+                for (LaneMatrix lane : EndpointMatrix.LANES) {
+                    facts.append(';').append(lane.fingerprint(owner, tenantId));
+                }
+                return facts.toString();
             }
         }
     }

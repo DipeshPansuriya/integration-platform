@@ -54,6 +54,10 @@
     <!-- R13 / ADR-010:59: the platform's one resilience library, at the version Camel 4.22.1 manages for
          camel-resilience4j; camel-spring-boot-bom does not manage the plain modules. -->
     <resilience4j.version>2.4.0</resilience4j.version>
+    <!-- E5 seam (arjun-fullstack, F13): ADR-011:103 - OpenAPI documents are imported with swagger-parser (E5 T-105).
+         The OpenAPI 3.x parser module only (swagger-parser-v3), not the umbrella artifact that adds the Swagger 2.0
+         converter; release 2.1.48 (Maven Central, 2026-08-31). Not managed by Boot. -->
+    <swagger-parser.version>2.1.48</swagger-parser.version>
 
     <!-- Surefire (R03, R06): container tests are excluded unless -Pcontainer. -->
     <surefire.groups></surefire.groups>
@@ -82,6 +86,33 @@
         <groupId>com.networknt</groupId>
         <artifactId>json-schema-validator</artifactId>
         <version>${networknt-json-schema-validator.version}</version>
+      </dependency>
+      <!-- swagger-parser-v3 depends on the javax swagger-core/models/annotations (2.2.53); springdoc brings the
+           jakarta builds of the same packages (2.2.55). Two jars per package on one classpath is a split package, so
+           the javax trio is excluded and swagger-core-jakarta at springdoc's version stands in (same API). -->
+      <dependency>
+        <groupId>io.swagger.parser.v3</groupId>
+        <artifactId>swagger-parser-v3</artifactId>
+        <version>${swagger-parser.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-core</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-models</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>io.swagger.core.v3</groupId>
+        <artifactId>swagger-core-jakarta</artifactId>
+        <version>${swagger-annotations.version}</version>
       </dependency>
       <!-- dependencyConvergence: camel-kafka asks for 1.11.1, kafka-clients 4.3.1 for 1.10.2; Maven already
            resolves 1.11.1 (nearest wins), this entry only makes that one version explicit. -->
