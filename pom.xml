@@ -54,6 +54,11 @@
     <!-- R13 / ADR-010:59: the platform's one resilience library, at the version Camel 4.22.1 manages for
          camel-resilience4j; camel-spring-boot-bom does not manage the plain modules. -->
     <resilience4j.version>2.4.0</resilience4j.version>
+    <!-- E6 seam (sanjay-developer, T-024): the rules engine of ADR-003 - GoRules ZEN's Java binding, pinned exactly.
+         MIT (licenses block of zen-engine-2.1.1.pom on Maven Central); no transitive dependencies (empty
+         dependencies block), so dependencyConvergence and R12 are untouched. Its jar carries the native library per
+         platform (win32-x86-64/zen_uniffi.dll included) and binds it through java.lang.foreign. -->
+    <zen-engine.version>2.1.1</zen-engine.version>
 
     <!-- Surefire (R03, R06): container tests are excluded unless -Pcontainer. -->
     <surefire.groups></surefire.groups>
@@ -131,6 +136,11 @@
         <groupId>io.swagger.core.v3</groupId>
         <artifactId>swagger-annotations-jakarta</artifactId>
         <version>${swagger-annotations.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.gorules</groupId>
+        <artifactId>zen-engine</artifactId>
+        <version>${zen-engine.version}</version>
       </dependency>
       <dependency>
         <groupId>com.tngtech.archunit</groupId>
