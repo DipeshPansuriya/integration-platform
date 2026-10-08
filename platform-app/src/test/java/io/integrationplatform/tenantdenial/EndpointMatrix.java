@@ -23,17 +23,33 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
  */
 final class EndpointMatrix {
 
-    /** Two seeded tenants; tenant A's user signs in, tenant B is the one the forgeries name. */
+    /**
+     * Two seeded tenants seen from one caller: {@code a} is the calling tenant (its user or source signs in),
+     * {@code b} is the other one, the tenant every forgery names. The entries only ever speak of {@code a} and
+     * {@code b}, so one matrix serves the callers of both tenants ({@link #swapped()}).
+     */
     record Seed(SeededTenant a, SeededTenant b) {
+
+        /** The same two tenants seen from tenant B's side. */
+        Seed swapped() {
+            return new Seed(b, a);
+        }
     }
 
-    /** One tenant with its ACTIVE user, its probe rows and its seeded config chain (labels carry the tenant's word). */
-    record SeededTenant(UUID id, String code, UUID userId, String subject, List<UUID> rowIds, List<String> labels,
-            Config config) {
+    /**
+     * One tenant with its ACTIVE Keycloak user (bound by issuer + subject, holding TENANT_ADMIN), a second user whose
+     * token claims the other tenant, its source system's machine credential (an ACTIVE source_credential row for a
+     * Keycloak client, with its customer identity), its probe rows and its seeded config chain (labels carry the
+     * tenant's word).
+     */
+    record SeededTenant(UUID id, String code, UUID userId, String subject, UUID claimUserId, UUID machineSystemId,
+            String customerId, String clientId, List<UUID> rowIds, List<String> labels, Config config) {
 
-        /** Every value that identifies this tenant's data; none of them may reach the other tenant's user. */
+        /** Every value that identifies this tenant's data; none of them may reach the other tenant's callers. */
         List<String> markers() {
-            List<String> markers = new ArrayList<>(List.of(id.toString(), code, userId.toString(), subject));
+            List<String> markers = new ArrayList<>(List.of(id.toString(), code, userId.toString(), subject,
+                    claimUserId.toString(), machineSystemId.toString(), config.machineSystemCode(), customerId,
+                    clientId));
             rowIds.forEach(row -> markers.add(row.toString()));
             markers.addAll(labels);
             markers.addAll(config.markers());
@@ -61,6 +77,11 @@ final class EndpointMatrix {
 
         String flowCode(String kind) {
             return "flow-" + word + "-" + kind;
+        }
+
+        /** The machine credential's source system: seeded once, never reset (source_credential references it). */
+        String machineSystemCode() {
+            return "mach-" + word;
         }
 
         String freshSystemCode() {
@@ -164,7 +185,8 @@ final class EndpointMatrix {
                             + "\",\"name\":\"fresh system\",\"direction\":\"OUTBOUND\"}",
                     s -> List.of(s.a().config().freshSystemCode(), "OUTBOUND"),
                     201,
-                    new WriteProbe(tenantState("system", "target_endpoint"), "2|1", "3|2")),
+                    // 3 systems: source, target and the machine credential's source system (seeded once, never reset)
+                    new WriteProbe(tenantState("system", "target_endpoint"), "3|1", "4|2")),
             new Entry("GET", FLOWS, false,
                     s -> FLOWS, null, null,
                     s -> List.of(s.a().config().flowMainId().toString(),
@@ -286,6 +308,13 @@ final class EndpointMatrix {
     /** Every (entry, forgery) pair that fits - the scenario outline's rows. */
     static Stream<Object[]> forgeries() {
         return REGISTRY.stream().flatMap(entry -> Arrays.stream(Forgery.values())
+                .filter(forgery -> forgery.fits(entry))
+                .map(forgery -> new Object[] {entry, forgery}));
+    }
+
+    /** Every (entry, source forgery) pair that fits - the machine channel's rows (E4-F1-S4). */
+    static Stream<Object[]> sourceForgeries() {
+        return REGISTRY.stream().flatMap(entry -> Arrays.stream(SourceForgery.values())
                 .filter(forgery -> forgery.fits(entry))
                 .map(forgery -> new Object[] {entry, forgery}));
     }

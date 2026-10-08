@@ -13,6 +13,11 @@ import io.integrationplatform.TestImages;
 import io.integrationplatform.config.flow.application.FlowBundle;
 import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.MappingRow;
 import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.RouteRow;
+import io.integrationplatform.identity.KeycloakRealmContainer;
+import io.integrationplatform.identity.KeycloakRealmContainer.ClientCredentials;
+import io.integrationplatform.identity.KeycloakRealmContainer.RealmUser;
+import io.integrationplatform.tenancy.RolePolicy;
+import io.integrationplatform.tenancy.port.ApiOperationRules;
 import io.integrationplatform.tenancy.port.DeniedTenantAttempt;
 import io.integrationplatform.tenancy.port.TenantDenialRecorder;
 import io.integrationplatform.tenantdenial.EndpointMatrix.Config;
@@ -20,6 +25,9 @@ import io.integrationplatform.tenantdenial.EndpointMatrix.Entry;
 import io.integrationplatform.tenantdenial.EndpointMatrix.Seed;
 import io.integrationplatform.tenantdenial.EndpointMatrix.SeededTenant;
 import io.integrationplatform.tenantdenial.EndpointMatrix.WriteProbe;
+import io.integrationplatform.tenantdenial.TestTokens.ConsoleSession;
+import java.io.IOException;
+import java.net.ServerSocket;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -32,7 +40,10 @@ import java.sql.ResultSet;
 import java.sql.Types;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.flywaydb.core.Flyway;
@@ -47,12 +58,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -66,21 +72,31 @@ import tools.jackson.databind.node.ObjectNode;
 
 /**
  * E1-F1-S1 "A forged tenant changes nothing" - the forged-tenant denial suite, architecture.md section 5 control T1,
- * the E1 release gate (re-run by E4 and E15). Traces E1-C1, E1-C2, E1-C5.
+ * the E1 release gate - re-run after login by E4-F1-S4 (T-101, ADR-007 Decision 2 conformance, release gate G6) with
+ * Keycloak-issued tokens only. Traces E1-C1, E1-C2, E1-C5, E4-C6, E4-C7.
  *
- * <p>The whole application runs (every module's endpoints) against PostgreSQL with the restricted app login. Every
- * {@code /api/**} endpoint has a matrix entry ({@link EndpointMatrix}); each gets the forgeries that fit it. A user of
- * tenant A signs in with a real signed bearer token; tenant B is seeded beside it and is what every forgery names.
+ * <p>The whole application runs (every module's endpoints) against PostgreSQL with the restricted app login and
+ * lane D's pinned Keycloak realm ({@link KeycloakRealmContainer}). Every {@code /api/**} endpoint has a matrix entry
+ * ({@link EndpointMatrix}); each gets the forgeries that fit it. Tenants A and B each have a Keycloak user bound
+ * through an {@code app_user} row and holding TENANT_ADMIN (so every endpoint is reached: a denial proves tenant
+ * isolation, never a missing role), a second user whose token claims the other tenant, and a source system whose
+ * Keycloak client resolves through an ACTIVE {@code source_credential} row to the tenant and its customer identity.
+ * Users call through the console's session (ADR-007 Decision 1), sources with their client-credentials bearer token.
  *
  * <pre>
- * Scenario: A tenant-A user sees only tenant-A rows
+ * Scenario: The cross-tenant denial suite re-passes with real tokens
+ *   Given Keycloak-issued tokens for users and sources of tenants A and B
+ *   When the E1 forged-tenant suite runs
+ *   Then every case passes (0 rows of another tenant returned)
+ *
+ * Scenario: A tenant-A user sees only tenant-A rows        (and every user and source of A and B alike)
  *   Given rows for tenant A and tenant B
  *   And a signed-in user bound to tenant A
  *   When the user calls any read endpoint
  *   Then only tenant-A rows are returned
  *
  * &#64;negative &#64;tenant
- * Scenario Outline: A forged tenant is ignored
+ * Scenario Outline: A forged tenant is ignored                (users of A and B, each naming the other tenant)
  *   Given a signed-in user bound to tenant A
  *   When the request carries &lt;forgery&gt; naming tenant B
  *   Then every response contains only tenant-A rows, or 404 for a tenant-B id
@@ -91,6 +107,18 @@ import tools.jackson.databind.node.ObjectNode;
  *     | a tenantId field in the body    |
  *     | a tenantId query parameter      |
  *     | a tenant-B record id in the path |
+ *
+ * &#64;negative &#64;tenant
+ * Scenario Outline: A source cannot reach another tenant      (sources of A and B, ADR-007 Decision 2)
+ *   Given a source system's machine credential of tenant A
+ *   When its call carries &lt;forgery&gt; naming tenant B
+ *   Then no tenant-B row is returned and nothing is written outside tenant A
+ *   And the forgery is recorded as a denied attempt
+ *   Examples: a "Tenant" header | a tenantId query parameter | a tenantId field in the body
+ *           | a customerId of the other tenant's source in the body (403, nothing written)
+ *
+ * &#64;negative &#64;tenant
+ * Scenario: A token tenant claim cannot choose the tenant      (ADR-007 Decision 2, every endpoint)
  *
  * &#64;negative &#64;security
  * Scenario: No identity, no tenant
@@ -103,43 +131,89 @@ import tools.jackson.databind.node.ObjectNode;
  *
  * <p>The lifecycle endpoints of the config admin API (T-015/T-019/T-021) write rows, so the matrix carries a
  * row-state probe per write entry ({@link WriteProbe}): the suite re-seeds both tenants' config chains before
- * every test (fixed ids, guard-trigger-safe inserts) and after every call checks that tenant A's rows stand where
- * the scenario says (a legitimate write lands; an ignored forgery still lands; a tenant-B id and a 401 write
- * nothing) and that tenant B's whole config chain is byte-identical to its seeded fingerprint.
+ * every test (fixed ids, guard-trigger-safe inserts) and after every call checks that the calling tenant's rows
+ * stand where the scenario says (a legitimate write lands; an ignored forgery still lands; a foreign id, a refusal
+ * and a 401 write nothing) and that the other tenant's whole config chain is byte-identical to its seeded
+ * fingerprint.
  */
 @Tag("container")
 @Tag("tenant")
 @Testcontainers
-@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = WebEnvironment.DEFINED_PORT)
 @Import({TestProbeController.class, ProbeRowReader.class})
-@DisplayName("E1-F1-S1 A forged tenant changes nothing (release gate)")
+@DisplayName("E1-F1-S1 A forged tenant changes nothing (release gate) - E4-F1-S4 re-run with Keycloak tokens")
 class ForgedTenantDenialSuiteTest {
+
+    /** The backend port is fixed before Keycloak starts: the console client's redirect URI must name it. */
+    private static final int APP_PORT = freePort();
+    private static final URI BACKEND = URI.create("http://localhost:" + APP_PORT);
 
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestImages.POSTGRES);
 
-    private static final TestTokens TOKENS = new TestTokens();
+    @Container
+    static final KeycloakRealmContainer KEYCLOAK = new KeycloakRealmContainer(PlatformTestWiring.OIDC_AUDIENCE,
+            BACKEND + "/login/oauth2/code/keycloak", BACKEND + "/");
+
+    private static final TestTokens TOKENS = new TestTokens(KEYCLOAK, BACKEND);
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     private static RestrictedLogin login;
     private static Seed seed;
-    private static String fingerprintBeforeTest;
+    private static final Map<Caller, ConsoleSession> SESSIONS = new EnumMap<>(Caller.class);
+    private static final Map<Caller, ClientCredentials> SOURCES = new EnumMap<>(Caller.class);
+    /** The realm users behind the callers (filled while seeding, logged in once the directory rows exist). */
+    private static final Map<Caller, RealmUser> REALM_USERS = new EnumMap<>(Caller.class);
+    private static final Map<UUID, String> FINGERPRINT_BEFORE_TEST = new HashMap<>();
+
+    /** Who calls: a user or a source of tenant A or B, or a user whose token claims the other tenant. */
+    enum Caller {
+        USER_A("a tenant-A user", true, Kind.USER),
+        USER_B("a tenant-B user", false, Kind.USER),
+        SOURCE_A("a tenant-A source", true, Kind.SOURCE),
+        SOURCE_B("a tenant-B source", false, Kind.SOURCE),
+        CLAIM_A("a tenant-A user whose token claims tenant B", true, Kind.CLAIM),
+        CLAIM_B("a tenant-B user whose token claims tenant A", false, Kind.CLAIM);
+
+        enum Kind { USER, SOURCE, CLAIM }
+
+        private final String label;
+        private final boolean ofTenantA;
+        private final Kind kind;
+
+        Caller(String label, boolean ofTenantA, Kind kind) {
+            this.label = label;
+            this.ofTenantA = ofTenantA;
+            this.kind = kind;
+        }
+
+        static Stream<Caller> of(Kind kind) {
+            return Stream.of(values()).filter(caller -> caller.kind == kind);
+        }
+
+        /** The seed seen from this caller: {@code a} is its own tenant, {@code b} the other one. */
+        Seed view() {
+            return ofTenantA ? seed : seed.swapped();
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
 
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
         login = PlatformTestWiring.register(registry, POSTGRES);
-    }
-
-    /** The suite's tokens are verified against the in-memory key; the configured issuer is never contacted. */
-    @TestConfiguration(proxyBeanMethods = false)
-    static class SuiteTokenDecoder {
-
-        @Bean
-        @Primary
-        JwtDecoder tenantDenialSuiteJwtDecoder() {
-            return TOKENS.decoder();
-        }
+        KEYCLOAK.start(); // idempotent; the issuer must be known before the context starts
+        registry.add("server.port", () -> APP_PORT);
+        registry.add("OIDC_ISSUER_URI", KEYCLOAK::issuerUri);
+        registry.add("CONSOLE_OIDC_CLIENT_ID", () -> KeycloakRealmContainer.CONSOLE_CLIENT);
+        registry.add("CONSOLE_OIDC_CLIENT_SECRET", KEYCLOAK::consoleClientSecret);
+        registry.add("CONSOLE_OIDC_REDIRECT_URI", () -> BACKEND + "/login/oauth2/code/keycloak");
+        registry.add("CONSOLE_POST_LOGOUT_REDIRECT_URI", () -> BACKEND + "/");
+        registry.add("CONSOLE_URL", () -> "/");
     }
 
     @MockitoSpyBean
@@ -149,75 +223,140 @@ class ForgedTenantDenialSuiteTest {
     private ProbeRowReader probe;
 
     @Autowired
+    private List<ApiOperationRules> ruleSets;
+
+    @Autowired
     @Qualifier("requestMappingHandlerMapping")
     private RequestMappingHandlerMapping handlerMapping;
-
-    @LocalServerPort
-    private int port;
 
     @BeforeEach
     void seedOnceThenReset() throws Exception {
         if (seed == null) {
             seed = seedTenantsAandB();
+            for (Caller caller : Caller.values()) {
+                if (caller.kind != Caller.Kind.SOURCE) {
+                    SESSIONS.put(caller, TOKENS.login(REALM_USERS.get(caller)));
+                }
+            }
         }
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
             writeConfigChain(owner, seed.a());
             writeConfigChain(owner, seed.b());
-            fingerprintBeforeTest = configFingerprint(owner, seed.b().id());
+            FINGERPRINT_BEFORE_TEST.put(seed.a().id(), configFingerprint(owner, seed.a().id()));
+            FINGERPRINT_BEFORE_TEST.put(seed.b().id(), configFingerprint(owner, seed.b().id()));
         }
         clearInvocations(recorder);
         probe.resetReads();
     }
 
-    static Stream<Entry> endpoints() {
-        return EndpointMatrix.REGISTRY.stream();
+    static Stream<Object[]> callersAndEndpoints() {
+        return Stream.concat(Caller.of(Caller.Kind.USER), Caller.of(Caller.Kind.SOURCE))
+                .flatMap(caller -> EndpointMatrix.REGISTRY.stream().map(entry -> new Object[] {caller, entry}));
     }
 
-    static Stream<Object[]> forgeries() {
-        return EndpointMatrix.forgeries();
+    static Stream<Object[]> userForgeries() {
+        return Caller.of(Caller.Kind.USER).flatMap(caller -> EndpointMatrix.forgeries()
+                .map(pair -> new Object[] {caller, pair[0], pair[1]}));
+    }
+
+    static Stream<Object[]> sourceForgeries() {
+        return Caller.of(Caller.Kind.SOURCE).flatMap(caller -> EndpointMatrix.sourceForgeries()
+                .map(pair -> new Object[] {caller, pair[0], pair[1]}));
+    }
+
+    static Stream<Object[]> claimsAndEndpoints() {
+        return Caller.of(Caller.Kind.CLAIM)
+                .flatMap(caller -> EndpointMatrix.REGISTRY.stream().map(entry -> new Object[] {caller, entry}));
     }
 
     static Stream<Object[]> tenantFields() {
         return EndpointMatrix.tenantFields();
     }
 
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("endpoints")
-    @DisplayName("Scenario: A tenant-A user sees only tenant-A rows")
-    void aTenantAUserSeesOnlyTenantARows(Entry entry) throws Exception {
-        HttpResponse<String> response = send(entry, null, signedInAsTenantA());
+    @ParameterizedTest(name = "{0}: {1}")
+    @MethodSource("callersAndEndpoints")
+    @DisplayName("Scenario: A tenant-A user sees only tenant-A rows (users and sources of A and B)")
+    void eachCallerSeesOnlyItsOwnTenantsRows(Caller caller, Entry entry) throws Exception {
+        Seed view = caller.view();
+        HttpResponse<String> response = send(view, entry, null, null, caller);
 
-        assertThat(response.statusCode()).as(entry + " status, body: " + response.body())
-                .isEqualTo(entry.expectedStatus());
-        assertOnlyTenantAData(entry, response);
-        assertRowState(entry, "the legitimate call wrote tenant A's own rows", false);
-        assertTenantBUnchanged();
+        if (caller.kind == Caller.Kind.SOURCE && !sourceReaches(entry)) {
+            assertRoleRefusal(view, entry, response);
+        } else {
+            assertThat(response.statusCode()).as(caller + " on " + entry + " status, body: " + response.body())
+                    .isEqualTo(entry.expectedStatus());
+            assertOnlyCallerData(view, entry, response);
+            assertRowState(view, entry, "the legitimate call wrote the caller's own rows", false);
+        }
+        assertOtherTenantUnchanged(view);
         verify(recorder, never()).record(any());
     }
 
-    @ParameterizedTest(name = "{1} on {0}")
-    @MethodSource("forgeries")
+    @ParameterizedTest(name = "{0}: {2} on {1}")
+    @MethodSource("userForgeries")
     @Tag("negative")
-    @DisplayName("Scenario Outline: A forged tenant is ignored")
-    void aForgedTenantIsIgnored(Entry entry, Forgery forgery) throws Exception {
-        HttpResponse<String> response = send(entry, forgery, signedInAsTenantA());
+    @DisplayName("Scenario Outline: A forged tenant is ignored (users of A and B)")
+    void aForgedTenantIsIgnored(Caller caller, Entry entry, Forgery forgery) throws Exception {
+        Seed view = caller.view();
+        HttpResponse<String> response = send(view, entry, forgery, null, caller);
 
         if (forgery == Forgery.PATH_ID) {
-            assertThat(response.statusCode()).as(entry + " with a tenant-B id, body: " + response.body()).isEqualTo(404);
-            assertNoMarkerOf(seed.b(), response);
-            assertRowState(entry, "a tenant-B id reached no tenant-A row", true);
+            assertThat(response.statusCode()).as(entry + " with the other tenant's id, body: " + response.body())
+                    .isEqualTo(404);
+            assertNoMarkerOf(view.b(), response);
+            assertRowState(view, entry, "the other tenant's id reached no row of the caller", true);
         } else {
             assertThat(response.statusCode()).as(entry + " with " + forgery + ", body: " + response.body())
                     .isEqualTo(entry.expectedStatus());
-            assertOnlyTenantAData(entry, response);
-            assertRowState(entry, "the ignored forgery still wrote tenant A's own rows only", false);
+            assertOnlyCallerData(view, entry, response);
+            assertRowState(view, entry, "the ignored forgery still wrote the caller's own rows only", false);
         }
-        assertTenantBUnchanged();
-        DeniedTenantAttempt attempt = theOneRecordedAttempt();
-        assertThat(attempt.channel()).isEqualTo(forgery.channel());
-        assertThat(attempt.boundTenantId()).isEqualTo(seed.a().id());
-        assertThat(attempt.method()).isEqualTo(entry.method());
-        assertThat(attempt.path()).isEqualTo(response.request().uri().getRawPath());
+        assertOtherTenantUnchanged(view);
+        assertTheOneRecordedAttempt(forgery.channel(), view.a().id(), entry, response);
+    }
+
+    @ParameterizedTest(name = "{0}: {2} on {1}")
+    @MethodSource("sourceForgeries")
+    @Tag("negative")
+    @DisplayName("Scenario Outline: A source cannot reach another tenant (sources of A and B)")
+    void aSourceCannotReachAnotherTenant(Caller caller, Entry entry, SourceForgery forgery) throws Exception {
+        Seed view = caller.view();
+        String foreignCustomer = forgery == SourceForgery.BODY_CUSTOMER ? view.b().customerId() : null;
+        HttpResponse<String> response = send(view, entry, forgery.asTenantForgery(), foreignCustomer, caller);
+
+        if (forgery == SourceForgery.BODY_CUSTOMER) {
+            assertThat(response.statusCode()).as(entry + " with another customer, body: " + response.body())
+                    .isEqualTo(403);
+            assertNoMarkerOf(view.b(), response);
+            assertThat(probe.reads()).as("tenant data reads").isZero();
+            assertRowState(view, entry, "a refused customer wrote nothing", true);
+        } else if (sourceReaches(entry)) {
+            assertThat(response.statusCode()).as(entry + " with " + forgery + ", body: " + response.body())
+                    .isEqualTo(entry.expectedStatus());
+            assertOnlyCallerData(view, entry, response);
+            assertRowState(view, entry, "the ignored forgery still wrote the caller's own rows only", false);
+        } else {
+            assertRoleRefusal(view, entry, response);
+        }
+        assertOtherTenantUnchanged(view);
+        assertTheOneRecordedAttempt(forgery.channel(), view.a().id(), entry, response);
+    }
+
+    @ParameterizedTest(name = "{0}: {1}")
+    @MethodSource("claimsAndEndpoints")
+    @Tag("negative")
+    @DisplayName("Scenario: A token tenant claim cannot choose the tenant")
+    void aTokenTenantClaimCannotChooseTheTenant(Caller caller, Entry entry) throws Exception {
+        Seed view = caller.view();
+        HttpResponse<String> response = send(view, entry, null, null, caller);
+
+        assertThat(response.statusCode()).as(entry + " with a forged tenant claim, body: " + response.body())
+                .isEqualTo(403);
+        assertNoMarkerOf(view.b(), response);
+        assertThat(probe.reads()).as("tenant data reads").isZero();
+        assertRowState(view, entry, "a forged claim wrote nothing", true);
+        assertOtherTenantUnchanged(view);
+        assertTheOneRecordedAttempt(DeniedTenantAttempt.Channel.TOKEN_CLAIM, view.a().id(), entry, response);
     }
 
     @ParameterizedTest(name = "{1} on {0}")
@@ -226,13 +365,15 @@ class ForgedTenantDenialSuiteTest {
     @Tag("security")
     @DisplayName("Scenario: No identity, no tenant")
     void noIdentityNoTenant(Entry entry, Forgery tenantField) throws Exception {
-        HttpResponse<String> response = send(entry, tenantField, null);
+        HttpResponse<String> response = send(seed, entry, tenantField, null, null);
 
         assertThat(response.statusCode()).as(entry + " without identity, body: " + response.body()).isEqualTo(401);
         assertNoMarkerOf(seed.a(), response);
         assertNoMarkerOf(seed.b(), response);
         assertThat(probe.reads()).as("tenant data reads").isZero();
-        assertRowState(entry, "no identity, no config write", true);
+        assertRowState(seed, entry, "no identity, no config write", true);
+        assertOtherTenantUnchanged(seed);
+        assertOtherTenantUnchanged(seed.swapped());
         DeniedTenantAttempt attempt = theOneRecordedAttempt();
         assertThat(attempt.channel()).isEqualTo(DeniedTenantAttempt.Channel.NO_IDENTITY);
         assertThat(attempt.boundTenantId()).isNull();
@@ -249,30 +390,38 @@ class ForgedTenantDenialSuiteTest {
 
     // --- requests -----------------------------------------------------------------------------------------------
 
-    private String signedInAsTenantA() {
-        return TOKENS.accessToken(seed.a().subject());
-    }
-
-    /** Builds the entry's tenant-A call, then applies the forgery naming tenant B (null = no forgery). */
-    private HttpResponse<String> send(Entry entry, Forgery forgery, String bearer) throws Exception {
-        String foreignTenant = seed.b().id().toString();
-        String path = forgery == Forgery.PATH_ID ? entry.foreignIdPath().apply(seed) : entry.pathForA().apply(seed);
+    /**
+     * Builds the entry's call for the view's tenant {@code a}, applies the forgery naming tenant {@code b} (null = no
+     * forgery) and the foreign customer (null = none), and authenticates as the caller (null = no identity).
+     */
+    private static HttpResponse<String> send(Seed view, Entry entry, Forgery forgery, String foreignCustomer,
+            Caller caller) throws Exception {
+        String foreignTenant = view.b().id().toString();
+        String path = forgery == Forgery.PATH_ID ? entry.foreignIdPath().apply(view) : entry.pathForA().apply(view);
         if (forgery == Forgery.QUERY_PARAMETER) {
             path += (path.contains("?") ? "&" : "?") + Forgery.TENANT_FIELD + "="
                     + URLEncoder.encode(foreignTenant, StandardCharsets.UTF_8);
         }
-        String body = entry.acceptsBody() ? entry.bodyForA().apply(seed) : null;
-        if (forgery == Forgery.BODY_FIELD) {
+        String body = entry.acceptsBody() ? entry.bodyForA().apply(view) : null;
+        if (forgery == Forgery.BODY_FIELD || foreignCustomer != null) {
             ObjectNode forged = (ObjectNode) JSON.readTree(body);
-            forged.put(Forgery.TENANT_FIELD, foreignTenant);
+            if (forgery == Forgery.BODY_FIELD) {
+                forged.put(Forgery.TENANT_FIELD, foreignTenant);
+            }
+            if (foreignCustomer != null) {
+                forged.put(SourceForgery.CUSTOMER_FIELD, foreignCustomer);
+            }
             body = JSON.writeValueAsString(forged);
         }
 
-        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+        HttpRequest.Builder request = HttpRequest.newBuilder(BACKEND.resolve(path))
                 .timeout(Duration.ofSeconds(15))
                 .header("Accept", "application/json");
-        if (bearer != null) {
-            request.header("Authorization", "Bearer " + bearer);
+        ConsoleSession session = caller == null ? null : SESSIONS.get(caller);
+        if (session != null) {
+            session.authenticate(request);
+        } else if (caller != null) {
+            request.header("Authorization", "Bearer " + TOKENS.sourceToken(SOURCES.get(caller)));
         }
         if (forgery == Forgery.HEADER) {
             request.header(Forgery.TENANT_HEADER, foreignTenant);
@@ -283,20 +432,50 @@ class ForgedTenantDenialSuiteTest {
         request.method(entry.method(), body == null
                 ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
-        return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
+        if (session != null) {
+            session.remember(response);
+        }
+        return response;
+    }
+
+    /**
+     * Whether a source's machine credential reaches the handler: an endpoint without a role rule (the test probe) or
+     * one for source systems; every role-gated or human-only endpoint refuses a machine principal (T-099).
+     */
+    private boolean sourceReaches(Entry entry) {
+        return ruleSets.stream()
+                .flatMap(rules -> rules.rules().stream())
+                .filter(rule -> rule.key().equals(entry.key()))
+                .findFirst()
+                .map(rule -> rule.operation().caller() == RolePolicy.Caller.SOURCE_SYSTEM)
+                .orElse(true);
     }
 
     // --- assertions ---------------------------------------------------------------------------------------------
 
-    private void assertOnlyTenantAData(Entry entry, HttpResponse<String> response) {
-        assertNoMarkerOf(seed.b(), response);
-        List<String> expectedData = entry.tenantAData().apply(seed);
+    /**
+     * A human-only endpoint refuses a machine principal: 403 with no data of either tenant, no tenant read, nothing
+     * written. Which layer answers is not this suite's subject (the role interceptor's ROLE_NOT_GRANTED body, or the
+     * handler's own empty 403 as GET /api/v1/me answers today), so the body is checked for data, not for its shape.
+     */
+    private void assertRoleRefusal(Seed view, Entry entry, HttpResponse<String> response) throws Exception {
+        assertThat(response.statusCode()).as(entry + " for a source, body: " + response.body()).isEqualTo(403);
+        assertNoMarkerOf(view.a(), response);
+        assertNoMarkerOf(view.b(), response);
+        assertThat(probe.reads()).as("tenant data reads").isZero();
+        assertRowState(view, entry, "a refused source wrote nothing", true);
+    }
+
+    private static void assertOnlyCallerData(Seed view, Entry entry, HttpResponse<String> response) {
+        assertNoMarkerOf(view.b(), response);
+        List<String> expectedData = entry.tenantAData().apply(view);
         if (!expectedData.isEmpty()) {
-            assertThat(response.body()).as(entry + " answers with the tenant-A data").contains(expectedData);
+            assertThat(response.body()).as(entry + " answers with the caller's tenant data").contains(expectedData);
         }
         JsonNode json = JSON.readTree(response.body());
         for (JsonNode tenantId : json.findValues(Forgery.TENANT_FIELD)) {
-            assertThat(tenantId.asString()).as(entry + " tenantId in the answer").isEqualTo(seed.a().id().toString());
+            assertThat(tenantId.asString()).as(entry + " tenantId in the answer").isEqualTo(view.a().id().toString());
         }
     }
 
@@ -306,6 +485,15 @@ class ForgedTenantDenialSuiteTest {
         }
     }
 
+    private void assertTheOneRecordedAttempt(DeniedTenantAttempt.Channel channel, UUID boundTenant, Entry entry,
+            HttpResponse<String> response) {
+        DeniedTenantAttempt attempt = theOneRecordedAttempt();
+        assertThat(attempt.channel()).isEqualTo(channel);
+        assertThat(attempt.boundTenantId()).isEqualTo(boundTenant);
+        assertThat(attempt.method()).isEqualTo(entry.method());
+        assertThat(attempt.path()).isEqualTo(response.request().uri().getRawPath());
+    }
+
     private DeniedTenantAttempt theOneRecordedAttempt() {
         ArgumentCaptor<DeniedTenantAttempt> attempt = ArgumentCaptor.forClass(DeniedTenantAttempt.class);
         verify(recorder, times(1)).record(attempt.capture());
@@ -313,13 +501,13 @@ class ForgedTenantDenialSuiteTest {
     }
 
     /** The write entry's row state, read as the owner: {@code expectSeeded} picks seeded vs after-the-write. */
-    private static void assertRowState(Entry entry, String label, boolean expectSeeded) throws Exception {
+    private static void assertRowState(Seed view, Entry entry, String label, boolean expectSeeded) throws Exception {
         WriteProbe chain = entry.write();
         if (chain == null) {
             return;
         }
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES);
-             PreparedStatement state = owner.prepareStatement(chain.stateSql().apply(seed));
+             PreparedStatement state = owner.prepareStatement(chain.stateSql().apply(view));
              ResultSet rs = state.executeQuery()) {
             assertThat(rs.next()).as(entry.key() + " answers a state row").isTrue();
             assertThat(rs.getString(1)).as(entry.key() + " - " + label)
@@ -327,12 +515,14 @@ class ForgedTenantDenialSuiteTest {
         }
     }
 
-    /** Tenant B's config chain must be byte-identical (ids included) to what the per-test reset wrote. */
-    private static void assertTenantBUnchanged() throws Exception {
+    /** The view's other tenant: its config chain is byte-identical (ids included) to what the per-test reset wrote. */
+    private static void assertOtherTenantUnchanged(Seed view) throws Exception {
+        UUID other = view.b().id();
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            assertThat(configFingerprint(owner, seed.b().id()))
-                    .as("tenant B's config chain unchanged by tenant A's traffic")
-                    .isEqualTo(fingerprintBeforeTest);
+            assertThat(configFingerprint(owner, other))
+                    .as("tenant " + view.b().code() + "'s config chain unchanged by tenant " + view.a().code()
+                            + "'s traffic")
+                    .isEqualTo(FINGERPRINT_BEFORE_TEST.get(other));
         }
     }
 
@@ -387,58 +577,62 @@ class ForgedTenantDenialSuiteTest {
                 .migrate();
         PlatformTestWiring.grantApplicationRole(POSTGRES, login);
 
+        UUID idA = UUID.randomUUID();
+        UUID idB = UUID.randomUUID();
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            SeededTenant a = seedTenant(owner, "alpha");
-            SeededTenant b = seedTenant(owner, "bravo");
-            try (PreparedStatement count = owner.prepareStatement("SELECT count(*) FROM probe_row WHERE tenant_id = ?::uuid")) {
-                count.setString(1, b.id().toString());
-                try (ResultSet rs = count.executeQuery()) {
-                    rs.next();
-                    assertThat(rs.getInt(1)).as("tenant-B rows exist, so 'only tenant A' is not vacuous").isEqualTo(2);
+            SeededTenant a = seedTenant(owner, "alpha", idA, idB, Caller.USER_A, Caller.CLAIM_A, Caller.SOURCE_A);
+            SeededTenant b = seedTenant(owner, "bravo", idB, idA, Caller.USER_B, Caller.CLAIM_B, Caller.SOURCE_B);
+            for (SeededTenant tenant : List.of(a, b)) {
+                try (PreparedStatement count = owner.prepareStatement(
+                        "SELECT count(*) FROM probe_row WHERE tenant_id = ?::uuid")) {
+                    count.setString(1, tenant.id().toString());
+                    try (ResultSet rs = count.executeQuery()) {
+                        rs.next();
+                        assertThat(rs.getInt(1)).as("both tenants have rows, so 'only my tenant' is not vacuous")
+                                .isEqualTo(2);
+                    }
                 }
             }
             return new Seed(a, b);
         }
     }
 
-    private static SeededTenant seedTenant(Connection owner, String word) throws Exception {
-        UUID tenantId = UUID.randomUUID();
+    /**
+     * One tenant: its Keycloak user bound through app_user (issuer + subject) with TENANT_ADMIN, a second bound user
+     * whose token claims the other tenant, its source system's Keycloak client resolved by an ACTIVE source_credential
+     * row to the tenant and its customer identity, two probe rows and the ids of its config chain.
+     */
+    private static SeededTenant seedTenant(Connection owner, String word, UUID tenantId, UUID otherTenantId,
+            Caller user, Caller claimer, Caller source) throws Exception {
         String code = "tnt-" + word + "-" + tenantId.toString().substring(0, 8);
-        UUID userId = UUID.randomUUID();
-        String subject = "sub-" + word + "-" + UUID.randomUUID();
-        try (PreparedStatement tenant = owner.prepareStatement(
-                "INSERT INTO tenant (id, code, status, time_zone) VALUES (?::uuid, ?, 'ACTIVE', 'Etc/UTC')")) {
-            tenant.setString(1, tenantId.toString());
-            tenant.setString(2, code);
-            tenant.executeUpdate();
-        }
-        try (PreparedStatement user = owner.prepareStatement(
-                "INSERT INTO app_user (id, tenant_id, issuer, subject, status) VALUES (?::uuid, ?::uuid, ?, ?, 'ACTIVE')")) {
-            user.setString(1, userId.toString());
-            user.setString(2, tenantId.toString());
-            user.setString(3, PlatformTestWiring.OIDC_ISSUER.toString());
-            user.setString(4, subject);
-            user.executeUpdate();
-        }
-        // E4 T-099 seeding: roles are role_grant rows; the matrix user drives every admin operation (tenant admin)
-        try (PreparedStatement grant = owner.prepareStatement(
-                "INSERT INTO role_grant (tenant_id, user_id, role) VALUES (?::uuid, ?::uuid, 'TENANT_ADMIN')")) {
-            grant.setString(1, tenantId.toString());
-            grant.setString(2, userId.toString());
-            grant.executeUpdate();
-        }
+        execute(owner, "INSERT INTO tenant (id, code, status, time_zone) VALUES (?::uuid, ?, 'ACTIVE', 'Etc/UTC')",
+                tenantId, code);
+
+        RealmUser realmUser = TOKENS.user("user-" + word, null);
+        REALM_USERS.put(user, realmUser);
+        UUID userId = bindUser(owner, tenantId, realmUser);
+        RealmUser claimingUser = TOKENS.user("claims-other-" + word, otherTenantId.toString());
+        REALM_USERS.put(claimer, claimingUser);
+        UUID claimUserId = bindUser(owner, tenantId, claimingUser);
+
+        UUID machineSystemId = UUID.randomUUID();
+        String customerId = "cust-" + word + "-" + UUID.randomUUID().toString().substring(0, 8);
+        execute(owner, "INSERT INTO public.system (id, tenant_id, code, name, direction)"
+                        + " VALUES (?::uuid, ?::uuid, ?, ?, 'SOURCE')",
+                machineSystemId, tenantId, "mach-" + word, "mach-" + word + " machine source");
+        ClientCredentials client = TOKENS.source("source-" + word + "-" + UUID.randomUUID().toString().substring(0, 8));
+        SOURCES.put(source, client);
+        execute(owner, "INSERT INTO public.source_credential (tenant_id, source_system_id, customer_id, issuer,"
+                        + " client_id, status) VALUES (?::uuid, ?::uuid, ?, ?, ?, 'ACTIVE')",
+                tenantId, machineSystemId, customerId, KEYCLOAK.issuerUri(), client.clientId());
+
         List<UUID> rowIds = new ArrayList<>();
         List<String> labels = new ArrayList<>();
         for (int i = 1; i <= 2; i++) {
             UUID rowId = UUID.randomUUID();
             String label = word + "-" + i;
-            try (PreparedStatement row = owner.prepareStatement(
-                    "INSERT INTO probe_row (id, tenant_id, label) VALUES (?::uuid, ?::uuid, ?)")) {
-                row.setString(1, rowId.toString());
-                row.setString(2, tenantId.toString());
-                row.setString(3, label);
-                row.executeUpdate();
-            }
+            execute(owner, "INSERT INTO probe_row (id, tenant_id, label) VALUES (?::uuid, ?::uuid, ?)",
+                    rowId, tenantId, label);
             rowIds.add(rowId);
             labels.add(label);
         }
@@ -446,7 +640,22 @@ class ForgedTenantDenialSuiteTest {
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
-        return new SeededTenant(tenantId, code, userId, subject, List.copyOf(rowIds), List.copyOf(labels), config);
+        return new SeededTenant(tenantId, code, userId, realmUser.subject(), claimUserId, machineSystemId, customerId,
+                client.clientId(), List.copyOf(rowIds), List.copyOf(labels), config);
+    }
+
+    /**
+     * Binds a realm user to the tenant by (issuer, subject) - ADR-007 Decision 2 - and grants TENANT_ADMIN (E4 T-099:
+     * roles are role_grant rows; the matrix user drives every admin operation, so no denial is a missing role).
+     */
+    private static UUID bindUser(Connection owner, UUID tenantId, RealmUser realmUser) throws Exception {
+        UUID userId = UUID.randomUUID();
+        execute(owner, "INSERT INTO app_user (id, tenant_id, issuer, subject, status)"
+                        + " VALUES (?::uuid, ?::uuid, ?, ?, 'ACTIVE')",
+                userId, tenantId, KEYCLOAK.issuerUri(), realmUser.subject());
+        execute(owner, "INSERT INTO role_grant (tenant_id, user_id, role) VALUES (?::uuid, ?::uuid, 'TENANT_ADMIN')",
+                tenantId, userId);
+        return userId;
     }
 
     /**
@@ -455,13 +664,16 @@ class ForgedTenantDenialSuiteTest {
      * only) and satisfies every composite FK inside the tenant, so the chain stands where the matrix expects it:
      * two systems and an endpoint, the source contract with its 1.0 draft, and six flows - plain, draft (PUT),
      * submittable, approvable (authored by a different user), publishable (APPROVED snapshot of one route and
-     * one mapping) and immutable (the version-edit refusal target).
+     * one mapping) and immutable (the version-edit refusal target). The machine credential's source system is
+     * seeded once and kept (its source_credential row references it; that table denies DELETE by design).
      */
     private static void writeConfigChain(Connection owner, SeededTenant tenant) throws Exception {
         for (String table : List.of("config_version_refusal", "interface_version", "mapping", "route",
-                "contract_version", "contract", "target_endpoint", "interface", "system")) {
+                "contract_version", "contract", "target_endpoint", "interface")) {
             execute(owner, "DELETE FROM public." + table + " WHERE tenant_id = ?::uuid", tenant.id());
         }
+        execute(owner, "DELETE FROM public.system WHERE tenant_id = ?::uuid AND id <> ?::uuid", tenant.id(),
+                tenant.machineSystemId());
         Config c = tenant.config();
         execute(owner, "INSERT INTO public.system (id, tenant_id, code, name, direction)"
                         + " VALUES (?::uuid, ?::uuid, ?, ?, 'SOURCE')",
@@ -531,6 +743,14 @@ class ForgedTenantDenialSuiteTest {
                 }
             }
             statement.executeUpdate();
+        }
+    }
+
+    private static int freePort() {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
         }
     }
 }

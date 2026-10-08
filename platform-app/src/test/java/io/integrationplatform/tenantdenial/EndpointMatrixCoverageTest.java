@@ -97,6 +97,23 @@ class EndpointMatrixCoverageTest {
                 .isEqualTo(EndpointMatrix.forgeries().filter(pair -> pair[1] != Forgery.PATH_ID).count());
     }
 
+    @Test
+    void theMachineChannelCarriesEveryTenantFieldAndTheCustomerCrossCheck() {
+        Set<SourceForgery> exercised =
+                EndpointMatrix.sourceForgeries().map(pair -> (SourceForgery) pair[1]).collect(Collectors.toSet());
+
+        assertThat(exercised).containsExactlyInAnyOrder(SourceForgery.values());
+        assertThat(Arrays.stream(SourceForgery.values()).map(SourceForgery::channel)).containsExactly(
+                Channel.HEADER, Channel.QUERY_PARAMETER, Channel.BODY_FIELD, Channel.BODY_CUSTOMER);
+        assertThat(EndpointMatrix.sourceForgeries().filter(pair -> pair[1] == SourceForgery.BODY_CUSTOMER))
+                .as("the customer cross-check needs a body")
+                .allMatch(pair -> ((EndpointMatrix.Entry) pair[0]).acceptsBody())
+                .hasSize((int) EndpointMatrix.REGISTRY.stream().filter(EndpointMatrix.Entry::acceptsBody).count());
+        assertThat(EndpointMatrix.sourceForgeries().filter(pair -> pair[1] != SourceForgery.BODY_CUSTOMER).count())
+                .as("the source's tenant forgeries are the human outline's tenant fields")
+                .isEqualTo(EndpointMatrix.tenantFields().count());
+    }
+
     // --- planted and contract handlers: none is a @Controller, so the application never registers them --------
 
     /** Lane B's fixed E1 contract: GET /api/v1/me (the real controller arrives with lane B). */
