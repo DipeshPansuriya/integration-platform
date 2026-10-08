@@ -56,7 +56,7 @@ public class RuleSetAdminController {
         @ApiResponse(responseCode = "409", description = "Conflict: a lookup table of that name exists",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping(FLOW_RULE_SETS)
-    public ResponseEntity<Map<String, Object>> create(@PathVariable String flowId, @RequestBody JsonNode body) {
+    public ResponseEntity<Map<String, Object>> createRuleSet(@PathVariable String flowId, @RequestBody JsonNode body) {
         RuleSetRow created = service.create(flowId, body, actors.requireActor().userId());
         return ResponseEntity.status(201).body(view(created));
     }
@@ -68,7 +68,7 @@ public class RuleSetAdminController {
         @ApiResponse(responseCode = "404", description = "Not found: the flow is not visible to the bound tenant",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @GetMapping(FLOW_RULE_SETS)
-    public ResponseEntity<List<Map<String, Object>>> list(@PathVariable String flowId) {
+    public ResponseEntity<List<Map<String, Object>>> listRuleSets(@PathVariable String flowId) {
         actors.requireActor();
         return ResponseEntity.ok(service.list(flowId).stream().map(RuleSetAdminController::view).toList());
     }
@@ -80,7 +80,7 @@ public class RuleSetAdminController {
         @ApiResponse(responseCode = "404", description = "Not found: the rule set is not visible to the bound tenant",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @GetMapping(RULE_SET)
-    public ResponseEntity<Map<String, Object>> read(@PathVariable String ruleSetId) {
+    public ResponseEntity<Map<String, Object>> readRuleSet(@PathVariable String ruleSetId) {
         actors.requireActor();
         return ResponseEntity.ok(view(service.read(ruleSetId)));
     }
@@ -98,7 +98,7 @@ public class RuleSetAdminController {
         @ApiResponse(responseCode = "409", description = "Conflict: a lookup table of that name exists",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PutMapping(RULE_SET)
-    public ResponseEntity<Map<String, Object>> update(@PathVariable String ruleSetId, @RequestBody JsonNode body) {
+    public ResponseEntity<Map<String, Object>> updateRuleSet(@PathVariable String ruleSetId, @RequestBody JsonNode body) {
         return ResponseEntity.ok(view(service.update(ruleSetId, body, actors.requireActor().userId())));
     }
 

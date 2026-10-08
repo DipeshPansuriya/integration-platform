@@ -44,7 +44,7 @@ public class RuleEvaluationController {
         @ApiResponse(responseCode = "404", description = "Not found: the rule set is not visible to the bound tenant",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping(RuleSetAdminController.RULE_SET + "/evaluate")
-    public ResponseEntity<Map<String, Object>> evaluate(@PathVariable String ruleSetId, @RequestBody JsonNode body) {
+    public ResponseEntity<Map<String, Object>> evaluateRuleSet(@PathVariable String ruleSetId, @RequestBody JsonNode body) {
         UUID id;
         try {
             id = UUID.fromString(ruleSetId);
