@@ -295,7 +295,8 @@ final class EndpointMatrix {
      * E5 seam (arjun-fullstack, F13): each epic lane's part of the matrix, in its own file ({@link LaneMatrix}). A new
      * lane part is one line here, written by the integrator, never by a lane.
      */
-    static final List<LaneMatrix> LANES = List.of(new E5ContractMatrix(), new E5SystemMatrix(), new E5SecretMatrix());
+    static final List<LaneMatrix> LANES = List.of(new E5ContractMatrix(), new E5SystemMatrix(), new E5SecretMatrix(),
+            new E6RuleMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),
