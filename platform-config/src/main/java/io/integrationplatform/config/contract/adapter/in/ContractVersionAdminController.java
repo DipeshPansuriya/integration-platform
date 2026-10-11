@@ -160,7 +160,7 @@ public class ContractVersionAdminController {
         @ApiResponse(responseCode = "409", description = "NOT_PENDING_APPROVAL: only a submitted version is approvable",
                 content = @Content(mediaType = JSON, schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping("/versions/{versionId}/approve")
-    public ResponseEntity<Map<String, Object>> approve(@PathVariable String versionId) {
+    public ResponseEntity<Map<String, Object>> approveContractVersion(@PathVariable String versionId) {
         LoginBinding actor = actors.requireActor();
         try {
             VersionDetail approved = service.approve(versionId, actor.userId());

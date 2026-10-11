@@ -61,7 +61,7 @@ public class SystemAdminController {
         @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or the role does not allow the operation",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> list() {
+    public ResponseEntity<List<Map<String, Object>>> listSystems() {
         actors.requireActor();
         return ResponseEntity.ok(service.list());
     }
@@ -73,7 +73,7 @@ public class SystemAdminController {
         @ApiResponse(responseCode = "404", description = "Not found: the row is not visible to the bound tenant",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @GetMapping("/{systemId}")
-    public ResponseEntity<Map<String, Object>> read(@PathVariable String systemId) {
+    public ResponseEntity<Map<String, Object>> readSystem(@PathVariable String systemId) {
         actors.requireActor();
         return ResponseEntity.ok(service.read(systemId));
     }
@@ -87,7 +87,7 @@ public class SystemAdminController {
         @ApiResponse(responseCode = "404", description = "Not found: the row is not visible to the bound tenant",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PutMapping("/{systemId}")
-    public ResponseEntity<Map<String, Object>> update(@PathVariable String systemId, @RequestBody JsonNode body) {
+    public ResponseEntity<Map<String, Object>> updateSystem(@PathVariable String systemId, @RequestBody JsonNode body) {
         actors.requireActor();
         return ResponseEntity.ok(service.update(systemId, body));
     }
