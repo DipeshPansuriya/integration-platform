@@ -1,0 +1,15 @@
+# E5 lane B (T-102, T-104), imported optionally by platform-app's application.yml
+# (optional:classpath:config/config-systems.yml). No secret belongs in this file (R07).
+platform:
+  config:
+    destinations:
+      # The operator-maintained outbound destination allow-list (ADR-010 section 8): exact host names
+      # or "*.domain" for the domain's sub-domains. EMPTY REFUSES EVERY DESTINATION (fail closed).
+      # Loopback, private, link-local, CGNAT, multicast and broadcast resolutions are refused even when
+      # a name is listed here.
+      allowed-hosts: []
+    test-connection:
+      rate-limit:
+        # test-connection attempts per tenant + user in each window; over it the call answers 429
+        limit: 10
+        window: 60s

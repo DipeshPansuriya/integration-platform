@@ -5180,6 +5180,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <path data-edge-from="routing" data-edge-to="observability" data-edge-label="metrics, spans" data-edge-key="18" data-edge-id="telemetry" data-composition-points="1075,356;1137.5,356;1137.5,243;1200,243" d="M 1075 356 L 1129.5 356 Q 1137.5 356 1137.5 348 L 1137.5 251 Q 1137.5 243 1145.5 243 L 1200 243" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="tenancy" data-edge-to="observability" data-edge-label="metrics, spans" data-edge-key="19" data-edge-id="tenancy-telemetry" data-composition-points="485,236;509,236;509,186;1285,186;1285,210" d="M 485 236 L 501 236 Q 509 236 509 228 L 509 194 Q 509 186 517 186 L 1277 186 Q 1285 186 1285 194 L 1285 210" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="arch-test" data-edge-to="config" data-edge-label="scans every module (build only)" data-edge-key="20" data-edge-id="arch-scan" data-composition-points="1285,90;1285,66;400,66;400,90" d="M 1285 90 L 1285 74 Q 1285 66 1277 66 L 408 66 Q 400 66 400 74 L 400 90" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="config" data-edge-to="targets" data-edge-label="test-connection via destination guard" data-edge-key="21" data-edge-id="test-connection" data-composition-points="400,90;400,30;1384,30;1384,363;1370,363" d="M 400 90 L 400 38 Q 400 30 408 30 L 1376 30 Q 1384 30 1384 38 L 1384 356 Q 1384 363 1377 363 L 1370 363" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
 
         <!-- Components -->
         <g id="node-console" data-node-id="console" data-node-label="Console UI" tabindex="0" role="button" aria-label="Focus Console UI, no token in browser, Architecture component" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="no token in browser" data-node-tag="ADR-007" data-node-context="Architecture component">
@@ -5466,6 +5467,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <g data-detail="context" data-edge-from="arch-test" data-edge-to="config" data-edge-label="scans every module (build only)" data-edge-key="20" data-edge-id="arch-scan">
           <rect x="763.1" y="46" width="158.79999999999998" height="14" rx="3" class="c-mask"/>
           <text x="842.5" y="56" class="t-messagebus" font-size="8" text-anchor="middle">scans every module (build only)</text>
+        </g>
+        <g data-detail="context" data-edge-from="config" data-edge-to="targets" data-edge-label="test-connection via destination guard" data-edge-key="21" data-edge-id="test-connection">
+          <rect x="798.2" y="10" width="187.6" height="14" rx="3" class="c-mask"/>
+          <text x="892" y="20" class="t-security" font-size="8" text-anchor="middle">test-connection via destination guard</text>
         </g>
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->

@@ -2,25 +2,31 @@ package io.integrationplatform.config.system.adapter.in;
 
 import io.integrationplatform.config.adapter.in.ConfigActors;
 import io.integrationplatform.config.adapter.in.ConfigErrorBody;
-import io.integrationplatform.config.application.ConfigApiException;
-import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemRow;
 import io.integrationplatform.config.system.application.SystemAdminService;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The systems admin API (T-015's onboarding premise): register a system; an OUTBOUND registration carries its
- * default target endpoint so a flow can name it as a destination. HTTP-only seam - the rules are the service's.
+ * The systems admin API: register (T-015, extended by E5 T-102 with type + settings), list, open and edit systems,
+ * and test an API system's connection (T-104). HTTP-only seam - the rules are the service's; the role of each endpoint
+ * is in {@link SystemEndpointRoles} (and ConfigEndpointRoles for the E3 POST).
+ *
+ * <p>A system answers as {@code {"id","code","name","direction","type","settings"}}; {@code type} and {@code settings}
+ * are JSON null for an E3 untyped system.
  */
 @RestController
 @RequestMapping(SystemAdminController.PATH)
@@ -38,18 +44,66 @@ public class SystemAdminController {
 
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Created"),
-        @ApiResponse(responseCode = "400", description = "A validation refusal names the refused field or value",
+        @ApiResponse(responseCode = "400", description = "Every validation error is listed (errors) and joined (error)",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
-        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER: the bearer resolves to no directory user",
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or the role does not allow the operation",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
         @ApiResponse(responseCode = "409", description = "Conflict: a system with this code is already registered",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping
     public ResponseEntity<Map<String, Object>> create(@RequestBody JsonNode body) {
         actors.requireActor();
-        SystemRow created = service.create(body);
-        return ResponseEntity.status(201).body(ConfigApiException.body(
-                "id", created.id(), "code", created.code(), "name", created.name(),
-                "direction", created.direction()));
+        return ResponseEntity.status(201).body(service.create(body));
+    }
+
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Every system of the bound tenant, ordered by code"),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or the role does not allow the operation",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+    @GetMapping
+    public ResponseEntity<List<Map<String, Object>>> list() {
+        actors.requireActor();
+        return ResponseEntity.ok(service.list());
+    }
+
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "OK"),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or the role does not allow the operation",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "404", description = "Not found: the row is not visible to the bound tenant",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+    @GetMapping("/{systemId}")
+    public ResponseEntity<Map<String, Object>> read(@PathVariable String systemId) {
+        actors.requireActor();
+        return ResponseEntity.ok(service.read(systemId));
+    }
+
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "OK: the edited system"),
+        @ApiResponse(responseCode = "400", description = "Every validation error is listed (errors) and joined (error)",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or the role does not allow the operation",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "404", description = "Not found: the row is not visible to the bound tenant",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+    @PutMapping("/{systemId}")
+    public ResponseEntity<Map<String, Object>> update(@PathVariable String systemId, @RequestBody JsonNode body) {
+        actors.requireActor();
+        return ResponseEntity.ok(service.update(systemId, body));
+    }
+
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "The result: SUCCESS (httpStatus, responseTimeMs), REFUSED"
+                + " (reason, before any data is sent), FAILED (reason), NOT_AVAILABLE_YET (the type's test arrives with"
+                + " its adapter) or NOT_CONFIGURED"),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or the role does not allow the operation",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "404", description = "Not found: the row is not visible to the bound tenant",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "429", description = "TEST_CONNECTION_RATE_LIMITED: over the per-user limit",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+    @PostMapping("/{systemId}/test-connection")
+    public ResponseEntity<Map<String, Object>> testConnection(@PathVariable String systemId) {
+        return ResponseEntity.ok(service.testConnection(systemId, actors.requireActor()));
     }
 }
