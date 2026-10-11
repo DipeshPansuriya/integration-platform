@@ -92,12 +92,34 @@ test('an allowed tree passes: nested packages and an OR expression with an allow
   assert.deepEqual(report.violations, []);
 });
 
-// The console's REAL production tree against the unchanged allowed list. Four transitive packages of
-// jdm-editor 1.52.0 (via exceljs) are outside it - pako (MIT AND Zlib), buffers (no licence declared),
-// chainsaw and traverse ("MIT/X11", not an SPDX id). Widening the list is a licence decision, not this
-// lane's (Open for arjun-fullstack, T49); until it is made the build itself fails on them, and this
-// case reports as TODO with the names instead of hiding them.
-test('the console production tree passes the allowed list', { todo: 'licence decision open for arjun-fullstack (T49)' }, () => {
-  const run = runCheck(UI);
+// Reviewed exceptions (arjun-fullstack, E6 wave-1 integration, the licence decision lane D handed up):
+// the allowed list stays unchanged; a package outside it passes only through ui/licence-exceptions.json,
+// one entry per package pinned to name@version AND to the exact licence it declared when reviewed, with
+// a reason. A new version, a changed licence or an entry without a reason fails again.
+test('@negative @security an exception applies only to the reviewed name@version and licence, and needs a reason', () => {
+  const out = tempOut();
+  const run = runCheck(path.join(FIXTURES, 'licence-exception'), out);
+  assert.notEqual(run.status, 0, 'unreviewed packages still fail');
+  const report = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.deepEqual(report.violations.map((v) => `${v.name}@${v.version}`).sort(),
+    ['changed-licence@0.3.9', 'no-reason@1.0.0', 'other-version@2.0.0']);
+  assert.match(run.stderr, /other-version@2\.0\.0 \(MIT\/X11\)/);
+  assert.match(run.stderr, /changed-licence@0\.3\.9 \(GPL-3\.0-only\)/);
+  const excepted = report.packages.filter((p) => p.exception).map((p) => [`${p.name}@${p.version}`, p.allowed, p.exception]);
+  assert.deepEqual(excepted.sort(), [
+    ['reviewed-zlib@1.0.11', true, 'both licences permissive'],
+    ['undeclared@0.1.1', true, 'not in the shipped bundle']
+  ]);
+  assert.deepEqual(report.allowedLicences.includes('Zlib'), false, 'the allowed list itself is not widened');
+});
+
+// The console's REAL production tree: every package is on the allowed list or a reviewed exception
+// (jdm-editor 1.52.0 via exceljs: pako, buffers, chainsaw, traverse - see ui/licence-exceptions.json).
+test('the console production tree passes the allowed list with its reviewed exceptions', () => {
+  const out = tempOut();
+  const run = runCheck(UI, out);
   assert.equal(run.status, 0, run.stderr);
+  const report = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.deepEqual(report.packages.filter((p) => p.exception).map((p) => p.name).sort(),
+    ['buffers', 'chainsaw', 'pako', 'traverse']);
 });

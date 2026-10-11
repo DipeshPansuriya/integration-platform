@@ -1,0 +1,9 @@
+{
+  "exceptions": [
+    { "package": "reviewed-zlib@1.0.11", "licence": "(MIT AND Zlib)", "reason": "both licences permissive", "reviewedBy": "fixture", "reviewedOn": "2026-10-11" },
+    { "package": "undeclared@0.1.1", "licence": "UNKNOWN", "reason": "not in the shipped bundle", "reviewedBy": "fixture", "reviewedOn": "2026-10-11" },
+    { "package": "other-version@1.0.0", "licence": "MIT/X11", "reason": "reviewed for 1.0.0 only", "reviewedBy": "fixture", "reviewedOn": "2026-10-11" },
+    { "package": "changed-licence@0.3.9", "licence": "MIT/X11", "reason": "reviewed while it was MIT/X11", "reviewedBy": "fixture", "reviewedOn": "2026-10-11" },
+    { "package": "no-reason@1.0.0", "licence": "MIT/X11", "reason": "", "reviewedBy": "fixture", "reviewedOn": "2026-10-11" }
+  ]
+}
