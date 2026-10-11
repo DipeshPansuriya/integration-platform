@@ -48,4 +48,28 @@ public interface DeliveryRetryStore {
      *     {@code LATE_OUTCOME} delivery event (ADR-010 section 6)
      */
     boolean deadLetter(UUID deliveryId, UUID claimToken, OutcomeClass reasonClass);
+
+    /**
+     * E5 T-185 (ADR-007 Decision 7 rule 5; ADR-010 sections 5 and 6): the target credential names a key-encryption-key
+     * id this instance does not hold. {@code SENDING -> RETRY_WAIT} conditional on {@code state = 'SENDING' AND
+     * claim_token = claimToken}, with a {@code KEY_UNAVAILABLE} delivery event and NO attempt row (no call left the
+     * process, no attempt is used up); {@code next_attempt_at} follows the bulkhead-full backoff of ADR-010 section 2
+     * (1 s doubling per consecutive key deferral of the delivery, capped at 30 s, full jitter).
+     *
+     * @param jitter the full-jitter fraction in [0, 1], drawn by the caller
+     * @return {@code false} on a stale or foreign token: no state change, a {@code LATE_OUTCOME} event recorded
+     */
+    default boolean deferKeyUnavailable(UUID deliveryId, UUID claimToken, Instant now, double jitter) {
+        throw new UnsupportedOperationException("this delivery store cannot defer a delivery for a missing key");
+    }
+
+    /**
+     * E5 T-185: {@link #deadLetter(UUID, UUID, OutcomeClass)} with the named reason recorded in the
+     * {@code DEAD_LETTER} event (for example "target credential unreadable", ADR-007 Decision 7 rule 5).
+     *
+     * @return {@code false} on a stale or foreign token: no state change, a {@code LATE_OUTCOME} event recorded
+     */
+    default boolean deadLetter(UUID deliveryId, UUID claimToken, OutcomeClass reasonClass, String reason) {
+        throw new UnsupportedOperationException("this delivery store cannot record a dead-letter reason");
+    }
 }

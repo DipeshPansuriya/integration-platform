@@ -31,5 +31,13 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-delivery</artifactId>
     </dependency>
+    <!-- E5 lane C (T-185, ADR-007 Decision 7 rule 6): target credentials are decrypted only here, at send time; the
+         sealed rows, the key-encryption keys and the readiness signal are the configuration module's public
+         config.credential.api (a read of published configuration - ADR-001 forbids only writing config from the
+         data plane). No cycle: platform-config depends on platform-tenancy only. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-config</artifactId>
+    </dependency>
   </dependencies>
 </project>

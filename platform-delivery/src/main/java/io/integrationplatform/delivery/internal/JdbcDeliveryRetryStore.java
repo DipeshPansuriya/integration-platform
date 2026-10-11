@@ -6,6 +6,7 @@ import io.integrationplatform.delivery.port.RetryCandidate;
 import io.integrationplatform.domain.delivery.OutcomeClass;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.TenantScopedRepository;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +66,44 @@ public final class JdbcDeliveryRetryStore extends TenantScopedRepository impleme
         }
         lateOutcome(deliveryId, "dead-letter on a stale or foreign claim");
         return false;
+    }
+
+    /** ADR-010 section 2's deferral backoff: the first wait 1 s, doubling per consecutive deferral, capped at 30 s. */
+    static final Duration KEY_DEFERRAL_FIRST = Duration.ofSeconds(1);
+    static final Duration KEY_DEFERRAL_CAP = Duration.ofSeconds(30);
+
+    @Override
+    public boolean deferKeyUnavailable(UUID deliveryId, UUID claimToken, Instant now, double jitter) {
+        if (jitter < 0.0 || jitter > 1.0) {
+            throw new IllegalArgumentException("jitter fraction must be within [0, 1], was " + jitter);
+        }
+        // ponytail: "consecutive" = this delivery's earlier KEY_UNAVAILABLE events; T-200 (E10) refines the count
+        int earlier = repository.countEvents(deliveryId, DeliveryEventType.KEY_UNAVAILABLE);
+        Instant next = now.plus(keyDeferral(earlier + 1, jitter));
+        if (repository.deferKeyUnavailable(deliveryId, claimToken, next, now)) {
+            return true;
+        }
+        lateOutcome(deliveryId, "key-unavailable deferral on a stale or foreign claim");
+        return false;
+    }
+
+    @Override
+    public boolean deadLetter(UUID deliveryId, UUID claimToken, OutcomeClass reasonClass, String reason) {
+        if (repository.deadLetter(deliveryId, claimToken, reasonClass, reason, Instant.now())) {
+            return true;
+        }
+        lateOutcome(deliveryId, "dead-letter on a stale or foreign claim");
+        return false;
+    }
+
+    /** The wait before the {@code deferral}-th consecutive key deferral's retry: full jitter of min(30 s, 1 s x 2^(n-1)). */
+    static Duration keyDeferral(int deferral, double jitter) {
+        Duration cap = deferral >= 6 ? KEY_DEFERRAL_CAP
+                : KEY_DEFERRAL_FIRST.multipliedBy(1L << (deferral - 1));
+        if (cap.compareTo(KEY_DEFERRAL_CAP) > 0) {
+            cap = KEY_DEFERRAL_CAP;
+        }
+        return Duration.ofNanos((long) (cap.toNanos() * jitter));
     }
 
     private void lateOutcome(UUID deliveryId, String detail) {

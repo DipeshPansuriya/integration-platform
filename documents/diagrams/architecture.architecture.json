@@ -34,7 +34,8 @@
           "transform",
           "delivery",
           "domain",
-          "targets"
+          "targets",
+          "kek"
         ],
         "note": "One call in, one delivery per matched target out (architecture.md section 4.1)."
       },
@@ -220,7 +221,7 @@
       "id": "postgres",
       "type": "database",
       "label": "PostgreSQL 17",
-      "sublabel": "RLS on every tenant table, outbox, console session store",
+      "sublabel": "RLS on every tenant table, outbox, sessions, sealed target secrets",
       "pos": [
         315,
         490
@@ -289,6 +290,21 @@
         66
       ],
       "tag": "R08"
+    },
+    {
+      "id": "kek",
+      "type": "security",
+      "label": "Key-encryption keys",
+      "sublabel": "secret store, env names only",
+      "pos": [
+        1200,
+        490
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-007 D7"
     }
   ],
   "boundaries": [
@@ -345,7 +361,7 @@
       "id": "tenancy-oidc",
       "from": "tenancy",
       "to": "keycloak",
-      "label": "JWKS, admin API, 5 controls",
+      "label": "JWKS, admin API (clients), 5 controls",
       "variant": "security",
       "labelDy": -27
     },
@@ -516,6 +532,15 @@
           363
         ]
       ]
+    },
+    {
+      "id": "decrypt-at-send",
+      "from": "routing",
+      "to": "kek",
+      "label": "open at send time",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "left"
     }
   ],
   "cards": [
