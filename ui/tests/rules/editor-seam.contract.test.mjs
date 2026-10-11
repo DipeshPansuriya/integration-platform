@@ -128,3 +128,16 @@ test('the fallback grid is a stub: it plugs into the seam but its editing UI is 
   const [{ nodeId, table }] = stub.tables();
   assert.throws(() => stub.updateTable(nodeId, table), /not built/);
 });
+
+test('an edit jdm-editor reports inside its 100 ms debounce is in the document once the adapter settles', async () => {
+  const adapter = new JdmEditorAdapter();
+  adapter.load(starterJdm('LOOKUP'));
+  const [{ nodeId, table }] = adapter.tables();
+  const edited = structuredClone(table);
+  edited.rules[1].o1 = '"Deutschland"';
+  setTimeout(() => adapter.updateTable(nodeId, edited), 100); // the editor's debounced onChange
+  await adapter.settle();
+  assert.equal(adapter.toZen().nodes.find((n) => n.id === nodeId).content.rules[1].o1, '"Deutschland"');
+  // ...and the fallback stub, with no debounce, settles at once.
+  await new FallbackGridAdapter().settle();
+});
