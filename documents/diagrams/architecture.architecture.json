@@ -17,6 +17,7 @@
           "console",
           "keycloak",
           "config",
+          "rules",
           "tenancy"
         ],
         "note": "People log in and configure; config is written only here (architecture.md section 2)."
@@ -110,6 +111,21 @@
         66
       ],
       "tag": "control plane"
+    },
+    {
+      "id": "rules",
+      "type": "backend",
+      "label": "ZEN rules (in config)",
+      "sublabel": "rule sets, RuleEvaluationPort",
+      "pos": [
+        610,
+        90
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-003"
     },
     {
       "id": "tenancy",
@@ -281,6 +297,7 @@
       "label": "platform-app - one deployable, modular monolith (ADR-001)",
       "wraps": [
         "config",
+        "rules",
         "tenancy",
         "ingest",
         "delivery",
@@ -384,6 +401,12 @@
       ]
     },
     {
+      "id": "config-rules",
+      "from": "config",
+      "to": "rules",
+      "label": "evaluate rule set (JDM)"
+    },
+    {
       "id": "intake-tx",
       "from": "ingest",
       "to": "postgres",
@@ -468,8 +491,8 @@
       "to": "config",
       "label": "scans every module (build only)",
       "variant": "dashed",
-      "fromSide": "left",
-      "toSide": "right"
+      "fromSide": "top",
+      "toSide": "top"
     }
   ],
   "cards": [

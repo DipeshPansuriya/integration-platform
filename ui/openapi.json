@@ -122,6 +122,39 @@
           }
         },
         "type": "object"
+      },
+      "RuleTableCell": {
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          },
+          "row": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "RuleTableInvalidBody": {
+        "description": "RULE_TABLE_INVALID: the refused cell and the engine's reason; or {error} for a validation refusal.",
+        "properties": {
+          "cell": {
+            "$ref": "#/components/schemas/RuleTableCell",
+            "description": "The refused cell; null members when the model as a whole is unreadable"
+          },
+          "error": {
+            "description": "RULE_TABLE_INVALID, or the validation message",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the table is refused (the engine's own reason)",
+            "type": "string"
+          }
+        },
+        "type": "object"
       }
     }
   },
@@ -669,6 +702,139 @@
         ]
       }
     },
+    "/api/v1/admin/flows/{flowId}/rule-sets": {
+      "get": {
+        "operationId": "listRuleSets",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "flowId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK: the flow's rule sets in authoring order"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow reading"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the flow is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "rule-set-admin-controller"
+        ]
+      },
+      "post": {
+        "operationId": "createRuleSet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "flowId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Created: {id, flowId, kind, name, content}"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleTableInvalidBody"
+                }
+              }
+            },
+            "description": "RULE_TABLE_INVALID with the cell and the reason, or a validation refusal (kind, name)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow editing"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the flow is not visible to the bound tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Conflict: a lookup table of that name exists"
+          }
+        },
+        "tags": [
+          "rule-set-admin-controller"
+        ]
+      }
+    },
     "/api/v1/admin/flows/{flowId}/submit": {
       "post": {
         "operationId": "submit",
@@ -808,6 +974,207 @@
         ]
       }
     },
+    "/api/v1/admin/rule-sets/{ruleSetId}": {
+      "get": {
+        "operationId": "readRuleSet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ruleSetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK: {id, flowId, kind, name, content}"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow reading"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the rule set is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "rule-set-admin-controller"
+        ]
+      },
+      "put": {
+        "operationId": "updateRuleSet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ruleSetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK: {id, flowId, kind, name, content}"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleTableInvalidBody"
+                }
+              }
+            },
+            "description": "RULE_TABLE_INVALID with the cell and the reason, or a validation refusal (name)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow editing"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the rule set is not visible to the bound tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Conflict: a lookup table of that name exists"
+          }
+        },
+        "tags": [
+          "rule-set-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/rule-sets/{ruleSetId}/evaluate": {
+      "post": {
+        "operationId": "evaluateRuleSet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ruleSetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK: {ruleSetId, kind, output, violations}"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "The body carries no input"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "The role does not allow reading configuration"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the rule set is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "rule-evaluation-controller"
+        ]
+      }
+    },
     "/api/v1/admin/systems": {
       "post": {
         "operationId": "create",
@@ -893,7 +1260,7 @@
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:53785"
+      "url": "http://127.0.0.1:60713"
     }
   ]
 }

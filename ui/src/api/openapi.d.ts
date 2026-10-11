@@ -111,6 +111,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/flows/{flowId}/rule-sets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRuleSets"];
+        put?: never;
+        post: operations["createRuleSet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/flows/{flowId}/submit": {
         parameters: {
             query?: never;
@@ -137,6 +153,38 @@ export interface paths {
         get?: never;
         put: operations["editVersion"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rule-sets/{ruleSetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["readRuleSet"];
+        put: operations["updateRuleSet"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rule-sets/{ruleSetId}/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["evaluateRuleSet"];
         delete?: never;
         options?: never;
         head?: never;
@@ -221,6 +269,21 @@ export interface components {
             timeZone?: string;
             /** Format: uuid */
             userId?: string;
+        };
+        RuleTableCell: {
+            column?: string;
+            node?: string;
+            /** Format: int32 */
+            row?: number;
+        };
+        /** @description RULE_TABLE_INVALID: the refused cell and the engine's reason; or {error} for a validation refusal. */
+        RuleTableInvalidBody: {
+            /** @description The refused cell; null members when the model as a whole is unreadable */
+            cell?: components["schemas"]["RuleTableCell"];
+            /** @description RULE_TABLE_INVALID, or the validation message */
+            error?: string;
+            /** @description Why the table is refused (the engine's own reason) */
+            reason?: string;
         };
     };
     responses: never;
@@ -682,6 +745,112 @@ export interface operations {
             };
         };
     };
+    listRuleSets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flowId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK: the flow's rule sets in authoring order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description NO_BOUND_USER, or the role does not allow reading */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the flow is not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    createRuleSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flowId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonNode"];
+            };
+        };
+        responses: {
+            /** @description Created: {id, flowId, kind, name, content} */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description RULE_TABLE_INVALID with the cell and the reason, or a validation refusal (kind, name) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleTableInvalidBody"];
+                };
+            };
+            /** @description NO_BOUND_USER, or the role does not allow editing */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the flow is not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Conflict: a lookup table of that name exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
     submit: {
         parameters: {
             query?: never;
@@ -778,6 +947,167 @@ export interface operations {
             };
             /** @description Conflict: version content is immutable - save a new draft on the flow */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    readRuleSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK: {id, flowId, kind, name, content} */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description NO_BOUND_USER, or the role does not allow reading */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the rule set is not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    updateRuleSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonNode"];
+            };
+        };
+        responses: {
+            /** @description OK: {id, flowId, kind, name, content} */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description RULE_TABLE_INVALID with the cell and the reason, or a validation refusal (name) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleTableInvalidBody"];
+                };
+            };
+            /** @description NO_BOUND_USER, or the role does not allow editing */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the rule set is not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Conflict: a lookup table of that name exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    evaluateRuleSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonNode"];
+            };
+        };
+        responses: {
+            /** @description OK: {ruleSetId, kind, output, violations} */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description The body carries no input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description The role does not allow reading configuration */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the rule set is not visible to the bound tenant */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

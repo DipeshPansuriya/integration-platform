@@ -8,6 +8,10 @@ import io.integrationplatform.config.contract.adapter.in.ContractVersionAdminCon
 import io.integrationplatform.config.contract.application.ContractAdminService;
 import io.integrationplatform.config.flow.adapter.in.FlowAdminController;
 import io.integrationplatform.config.flow.application.FlowAdminService;
+import io.integrationplatform.config.rule.adapter.in.RuleEvaluationController;
+import io.integrationplatform.config.rule.adapter.in.RuleSetAdminController;
+import io.integrationplatform.config.rule.api.RuleEvaluationPort;
+import io.integrationplatform.config.rule.application.RuleSetAdminService;
 import io.integrationplatform.config.system.adapter.in.SystemAdminController;
 import io.integrationplatform.config.system.application.SystemAdminService;
 import io.integrationplatform.tenancy.port.DeniedTenantAttempt.Channel;
@@ -159,7 +163,9 @@ class EndpointMatrixCoverageTest {
         return new Object[] {probeController(), new MeContract(),
                 new FlowAdminController(mock(FlowAdminService.class), mock(ConfigActors.class)),
                 new ContractVersionAdminController(mock(ContractAdminService.class), mock(ConfigActors.class)),
-                new SystemAdminController(mock(SystemAdminService.class), mock(ConfigActors.class))};
+                new SystemAdminController(mock(SystemAdminService.class), mock(ConfigActors.class)),
+                new RuleSetAdminController(mock(RuleSetAdminService.class), mock(ConfigActors.class)),
+                new RuleEvaluationController(mock(RuleEvaluationPort.class))};
     }
 
     private static Object[] withPlanted(Object planted) {

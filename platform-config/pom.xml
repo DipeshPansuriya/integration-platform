@@ -92,6 +92,12 @@
       <artifactId>postgresql</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <!-- E6 seam (sanjay-developer, T-024): rule sets (ZEN decision tables, ADR-003) are checked at save and
+         evaluated behind RuleEvaluationPort; only rule/adapter/out touches the engine. Version managed in the root. -->
+    <dependency>
+      <groupId>io.gorules</groupId>
+      <artifactId>zen-engine</artifactId>
+    </dependency>
     <!-- spring-boot-starter-test comes from the parent for every module. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
