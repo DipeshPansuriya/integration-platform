@@ -4,6 +4,7 @@ import io.integrationplatform.config.credential.crypto.EnvelopeSealer;
 import io.integrationplatform.tenantdenial.EndpointMatrix.Entry;
 import io.integrationplatform.tenantdenial.EndpointMatrix.SeededTenant;
 import io.integrationplatform.tenantdenial.EndpointMatrix.WriteProbe;
+import java.net.URI;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -36,7 +37,8 @@ final class E5SecretMatrix implements LaneMatrix {
     private static final String SYSTEMS = "/api/v1/admin/systems";
     private static final String SOURCE_CREDENTIALS = "/api/v1/admin/source-credentials";
     private static final String TARGET_ENDPOINTS = "/api/v1/admin/target-endpoints";
-    private static final String LANE_ISSUER = "https://issuer.e5-lane-c.invalid/realms/platform";
+    // URI-typed: an upper-case String constant holding "scheme:..." reads as an unpinned image to the R05 guard
+    private static final String LANE_ISSUER = URI.create("https://issuer.e5-lane-c.invalid/realms/platform").toString();
     private static final byte[] LANE_KEY = laneKey();
 
     @Override

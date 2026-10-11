@@ -145,6 +145,42 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                 id, DeliveryEventType.DEAD_LETTER, reasonClass.name(), at);
     }
 
+    /**
+     * E5 T-185: {@code SENDING -> DEAD_LETTERED} with the reason class AND the named reason in the event detail
+     * ({@code PERMANENT: target credential unreadable}), conditional on the claim token.
+     */
+    public boolean deadLetter(UUID id, UUID claimToken, OutcomeClass reasonClass, String reason, Instant at) {
+        return transition(
+                "update public.delivery set state = 'DEAD_LETTERED', updated_at = :at,"
+                        + " dead_letter_class = :dead_letter_class, claim_token = null, claimed_at = null",
+                "id = :id::uuid and state = 'SENDING' and claim_token = :claim_token::uuid",
+                params("at", at, "dead_letter_class", reasonClass.name(),
+                        "claim_token", claimToken.toString(), "id", id.toString()),
+                id, DeliveryEventType.DEAD_LETTER, reasonClass.name() + ": " + reason, at);
+    }
+
+    /**
+     * E5 T-185 (ADR-010 sections 5 and 6): {@code SENDING -> RETRY_WAIT} because the target credential's key is not on
+     * this instance - conditional on the claim token, a {@code KEY_UNAVAILABLE} event, and no attempt row.
+     */
+    public boolean deferKeyUnavailable(UUID id, UUID claimToken, Instant nextAttemptAt, Instant at) {
+        return transition(
+                "update public.delivery set state = 'RETRY_WAIT', updated_at = :at,"
+                        + " next_attempt_at = :next_attempt_at, claim_token = null, claimed_at = null",
+                "id = :id::uuid and state = 'SENDING' and claim_token = :claim_token::uuid",
+                params("at", at, "next_attempt_at", nextAttemptAt,
+                        "claim_token", claimToken.toString(), "id", id.toString()),
+                id, DeliveryEventType.KEY_UNAVAILABLE, "retry at " + nextAttemptAt, at);
+    }
+
+    /** E5 T-185: how many events of {@code type} the delivery has (the consecutive key deferrals). */
+    public int countEvents(UUID deliveryId, DeliveryEventType type) {
+        return query("select count(*)::int from public.delivery_event",
+                "delivery_id = :delivery_id::uuid and type = :type",
+                params("delivery_id", deliveryId.toString(), "type", type.name()), (rs, n) -> rs.getInt(1)).stream()
+                .findFirst().orElse(0);
+    }
+
     /** {@code DEAD_LETTERED -> DUE}: an operator replay (audited where the operator acts). */
     public boolean replay(UUID id, Instant at) {
         return transition(

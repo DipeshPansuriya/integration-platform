@@ -85,7 +85,7 @@ class KeyFaultMovesContainerTest {
     void keyUnavailableWaitsWithoutAnAttempt() {
         UUID token = UUID.randomUUID();
         UUID id = sending(token);
-        Instant now = Instant.now();
+        Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
 
         boolean moved = tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> store().deferKeyUnavailable(id, token, now, 1.0));

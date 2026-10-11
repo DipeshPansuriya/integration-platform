@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import io.integrationplatform.config.adapter.in.ConfigActors;
+import io.integrationplatform.config.credential.adapter.in.SourceCredentialAdminController;
+import io.integrationplatform.config.credential.adapter.in.TargetCredentialAdminController;
+import io.integrationplatform.config.credential.application.SourceCredentialService;
+import io.integrationplatform.config.credential.application.TargetCredentialService;
 import io.integrationplatform.config.contract.adapter.in.ContractVersionAdminController;
 import io.integrationplatform.config.contract.application.ContractAdminService;
 import io.integrationplatform.config.flow.adapter.in.FlowAdminController;
@@ -165,7 +169,10 @@ class EndpointMatrixCoverageTest {
                 new ContractVersionAdminController(mock(ContractAdminService.class), mock(ConfigActors.class)),
                 new SystemAdminController(mock(SystemAdminService.class), mock(ConfigActors.class)),
                 new RuleSetAdminController(mock(RuleSetAdminService.class), mock(ConfigActors.class)),
-                new RuleEvaluationController(mock(RuleEvaluationPort.class))};
+                new RuleEvaluationController(mock(RuleEvaluationPort.class)),
+                // E5 lane C (T-103): the credential endpoints, covered by E5SecretMatrix
+                new SourceCredentialAdminController(mock(SourceCredentialService.class), mock(ConfigActors.class)),
+                new TargetCredentialAdminController(mock(TargetCredentialService.class), mock(ConfigActors.class))};
     }
 
     private static Object[] withPlanted(Object planted) {
