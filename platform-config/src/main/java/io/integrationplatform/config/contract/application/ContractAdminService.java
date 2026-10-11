@@ -2,15 +2,23 @@ package io.integrationplatform.config.contract.application;
 
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.internal.persistence.JdbcContractRepository;
+import io.integrationplatform.config.contract.application.ContractDocumentImporter.Format;
+import io.integrationplatform.config.contract.application.ContractDocumentImporter.ImportedSchema;
 import io.integrationplatform.config.internal.persistence.JdbcContractRepository.ContractRow;
+import io.integrationplatform.config.internal.persistence.JdbcContractRepository.ContractSummary;
+import io.integrationplatform.config.internal.persistence.JdbcContractRepository.VersionDetail;
 import io.integrationplatform.config.internal.persistence.JdbcContractRepository.VersionRow;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemRow;
 import io.integrationplatform.config.system.application.SystemAdminService;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -22,17 +30,159 @@ import tools.jackson.databind.json.JsonMapper;
  * change note beside it. The flow creation asks this service for the source system's draft version id - the
  * interface version's source contract is a required composite reference (V2_2_4), so a flow's own onboarding
  * row set includes the skeleton contract version the rows-only story speaks of.
+ *
+ * <p>E5 lane A (T-105, ADR-011 Decisions 2 and 3): versioned source and target contracts imported from OpenAPI or
+ * JSON Schema ({@link ContractDocumentImporter}), one {@code contract} per system and role, each version a row of its
+ * own with its lineage ({@code derived_from} = the highest lower label of the same contract), listed side by side,
+ * approved only by someone other than its author (V2_2_5_1). RETIRED versions stay readable and listed (rule 4).
  */
 public class ContractAdminService {
 
+    /** The contract roles of ADR-011 Decision 2 (V2_2_5_1's CHECK). */
+    public static final List<String> ROLES =
+            List.of("SOURCE_REQUEST", "SOURCE_RESPONSE", "TARGET_REQUEST", "TARGET_RESPONSE");
+
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final Pattern LABEL = Pattern.compile("^\\d+\\.\\d+$");
+    private static final Pattern UUID_TEXT =
+            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
     private final JdbcContractRepository contracts;
     private final JdbcSystemRepository systems;
+    private final ContractDocumentImporter importer = new ContractDocumentImporter();
+
+    /** One contract with its versions in label order (T-105 listing). */
+    public record ContractWithVersions(ContractSummary contract, List<VersionDetail> versions) {
+    }
 
     public ContractAdminService(JdbcContractRepository contracts, JdbcSystemRepository systems) {
         this.contracts = Objects.requireNonNull(contracts, "contracts");
         this.systems = Objects.requireNonNull(systems, "systems");
+    }
+
+    // ------------------------------------------------------------------ E5 lane A (T-105)
+
+    /**
+     * POST /api/v1/admin/contracts/versions/import - a new DRAFT version of the system's contract in the given role,
+     * its schema imported from an OpenAPI document or a JSON Schema. A document that does not parse is refused with
+     * the parser's errors before anything is written; a label the contract already has is 409.
+     */
+    @Transactional
+    public VersionDetail importVersion(JsonNode body, UUID actorId) {
+        String systemCode = SystemAdminService.required(body, "system");
+        String role = SystemAdminService.required(body, "role");
+        if (!ROLES.contains(role)) {
+            throw ConfigApiException.validation("role must be one of " + String.join(", ", ROLES));
+        }
+        String label = SystemAdminService.required(body, "versionLabel");
+        if (!LABEL.matcher(label).matches()) {
+            throw ConfigApiException.validation("versionLabel must be major.minor, for example 2.0");
+        }
+        Format format = format(SystemAdminService.required(body, "format"));
+        String schemaName = body.path("schemaName").isString() ? body.path("schemaName").asString() : null;
+        SystemRow system = systems.findSystemByCode(systemCode)
+                .orElseThrow(() -> ConfigApiException.validation("unknown system " + systemCode));
+
+        ImportedSchema imported = importer.importDocument(format, body.path("document"), schemaName);
+
+        String contractId = contracts.findContract(system.id(), role)
+                .map(ContractSummary::id)
+                .orElseGet(() -> contracts.insertContract(system.id(), contractCode(systemCode, role), role,
+                        body.path("name").isString() && !body.path("name").asString().isBlank()
+                                ? body.path("name").asString()
+                                : systemCode + " " + role.toLowerCase()));
+        List<VersionDetail> existing = contracts.listVersionDetails(contractId);
+        if (existing.stream().anyMatch(version -> version.versionLabel().equals(label))) {
+            throw ConfigApiException.conflict("the contract already has version " + label);
+        }
+        String derivedFrom = existing.stream()
+                .filter(version -> compareLabels(version.versionLabel(), label) < 0)
+                .max(Comparator.comparing(VersionDetail::versionLabel, ContractAdminService::compareLabels))
+                .map(VersionDetail::id)
+                .orElse(null);
+        String versionId = contracts.insertImportedVersion(contractId, label, imported.jsonSchema().toString(),
+                imported.openapiDocument() == null ? null : imported.openapiDocument().toString(), derivedFrom,
+                actorId.toString());
+        return contracts.findVersionDetail(versionId)
+                .orElseThrow(() -> new IllegalStateException("the imported contract version vanished after insert"));
+    }
+
+    /** GET /api/v1/admin/contracts - every contract of the tenant with its versions side by side (RETIRED kept). */
+    @Transactional(readOnly = true)
+    public List<ContractWithVersions> listContracts() {
+        Map<String, List<VersionDetail>> versions = contracts.listVersionDetails(null).stream()
+                .collect(Collectors.groupingBy(VersionDetail::contractId));
+        return contracts.listContracts().stream()
+                .map(contract -> new ContractWithVersions(contract,
+                        inLabelOrder(versions.getOrDefault(contract.id(), List.of()))))
+                .toList();
+    }
+
+    /** GET /api/v1/admin/contracts/{contractId}/versions - 404 when the bound tenant cannot see the contract. */
+    @Transactional(readOnly = true)
+    public ContractWithVersions versionsOf(String contractId) {
+        ContractSummary contract = requireUuid(contractId)
+                .flatMap(contracts::findContractById)
+                .orElseThrow(ConfigApiException::notFound);
+        return new ContractWithVersions(contract, inLabelOrder(contracts.listVersionDetails(contract.id())));
+    }
+
+    /** GET /api/v1/admin/contracts/versions/{id} - any status, RETIRED included (ADR-011 Decision 3 rule 4). */
+    @Transactional(readOnly = true)
+    public VersionDetail readDetail(String versionId) {
+        return requireUuid(versionId).flatMap(contracts::findVersionDetail).orElseThrow(ConfigApiException::notFound);
+    }
+
+    /**
+     * POST /api/v1/admin/contracts/versions/{id}/approve - PENDING_APPROVAL to APPROVED by someone other than the
+     * author (403 AUTHOR_IS_APPROVER); any other state is 409 NOT_PENDING_APPROVAL; a row the tenant cannot see 404.
+     */
+    @Transactional
+    public VersionDetail approve(String versionId, UUID approverId) {
+        String id = requireUuid(versionId).orElseThrow(ConfigApiException::notFound);
+        String result = contracts.approveVersion(id, approverId.toString());
+        return switch (result) {
+            case "APPROVED" -> contracts.findVersionDetail(id)
+                    .orElseThrow(() -> new IllegalStateException("the approved contract version vanished"));
+            case "VERSION_NOT_FOUND" -> throw ConfigApiException.notFound();
+            case "REFUSED_AUTHOR_IS_APPROVER" -> throw ConfigApiException.refusal(403, "AUTHOR_IS_APPROVER");
+            default -> throw ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL");
+        };
+    }
+
+    /** The newest APPROVED version of the system's contract in {@code role} (T-106; RETIRED is no new pin). */
+    @Transactional(readOnly = true)
+    public Optional<VersionDetail> newestApproved(String systemCode, String role) {
+        return systems.findSystemByCode(systemCode)
+                .flatMap(system -> contracts.findContract(system.id(), role))
+                .flatMap(contract -> contracts.listVersionDetails(contract.id()).stream()
+                        .filter(version -> version.status().equals("APPROVED"))
+                        .max(Comparator.comparing(VersionDetail::versionLabel, ContractAdminService::compareLabels)));
+    }
+
+    /** The source request contract keeps the E3 code (the system code); every other role is {@code code:ROLE}. */
+    private static String contractCode(String systemCode, String role) {
+        return role.equals("SOURCE_REQUEST") ? systemCode : systemCode + ":" + role;
+    }
+
+    private static Format format(String value) {
+        for (Format format : Format.values()) {
+            if (format.name().equals(value)) {
+                return format;
+            }
+        }
+        throw ConfigApiException.validation("format must be OPENAPI or JSON_SCHEMA");
+    }
+
+    private static List<VersionDetail> inLabelOrder(List<VersionDetail> versions) {
+        return versions.stream()
+                .sorted(Comparator.comparing(VersionDetail::versionLabel, ContractAdminService::compareLabels))
+                .toList();
+    }
+
+    /** A path id that is not a uuid names no row of any tenant: 404, never a cast error. */
+    private static Optional<String> requireUuid(String id) {
+        return id != null && UUID_TEXT.matcher(id).matches() ? Optional.of(id) : Optional.empty();
     }
 
     /** POST /api/v1/admin/contracts/versions - the draft-save (answers 200, it stores a row, it creates no new API resource). */
@@ -61,12 +211,6 @@ public class ContractAdminService {
         String versionId = contracts.insertVersion(contractId, label, sourceSchema.toString(), actorId.toString());
         return contracts.findVersionById(versionId)
                 .orElseThrow(() -> new IllegalStateException("the contract version row vanished after insert"));
-    }
-
-    /** GET /api/v1/admin/contracts/versions/{id}. */
-    @Transactional(readOnly = true)
-    public VersionRow read(String versionId) {
-        return contracts.findVersionById(versionId).orElseThrow(ConfigApiException::notFound);
     }
 
     /** POST /api/v1/admin/contracts/versions/{id}/submit - the definer move draft -> pending approval. */

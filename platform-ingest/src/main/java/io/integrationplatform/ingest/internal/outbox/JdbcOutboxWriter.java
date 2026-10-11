@@ -34,17 +34,20 @@ public class JdbcOutboxWriter extends TenantScopedRepository implements OutboxWr
 
     private static final String APPEND_DUE_NOW = """
             with ins as (
-                insert into public.outbox (tenant_id, topic, aggregate_id, record_key, key_bucket, traceparent)
-                values (:tenant_id::uuid, :topic, :aggregate_id::uuid, :record_key, :key_bucket, :traceparent)
+                insert into public.outbox
+                    (tenant_id, topic, aggregate_id, record_key, key_bucket, traceparent, contract_version_id)
+                values (:tenant_id::uuid, :topic, :aggregate_id::uuid, :record_key, :key_bucket, :traceparent,
+                        :contract_version_id::uuid)
                 returning id, tenant_id)
             select id from ins""";
 
     private static final String APPEND_DEFERRED = """
             with ins as (
                 insert into public.outbox
-                    (tenant_id, topic, aggregate_id, record_key, key_bucket, traceparent, available_at)
+                    (tenant_id, topic, aggregate_id, record_key, key_bucket, traceparent, available_at,
+                     contract_version_id)
                 values (:tenant_id::uuid, :topic, :aggregate_id::uuid, :record_key, :key_bucket, :traceparent,
-                        :available_at)
+                        :available_at, :contract_version_id::uuid)
                 returning id, tenant_id)
             select id from ins""";
 
@@ -60,6 +63,9 @@ public class JdbcOutboxWriter extends TenantScopedRepository implements OutboxWr
         params.put("record_key", entry.recordKey());
         params.put("key_bucket", KeyBuckets.of(entry.recordKey()));
         params.put("traceparent", entry.traceparent());
+        // T-106: the caller's resolved contract version (additive, nullable - V2_1_2)
+        params.put("contract_version_id",
+                entry.contractVersionId() == null ? null : entry.contractVersionId().toString());
         String sql = APPEND_DUE_NOW;
         if (entry.availableAt() != null) {
             sql = APPEND_DEFERRED;
