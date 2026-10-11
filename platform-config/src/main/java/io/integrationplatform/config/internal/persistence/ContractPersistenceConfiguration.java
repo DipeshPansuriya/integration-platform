@@ -1,6 +1,8 @@
 package io.integrationplatform.config.internal.persistence;
 
+import io.integrationplatform.config.contract.api.ContractVersions;
 import io.integrationplatform.config.contract.application.ContractAdminService;
+import io.integrationplatform.config.contract.application.ContractVersionResolver;
 import io.integrationplatform.tenancy.TenantContext;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
@@ -24,5 +26,11 @@ class ContractPersistenceConfiguration {
     @Bean
     ContractAdminService contractAdminService(JdbcContractRepository contracts, JdbcSystemRepository systems) {
         return new ContractAdminService(contracts, systems);
+    }
+
+    /** T-106: the public port other modules ask "which contract version does a message use now". */
+    @Bean
+    ContractVersions contractVersions(ContractAdminService contracts) {
+        return new ContractVersionResolver(contracts);
     }
 }
