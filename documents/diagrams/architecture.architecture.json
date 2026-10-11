@@ -146,7 +146,7 @@
       "id": "ingest",
       "type": "backend",
       "label": "platform-ingest",
-      "sublabel": "common API, bulk split",
+      "sublabel": "API, bulk, RuleEvaluationPort",
       "pos": [
         315,
         330
