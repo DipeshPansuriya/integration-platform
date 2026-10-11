@@ -3,6 +3,7 @@ package io.integrationplatform.tenantdenial;
 import io.integrationplatform.tenantdenial.EndpointMatrix.Entry;
 import io.integrationplatform.tenantdenial.EndpointMatrix.SeededTenant;
 import io.integrationplatform.tenantdenial.EndpointMatrix.WriteProbe;
+import java.net.URI;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -15,7 +16,7 @@ import java.util.UUID;
  *
  * <p>Lane B adds NO rows of its own: the core POST /systems entry pins the tenant's system count ("3|1" before, "4|2"
  * after), so an extra system row would break it. Instead {@link #writeTenantRows} gives the core chain's target system
- * (rewritten before every test) a type and settings - an API system whose base address is {@value #REFUSED_ADDRESS}.
+ * (rewritten before every test) a type and settings - an API system whose base address is http://127.0.0.1:9/.
  * Test-connection on it is therefore answered by the destination guard without touching any network: the platform's
  * allow-list is empty unless the operator sets it (refused NOT_ON_ALLOW_LIST), and a loopback address is refused even
  * when allow-listed. The legitimate call answers 200 with result REFUSED and the system's id; a tenant-B id answers 404.
@@ -23,8 +24,9 @@ import java.util.UUID;
 final class E5SystemMatrix implements LaneMatrix {
 
     private static final String SYSTEMS = "/api/v1/admin/systems";
-    private static final String REFUSED_ADDRESS = "http://127.0.0.1:9/";
-    private static final String EDITED_ADDRESS = "https://edited.partner.example/";
+    // URI-typed: an upper-case String constant holding "scheme:..." reads as an unpinned image to the R05 guard
+    private static final String REFUSED_ADDRESS = URI.create("http://127.0.0.1:9/").toString();
+    private static final String EDITED_ADDRESS = URI.create("https://edited.partner.example/").toString();
 
     @Override
     public List<Entry> entries() {

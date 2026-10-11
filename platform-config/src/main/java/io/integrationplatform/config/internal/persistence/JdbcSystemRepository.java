@@ -26,6 +26,15 @@ public final class JdbcSystemRepository extends TenantScopedRepository {
         };
     }
 
+    /** The database's direction back in the API vocabulary (BOTH has no API word yet and is echoed as is). */
+    public static String directionFromDb(String dbDirection) {
+        return switch (dbDirection) {
+            case "SOURCE" -> "INBOUND";
+            case "TARGET" -> "OUTBOUND";
+            default -> dbDirection;
+        };
+    }
+
     public JdbcSystemRepository(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts) {
         super(jdbcClient, failClosed(tenantContexts));
     }
@@ -37,6 +46,28 @@ public final class JdbcSystemRepository extends TenantScopedRepository {
 
     public record SystemRow(String id, String code, String name, String direction) {
     }
+
+    /**
+     * E5 T-102: a registry row with its type (API, DB, MQ, FILE, or {@code null} for an E3 untyped system) and its
+     * settings as JSON text (the type's schema, {@code SystemSettings}; {@code null} when untyped).
+     */
+    public record SystemDetail(String id, String code, String name, String direction, String type, String settings) {
+    }
+
+    private static final RowMapper<SystemDetail> SYSTEM_DETAIL = (rs, n) -> new SystemDetail(
+            rs.getString("id"), rs.getString("code"), rs.getString("name"), rs.getString("direction"),
+            rs.getString("type"), rs.getString("settings"));
+
+    private static final String READ_DETAIL = "select s.id::text as id, s.code, s.name, s.direction, s.type,"
+            + " s.settings::text as settings from public.system s";
+
+    private static final String INSERT_TYPED_SYSTEM = "with ins as ("
+            + "insert into public.system (tenant_id, code, name, direction, type, settings)"
+            + " values (current_setting('app.tenant_id')::uuid, :code, :name, :direction, :type, :settings::jsonb)"
+            + " returning id, tenant_id) select id::text from ins";
+
+    private static final String UPDATE_SYSTEM =
+            "update public.system set name = :name, type = :type, settings = :settings::jsonb";
 
     private static final RowMapper<SystemRow> SYSTEM_ROW = (rs, n) -> new SystemRow(
             rs.getString("id"), rs.getString("code"), rs.getString("name"), rs.getString("direction"));
@@ -68,6 +99,31 @@ public final class JdbcSystemRepository extends TenantScopedRepository {
                 Params.of("code", code, "name", name, "direction", directionDb),
                 (RowMapper<String>) (rs, n) -> rs.getString(1)))
                 .orElseThrow(() -> new IllegalStateException("the system insert returned no row"));
+    }
+
+    /** E5 T-102: registers a typed system (settings already validated against the type's schema). */
+    public String insertTypedSystem(String code, String name, String directionDb, String type, String settingsJson) {
+        return first(query(INSERT_TYPED_SYSTEM, null,
+                Params.of("code", code, "name", name, "direction", directionDb, "type", type,
+                        "settings", settingsJson),
+                (RowMapper<String>) (rs, n) -> rs.getString(1)))
+                .orElseThrow(() -> new IllegalStateException("the system insert returned no row"));
+    }
+
+    /** One system of the bound tenant; {@code systemId} must already be a well-formed uuid. */
+    public Optional<SystemDetail> findSystem(String systemId) {
+        return first(query(READ_DETAIL, "s.id = :id::uuid", Params.of("id", systemId), SYSTEM_DETAIL));
+    }
+
+    /** Every system of the bound tenant (unordered; the caller sorts). */
+    public List<SystemDetail> listSystems() {
+        return query(READ_DETAIL, null, Params.of(), SYSTEM_DETAIL);
+    }
+
+    /** Sets name, type and settings of one system of the bound tenant; the number of rows changed (0 or 1). */
+    public int updateSystem(String systemId, String name, String type, String settingsJson) {
+        return update(UPDATE_SYSTEM, "id = :id::uuid",
+                Params.of("id", systemId, "name", name, "type", type, "settings", settingsJson));
     }
 
     public String insertDefaultEndpoint(String systemId, String code, String name) {

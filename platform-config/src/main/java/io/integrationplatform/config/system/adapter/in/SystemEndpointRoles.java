@@ -1,0 +1,26 @@
+package io.integrationplatform.config.system.adapter.in;
+
+import io.integrationplatform.tenancy.RolePolicy.Operation;
+import io.integrationplatform.tenancy.port.ApiOperationRules;
+import java.util.List;
+import org.springframework.stereotype.Component;
+
+/**
+ * E5 T-102 / T-104: the role rule of each systems endpoint this lane adds (the E3 {@code POST /api/v1/admin/systems}
+ * keeps its line in ConfigEndpointRoles - never named twice). Reading is READ_CONFIGURATION; editing and
+ * test-connection (it reaches outside the platform) are EDIT_CONFIGURATION - configurators and tenant admins.
+ */
+@Component
+public class SystemEndpointRoles implements ApiOperationRules {
+
+    private static final String SYSTEMS = "/api/v1/admin/systems";
+
+    @Override
+    public List<Rule> rules() {
+        return List.of(
+                new Rule("GET", SYSTEMS, Operation.READ_CONFIGURATION),
+                new Rule("GET", SYSTEMS + "/{systemId}", Operation.READ_CONFIGURATION),
+                new Rule("PUT", SYSTEMS + "/{systemId}", Operation.EDIT_CONFIGURATION),
+                new Rule("POST", SYSTEMS + "/{systemId}/test-connection", Operation.EDIT_CONFIGURATION));
+    }
+}

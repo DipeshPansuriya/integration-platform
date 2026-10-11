@@ -470,6 +470,29 @@
       "variant": "dashed",
       "fromSide": "left",
       "toSide": "right"
+    },
+    {
+      "id": "test-connection",
+      "from": "config",
+      "to": "targets",
+      "label": "test-connection via destination guard",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "right",
+      "via": [
+        [
+          400,
+          30
+        ],
+        [
+          1384,
+          30
+        ],
+        [
+          1384,
+          363
+        ]
+      ]
     }
   ],
   "cards": [
