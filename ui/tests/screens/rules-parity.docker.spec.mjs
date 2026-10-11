@@ -73,7 +73,7 @@ test.beforeAll(async ({ browser }) => {
     await page.goto(consoleUrl());
     const marker = Date.now().toString(36);
     const flow = await api(page, 'POST', '/api/v1/admin/flows', {
-      sourceSystem: `parity-src-${marker}`,
+      sourceSystem: 'S', // the source system boot-backend registers through the real systems API
       destinations: [`parity-dst-${marker}`],
       businessKeyRule: 'reference'
     });
