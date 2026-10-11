@@ -15,6 +15,190 @@
         },
         "type": "object"
       },
+      "ContractBody": {
+        "description": "One contract with its versions side by side, in label order",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "contractId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "SOURCE_REQUEST",
+              "SOURCE_RESPONSE",
+              "TARGET_REQUEST",
+              "TARGET_RESPONSE"
+            ],
+            "type": "string"
+          },
+          "system": {
+            "type": "string"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/ContractVersionSummary"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ContractImportErrorBody": {
+        "description": "A refused import: the refusal and, for a document that does not parse, the parser's errors",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "parserErrors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ContractListBody": {
+        "description": "Every contract of the tenant",
+        "properties": {
+          "contracts": {
+            "items": {
+              "$ref": "#/components/schemas/ContractBody"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ContractVersionBody": {
+        "description": "One contract version with its schema",
+        "properties": {
+          "approverId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "authorId": {
+            "type": "string"
+          },
+          "changeNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contractId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "derivedFromVersionId": {
+            "description": "Lineage: the version this one derives from",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "jsonSchema": {
+            "additionalProperties": {},
+            "description": "The canonical JSON Schema (draft 2020-12)",
+            "type": "object"
+          },
+          "openapiDocument": {
+            "additionalProperties": {},
+            "description": "The original OpenAPI document, or null for a JSON Schema import",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "role": {
+            "enum": [
+              "SOURCE_REQUEST",
+              "SOURCE_RESPONSE",
+              "TARGET_REQUEST",
+              "TARGET_RESPONSE"
+            ],
+            "type": "string"
+          },
+          "sourceSchema": {
+            "additionalProperties": {},
+            "description": "The same schema under its E3 name (draft screens)",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "PENDING_APPROVAL",
+              "APPROVED",
+              "RETIRED"
+            ],
+            "type": "string"
+          },
+          "system": {
+            "description": "The system code the contract describes",
+            "type": "string"
+          },
+          "versionLabel": {
+            "description": "major.minor",
+            "example": "2.0",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ContractVersionSummary": {
+        "description": "One version in a side-by-side listing",
+        "properties": {
+          "approverId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "authorId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "derivedFromVersionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "PENDING_APPROVAL",
+              "APPROVED",
+              "RETIRED"
+            ],
+            "type": "string"
+          },
+          "versionLabel": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "JsonNode": {
         "properties": {
           "array": {
@@ -164,6 +348,36 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/contracts": {
+      "get": {
+        "operationId": "listContracts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractListBody"
+                }
+              }
+            },
+            "description": "Every contract of the tenant with its versions side by side"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: reading configuration needs a configuration role"
+          }
+        },
+        "tags": [
+          "contract-version-admin-controller"
+        ]
+      }
+    },
     "/api/v1/admin/contracts/versions": {
       "post": {
         "operationId": "saveDraft_1",
@@ -225,6 +439,66 @@
         ]
       }
     },
+    "/api/v1/admin/contracts/versions/import": {
+      "post": {
+        "operationId": "importVersion",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractVersionBody"
+                }
+              }
+            },
+            "description": "The new DRAFT version, its schema imported"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractImportErrorBody"
+                }
+              }
+            },
+            "description": "A refused field, or a document that does not parse - with the parser's errors"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: editing configuration needs TENANT_ADMIN or CONFIGURATOR"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Conflict: the contract already has this version label"
+          }
+        },
+        "tags": [
+          "contract-version-admin-controller"
+        ]
+      }
+    },
     "/api/v1/admin/contracts/versions/{versionId}": {
       "get": {
         "operationId": "read_1",
@@ -241,14 +515,13 @@
         "responses": {
           "200": {
             "content": {
-              "*/*": {
+              "application/json": {
                 "schema": {
-                  "additionalProperties": {},
-                  "type": "object"
+                  "$ref": "#/components/schemas/ContractVersionBody"
                 }
               }
             },
-            "description": "OK"
+            "description": "The version with its schema, any status (RETIRED stays readable)"
           },
           "403": {
             "content": {
@@ -269,6 +542,66 @@
               }
             },
             "description": "Not found: the row is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "contract-version-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/contracts/versions/{versionId}/approve": {
+      "post": {
+        "operationId": "approveContractVersion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "versionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractVersionBody"
+                }
+              }
+            },
+            "description": "The version, now APPROVED by the caller"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, ROLE_NOT_GRANTED, or AUTHOR_IS_APPROVER: the author never approves their own version"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the version is not visible to the bound tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NOT_PENDING_APPROVAL: only a submitted version is approvable"
           }
         },
         "tags": [
@@ -350,6 +683,56 @@
               }
             },
             "description": "Conflict: only a DRAFT contract version submits"
+          }
+        },
+        "tags": [
+          "contract-version-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/contracts/{contractId}/versions": {
+      "get": {
+        "operationId": "versionsOf",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contractId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractBody"
+                }
+              }
+            },
+            "description": "One contract with its versions side by side"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: reading configuration needs a configuration role"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the contract is not visible to the bound tenant"
           }
         },
         "tags": [
@@ -1176,6 +1559,38 @@
       }
     },
     "/api/v1/admin/systems": {
+      "get": {
+        "operationId": "listSystems",
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every system of the bound tenant, ordered by code"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow the operation"
+          }
+        },
+        "tags": [
+          "system-admin-controller"
+        ]
+      },
       "post": {
         "operationId": "create",
         "requestBody": {
@@ -1208,7 +1623,7 @@
                 }
               }
             },
-            "description": "A validation refusal names the refused field or value"
+            "description": "Every validation error is listed (errors) and joined (error)"
           },
           "403": {
             "content": {
@@ -1218,7 +1633,7 @@
                 }
               }
             },
-            "description": "NO_BOUND_USER: the bearer resolves to no directory user"
+            "description": "NO_BOUND_USER, or the role does not allow the operation"
           },
           "409": {
             "content": {
@@ -1229,6 +1644,187 @@
               }
             },
             "description": "Conflict: a system with this code is already registered"
+          }
+        },
+        "tags": [
+          "system-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/systems/{systemId}": {
+      "get": {
+        "operationId": "readSystem",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "systemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow the operation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the row is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "system-admin-controller"
+        ]
+      },
+      "put": {
+        "operationId": "updateSystem",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "systemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK: the edited system"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Every validation error is listed (errors) and joined (error)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow the operation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the row is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "system-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/systems/{systemId}/test-connection": {
+      "post": {
+        "operationId": "testConnection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "systemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The result: SUCCESS (httpStatus, responseTimeMs), REFUSED (reason, before any data is sent), FAILED (reason), NOT_AVAILABLE_YET (the type's test arrives with its adapter) or NOT_CONFIGURED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow the operation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the row is not visible to the bound tenant"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "TEST_CONNECTION_RATE_LIMITED: over the per-user limit"
           }
         },
         "tags": [
@@ -1260,7 +1856,7 @@
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:60713"
+      "url": "http://127.0.0.1:58212"
     }
   ]
 }
