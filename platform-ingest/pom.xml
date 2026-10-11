@@ -27,6 +27,12 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>
     </dependency>
+    <!-- E6 lane A (T-027): the intake validation reads the configuration module's public rules port
+         (io.integrationplatform.config.rule.api.RuleEvaluationPort) - read only; the data plane never writes config. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-config</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-jdbc</artifactId>
