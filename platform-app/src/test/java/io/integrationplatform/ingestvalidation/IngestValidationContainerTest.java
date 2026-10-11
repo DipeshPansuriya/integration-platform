@@ -22,8 +22,9 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -102,6 +103,8 @@ class IngestValidationContainerTest {
                       {"id":"e2","sourceId":"checks","targetId":"response","type":"edge"}]}
             """;
 
+    private static final AtomicBoolean SEEDED = new AtomicBoolean();
+
     private static final UUID TENANT = UUID.randomUUID();
     private static final UUID USER = UUID.randomUUID();
     private static final UUID INTERFACE = UUID.randomUUID();
@@ -134,8 +137,12 @@ class IngestValidationContainerTest {
         }
     }
 
-    @BeforeAll
-    static void seedTheStoredRuleSet() throws SQLException {
+    /** Once, after the context has migrated the schema (Flyway runs at context start). */
+    @BeforeEach
+    void seedTheStoredRuleSet() throws SQLException {
+        if (!SEEDED.compareAndSet(false, true)) {
+            return;
+        }
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
             execute(owner, "INSERT INTO tenant (id, code, status, time_zone) VALUES (?::uuid, ?, 'ACTIVE', 'Etc/UTC')",
                     TENANT.toString(), "tnt-e6-ingest-" + TENANT.toString().substring(0, 8));
