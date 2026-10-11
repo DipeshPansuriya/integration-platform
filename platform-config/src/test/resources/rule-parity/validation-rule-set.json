@@ -1,0 +1,35 @@
+{
+  "nodes": [
+    {"id": "request", "type": "inputNode", "name": "Request", "position": {"x": 0, "y": 0}},
+    {"id": "order-checks", "type": "decisionTableNode", "name": "Order checks", "position": {"x": 240, "y": 0},
+     "content": {
+       "hitPolicy": "collect",
+       "inputs": [
+         {"id": "c1", "name": "Amount", "field": "amount"},
+         {"id": "c2", "name": "Currency", "field": "currency"},
+         {"id": "c3", "name": "Reference", "field": "reference"},
+         {"id": "c4", "name": "Country", "field": "country"}
+       ],
+       "outputs": [
+         {"id": "o1", "name": "Field", "field": "violation.field"},
+         {"id": "o2", "name": "Code", "field": "violation.code"},
+         {"id": "o3", "name": "Message", "field": "violation.message"},
+         {"id": "o4", "name": "Route", "field": "route"}
+       ],
+       "rules": [
+         {"_id": "r1", "c1": "> 1000", "c2": "", "c3": "", "c4": "", "o1": "\"amount\"", "o2": "\"AMOUNT_TOO_HIGH\"", "o3": "\"amount must not exceed 1000\"", "o4": ""},
+         {"_id": "r2", "c1": "< 0", "c2": "", "c3": "", "c4": "", "o1": "\"amount\"", "o2": "\"AMOUNT_NEGATIVE\"", "o3": "\"amount must not be negative\"", "o4": ""},
+         {"_id": "r3", "c1": "", "c2": "not in [\"EUR\", \"USD\", \"GBP\"]", "c3": "", "c4": "", "o1": "\"currency\"", "o2": "\"CURRENCY_UNKNOWN\"", "o3": "\"currency is not accepted\"", "o4": ""},
+         {"_id": "r4", "c1": "", "c2": "", "c3": "\"\"", "c4": "", "o1": "\"reference\"", "o2": "\"REFERENCE_REQUIRED\"", "o3": "\"reference is required\"", "o4": ""},
+         {"_id": "r5", "c1": "", "c2": "", "c3": "", "c4": "\"NL\", \"DE\"", "o1": "", "o2": "", "o3": "", "o4": "\"dst-eu\""},
+         {"_id": "r6", "c1": "", "c2": "", "c3": "", "c4": "\"US\"", "o1": "", "o2": "", "o3": "", "o4": "\"dst-us\""},
+         {"_id": "r7", "c1": "[500..1000]", "c2": "", "c3": "", "c4": "", "o1": "", "o2": "", "o3": "", "o4": "\"dst-review\""}
+       ]
+     }},
+    {"id": "response", "type": "outputNode", "name": "Response", "position": {"x": 480, "y": 0}}
+  ],
+  "edges": [
+    {"id": "e1", "sourceId": "request", "targetId": "order-checks", "type": "edge"},
+    {"id": "e2", "sourceId": "order-checks", "targetId": "response", "type": "edge"}
+  ]
+}

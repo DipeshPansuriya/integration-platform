@@ -1,0 +1,22 @@
+[
+  {"id": "s01", "input": {"amount": 10, "currency": "EUR", "reference": "ord-01", "country": "FR"}},
+  {"id": "s02", "input": {"amount": 1500, "currency": "EUR", "reference": "ord-02", "country": "FR"}},
+  {"id": "s03", "input": {"amount": -5, "currency": "EUR", "reference": "ord-03", "country": "FR"}},
+  {"id": "s04", "input": {"amount": 10, "currency": "XXX", "reference": "ord-04", "country": "FR"}},
+  {"id": "s05", "input": {"amount": 10, "currency": "EUR", "reference": "", "country": "FR"}},
+  {"id": "s06", "input": {"amount": 10, "currency": "EUR", "reference": "ord-06", "country": "NL"}},
+  {"id": "s07", "input": {"amount": 10, "currency": "USD", "reference": "ord-07", "country": "US"}},
+  {"id": "s08", "input": {"amount": 700, "currency": "GBP", "reference": "ord-08", "country": "FR"}},
+  {"id": "s09", "input": {"amount": 1500, "currency": "XXX", "reference": "", "country": "FR"}},
+  {"id": "s10", "input": {"amount": -5, "currency": "ZZZ", "reference": "", "country": "NL"}},
+  {"id": "s11", "input": {"amount": 1500, "currency": "USD", "reference": "ord-11", "country": "DE"}},
+  {"id": "s12", "input": {"amount": 700, "currency": "EUR", "reference": "ord-12", "country": "US"}},
+  {"id": "s13", "input": {"amount": 1000, "currency": "EUR", "reference": "ord-13", "country": "BE"}},
+  {"id": "s14", "input": {"amount": 1001, "currency": "EUR", "reference": "ord-14", "country": "BE"}},
+  {"id": "s15", "input": {"amount": 0, "currency": "EUR", "reference": "ord-15", "country": "BE"}},
+  {"id": "s16", "input": {"amount": 500, "currency": "JPY", "reference": "", "country": "DE"}},
+  {"id": "s17", "input": {"amount": 12.5, "currency": "GBP", "reference": "ord-17", "country": "BE"}},
+  {"id": "s18", "input": {"amount": 999.5, "currency": "USD", "reference": "ord-18", "country": "NL"}},
+  {"id": "s19", "input": {"amount": 2000, "currency": "GBP", "reference": "", "country": "US"}},
+  {"id": "s20", "input": {"amount": -1, "currency": "EUR", "reference": "ord-20", "country": "US"}}
+]
