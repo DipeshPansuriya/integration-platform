@@ -26,6 +26,9 @@ re-confirms each recreation; every decision stays reversible on his review.
 | [ADR-010](ADR-010-camel-routing-core.md) | Apache Camel as the routing core, inside one module, with exactly two retry layers | Accepted (team, 2026-10-02) - Dipesh may reverse | New |
 | [ADR-011](ADR-011-targets-contracts-bulk-ordering.md) | Target types, contract registry and version graph, bulk at intake, ordering, ids-only Kafka records, background tenant | Accepted (team, 2026-10-02) - Dipesh may reverse | New |
 | [ADR-012](ADR-012-job-scheduler.md) | Job scheduler: db-scheduler, job definitions as our rows, platform-scoped jobs, no-tenant operator-agent credential, alerts as rows plus Prometheus | **Proposed** (2026-10-11) - three points wait for Dipesh; Dipesh approves | New |
+| [ADR-013](ADR-013-mapping-versions.md) | Mapping versions: immutable, content-addressed `mapping_version` rows created at draft save, referenced from the snapshot, pinned on deliveries | **Proposed** (2026-10-11) - blocks E7 lane C1; Dipesh approves | New |
+| [ADR-014](ADR-014-message-store-and-delivery-uniqueness.md) | Message store and delivery uniqueness: day-partitioned message and payload, deliveries on their message's day, unique (message_id, route_id, created_at) | **Proposed** (2026-10-11) - amends ADR-010 sections 2 and 6 on approval; blocks E8 lane A and E9 lane C; Dipesh approves | New |
+| [ADR-015](ADR-015-target-type-register-and-adapter-placement.md) | Target adapters in platform-routing; system-type register aligned to ADR-011 (MQ_CSV, KAFKA_TOPIC) in E10 | **Proposed** (2026-10-11) - Dipesh approves | New |
 
 ## Recreation additions waiting for Dipesh's re-confirmation
 
