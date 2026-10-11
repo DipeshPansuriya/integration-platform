@@ -1,0 +1,33 @@
+{
+  "about": "Reviewed licence exceptions for the console's production tree (read by scripts/check-licences.mjs). The allowed list is unchanged; each entry is pinned to name@version AND the exact licence declared when reviewed, so a new version or a changed licence fails the build again. All four arrive through @gorules/jdm-editor 1.52.0 -> exceljs 4.4.0. Decided by arjun-fullstack at the E6 wave-1 integration (2026-10-11); buffers is flagged to Dipesh for sign-off.",
+  "exceptions": [
+    {
+      "package": "pako@1.0.11",
+      "licence": "(MIT AND Zlib)",
+      "reason": "Both licences are permissive and OSI-approved (Zlib asks only that the origin is not misrepresented and the notice is kept in source). Shipped in the console bundle through exceljs -> jszip.",
+      "reviewedBy": "arjun-fullstack",
+      "reviewedOn": "2026-10-11"
+    },
+    {
+      "package": "chainsaw@0.1.0",
+      "licence": "MIT/X11",
+      "reason": "MIT/X11 is the MIT licence under its older name, not an SPDX id. Build-time only: exceljs Node path (unzipper -> binary); not present in the shipped console bundle (checked by searching dist/assets).",
+      "reviewedBy": "arjun-fullstack",
+      "reviewedOn": "2026-10-11"
+    },
+    {
+      "package": "traverse@0.3.9",
+      "licence": "MIT/X11",
+      "reason": "MIT/X11 is the MIT licence under its older name, not an SPDX id. Build-time only: exceljs Node path (unzipper -> binary -> chainsaw); not present in the shipped console bundle (checked by searching dist/assets).",
+      "reviewedBy": "arjun-fullstack",
+      "reviewedOn": "2026-10-11"
+    },
+    {
+      "package": "buffers@0.1.1",
+      "licence": "UNKNOWN",
+      "reason": "Declares no licence (package.json, README and the npm registry carry none; the upstream repository is gone). Build-time only: exceljs Node path (unzipper -> binary); not present in the shipped console bundle (checked by searching dist/assets), so nothing of it is distributed. Pending Dipesh's sign-off; to remove it, delete this entry and the build fails again on it.",
+      "reviewedBy": "arjun-fullstack",
+      "reviewedOn": "2026-10-11"
+    }
+  ]
+}

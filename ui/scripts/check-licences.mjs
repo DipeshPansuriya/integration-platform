@@ -74,15 +74,37 @@ function licenceOf(root, key, entry) {
   return 'UNKNOWN';
 }
 
+/**
+ * Reviewed exceptions (<root>/licence-exceptions.json): a package outside the allowed list passes only
+ * when an entry names its exact name@version AND the exact licence it declared when it was reviewed, with
+ * a reason. A new version, a changed licence or an entry without a reason does not apply. The allowed
+ * list itself is never widened here.
+ */
+function exceptionsOf(root) {
+  const file = path.join(root, 'licence-exceptions.json');
+  if (!fs.existsSync(file)) return new Map();
+  const entries = JSON.parse(fs.readFileSync(file, 'utf8')).exceptions ?? [];
+  return new Map(entries
+    .filter((e) => typeof e.reason === 'string' && e.reason.trim() !== '')
+    .map((e) => [`${e.package} | ${e.licence}`, e.reason]));
+}
+
 /** Every production package of the tree at `root`, sorted by name then version. */
 export function checkTree(root) {
   const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+  const exceptions = exceptionsOf(root);
   const packages = [];
   for (const [key, entry] of Object.entries(lock.packages ?? {})) {
     if (key === '' || entry.dev || entry.link) continue; // the console itself; dev-only; workspace links
     const name = entry.name ?? key.slice(key.lastIndexOf('node_modules/') + 'node_modules/'.length);
+    const version = entry.version ?? 'UNKNOWN';
     const licence = licenceOf(root, key, entry);
-    packages.push({ name, version: entry.version ?? 'UNKNOWN', licence, allowed: isAllowed(licence) });
+    if (isAllowed(licence)) {
+      packages.push({ name, version, licence, allowed: true });
+      continue;
+    }
+    const exception = exceptions.get(`${name}@${version} | ${licence}`);
+    packages.push(exception ? { name, version, licence, allowed: true, exception } : { name, version, licence, allowed: false });
   }
   packages.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
   return { allowedLicences: [...ALLOWED], packages, violations: packages.filter((p) => !p.allowed) };
@@ -110,7 +132,8 @@ function main(args) {
     console.error(`licence check: ${result.violations.length} of ${result.packages.length} production packages refused; allowed: ${ALLOWED.join(', ')}`);
     return 1;
   }
-  console.log(`licence check: ${result.packages.length} production packages, all on the allowed list${out ? ` (written to ${out})` : ''}`);
+  const excepted = result.packages.filter((p) => p.exception).length;
+  console.log(`licence check: ${result.packages.length} production packages, all on the allowed list${excepted ? ` or a reviewed exception (${excepted}, licence-exceptions.json)` : ''}${out ? ` (written to ${out})` : ''}`);
   return 0;
 }
 
