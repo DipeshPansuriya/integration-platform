@@ -6,9 +6,10 @@
   "description": "The console (E3, lane D): React + TypeScript Vite app. The typed API client is generated from the backend's own OpenAPI document (/v3/api-docs) and never hand-edited.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build": "tsc -p tsconfig.json --noEmit && vite build && npm run licence:check",
+    "licence:check": "node scripts/check-licences.mjs --out dist/licences.json",
     "preview": "vite preview",
-    "test": "node --test tests/slow-page-negative.test.mjs",
+    "test": "node --import ./tests/rules/ts-resolve.mjs --test tests/slow-page-negative.test.mjs tests/rules/licence-check.test.mjs tests/rules/editor-seam.contract.test.mjs tests/rules/test-panel.test.mjs",
     "generate:client": "node scripts/save-openapi.mjs",
     "test:container": "node --test tests/openapi-contract.docker.test.mjs",
     "test:screens": "playwright test",
@@ -17,9 +18,10 @@
     "test:perf-negative": "node --test tests/slow-page-negative.test.mjs"
   },
   "dependencies": {
+    "@gorules/jdm-editor": "1.52.0",
     "openapi-fetch": "^0.13.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

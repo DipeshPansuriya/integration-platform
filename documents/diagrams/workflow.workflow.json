@@ -101,7 +101,7 @@
       "col": 3,
       "type": "frontend",
       "label": "Interface + rules",
-      "sublabel": "routes, validations",
+      "sublabel": "rule tables, test panel",
       "width": 136
     },
     {
@@ -271,7 +271,7 @@
       "dot": "cyan",
       "title": "Configuration is data",
       "items": [
-        "Every step writes rows: 0 deploys, 0 migrations (PRD section 1)",
+        "Every step writes rows (rules too, as ZEN decision tables): 0 deploys, 0 migrations",
         "Edits are drafts, never live; published versions are immutable"
       ]
     },

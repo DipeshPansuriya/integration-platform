@@ -7,7 +7,7 @@
 // T-097 (E4-F1-S1): the shell shows the session's bound tenant (GET /api/v1/me) and signs
 // out by POSTing /logout (CSRF header) and navigating to the answer's sign-out address.
 
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { api, readCookie } from './api/client';
 import { FlowDefinition } from './pages/FlowDefinition';
 import { Versions } from './pages/Versions';
@@ -15,8 +15,16 @@ import { Versions } from './pages/Versions';
 // contract versions); lane D fills the two page files and never edits this shell.
 import { Systems } from './pages/Systems';
 import { ContractVersions } from './pages/ContractVersions';
+// E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
+// #/rules/<ruleSetId> authors one as decision tables beside the always-visible test panel. Loaded on
+// first use: the decision-table editor is a large bundle no other screen should pay for (page-load p95).
+const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
 
-type Route = { page: 'home' | 'flows' | 'versions' | 'systems' | 'contracts'; flowId: string | null };
+type Route = {
+  page: 'home' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules';
+  flowId: string | null;
+  ruleSetId?: string | null;
+};
 
 type Me = {
   userId?: string;
@@ -33,6 +41,9 @@ function parseHash(): Route {
   if (hash.startsWith('versions')) return { page: 'versions', flowId: null };
   if (hash.startsWith('systems')) return { page: 'systems', flowId: null };
   if (hash.startsWith('contracts')) return { page: 'contracts', flowId: null };
+  const ruleSet = /^rules\/(.+)$/.exec(hash);
+  if (ruleSet) return { page: 'rules', flowId: null, ruleSetId: decodeURIComponent(ruleSet[1]) };
+  if (hash.startsWith('rules')) return { page: 'rules', flowId: null, ruleSetId: null };
   return { page: 'home', flowId: null };
 }
 
@@ -78,6 +89,9 @@ export function App() {
         <button type="button" data-nav="contracts" onClick={() => (window.location.hash = '#/contracts')}>
           Contracts
         </button>
+        <button type="button" data-nav="rules" onClick={() => (window.location.hash = '#/rules')}>
+          Rules
+        </button>
         {me?.tenantCode && <span data-session-tenant>{me.tenantCode}</span>}
         {me && (
           <button type="button" data-action="logout" onClick={() => void logout()}>
@@ -89,6 +103,11 @@ export function App() {
       {route.page === 'versions' && <Versions />}
       {route.page === 'systems' && <Systems />}
       {route.page === 'contracts' && <ContractVersions />}
+      {route.page === 'rules' && (
+        <Suspense fallback={<p>Loading the rules editor...</p>}>
+          <RulesEditor ruleSetId={route.ruleSetId ?? null} />
+        </Suspense>
+      )}
       {route.page === 'home' && <main data-page="console-home">Integration Platform Console</main>}
     </div>
   );
