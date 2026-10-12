@@ -66,6 +66,30 @@ test('the ordering setting defaults to PER_KEY (ADR-011) and persists on save', 
   await expect(setting).toHaveValue('PER_KEY');
 });
 
+// F-1 (row 306 defect batch): the interface NAME typed by the configurator reaches the created
+// flow - the flow is born with that name, not the generated flow-<uuid> code. The answer is the
+// real API's collection read back through the browser's own session (no mock anywhere).
+test('the created flow is born with the interface name the configurator typed', async ({ page }) => {
+  await page.click('[data-nav="flows"]');
+  await page.click('[data-page="flow-definition"]');
+
+  await page.fill('[data-field="source-system"]', 'S');
+  await page.fill('[data-field="destination-1"]', 'T1');
+  await page.fill('[data-field="interface-name"]', `typed-name-${Date.now()}`);
+  await page.fill('[data-field="business-key-rule"]', 'customer_id');
+  await page.click('[data-action="save-draft"]');
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
+  const typedName = await page.inputValue('[data-field="interface-name"]');
+
+  const named = await page.evaluate(async ({ url, name }) => {
+    const rows = await fetch(`${url}/api/v1/admin/flows`, { credentials: 'include' })
+      .then((answer) => answer.json());
+    return (Array.isArray(rows) ? rows : []).filter((row) => row.name === name);
+  }, { url: consoleUrl(), name: typedName });
+  expect(named, `the flow the console created lists under the typed name "${typedName}", got: ${JSON.stringify(named.length)} flows with that name`)
+    .toHaveLength(1);
+});
+
 // E3-F1-S1 @negative @tenant "Another tenant's flow is invisible": a configurator of tenant B
 // opens tenant A's flow by id THROUGH THE SCREEN - the real API answers 404 (the flow is not
 // hidden behind a 403 hint, no tenant-A row is read) and the screen shows the not-found state.
