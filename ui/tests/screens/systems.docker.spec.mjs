@@ -155,6 +155,52 @@ test('a refused edit shows every validation error and keeps the stored settings'
   expect(stored.data.settings).toEqual({ host: 'mq.partner.test', port: 5672, queue: 'q1' });
 });
 
+// V-3 (row 306 defect batch, lane C): the Test connection button on the systems screen calls the
+// real POST /api/v1/admin/systems/{systemId}/test-connection and shows what the endpoint answers.
+// The suite's backend boots with an EMPTY destination allow-list (config-systems.yml - the
+// allow-list refuses every destination, fail closed), so an API system's test answers REFUSED
+// deterministically; result REFUSED is a 200 answer, shown as the endpoint names it.
+test('the row Test connection button tests an API system and shows the endpoint answer', async ({ page }) => {
+  await page.goto(consoleUrl());
+  const code = `sys-testconn-${RUN}`;
+  const seeded = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
+    code, name: 'Test me', direction: 'OUTBOUND', type: 'API',
+    settings: { baseUrl: 'https://partner.example.test/orders', timeoutMs: 5000 }
+  });
+  expect(seeded.status).toBe(201);
+
+  await openSystems(page);
+  const row = page.locator(`[data-system-row="${code}"]`);
+  await row.locator('[data-action="test-connection"]').click();
+
+  const answer = page.locator('[data-test-connection-result]');
+  await expect(answer).toBeVisible();
+  await expect(answer).toHaveAttribute('data-test-connection-result', 'REFUSED');
+  await expect(answer).toContainText(code);
+});
+
+// @negative: over the per-user rate limit (default 10 per 60s, config-systems.yml) the endpoint
+// answers 429 TEST_CONNECTION_RATE_LIMITED; the screen surfaces it the way its other refusals are.
+test('over the per-user rate limit the connection test is refused 429 and the refusal is shown', async ({ page }) => {
+  await page.goto(consoleUrl());
+  const code = `sys-ratelimit-${RUN}`;
+  const seeded = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
+    code, name: 'Rate limit me', direction: 'OUTBOUND', type: 'FILE', settings: { rootPath: '/data/x' }
+  });
+  expect(seeded.status).toBe(201);
+
+  await openSystems(page);
+  const testButton = page.locator(`[data-system-row="${code}"] [data-action="test-connection"]`);
+  // click past the fresh suite's per-user budget (10 per 60s); the limit check runs before the
+  // type check, so a FILE row reaches 429 without its adapter; this run shares test 1's clicks
+  for (let i = 0; i < 14; i++) {
+    await testButton.click();
+  }
+  const refusal = page.locator('[data-refusal="test-connection-refused-429"]');
+  await expect(refusal).toBeVisible();
+  await expect(refusal).toContainText('TEST_CONNECTION_RATE_LIMITED');
+});
+
 // @negative @tenant: systems are tenant-scoped.
 test('tenant B lists none of tenant A\'s systems and opening tenant A\'s id shows not found', async ({ page }) => {
   await page.goto(consoleUrl());
