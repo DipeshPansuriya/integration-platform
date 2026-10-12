@@ -96,6 +96,28 @@ export async function updateSystem(systemId: string, body: SystemEditBody): Prom
   return listedAnswer(data as unknown as SystemView, error, response);
 }
 
+/** The test-connection answer's fixed shape (T-104): every key always present, null where it does not apply. */
+export type TestConnectionResult = {
+  systemId: string;
+  type: string | null;
+  result: string;
+  httpStatus: number | null;
+  responseTimeMs: number | null;
+  reason: string | null;
+  detail: string | null;
+  message: string | null;
+};
+
+/** POST /api/v1/admin/systems/{systemId}/test-connection (T-104): test a system's connection - the
+ * typed client already carries the operation; a refusal (403/404 and the 429
+ * TEST_CONNECTION_RATE_LIMITED) comes back listedAnswer-shaped like every other call here. */
+export async function testConnection(systemId: string): Promise<ListedAnswer<TestConnectionResult>> {
+  const { data, error, response } = await api.POST('/api/v1/admin/systems/{systemId}/test-connection', {
+    params: { path: { systemId } }
+  });
+  return listedAnswer(data as unknown as TestConnectionResult, error, response);
+}
+
 /**
  * The settings object a form sends: only the type's own fields, blanks left out (the API names a
  * missing required one). A whole-number text is sent as a number; anything else is sent as typed,
