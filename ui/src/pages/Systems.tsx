@@ -6,7 +6,7 @@
 // The route and the menu entry live in App.tsx (the integrator's seam).
 
 import { useCallback, useEffect, useState } from 'react';
-import { listSystems, readSystem, TYPE_LABELS, type SystemType, type SystemView } from '../api/systems';
+import { listSystems, readSystem, testConnection, TYPE_LABELS, type SystemType, type SystemView } from '../api/systems';
 import { EditSystemForm } from './systems/EditSystemForm';
 import { RegisterSystemForm } from './systems/RegisterSystemForm';
 
@@ -15,6 +15,11 @@ function openIdFromHash(): string | null {
   const match = /^#\/?systems\/([^/?#]+)/.exec(window.location.hash);
   return match ? decodeURIComponent(match[1]) : null;
 }
+
+/** What the screen keeps of one test-connection answer: the system's code plus the endpoint's words. */
+type TestAnswer = { code: string; result: string; message: string | null };
+/** A refused connection test, surfaced like the screen's other refusals. */
+type TestRefusal = { code: string; status: number; reason: string };
 
 function settingsSummary(system: SystemView): string {
   if (!system.settings) return '-';
@@ -30,6 +35,22 @@ export function Systems() {
   const [openId, setOpenId] = useState<string | null>(openIdFromHash());
   const [open, setOpen] = useState<SystemView | null>(null);
   const [openRefusal, setOpenRefusal] = useState<string | null>(null);
+  const [testAnswer, setTestAnswer] = useState<TestAnswer | null>(null);
+  const [testRefusal, setTestRefusal] = useState<TestRefusal | null>(null);
+
+  // V-3 (row 306): the row's Test connection button - the endpoint's answer (one fixed shape) is
+  // shown as it names it; a refusal (403/404 and the 429 TEST_CONNECTION_RATE_LIMITED) is surfaced
+  // like the screen's other refusals.
+  const onTestConnection = useCallback(async (system: SystemView) => {
+    setTestAnswer(null);
+    setTestRefusal(null);
+    const result = await testConnection(system.id);
+    if (result.ok) {
+      setTestAnswer({ code: system.code, result: result.data.result, message: result.data.message });
+    } else {
+      setTestRefusal({ code: system.code, status: result.status, reason: result.refusal ?? result.error ?? '' });
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     const result = await listSystems();
@@ -102,6 +123,9 @@ export function Systems() {
                   onClick={() => (window.location.hash = `#/systems/${encodeURIComponent(system.id)}`)}
                 >
                   Open
+                </button>{' '}
+                <button type="button" data-action="test-connection" onClick={() => void onTestConnection(system)}>
+                  Test connection
                 </button>
               </td>
             </tr>
@@ -109,6 +133,19 @@ export function Systems() {
         </tbody>
       </table>
       {loaded && systems.length === 0 && listRefusal === null && <p data-systems-empty>No systems registered yet.</p>}
+
+      {testAnswer && (
+        <p data-test-connection-result={testAnswer.result}>
+          Connection test for <strong>{testAnswer.code}</strong>: {testAnswer.result}
+          {testAnswer.message ? ` - ${testAnswer.message}` : ''}
+        </p>
+      )}
+      {testRefusal && (
+        <p role="alert" data-refusal={`test-connection-refused-${testRefusal.status}`}>
+          The API refused the connection test for {testRefusal.code} (HTTP {testRefusal.status})
+          {testRefusal.reason ? `: ${testRefusal.reason}` : ''}.
+        </p>
+      )}
 
       {openRefusal === 'system-not-found' && (
         <p role="alert" data-refusal="system-not-found">
