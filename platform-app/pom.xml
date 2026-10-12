@@ -37,6 +37,12 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-config</artifactId>
     </dependency>
+    <!-- E7||E8 seam (arjun-fullstack, F5): the transform engine module on the deployable's classpath - empty at
+         seam time, wired by lane B1's port in wave 1. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-transform</artifactId>
+    </dependency>
     <dependency>
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>

@@ -15,6 +15,12 @@ spring:
       - optional:classpath:config/config-contracts.yml
       - optional:classpath:config/config-systems.yml
       - optional:classpath:config/config-secrets.yml
+      # E7||E8 seam (arjun-fullstack, F5/F6): one optional import line per lane settings file; the files themselves
+      # arrive with the lanes that own them. transform.yml - E7 lane B2 (T-109's 5 s mapping budget, platform-transform).
+      # routing-kafka.yml - E8's Kafka routing settings (platform-routing); FILL ONLY BY E8.
+      # R07: every value below stays an environment-variable NAME - no value, no default, in any of these files.
+      - optional:classpath:config/transform.yml
+      - optional:classpath:config/routing-kafka.yml
   # R07: connection settings come only from environment variable names; no value, no default.
   datasource:
     url: ${DB_URL}

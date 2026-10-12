@@ -28,6 +28,9 @@
     <!-- E3 seam (arjun-fullstack): platform-config skeleton registered so lanes B/C compile without touching this
          file; its insides (tables, API, lifecycle) stay in the lanes' own diffs. -->
     <module>platform-config</module>
+    <!-- E7||E8 seam (arjun-fullstack, F5): platform-transform registered EMPTY (skeleton + api only). Lane A's spike
+         (T-030..T-032) uses it test scope only; lane B1's port (T-108) fills src/main inside its own diff. -->
+    <module>platform-transform</module>
     <module>platform-tenancy</module>
     <module>platform-app</module>
     <!-- Test-only module: ArchUnit rules over every module's package (ADR-001 item 2, R08). Not part of the deployable. -->
@@ -63,6 +66,12 @@
          dependencies block), so dependencyConvergence and R12 are untouched. Its jar carries the native library per
          platform (win32-x86-64/zen_uniffi.dll included) and binds it through java.lang.foreign. -->
     <zen-engine.version>2.1.1</zen-engine.version>
+
+    <!-- E7 seam (arjun-fullstack, F5): ADR-006 (Accepted, Dipesh 2026-10-12) - the transformation engine is the
+         JSONata language through Dashjoin's Java port, called directly by platform-transform (E7 T-108). Apache-2.0
+         (LICENSE of dashjoin/jsonata-java on GitHub, release 0.9.10 on Maven Central). Pinning is the seam; the
+         engine-candidate additions for the spike stay in lane A's diff (test scope, platform-transform/pom.xml). -->
+    <jsonata.version>0.9.10</jsonata.version>
 
     <!-- Surefire (R03, R06): container tests are excluded unless -Pcontainer. -->
     <surefire.groups></surefire.groups>
@@ -157,6 +166,12 @@
         <artifactId>platform-config</artifactId>
         <version>${project.version}</version>
       </dependency>
+      <!-- E7||E8 seam (arjun-fullstack, F5): the transform engine module - the deployable and arch-test reference it. -->
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-transform</artifactId>
+        <version>${project.version}</version>
+      </dependency>
       <!-- E3 seam: OpenAPI document generation for the UI's typed client (T-158) and the contract test (T-094). -->
       <dependency>
         <groupId>org.springdoc</groupId>
@@ -172,6 +187,11 @@
         <groupId>io.gorules</groupId>
         <artifactId>zen-engine</artifactId>
         <version>${zen-engine.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.dashjoin</groupId>
+        <artifactId>jsonata</artifactId>
+        <version>${jsonata.version}</version>
       </dependency>
       <dependency>
         <groupId>com.tngtech.archunit</groupId>

@@ -15,15 +15,19 @@ import { Versions } from './pages/Versions';
 // contract versions); lane D fills the two page files and never edits this shell.
 import { Systems } from './pages/Systems';
 import { ContractVersions } from './pages/ContractVersions';
+// E7 seam (arjun-fullstack, F5): route + menu stub for lane D1's mapping canvas (#/mappings/<routeId>, T-034);
+// lane D fills the page file and never edits this shell.
+import { MappingDesigner } from './pages/MappingDesigner';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
 // #/rules/<ruleSetId> authors one as decision tables beside the always-visible test panel. Loaded on
 // first use: the decision-table editor is a large bundle no other screen should pay for (page-load p95).
 const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
 
 type Route = {
-  page: 'home' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules';
+  page: 'home' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings';
   flowId: string | null;
   ruleSetId?: string | null;
+  routeId?: string | null;
 };
 
 type Me = {
@@ -44,6 +48,10 @@ function parseHash(): Route {
   const ruleSet = /^rules\/(.+)$/.exec(hash);
   if (ruleSet) return { page: 'rules', flowId: null, ruleSetId: decodeURIComponent(ruleSet[1]) };
   if (hash.startsWith('rules')) return { page: 'rules', flowId: null, ruleSetId: null };
+  // E7 seam: #/mappings lists mappings - per route once the canvas (lane D1) fills the page.
+  const routeId = /^mappings\/(.+)$/.exec(hash);
+  if (routeId) return { page: 'mappings', flowId: null, routeId: decodeURIComponent(routeId[1]) };
+  if (hash.startsWith('mappings')) return { page: 'mappings', flowId: null, routeId: null };
   return { page: 'home', flowId: null };
 }
 
@@ -92,6 +100,9 @@ export function App() {
         <button type="button" data-nav="rules" onClick={() => (window.location.hash = '#/rules')}>
           Rules
         </button>
+        <button type="button" data-nav="mappings" onClick={() => (window.location.hash = '#/mappings')}>
+          Mappings
+        </button>
         {me?.tenantCode && <span data-session-tenant>{me.tenantCode}</span>}
         {me && (
           <button type="button" data-action="logout" onClick={() => void logout()}>
@@ -108,6 +119,7 @@ export function App() {
           <RulesEditor ruleSetId={route.ruleSetId ?? null} />
         </Suspense>
       )}
+      {route.page === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
       {route.page === 'home' && <main data-page="console-home">Integration Platform Console</main>}
     </div>
   );
