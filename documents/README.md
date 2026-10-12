@@ -17,7 +17,9 @@ provenance - each section names the surviving source it came from, or is labelle
 | [architecture.md](architecture.md) | Modules, data model, the message path with failure paths, tenant isolation controls, deployment |
 | [rule.md](rule.md) | Engineering rules, including the lessons measured on the deleted build |
 | [design.md](design.md) | The console's look and feel: reference design C (TBD for Dipesh), the console as built, what a restyle must keep |
+| [fetch.md](fetch.md) | Data and integration: systems registry, credentials, test-connection and the destination check, versioned contracts, target types, what crosses Kafka |
+| [interface.md](interface.md) | The common API (ADR-011 Decision 4, built in E11) and the admin API as built |
 | [adr/README.md](adr/README.md) | The ADR index |
 
-Recreated in the phase that first needs them: `fetch.md` and `interface.md` (systems and
-contract registry phase); `design.md` was recreated in the flow configuration phase (E3, T-095).
+Recreated in the phase that first needs them: `fetch.md` and `interface.md` were recreated in the
+systems and contract registry phase (E5, T-107); `design.md` in the flow configuration phase (E3, T-095).
