@@ -10,6 +10,7 @@ import io.integrationplatform.domain.delivery.DeliveryState;
 import io.integrationplatform.domain.delivery.OutcomeClass;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -27,6 +28,11 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  */
 @Tag("container")
 class DeliveryStateContainerTest {
+
+    // One day before the claim-store tests, as the original 10-08 vs 10-09 dates were: both classes share one database
+    // and TENANT_A, so this keeps one class's RETRY_WAIT rows out of the other's same-day lockDue windows. Yesterday's
+    // day partition always exists (the migration pre-creates CURRENT_DATE-1..+7 when the container starts).
+    private static final Instant DAY = Instant.now().truncatedTo(ChronoUnit.DAYS).minus(1, ChronoUnit.DAYS);
 
     private final DeliveryTestDatabase db = DeliveryTestDatabase.get();
     private HikariDataSource pool;
@@ -59,7 +65,7 @@ class DeliveryStateContainerTest {
         UUID id = UUID.randomUUID();
         UUID firstToken = UUID.randomUUID();
         UUID secondToken = UUID.randomUUID();
-        Instant at = Instant.parse("2026-10-08T10:00:00Z");
+        Instant at = DAY.plus(10, ChronoUnit.HOURS);
 
         tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> {
             var repository = repository();
@@ -92,7 +98,7 @@ class DeliveryStateContainerTest {
     @Test
     void anIllegalMoveAtTheDatabaseLevelChangesNothing() {
         UUID id = UUID.randomUUID();
-        Instant at = Instant.parse("2026-10-08T11:00:00Z");
+        Instant at = DAY.plus(11, ChronoUnit.HOURS);
         tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> repository().create(id,
                 DeliveryTestDatabase.INTERFACE_ID, "illegal-key", 9L, DeliveryTestDatabase.TARGET_ID, at));
 
@@ -110,7 +116,7 @@ class DeliveryStateContainerTest {
     void retryWaitSurvivesARestartWithItsStoredRetryTime() {
         UUID id = UUID.randomUUID();
         UUID token = UUID.randomUUID();
-        Instant at = Instant.parse("2026-10-08T12:00:00Z");
+        Instant at = DAY.plus(12, ChronoUnit.HOURS);
         Instant next = at.plusSeconds(300);
         tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> {
             var repository = repository();
@@ -136,7 +142,7 @@ class DeliveryStateContainerTest {
     @Test
     void anUnknownTenantCannotSeeTheDelivery() {
         UUID id = UUID.randomUUID();
-        Instant at = Instant.parse("2026-10-08T13:00:00Z");
+        Instant at = DAY.plus(13, ChronoUnit.HOURS);
         tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> repository().create(id,
                 DeliveryTestDatabase.INTERFACE_ID, "rls-see", 9L, DeliveryTestDatabase.TARGET_ID, at));
 

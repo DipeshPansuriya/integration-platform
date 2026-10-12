@@ -8,7 +8,7 @@
     "column_fit": "spread",
     "viewBox": [
       1400,
-      766
+      794
     ],
     "views": [
       {
@@ -21,7 +21,7 @@
           "ingest",
           "db"
         ],
-        "note": "Token; tenant and customer from our DB (client bootstrap); body customerId cross-check; one intake transaction (4.1 steps 1-5)."
+        "note": "Token; tenant + customer from our DB; customerId cross-check; schema then rules, all violations at once; one intake tx (4.1 steps 1-5)."
       },
       {
         "id": "route",
@@ -87,17 +87,17 @@
   "segments": [
     {
       "from": 146,
-      "to": 432,
+      "to": 460,
       "label": "1. Authenticate + intake"
     },
     {
-      "from": 446,
-      "to": 620,
+      "from": 474,
+      "to": 648,
       "label": "2. Relay + route (stage 1)"
     },
     {
-      "from": 634,
-      "to": 696,
+      "from": 662,
+      "to": 724,
       "label": "3. SYNC only"
     }
   ],
@@ -164,10 +164,18 @@
       "note": "Tenant never from the body or a header: a forged one is ignored and recorded"
     },
     {
-      "id": "m05",
+      "id": "m04e",
       "from": "ingest",
       "to": "db",
       "y": 362,
+      "label": "validate each record: contract schema, then rules",
+      "note": "JSON Schema (networknt, every error) first, then each VALIDATION rule set via platform-config's RuleEvaluationPort (ZEN); all violations in one rejection; rules skipped when the payload is not the contract's object (ADR-003 rule 4)"
+    },
+    {
+      "id": "m05",
+      "from": "ingest",
+      "to": "db",
+      "y": 390,
       "label": "one tx: message + payload + outbox",
       "variant": "emphasis",
       "note": "Idempotency key per source credential, 24 h; same key, other body = 422 (ADR-011 D4)"
@@ -176,7 +184,7 @@
       "id": "m06",
       "from": "ingest",
       "to": "source",
-      "y": 390,
+      "y": 418,
       "label": "202 per-record results",
       "variant": "return"
     },
@@ -184,15 +192,15 @@
       "id": "m07",
       "from": "ingest",
       "to": "source",
-      "y": 418,
-      "label": "400, 413, 422, 503 (nothing stored)",
+      "y": 446,
+      "label": "400 every violation listed, 413, 422, 503 (nothing stored)",
       "variant": "dashed"
     },
     {
       "id": "m08",
       "from": "ingest",
       "to": "kafka",
-      "y": 466,
+      "y": 494,
       "label": "relay: message.accepted, in order per key bucket",
       "variant": "emphasis",
       "note": "One publisher per key bucket (advisory lock); stops at the first failed row (ADR-005 D11)"
@@ -201,14 +209,14 @@
       "id": "m09",
       "from": "kafka",
       "to": "routing",
-      "y": 494,
+      "y": 522,
       "label": "stage 1 consumes"
     },
     {
       "id": "m09b",
       "from": "routing",
       "to": "db",
-      "y": 522,
+      "y": 550,
       "label": "claim idempotency_key \"outbox:<id>\"",
       "note": "Consumer-side duplicate guard (T-010): the key is stable per outbox row, so a crash re-publish finds a committed claim - duplicate, acknowledged, no effect (architecture.md section 3, ADR-001)"
     },
@@ -216,7 +224,7 @@
       "id": "m10",
       "from": "routing",
       "to": "db",
-      "y": 550,
+      "y": 578,
       "label": "one tx: ACCEPTED to ROUTED + deliveries + outbox",
       "variant": "emphasis",
       "note": "Key lock; 0 rows = duplicate; insert on conflict (message, route) do nothing; releases holds"
@@ -225,7 +233,7 @@
       "id": "m11",
       "from": "routing",
       "to": "kafka",
-      "y": 578,
+      "y": 606,
       "label": "unreadable record: platform.poison",
       "variant": "dashed"
     },
@@ -233,7 +241,7 @@
       "id": "m12",
       "from": "routing",
       "to": "kafka",
-      "y": 606,
+      "y": 634,
       "label": "DB error: pause partitions, back off",
       "variant": "dashed",
       "note": "A transient database error never poisons a record (ADR-005 D13)"
@@ -242,7 +250,7 @@
       "id": "m13",
       "from": "ingest",
       "to": "routing",
-      "y": 654,
+      "y": 682,
       "label": "inline stage 1, bulkhead permit, claim, one call",
       "variant": "dashed",
       "note": "Message and delivery outbox rows deferred by budget + 5 s (ADR-011 D5)"
@@ -251,7 +259,7 @@
       "id": "m14",
       "from": "ingest",
       "to": "source",
-      "y": 682,
+      "y": 710,
       "label": "200 mapped, error, or 202 PENDING",
       "variant": "return"
     }

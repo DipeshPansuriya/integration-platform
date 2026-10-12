@@ -3,6 +3,8 @@
   "pages": [
     { "name": "console-home", "path": "/", "wait": "[data-page=\"console-home\"]" },
     { "name": "flow-definition", "path": "/#/flows", "wait": "[data-field=\"source-system\"]" },
-    { "name": "versions", "path": "/#/versions", "wait": "[data-flow-row]" }
+    { "name": "versions", "path": "/#/versions", "wait": "[data-flow-row]" },
+    { "name": "systems", "path": "/#/systems", "wait": "[data-page=\"systems\"][data-systems-loaded=\"true\"]" },
+    { "name": "contracts", "path": "/#/contracts", "wait": "[data-page=\"contracts\"][data-contracts-loaded=\"true\"]" }
   ]
 }

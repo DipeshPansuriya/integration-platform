@@ -19,6 +19,9 @@ import java.util.Set;
  * A target's error dictionary may re-class a status for that target, but <b>never</b> 401, 403 or a validation error
  * (400, 422): those are {@code PERMANENT} whatever the dictionary says, so no layer of the platform ever retries them
  * (ADR-007 Decision 4, ADR-010 section 5, R13).
+ *
+ * <p>E5 T-185 (ADR-007 Decision 7 rule 5, S-d): the two decryption failures of a target credential are classed here
+ * too ({@link #ofCredentialFault}) - neither is an HTTP answer, both are found before any call leaves the process.
  */
 public final class OutcomeClassifier {
 
@@ -28,6 +31,31 @@ public final class OutcomeClassifier {
     private static final Set<Integer> TRANSIENT = Set.of(429, 503);
 
     private OutcomeClassifier() {
+    }
+
+    /** The two ways a target credential fails to open at send time (ADR-007 Decision 7 rule 5) - a closed register. */
+    public enum CredentialFault {
+
+        /**
+         * The row names a key-encryption-key id this instance was deployed without: a deployment fault, fixable
+         * without touching the row. No call, no attempt row, no attempt used up; the delivery waits.
+         */
+        KEY_UNAVAILABLE,
+
+        /** The authentication tag does not match: the ciphertext, its associated data or the key is wrong. */
+        TAG_MISMATCH
+    }
+
+    /**
+     * The class of a target-credential decryption failure: an unknown key id is {@code TRANSIENT} (another instance,
+     * or this one redeployed with the key, sends it); a tag mismatch is {@code PERMANENT} (tampering or a copied row
+     * never heals by waiting - dead-lettered with the reason "target credential unreadable").
+     */
+    public static OutcomeClass ofCredentialFault(CredentialFault fault) {
+        return switch (Objects.requireNonNull(fault, "fault")) {
+            case KEY_UNAVAILABLE -> OutcomeClass.TRANSIENT;
+            case TAG_MISMATCH -> OutcomeClass.PERMANENT;
+        };
     }
 
     /** The default class of {@code status} (no error dictionary). */

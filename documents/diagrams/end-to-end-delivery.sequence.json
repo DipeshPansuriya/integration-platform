@@ -8,7 +8,7 @@
     "column_fit": "spread",
     "viewBox": [
       1400,
-      654
+      738
     ],
     "views": [
       {
@@ -31,7 +31,7 @@
           "target",
           "db"
         ],
-        "note": "Pinned mapping, checked address, six controls, attempt row, state change only with the claim token."
+        "note": "Credential opened at send time, pinned mapping, checked address, six controls, attempt row, state only with the claim token."
       },
       {
         "id": "recover",
@@ -89,12 +89,12 @@
     },
     {
       "from": 334,
-      "to": 480,
+      "to": 564,
       "label": "2. Send (bulkhead thread)"
     },
     {
-      "from": 494,
-      "to": 584,
+      "from": 578,
+      "to": 668,
       "label": "3. Retry + reconcile"
     }
   ],
@@ -148,17 +148,44 @@
       "variant": "emphasis"
     },
     {
+      "id": "m06a",
+      "from": "bulkhead",
+      "to": "db",
+      "y": 354,
+      "label": "credential: open at send (KEK by id)",
+      "variant": "security",
+      "note": "Sealed target_credential rows read in the claim's tenant; opened in memory for this call only, no cache; the KEK comes from the secret store, never the database (ADR-007 D7 rules 1, 6)"
+    },
+    {
+      "id": "m06b",
+      "from": "bulkhead",
+      "to": "db",
+      "y": 382,
+      "label": "key missing: KEY_UNAVAILABLE, no call",
+      "variant": "dashed",
+      "note": "TRANSIENT: SENDING to RETRY_WAIT on the claim token, no attempt row, no attempt used up; an alert fires and this instance fails its readiness check (ADR-007 D7 rule 5)"
+    },
+    {
+      "id": "m06c",
+      "from": "bulkhead",
+      "to": "db",
+      "y": 410,
+      "label": "tag mismatch: DEAD_LETTERED",
+      "variant": "dashed",
+      "note": "PERMANENT: reason 'target credential unreadable', an alert fires; neither ciphertext nor plaintext is logged (ADR-007 D7 rule 5)"
+    },
+    {
       "id": "m07",
       "from": "bulkhead",
       "to": "transform",
-      "y": 354,
+      "y": 438,
       "label": "pinned mapping"
     },
     {
       "id": "m08",
       "from": "transform",
       "to": "bulkhead",
-      "y": 382,
+      "y": 466,
       "label": "payload or error",
       "variant": "return"
     },
@@ -166,7 +193,7 @@
       "id": "m09",
       "from": "bulkhead",
       "to": "target",
-      "y": 410,
+      "y": 494,
       "label": "send to checked IP, layer-1 redelivery",
       "variant": "emphasis",
       "note": "Timeout, transient-only redelivery (2 max, 5 s of delay), breaker, Retry-After honoured"
@@ -175,7 +202,7 @@
       "id": "m10",
       "from": "target",
       "to": "bulkhead",
-      "y": 438,
+      "y": 522,
       "label": "HTTP status -> outcome class",
       "variant": "return",
       "note": "OutcomeClassifier: 401/403 (and 400/422) PERMANENT - one attempt, dead-lettered, never retried; 500/502/504/408 AMBIGUOUS unless idempotent receive"
@@ -184,7 +211,7 @@
       "id": "m11",
       "from": "bulkhead",
       "to": "db",
-      "y": 466,
+      "y": 550,
       "label": "attempt row, delivery_event, state (token)",
       "variant": "emphasis",
       "note": "A matching claim token writes the state row, delivery_event records the transition, and the final state releases the next HELD delivery in the same transaction"
@@ -193,7 +220,7 @@
       "id": "m12",
       "from": "job",
       "to": "db",
-      "y": 514,
+      "y": 598,
       "label": "due RETRY_WAIT to DUE + outbox",
       "variant": "dashed",
       "note": "At half-open, at most the breaker's trial count per target"
@@ -202,7 +229,7 @@
       "id": "m13",
       "from": "job",
       "to": "db",
-      "y": 542,
+      "y": 626,
       "label": "reconcile: stale ACCEPTED, idle, HELD",
       "variant": "dashed",
       "note": "Re-publishes messages ACCEPTED over 5 min, PENDING/DUE idle over 5 min, HELD with no blocker"
@@ -211,7 +238,7 @@
       "id": "m14",
       "from": "job",
       "to": "db",
-      "y": 570,
+      "y": 654,
       "label": "stale claim: 3 x timeout + 65 s",
       "variant": "dashed",
       "note": "Classed AMBIGUOUS; a late outcome with an old token writes only a LATE_OUTCOME delivery_event and changes no state"

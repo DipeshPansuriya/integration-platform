@@ -11,6 +11,7 @@ import io.integrationplatform.delivery.port.RetryCandidate;
 import io.integrationplatform.domain.delivery.DeliveryState;
 import io.integrationplatform.domain.delivery.OutcomeClass;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,6 +34,10 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  */
 @Tag("container")
 class DeliveryClaimStoreContainerTest {
+
+    // Today's day partition always exists (the migration pre-creates CURRENT_DATE-1..+7 when the container starts);
+    // a fixed date expires (failed every run from 2026-10-10).
+    private static final Instant DAY = Instant.now().truncatedTo(ChronoUnit.DAYS);
 
     private final DeliveryTestDatabase db = DeliveryTestDatabase.get();
     private HikariDataSource pool;
@@ -93,7 +98,7 @@ class DeliveryClaimStoreContainerTest {
 
     @Test
     void lockDueTakesTheOldestRetryTimesFirstAndSkipsRowsAnotherTransactionHolds() throws Exception {
-        Instant base = Instant.parse("2026-10-09T09:00:00Z");
+        Instant base = DAY.plus(9, ChronoUnit.HOURS);
         UUID young = newDelivery(DeliveryTestDatabase.TENANT_A, "ld-young", 1L, base);
         UUID old = newDelivery(DeliveryTestDatabase.TENANT_A, "ld-old", 2L, base);
         UUID middle = newDelivery(DeliveryTestDatabase.TENANT_A, "ld-mid", 3L, base);
@@ -140,7 +145,7 @@ class DeliveryClaimStoreContainerTest {
 
     @Test
     void markDueMovesALockedRowAndRefusesOneThatIsNoLongerWaiting() {
-        Instant base = Instant.parse("2026-10-09T10:00:00Z");
+        Instant base = DAY.plus(10, ChronoUnit.HOURS);
         UUID id = newDelivery(DeliveryTestDatabase.TENANT_A, "md-key", 1L, base);
         toRetryWait(id, base.plusSeconds(60), base);
 
@@ -157,7 +162,7 @@ class DeliveryClaimStoreContainerTest {
 
     @Test
     void retryAndDeadLetterAreTokenConditionalAndAStaleTokenWritesOnlyALateOutcomeEvent() {
-        Instant base = Instant.parse("2026-10-09T11:00:00Z");
+        Instant base = DAY.plus(11, ChronoUnit.HOURS);
         UUID id = newDelivery(DeliveryTestDatabase.TENANT_A, "tc-key", 1L, base);
         UUID token = UUID.randomUUID();
         tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
@@ -184,7 +189,7 @@ class DeliveryClaimStoreContainerTest {
 
     @Test
     void exhaustedRetriesEndInTheDeadLetterWithTheFullAttemptHistory() {
-        Instant base = Instant.parse("2026-10-09T12:00:00Z");
+        Instant base = DAY.plus(12, ChronoUnit.HOURS);
         UUID id = newDelivery(DeliveryTestDatabase.TENANT_A, "cap-key", 1L, base);
         for (int attempt = 1; attempt <= 3; attempt++) {
             UUID token = UUID.randomUUID();
@@ -228,7 +233,7 @@ class DeliveryClaimStoreContainerTest {
 
     @Test
     void theClaimRunsLockCheckThenStateInOneTransaction() {
-        Instant base = Instant.parse("2026-10-09T13:00:00Z");
+        Instant base = DAY.plus(13, ChronoUnit.HOURS);
         // no blocker for this key: the claim sets SENDING with a fresh token and claimed_at
         UUID free = newDelivery(DeliveryTestDatabase.TENANT_A, "order-free", 5L, base);
         UUID freeToken = UUID.randomUUID();
@@ -278,7 +283,7 @@ class DeliveryClaimStoreContainerTest {
 
     @Test
     void aReDrivenDeliveryIgnoresTheOldClaimsOutcomeButKeepsItsAttempt() {
-        Instant base = Instant.parse("2026-10-09T14:00:00Z");
+        Instant base = DAY.plus(14, ChronoUnit.HOURS);
         UUID id = newDelivery(DeliveryTestDatabase.TENANT_A, "stale-key", 1L, base);
         UUID staleToken = UUID.randomUUID();
         tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
@@ -314,7 +319,7 @@ class DeliveryClaimStoreContainerTest {
 
     @Test
     void twoConcurrentClaimsOfOneDeliveryExactlyOneWins() throws Exception {
-        Instant base = Instant.parse("2026-10-09T15:00:00Z");
+        Instant base = DAY.plus(15, ChronoUnit.HOURS);
         UUID id = newDelivery(DeliveryTestDatabase.TENANT_A, "race-key", 1L, base);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {

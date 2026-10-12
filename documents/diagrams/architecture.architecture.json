@@ -34,7 +34,8 @@
           "transform",
           "delivery",
           "domain",
-          "targets"
+          "targets",
+          "kek"
         ],
         "note": "One call in, one delivery per matched target out (architecture.md section 4.1)."
       },
@@ -146,7 +147,7 @@
       "id": "ingest",
       "type": "backend",
       "label": "platform-ingest",
-      "sublabel": "common API, bulk split",
+      "sublabel": "API, bulk, RuleEvaluationPort",
       "pos": [
         315,
         330
@@ -220,7 +221,7 @@
       "id": "postgres",
       "type": "database",
       "label": "PostgreSQL 17",
-      "sublabel": "RLS on every tenant table, outbox, console session store",
+      "sublabel": "RLS on every tenant table, outbox, sessions, sealed target secrets",
       "pos": [
         315,
         490
@@ -252,7 +253,7 @@
       "label": "Target systems",
       "sublabel": "API, MQ-CSV, DB, File, Kafka",
       "pos": [
-        1200,
+        1176,
         330
       ],
       "size": [
@@ -267,7 +268,7 @@
       "label": "Grafana, Prometheus, Tempo",
       "sublabel": "metrics, trace per call",
       "pos": [
-        1200,
+        1176,
         210
       ],
       "size": [
@@ -281,7 +282,7 @@
       "label": "arch-test (build time)",
       "sublabel": "ArchUnit, Modulith rules",
       "pos": [
-        1200,
+        1176,
         90
       ],
       "size": [
@@ -289,6 +290,21 @@
         66
       ],
       "tag": "R08"
+    },
+    {
+      "id": "kek",
+      "type": "security",
+      "label": "Key-encryption keys",
+      "sublabel": "secret store, env names only",
+      "pos": [
+        1176,
+        490
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-007 D7"
     }
   ],
   "boundaries": [
@@ -345,7 +361,7 @@
       "id": "tenancy-oidc",
       "from": "tenancy",
       "to": "keycloak",
-      "label": "JWKS, admin API, 5 controls",
+      "label": "JWKS, admin API (clients), 5 controls",
       "variant": "security",
       "labelDy": -27
     },
@@ -508,13 +524,92 @@
           30
         ],
         [
-          1384,
+          1360,
           30
         ],
         [
-          1384,
+          1360,
           363
         ]
+      ],
+      "labelAt": [
+        1170,
+        42
+      ]
+    },
+    {
+      "id": "decrypt-at-send",
+      "from": "routing",
+      "to": "kek",
+      "label": "open at send time",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "read-sealed-credentials",
+      "from": "routing",
+      "to": "config",
+      "label": "reads sealed credentials + key availability (config.credential.api)",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          990,
+          455
+        ],
+        [
+          1120,
+          455
+        ],
+        [
+          1120,
+          610
+        ],
+        [
+          1384,
+          610
+        ],
+        [
+          1384,
+          6
+        ],
+        [
+          400,
+          6
+        ]
+      ],
+      "labelAt": [
+        1150,
+        628
+      ]
+    },
+    {
+      "id": "seal-at-save",
+      "from": "config",
+      "to": "kek",
+      "label": "seal target secrets at save",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "right",
+      "via": [
+        [
+          400,
+          18
+        ],
+        [
+          1372,
+          18
+        ],
+        [
+          1372,
+          523
+        ]
+      ],
+      "labelAt": [
+        1266,
+        460
       ]
     }
   ],
