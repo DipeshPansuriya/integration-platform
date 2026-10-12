@@ -39,6 +39,7 @@ export type FlowDraftBody = {
   sourceSystem: string;
   destinations: string[];
   businessKeyRule: string;
+  name?: string;
   ordering?: string;
 };
 

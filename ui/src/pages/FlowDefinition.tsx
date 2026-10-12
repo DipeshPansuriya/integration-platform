@@ -70,7 +70,8 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
   const body = (): FlowDraftBody => ({
     sourceSystem,
     destinations: destinations.map((row) => row.trim()).filter((row) => row.length > 0),
-    businessKeyRule
+    businessKeyRule,
+    name: interfaceName.trim() // F-1: the interface name typed by the user rides on the create
   });
 
   const onSaveDraft = async (event: FormEvent) => {
