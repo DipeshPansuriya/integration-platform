@@ -5176,12 +5176,14 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <path data-edge-from="routing" data-edge-to="delivery" data-edge-label="attempt + outcome" data-edge-key="14" data-edge-id="classify" data-composition-points="905,363;780,363" d="M 905 363 L 780 363" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="delivery" data-edge-to="postgres" data-edge-label="delivery rows" data-edge-key="15" data-edge-id="persist" data-composition-points="695,396;695,443;561.5,443;561.5,490" d="M 695 396 L 695 435 Q 695 443 687 443 L 569.5 443 Q 561.5 443 561.5 451 L 561.5 490" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="delivery" data-edge-to="domain" data-edge-label="state register" data-edge-key="16" data-edge-id="state-register" data-composition-points="695,330;695,276" d="M 695 330 L 695 276" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="routing" data-edge-to="targets" data-edge-label="send, 6 controls" data-edge-key="17" data-edge-id="send" data-composition-points="1075,370;1200,370" d="M 1075 370 L 1200 370" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="routing" data-edge-to="observability" data-edge-label="metrics, spans" data-edge-key="18" data-edge-id="telemetry" data-composition-points="1075,356;1137.5,356;1137.5,243;1200,243" d="M 1075 356 L 1129.5 356 Q 1137.5 356 1137.5 348 L 1137.5 251 Q 1137.5 243 1145.5 243 L 1200 243" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="tenancy" data-edge-to="observability" data-edge-label="metrics, spans" data-edge-key="19" data-edge-id="tenancy-telemetry" data-composition-points="485,236;509,236;509,186;1285,186;1285,210" d="M 485 236 L 501 236 Q 509 236 509 228 L 509 194 Q 509 186 517 186 L 1277 186 Q 1285 186 1285 194 L 1285 210" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="arch-test" data-edge-to="config" data-edge-label="scans every module (build only)" data-edge-key="20" data-edge-id="arch-scan" data-composition-points="1285,90;1285,66;400,66;400,90" d="M 1285 90 L 1285 74 Q 1285 66 1277 66 L 408 66 Q 400 66 400 74 L 400 90" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="config" data-edge-to="targets" data-edge-label="test-connection via destination guard" data-edge-key="21" data-edge-id="test-connection" data-composition-points="400,90;400,30;1384,30;1384,363;1370,363" d="M 400 90 L 400 38 Q 400 30 408 30 L 1376 30 Q 1384 30 1384 38 L 1384 356 Q 1384 363 1377 363 L 1370 363" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="routing" data-edge-to="kek" data-edge-label="open at send time" data-edge-key="22" data-edge-id="decrypt-at-send" data-composition-points="997,396;997,420;1176,420;1176,523;1200,523" d="M 997 396 L 997 412 Q 997 420 1005 420 L 1168 420 Q 1176 420 1176 428 L 1176 515 Q 1176 523 1184 523 L 1200 523" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="routing" data-edge-to="targets" data-edge-label="send, 6 controls" data-edge-key="17" data-edge-id="send" data-composition-points="1075,370;1176,370" d="M 1075 370 L 1176 370" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="routing" data-edge-to="observability" data-edge-label="metrics, spans" data-edge-key="18" data-edge-id="telemetry" data-composition-points="1075,356;1125.5,356;1125.5,243;1176,243" d="M 1075 356 L 1117.5 356 Q 1125.5 356 1125.5 348 L 1125.5 251 Q 1125.5 243 1133.5 243 L 1176 243" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="tenancy" data-edge-to="observability" data-edge-label="metrics, spans" data-edge-key="19" data-edge-id="tenancy-telemetry" data-composition-points="485,236;509,236;509,186;1261,186;1261,210" d="M 485 236 L 501 236 Q 509 236 509 228 L 509 194 Q 509 186 517 186 L 1253 186 Q 1261 186 1261 194 L 1261 210" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="arch-test" data-edge-to="config" data-edge-label="scans every module (build only)" data-edge-key="20" data-edge-id="arch-scan" data-composition-points="1261,90;1261,66;400,66;400,90" d="M 1261 90 L 1261 74 Q 1261 66 1253 66 L 408 66 Q 400 66 400 74 L 400 90" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="config" data-edge-to="targets" data-edge-label="test-connection via destination guard" data-edge-key="21" data-edge-id="test-connection" data-composition-points="400,90;400,30;1360,30;1360,363;1346,363" d="M 400 90 L 400 38 Q 400 30 408 30 L 1352 30 Q 1360 30 1360 38 L 1360 356 Q 1360 363 1353 363 L 1346 363" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="routing" data-edge-to="kek" data-edge-label="open at send time" data-edge-key="22" data-edge-id="decrypt-at-send" data-composition-points="997,396;997,420;1152,420;1152,523;1176,523" d="M 997 396 L 997 412 Q 997 420 1005 420 L 1144 420 Q 1152 420 1152 428 L 1152 515 Q 1152 523 1160 523 L 1176 523" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="routing" data-edge-to="config" data-edge-label="reads sealed credentials + key availability (config.credential.api)" data-edge-key="23" data-edge-id="read-sealed-credentials" data-composition-points="990,396;990,455;1120,455;1120,610;1384,610;1384,6;400,6;400,90" d="M 990 396 L 990 447 Q 990 455 998 455 L 1112 455 Q 1120 455 1120 463 L 1120 602 Q 1120 610 1128 610 L 1376 610 Q 1384 610 1384 602 L 1384 14 Q 1384 6 1376 6 L 408 6 Q 400 6 400 14 L 400 90" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="config" data-edge-to="kek" data-edge-label="seal target secrets at save" data-edge-key="24" data-edge-id="seal-at-save" data-composition-points="400,90;400,18;1372,18;1372,523;1346,523" d="M 400 90 L 400 26 Q 400 18 408 18 L 1364 18 Q 1372 18 1372 26 L 1372 515 Q 1372 523 1364 523 L 1346 523" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
 
         <!-- Components -->
         <g id="node-console" data-node-id="console" data-node-label="Console UI" tabindex="0" role="button" aria-label="Focus Console UI, no token in browser, Architecture component" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="no token in browser" data-node-tag="ADR-007" data-node-context="Architecture component">
@@ -5350,51 +5352,51 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
         <g id="node-targets" data-node-id="targets" data-node-label="Target systems" tabindex="0" role="button" aria-label="Focus Target systems, API, MQ-CSV, DB, File, Kafka, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="API, MQ-CSV, DB, File, Kafka" data-node-tag="ADR-011" data-node-context="Architecture component">
           <title>Target systems · API, MQ-CSV, DB, File, Kafka · Architecture component · ADR-011</title>
-          <rect x="1200" y="330" width="170" height="66" rx="6" class="c-mask"/>
-          <rect x="1200" y="330" width="170" height="66" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(1206 336) scale(0.6875)">
+          <rect x="1176" y="330" width="170" height="66" rx="6" class="c-mask"/>
+          <rect x="1176" y="330" width="170" height="66" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(1182 336) scale(0.6875)">
             <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="1285" y="361" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Target systems</text>
-        <text data-detail="context" x="1285" y="377" class="t-muted" font-size="9" text-anchor="middle">API, MQ-CSV, DB, File, Kafka</text>
-        <text data-detail="fine" x="1285" y="388" class="t-external" font-size="7" text-anchor="middle">ADR-011</text>
+          <text data-node-label="" data-detail-anchor="" x="1261" y="361" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Target systems</text>
+        <text data-detail="context" x="1261" y="377" class="t-muted" font-size="9" text-anchor="middle">API, MQ-CSV, DB, File, Kafka</text>
+        <text data-detail="fine" x="1261" y="388" class="t-external" font-size="7" text-anchor="middle">ADR-011</text>
         </g>
 
         <g id="node-observability" data-node-id="observability" data-node-label="Grafana, Prometheus, Tempo" tabindex="0" role="button" aria-label="Focus Grafana, Prometheus, Tempo, metrics, trace per call, Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="metrics, trace per call" data-node-context="Architecture component">
           <title>Grafana, Prometheus, Tempo · metrics, trace per call · Architecture component</title>
-          <rect x="1200" y="210" width="170" height="66" rx="6" class="c-mask"/>
-          <rect x="1200" y="210" width="170" height="66" rx="6" class="c-cloud" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(1206 216) scale(0.6875)">
+          <rect x="1176" y="210" width="170" height="66" rx="6" class="c-mask"/>
+          <rect x="1176" y="210" width="170" height="66" rx="6" class="c-cloud" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(1182 216) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="1285" y="241" class="t-primary" font-size="10.3" font-weight="600" text-anchor="middle">Grafana, Prometheus, Tempo</text>
-        <text data-detail="context" x="1285" y="257" class="t-muted" font-size="9" text-anchor="middle">metrics, trace per call</text>
+          <text data-node-label="" data-detail-anchor="" x="1261" y="241" class="t-primary" font-size="10.3" font-weight="600" text-anchor="middle">Grafana, Prometheus, Tempo</text>
+        <text data-detail="context" x="1261" y="257" class="t-muted" font-size="9" text-anchor="middle">metrics, trace per call</text>
         </g>
 
         <g id="node-arch-test" data-node-id="arch-test" data-node-label="arch-test (build time)" tabindex="0" role="button" aria-label="Focus arch-test (build time), ArchUnit, Modulith rules, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="ArchUnit, Modulith rules" data-node-tag="R08" data-node-context="Architecture component">
           <title>arch-test (build time) · ArchUnit, Modulith rules · Architecture component · R08</title>
-          <rect x="1200" y="90" width="170" height="66" rx="6" class="c-mask"/>
-          <rect x="1200" y="90" width="170" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1206 96) scale(0.6875)">
+          <rect x="1176" y="90" width="170" height="66" rx="6" class="c-mask"/>
+          <rect x="1176" y="90" width="170" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1182 96) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="1285" y="121" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">arch-test (build time)</text>
-        <text data-detail="context" x="1285" y="137" class="t-muted" font-size="9" text-anchor="middle">ArchUnit, Modulith rules</text>
-        <text data-detail="fine" x="1285" y="148" class="t-backend" font-size="7" text-anchor="middle">R08</text>
+          <text data-node-label="" data-detail-anchor="" x="1261" y="121" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">arch-test (build time)</text>
+        <text data-detail="context" x="1261" y="137" class="t-muted" font-size="9" text-anchor="middle">ArchUnit, Modulith rules</text>
+        <text data-detail="fine" x="1261" y="148" class="t-backend" font-size="7" text-anchor="middle">R08</text>
         </g>
 
         <g id="node-kek" data-node-id="kek" data-node-label="Key-encryption keys" tabindex="0" role="button" aria-label="Focus Key-encryption keys, secret store, env names only, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="secret store, env names only" data-node-tag="ADR-007 D7" data-node-context="Architecture component">
           <title>Key-encryption keys · secret store, env names only · Architecture component · ADR-007 D7</title>
-          <rect x="1200" y="490" width="170" height="66" rx="6" class="c-mask"/>
-          <rect x="1200" y="490" width="170" height="66" rx="6" class="c-security" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1206 496) scale(0.6875)">
+          <rect x="1176" y="490" width="170" height="66" rx="6" class="c-mask"/>
+          <rect x="1176" y="490" width="170" height="66" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1182 496) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="1285" y="521" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Key-encryption keys</text>
-        <text data-detail="context" x="1285" y="537" class="t-muted" font-size="9" text-anchor="middle">secret store, env names only</text>
-        <text data-detail="fine" x="1285" y="548" class="t-security" font-size="7" text-anchor="middle">ADR-007 D7</text>
+          <text data-node-label="" data-detail-anchor="" x="1261" y="521" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Key-encryption keys</text>
+        <text data-detail="context" x="1261" y="537" class="t-muted" font-size="9" text-anchor="middle">secret store, env names only</text>
+        <text data-detail="fine" x="1261" y="548" class="t-security" font-size="7" text-anchor="middle">ADR-007 D7</text>
         </g>
 
         <!-- Connection labels -->
@@ -5467,28 +5469,36 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text x="695" y="320" class="t-muted" font-size="8" text-anchor="middle">state register</text>
         </g>
         <g data-detail="context" data-edge-from="routing" data-edge-to="targets" data-edge-label="send, 6 controls" data-edge-key="17" data-edge-id="send">
-          <rect x="1094.1" y="376" width="86.8" height="14" rx="3" class="c-mask"/>
-          <text x="1137.5" y="386" class="t-backend" font-size="8" text-anchor="middle">send, 6 controls</text>
+          <rect x="1082.1" y="376" width="86.8" height="14" rx="3" class="c-mask"/>
+          <text x="1125.5" y="386" class="t-backend" font-size="8" text-anchor="middle">send, 6 controls</text>
         </g>
         <g data-detail="context" data-edge-from="routing" data-edge-to="observability" data-edge-label="metrics, spans" data-edge-key="18" data-edge-id="telemetry">
-          <rect x="1098.9" y="279.5" width="77.2" height="14" rx="3" class="c-mask"/>
-          <text x="1137.5" y="289.5" class="t-messagebus" font-size="8" text-anchor="middle">metrics, spans</text>
+          <rect x="1086.9" y="279.5" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="1125.5" y="289.5" class="t-messagebus" font-size="8" text-anchor="middle">metrics, spans</text>
         </g>
         <g data-detail="context" data-edge-from="tenancy" data-edge-to="observability" data-edge-label="metrics, spans" data-edge-key="19" data-edge-id="tenancy-telemetry">
           <rect x="470.4" y="191" width="77.2" height="14" rx="3" class="c-mask"/>
           <text x="509" y="201" class="t-messagebus" font-size="8" text-anchor="middle">metrics, spans</text>
         </g>
         <g data-detail="context" data-edge-from="arch-test" data-edge-to="config" data-edge-label="scans every module (build only)" data-edge-key="20" data-edge-id="arch-scan">
-          <rect x="763.1" y="46" width="158.79999999999998" height="14" rx="3" class="c-mask"/>
-          <text x="842.5" y="56" class="t-messagebus" font-size="8" text-anchor="middle">scans every module (build only)</text>
+          <rect x="751.1" y="46" width="158.79999999999998" height="14" rx="3" class="c-mask"/>
+          <text x="830.5" y="56" class="t-messagebus" font-size="8" text-anchor="middle">scans every module (build only)</text>
         </g>
         <g data-detail="context" data-edge-from="config" data-edge-to="targets" data-edge-label="test-connection via destination guard" data-edge-key="21" data-edge-id="test-connection">
-          <rect x="798.2" y="10" width="187.6" height="14" rx="3" class="c-mask"/>
-          <text x="892" y="20" class="t-security" font-size="8" text-anchor="middle">test-connection via destination guard</text>
+          <rect x="1076.2" y="32" width="187.6" height="14" rx="3" class="c-mask"/>
+          <text x="1170" y="42" class="t-security" font-size="8" text-anchor="middle">test-connection via destination guard</text>
         </g>
         <g data-detail="context" data-edge-from="routing" data-edge-to="kek" data-edge-label="open at send time" data-edge-key="22" data-edge-id="decrypt-at-send">
-          <rect x="1040.7" y="400" width="91.6" height="14" rx="3" class="c-mask"/>
-          <text x="1086.5" y="410" class="t-security" font-size="8" text-anchor="middle">open at send time</text>
+          <rect x="1028.7" y="400" width="91.6" height="14" rx="3" class="c-mask"/>
+          <text x="1074.5" y="410" class="t-security" font-size="8" text-anchor="middle">open at send time</text>
+        </g>
+        <g data-detail="context" data-edge-from="routing" data-edge-to="config" data-edge-label="reads sealed credentials + key availability (config.credential.api)" data-edge-key="23" data-edge-id="read-sealed-credentials">
+          <rect x="984.2" y="618" width="331.59999999999997" height="14" rx="3" class="c-mask"/>
+          <text x="1150" y="628" class="t-messagebus" font-size="8" text-anchor="middle">reads sealed credentials + key availability (config.credential.api)</text>
+        </g>
+        <g data-detail="context" data-edge-from="config" data-edge-to="kek" data-edge-label="seal target secrets at save" data-edge-key="24" data-edge-id="seal-at-save">
+          <rect x="1196.2" y="450" width="139.6" height="14" rx="3" class="c-mask"/>
+          <text x="1266" y="460" class="t-security" font-size="8" text-anchor="middle">seal target secrets at save</text>
         </g>
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
