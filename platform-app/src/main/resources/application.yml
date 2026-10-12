@@ -24,6 +24,9 @@ spring:
       # E9 seam (arjun-fullstack, F14): config/routing-core.yml - lane A (bulkhead size, routing budget,
       # allowedSchemes). R07: every value stays an environment-variable NAME - no value, no default.
       - optional:classpath:config/routing-core.yml
+      # E14 seam (arjun-fullstack, F8): scheduler.yml arrives with lane B's T-056 (platform-app owns the runtime
+      # wiring, ADR-012 section 2) - the db-scheduler task-table name (schema scheduler), enabled flag, poll interval.
+      - optional:classpath:config/scheduler.yml
   # R07: connection settings come only from environment variable names; no value, no default.
   datasource:
     url: ${DB_URL}

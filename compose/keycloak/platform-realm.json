@@ -177,6 +177,35 @@
         "platform-admin-roles"
       ],
       "optionalClientScopes": []
+    },
+    {
+      "clientId": "operator-agent",
+      "name": "Operator agent (AI agent, service account)",
+      "description": "ADR-012 Decision 5 (Accepted, Dipesh 2026-10-12): the AI agent's machine credential for the job-admin API - client-credentials only, 5-minute tokens, the platform-api audience, no realm role and no tenant; its operator_credential row (issuer, client id) decides acceptance. Attack suite: T-147.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "frontchannelLogout": false,
+      "consentRequired": false,
+      "fullScopeAllowed": true,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false"
+      },
+      "secret": "${OPERATOR_AGENT_CLIENT_SECRET}",
+      "defaultClientScopes": [
+        "basic",
+        "platform-api-audience"
+      ],
+      "optionalClientScopes": []
     }
   ],
   "users": [
