@@ -3,7 +3,7 @@ type: ADR
 title: "ADR-010 - Apache Camel as the routing core, inside one module, with exactly two retry layers"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): bulkhead-full backoff and re-drive cap, every state change takes the key lock first with 40001/40P01 retry, missing key uses no attempt, not-ready instance stops its consumers, broker-address check and egress policy"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): bulkhead-full backoff and re-drive cap, every state change takes the key lock first with 40001/40P01 retry, missing key uses no attempt, not-ready instance stops its consumers, broker-address check and egress policy. 2026-10-12 - amended with the approval of ADR-014 (sections 2 and 6: one delivery per message and route, unique on (message_id, route_id, created_at) with created_at = the message's accepted_at, message and payload day-partitioned) and ADR-015 (section 1: target adapters and the send-time destination check live in platform-routing; routing depends on platform-config's public API only), both approved by Dipesh 2026-10-12"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -86,19 +86,32 @@ report-equals-rows (m-273754, point 3).
 - **`org.apache.camel` is used only in `platform-routing`.** An ArchUnit rule fails the build
   otherwise, proven by a planted violation. Other modules talk to routing through ports
   (interfaces) owned by the calling module.
+- **Target adapters live in `platform-routing`** (`routing/adapter/**`, ADR-015 Decision 1,
+  amended 2026-10-12): the route templates per target type, the adapters that send, the per-target
+  bulkheads and circuit breakers and the send-time destination check (section 8). Outcome
+  classification and retry timing stay in `platform-domain` and `platform-delivery`, which never
+  send.
+- **`platform-routing` depends on `platform-config`'s public API only** (ADR-015 Decision 2): the
+  read-only API over published versions, the sealed target credentials, and config's one
+  `DestinationGuard`, reused for the send-time check. Never config internals; the arch-test rule is
+  written in E10's wave-0 seam.
 
 ### 2. Two stages, both consumers of Kafka work topics (ADR-005)
 
 | Stage | Consumes | Does | Never does | Budget |
 |---|---|---|---|---|
-| **1 - route and fan out** | `platform.message.accepted` | Resolves the tenant from the message row (ADR-011), loads the routes of the interface version pinned on the message, evaluates routing conditions, and in **one transaction**: takes the ordering-key lock (ADR-011 Decision 6), moves the message `ACCEPTED -> ROUTED` by conditional update (**0 rows = a duplicate record: acknowledged, no effect**), inserts one Delivery per matched target with `ON CONFLICT (message_id, route_id) DO NOTHING` - each pinning its target contract version and mapping version - plus one outbox row per inserted delivery, and releases any delivery held only behind this message | Calls a target; creates a second delivery for the same (message, route) | 1 s (`ws/_specs/project-plan.md:114`) |
+| **1 - route and fan out** | `platform.message.accepted` | Resolves the tenant from the message row (ADR-011), loads the routes of the interface version pinned on the message, evaluates routing conditions, and in **one transaction**: takes the ordering-key lock (ADR-011 Decision 6), moves the message `ACCEPTED -> ROUTED` by conditional update (**0 rows = a duplicate record: acknowledged, no effect**), inserts one Delivery per matched target with `ON CONFLICT (message_id, route_id, created_at) DO NOTHING`, where `created_at` is the message's `accepted_at` (ADR-014) - each pinning its target contract version and mapping version - plus one outbox row per inserted delivery, and releases any delivery held only behind this message | Calls a target; creates a second delivery for the same (message, route) | 1 s (`ws/_specs/project-plan.md:114`) |
 | **2 - deliver** | `platform.delivery.due` | **On the partition thread:** takes a permit from the target's bulkhead (non-blocking), then the claim transaction of section 7 (lock, hold check, `HELD` or `SENDING`), then commits the offset. **On the target's bulkhead thread:** transforms through the transform port, sends through the target's route, records each attempt, classifies, moves the state | Sends on the Kafka partition thread; decides retry timing outside the database | Claim under 1 s; transform 5 s; target call within its configured timeout |
 
 **Message states (closed register):** `ACCEPTED` (intake committed) -> `ROUTED` (stage 1
 committed, 0 or more deliveries; 0 shows "no route" in the timeline) or `ROUTE_FAILED` (the
 pinned configuration cannot be read - permanent, alerted). `ROUTED` and `ROUTE_FAILED` are final.
-The unique key `delivery (message_id, route_id)` makes a second stage-1 run harmless even if the
-conditional update were bypassed. **Gate:** the same `message.accepted` record published twice
+The unique key `delivery (message_id, route_id, created_at)` - unique per message day, because
+`created_at` is the message's `accepted_at` and so fixed by `message_id` (ADR-014, amended
+2026-10-12) - makes a second stage-1 run harmless even if the conditional update were bypassed.
+Message and payload are partitioned by day on `accepted_at`, and each delivery sits in its
+message's day partition, so one day is created, guarded and dropped as one unit (ADR-014
+section 3). **Gate:** the same `message.accepted` record published twice
 creates N deliveries for N matched routes, not 2N (test).
 
 **The per-target bulkhead (challenge B1):**
@@ -212,7 +225,7 @@ bulkhead-full backoff of section 2; an alert fires and the instance fails its re
 
 | From | To | Trigger |
 |---|---|---|
-| (new) | `PENDING` | stage 1 inserts the delivery (`ON CONFLICT (message_id, route_id) DO NOTHING`) |
+| (new) | `PENDING` | stage 1 inserts the delivery (`ON CONFLICT (message_id, route_id, created_at) DO NOTHING`, `created_at` = the message's `accepted_at`, ADR-014) |
 | `PENDING`, `DUE` | `HELD` | the claim transaction finds the ordering hold applies (ADR-011 Decision 6): an earlier message with the same key is still `ACCEPTED`, or an earlier delivery to the same target is not final |
 | `HELD` | `DUE` | in the **same transaction** that makes the blocking predecessor final (`DELIVERED` or `DEAD_LETTERED`) or moves the earlier message to `ROUTED` / `ROUTE_FAILED`; or the reconciler (section 9) finds no blocker left |
 | `PENDING`, `DUE` | `SENDING` | stage 2 claims it (section 7), with a new claim token |
