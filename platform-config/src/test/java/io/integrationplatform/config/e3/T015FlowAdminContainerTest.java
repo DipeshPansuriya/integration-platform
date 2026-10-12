@@ -274,7 +274,7 @@ class T015FlowAdminContainerTest {
                 .isEqualTo("Orders in from S");
 
         // And a flow created without a name still works: it falls back to the generated code
-        // (Versions.tsx creates flows with no name and must keep working).
+        // (Versions.tsx creates flows with no name and must keep working). A blank name is no name.
         Response nameless = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS, actors.author(),
                 ConfigAdminApi.createFlow(sourceSystem, List.of(destination), "$.customerRef"));
         assertThat(nameless.status()).as("a flow without a name is still created, body: %s",
@@ -288,6 +288,17 @@ class T015FlowAdminContainerTest {
                 .as("with no name in the create body the flow falls back to its generated code, body: %s",
                         readNameless.body())
                 .isEqualTo(code);
+
+        // A whitespace-only name is no name: the generated code stands in (the fallback rule, pinned).
+        Response blank = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS, actors.author(),
+                flowBodyNamed(sourceSystem, List.of(destination), "$.orderRef", "   "));
+        assertThat(blank.status()).as("a whitespace-only name is still created, body: %s",
+                blank.body()).isEqualTo(201);
+        Response readBlank = ConfigAdminApi.call("GET", base + ConfigAdminApi.FLOWS + "/"
+                + blank.json().path("id").asString(), actors.author(), null);
+        assertThat(readBlank.json().path("name").asString())
+                .as("a whitespace-only name falls back to the generated code too, body: %s", readBlank.body())
+                .isEqualTo(readBlank.json().path("code").asString());
     }
 
     @Test
