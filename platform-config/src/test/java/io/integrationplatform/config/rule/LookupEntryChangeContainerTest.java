@@ -8,7 +8,9 @@ import io.integrationplatform.domain.audit.AuditEvent;
 import io.integrationplatform.e6laneb.E6LaneBSuiteApp;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -16,10 +18,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.ApplicationEvent;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.PayloadApplicationEvent;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.event.ApplicationEvents;
-import org.springframework.test.context.event.RecordApplicationEvents;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -48,14 +52,14 @@ import tools.jackson.databind.JsonNode;
  */
 @Tag("container")
 @SpringBootTest(classes = E6LaneBSuiteApp.class, webEnvironment = WebEnvironment.RANDOM_PORT)
-@RecordApplicationEvents
+@Import(LookupEntryChangeContainerTest.AuditCapture.class)
 class LookupEntryChangeContainerTest {
 
     @LocalServerPort
     private int port;
 
     @Autowired
-    private ApplicationEvents events;
+    private AuditCapture audit;
 
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
@@ -92,14 +96,13 @@ class LookupEntryChangeContainerTest {
     void theEditIsAudited() {
         Tenant a = RuleSuiteFixture.tenantA();
         String lookupId = createLookup(a, "audited codes " + UUID.randomUUID());
+        audit.seen.clear();
 
         Response changed = call("PUT", "/api/v1/admin/lookups/" + lookupId + "/entries/r1", a,
                 "{\"key\":\"NL\",\"value\":\"Kingdom of the Netherlands\"}");
         assertThat(changed.status()).as("PUT, body: %s", changed.body()).isEqualTo(200);
 
-        var published = events.stream(AuditEvent.class)
-                .filter(event -> event.targetIds().contains(lookupId))
-                .toList();
+        var published = audit.seen.stream().filter(event -> event.targetIds().contains(lookupId)).toList();
         assertThat(published).as("exactly one audit event for the change").hasSize(1);
         AuditEvent event = published.getFirst();
         assertThat(event.who()).as("the acting configurator").isEqualTo(a.userId().toString());
@@ -130,7 +133,7 @@ class LookupEntryChangeContainerTest {
         assertThat(refused.json().path("refusal").asString()).isEqualTo("ROLE_NOT_GRANTED");
         assertThat(RuleSuiteFixture.ownerText("SELECT content_text FROM public.rule_set WHERE id = ?::uuid",
                 lookupId)).as("nothing changes").isEqualTo(before);
-        assertThat(events.stream(AuditEvent.class).filter(event -> event.targetIds().contains(lookupId)).count())
+        assertThat(audit.seen.stream().filter(event -> event.targetIds().contains(lookupId)).count())
                 .as("no audit event for a refused change").isZero();
         assertThat(lookupValue(a, lookupId, "NL")).as("the next evaluation still sees the old entry")
                 .isEqualTo("Netherlands");
@@ -159,6 +162,19 @@ class LookupEntryChangeContainerTest {
                 .isEqualTo(404);
         assertThat(RuleSuiteFixture.ownerText("SELECT content_text FROM public.rule_set WHERE id = ?::uuid",
                 lookupId)).as("nothing stored").isEqualTo(before);
+    }
+
+    /** The capture takes the audit event the way E12's writer will: as a subscriber of the publisher. */
+    static class AuditCapture implements ApplicationListener<ApplicationEvent> {
+
+        final List<AuditEvent> seen = new CopyOnWriteArrayList<>();
+
+        @Override
+        public void onApplicationEvent(ApplicationEvent event) {
+            if (event instanceof PayloadApplicationEvent payload && payload.getPayload() instanceof AuditEvent audited) {
+                seen.add(audited);
+            }
+        }
     }
 
     // ------------------------------------------------------------------ helpers
