@@ -1,7 +1,8 @@
 ---
 type: ADR
 title: "ADR-013 - Mapping versions: an immutable, content-addressed mapping_version row created at draft save, referenced by id from the interface-version snapshot and pinned on every delivery"
-status: "Proposed (mahesh-architect, 2026-10-11) - Dipesh approves. Blocks E7 lane C1 (T-190) and E9 T-117"
+status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - unblocks E7 lane C1 (T-190) and E9 T-117"
+approved: "Dipesh, 2026-10-12 (hub memory m-f1fcfc)"
 date: 2026-10-11
 author: "mahesh-architect (ledger row 307 under row 278, pre-plan open item M1)"
 project: ipass/integration-platform
@@ -63,7 +64,7 @@ measurement or a fact only Dipesh holds.
 | **B'. As B, created at submit** (the pre-plan's wording) | Freeze the draft at submit | - | **Cannot work as stated:** the snapshot is written at save and is immutable (`V2_2_4:76-77`), so a row created later cannot be referenced from it | - | - |
 | **C. Version column on `mapping`** | `mapping (route_id, version)` | Medium | Breaks `mapping_route_unique` (`V2_2_3:64`) and the byte-for-byte publish materialisation (`FlowAdminService.java:209-216`); mixes the editable copy with frozen versions | Rewrite of E3 publish | Low |
 
-## Decision (Proposed)
+## Decision (Accepted 2026-10-12, approved by Dipesh)
 
 1. **Table** (config module, E7 lane C1, range `V2_2_730-739`):
 

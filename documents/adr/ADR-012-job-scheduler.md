@@ -1,7 +1,8 @@
 ---
 type: ADR
 title: "ADR-012 - Job scheduler: db-scheduler with job definitions as our rows, platform-scoped jobs, a no-tenant operator-agent credential, alerts as durable rows plus Prometheus"
-status: "Proposed (mahesh-architect, 2026-10-11) - Dipesh approves. Three points wait for him (Open items 1-3)"
+status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - tenant admins hold no job operation; the agent polls alerts every 5 minutes, no push channel in Release 1; the no-tenant machine credential proceeds with its attack suite added to T-147"
+approved: "Dipesh, 2026-10-12 (hub memory m-f1fcfc)"
 date: 2026-10-11
 author: "mahesh-architect (ledger row 307 under row 278, task T-054)"
 project: ipass/integration-platform
@@ -22,6 +23,14 @@ Source paths starting `ws/` are in the hub repository, project workspace
 Every statement carries a grade: **[Verified]** (read in the cited file this pass), **[Inferred]**
 (a reasoned conclusion, not yet measured) or **[TBD]** (needs a measurement or a fact only Dipesh
 holds).
+
+> **Approved by Dipesh 2026-10-12** (hub memory m-f1fcfc), as recommended. His three decision
+> points (former Open items 1-3): (1) **tenant admins cannot act on platform jobs** in Release 1 -
+> the agent credential only; (2) **the alert-reading agent polls the alert API every 5 minutes;
+> no push channel in Release 1**; (3) **the no-tenant machine credential for agents is approved**,
+> and its attack suite is added to the Release 1 security review (T-147). The amendments this ADR
+> requires are made in the same change: ADR-007 Decision 5 (caller kinds) and architecture.md
+> sections 3 and 5.
 
 ## Context
 
@@ -101,7 +110,7 @@ its own trigger tables would be a second source of truth beside `job_definition`
 | Push to the agent (webhook, mail, chat) | Deferred: a new external call with all five controls and a destination check, and a channel only Dipesh can name | [Inferred] |
 | Logs only | Rejected: not "alerted ... once per incident" (`ws/_specs/backlog.md:3727`) | [Verified] |
 
-## Decision (Proposed)
+## Decision (Accepted 2026-10-12)
 
 ### 1. Engine
 
@@ -187,8 +196,8 @@ its own trigger tables would be a second source of truth beside `job_definition`
   configuration (`ws/_specs/backlog.md:3736-3740`). [Verified] policy shape; [Inferred] guarantee.
 - **Tenant admins:** no job operation in Release 1 - a tenant admin pausing a platform-wide job would
   stop every tenant. This differs from the backlog's wording "only the agent credential and tenant
-  admins reach the admin API" (`ws/_specs/backlog.md:3730`) - **Open item 1**. [Verified] wording;
-  [TBD] Dipesh.
+  admins reach the admin API" (`ws/_specs/backlog.md:3730`), which is reworded to "only the agent
+  credential". [Verified] wording; **decided by Dipesh 2026-10-12** (m-f1fcfc).
 - **Audit:** agent actions are written to an append-only **platform audit stream** (same writer,
   same append-only grants and 7-year retention as the tenant audit log of E12), not to a tenant's
   activity view, because they belong to no tenant and a tenant-scoped row with no tenant would fail
@@ -196,8 +205,9 @@ its own trigger tables would be a second source of truth beside `job_definition`
   [Inferred - new team decision]
 - This is the platform's **first no-tenant principal**. It is a machine credential, not the deferred
   operator **login**, but it crosses the same line, so it carries its own attack suite (below) and is
-  routed to the security review - **Open item 3**. [Verified] deferral `documents/adr/ADR-009-tenant-directory-rls.md:84-86`;
-  [TBD] Dipesh.
+  routed to the security review: its attack suite is part of T-147. [Verified] deferral
+  `documents/adr/ADR-009-tenant-directory-rls.md:84-86`; **approved by Dipesh 2026-10-12**
+  (m-f1fcfc); the human operator login stays deferred.
 
 ### 6. Missed runs, failures and the alert channel
 
@@ -215,7 +225,11 @@ its own trigger tables would be a second source of truth beside `job_definition`
 - **Prometheus:** counters for runs by outcome and the oldest-overdue gauge, with alert rules for
   humans, including the case where no instance is alive (an absent-metric rule) - the one case an
   in-application detector cannot report. [Inferred]
-- **Which agent reads the alerts, and how often,** is a hub-side fact - **Open item 2**. [TBD]
+- **The alert reader:** an AI agent polls the alert API **every 5 minutes**; **no push channel in
+  Release 1** (webhook, mail or chat stay deferred - see Revisit if). The agent's identity is a
+  hub-side setting, not a platform rule. **Decided by Dipesh 2026-10-12** (m-f1fcfc). With a
+  5-minute poll, the worst-case time from incident to an agent seeing it is 5 minutes plus the
+  late threshold. [Verified] decision; [Inferred] worst case.
 
 ### 7. Readiness and the delivery-retry move
 
@@ -243,8 +257,8 @@ ADR-007 (`ws/_specs/backlog.md:3706`). This ADR adds no other outbound call. [Ve
 | T-141 delivery-retry job | ADR-012 approved **and** E9's reconciler (T-180), re-drive cap (T-199) and E10's readiness port (T-201) integrated | [Verified] `ws/_specs/backlog.md:3604`, `:2477`, `:2369`, `:2779` |
 | T-142 purge, T-189 purge guard, T-203 credential clean-up | ADR-012 approved and T-056 | [Verified] `ws/_specs/backlog.md:261-263` |
 | T-143 daily-report job | ADR-012 approved and E13's report | [Verified] `ws/_specs/backlog.md:3604` |
-| T-060 agent API, T-061 agent actions audited, T-062 alerts | ADR-012 approved, Open items 1 and 3 answered, E12's audit writer | [Verified] `ws/_specs/backlog.md:3715`, `:3743-3745` |
-| ADR-007 roles register and architecture.md section 5 | Amended in the change that approves this ADR (the owner of a register re-publishes it, `documents/adr/README.md:42-45`) | [Verified] rule; [Inferred] timing |
+| T-060 agent API, T-061 agent actions audited, T-062 alerts | ADR-012 approved and its decision points answered (both 2026-10-12), E12's audit writer | [Verified] `ws/_specs/backlog.md:3715`, `:3743-3745` |
+| ADR-007 roles register and architecture.md section 5 | Amended in the change that approves this ADR (the owner of a register re-publishes it, `documents/adr/README.md:47-48`) - done 2026-10-12 | [Verified] rule and amendment |
 
 ## Process - one run, with its failure paths
 
@@ -295,14 +309,11 @@ policed by grant and schema instead.
 
 ## Open
 
-1. **Needs decision (Dipesh):** do tenant admins get any job operation in Release 1? Recommend
-   **no** (agent only; a tenant-admin pause would stop every tenant) and the backlog negative
-   scenario at `ws/_specs/backlog.md:3730` reworded to "only the agent credential". Alternative:
-   tenant admins read job health only, no actions.
-2. **Needs decision (Dipesh):** which AI agent reads the alerts, how often it polls, and whether he
-   wants a push channel later. Recommend: the agent polls the alert API every 5 minutes; no push in
-   Release 1.
-3. **Needs decision (Dipesh):** the agent credential is the first no-tenant principal, while operator
-   login was deferred to an operations phase. Recommend proceeding with the machine-only scope above
-   and adding its attack suite to the Release 1 security review (T-147); the human operator login
-   stays deferred.
+None. The three decision points were answered by Dipesh on 2026-10-12 (m-f1fcfc), each as
+recommended:
+
+1. **Decided:** tenant admins get no job operation in Release 1 (agent only); the backlog negative
+   scenario at `ws/_specs/backlog.md:3730` reads "only the agent credential".
+2. **Decided:** the agent polls the alert API every 5 minutes; no push channel in Release 1.
+3. **Decided:** the machine-only agent credential proceeds; its attack suite is added to the
+   Release 1 security review (T-147); the human operator login stays deferred.

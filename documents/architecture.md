@@ -1,7 +1,7 @@
 ---
 type: Architecture
 title: "Architecture - configuration-driven integration platform"
-status: "Recreated 2026-10-02 (phase 0) from surviving sources and updated to ADR-005, 007, 010, 011; revised 2026-10-02 for vikram-cto's challenge (m-817272); revised 2026-10-02 for vikram-cto's re-check (m-6a410c): ordering_key table and per-key sequence"
+status: "Recreated 2026-10-02 (phase 0) from surviving sources and updated to ADR-005, 007, 010, 011; revised 2026-10-02 for vikram-cto's challenge (m-817272); revised 2026-10-02 for vikram-cto's re-check (m-6a410c): ordering_key table and per-key sequence; amended 2026-10-12 for ADR-012, ADR-013, ADR-014 and ADR-015 (approved by Dipesh 2026-10-12): adapters and the send-time destination check in platform-routing, routing -> config public API, message and payload day-partitioned on accepted_at with deliveries on their message's day, mapping_version, scheduler schema and the OPERATOR_AGENT caller kind"
 date: 2026-10-02
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
@@ -39,17 +39,18 @@ Source paths starting `ws/` are in the hub repository, project workspace
 
 *Sources: `ws/_specs/work-breakdown.md:16-20` (module list of the deleted design);
 `ws/_specs/f3-plan-brief.md:512` (config rule), `:611` (only deployable); ADR-001; **New**: the
-placement of identity, registry, rules and Kafka follows ADR-007, 010, 011.*
+placement of identity, registry, rules and Kafka follows ADR-007, 010, 011; **amended 2026-10-12**:
+adapters and the routing -> config edge follow ADR-015, job definitions ADR-012.*
 
 | Module | Plane | Owns | Must not |
 |---|---|---|---|
 | `platform-domain` | shared | Ids, value types, the Delivery state register and outcome classes (ADR-010) | Depend on Spring or any other module |
 | `platform-tenancy` | shared | Tenant context, per-transaction stamping, the bootstrap resolvers (login, client, work), OIDC resource server and console login, Keycloak admin port, role checks | Read a tenant from a request body, header or Kafka record |
-| `platform-config` | control | Systems, target endpoints and encrypted credentials, contracts and versions, interfaces and versions, routes, mappings, rule sets (ZEN), lookup tables, retry policies, lifecycle and atomic publish, admin API; a read-only API over **published** versions for the data plane | Be written by a data-plane module |
+| `platform-config` | control | Systems, target endpoints and encrypted credentials, contracts and versions, interfaces and versions, routes, mappings and immutable mapping versions (ADR-013), rule sets (ZEN), lookup tables, retry policies, lifecycle and atomic publish, job definitions and the job admin API (ADR-012), admin API; a public API for the data plane: read-only over **published** versions, sealed target credentials, and the one outbound `DestinationGuard` | Be written by a data-plane module |
 | `platform-ingest` | data | The common API, size caps, contract and rule validation, bulk split, idempotency, the intake transaction (message, payload, outbox), the outbox relay and its publish port | Call a target; use Camel |
-| `platform-routing` | data | **The only Camel module**: Kafka consumers for stages 1 and 2 (claim on the partition thread, consumer pause on a transient database error), route templates per target type, target adapters, the per-target bulkheads and circuit breakers, the outbound destination check, the Kafka implementation of the publish port | Hold retry timing; decide a tenant from a record; call a target on a Kafka partition thread |
-| `platform-transform` | data | Mapping execution with the JSONata engine called directly (ADR-006 decides), sample tests | Use Camel |
-| `platform-delivery` | data | Delivery and attempt persistence, outcome classifier, retry policy, the ordering hold and its same-transaction release, the polling re-drive trigger and the reconciler inside it (the delivery-retry job), replay | Send anything itself |
+| `platform-routing` | data | **The only Camel module**: Kafka consumers for stages 1 and 2 (claim on the partition thread, consumer pause on a transient database error), route templates per target type, the target adapters (`routing/adapter/**`, ADR-015), the per-target bulkheads and circuit breakers, the send-time outbound destination check (config's `DestinationGuard`, reused - ADR-015), the Kafka implementation of the publish port. Depends on `platform-config`'s public API only, never its internals (ADR-015 Decision 2) | Hold retry timing; decide a tenant from a record; call a target on a Kafka partition thread |
+| `platform-transform` | data | Mapping execution with the JSONata engine (Dashjoin port) called directly (ADR-006, confirmed by the spike), sample tests | Use Camel |
+| `platform-delivery` | data | Delivery and attempt persistence, outcome classifier, retry policy (no adapter - ADR-015), the ordering hold and its same-transaction release, the polling re-drive trigger and the reconciler inside it (the delivery-retry job), replay | Send anything itself |
 | `platform-ledger` | data | Stage timestamps, message timeline, daily pre-aggregates, the daily report, dashboard counts | Read sampled traces for the report |
 | `platform-audit` | shared | Append-only audit events, the tenant's activity view | Update or delete an event |
 | `platform-app` | - | The deployable: wiring, security chain, scheduler jobs (db-scheduler), actuator | Contain business logic |
@@ -59,12 +60,17 @@ placement of identity, registry, rules and Kafka follows ADR-007, 010, 011.*
 
 The rule from the deleted design stands: configuration is written only by the control plane and
 read only by the data plane, and the data plane reads only published, immutable versions.
+**Amended 2026-10-12 (ADR-015):** `platform-routing` depends on `platform-config`'s public API
+(published versions, sealed target credentials, the destination guard) - already declared in
+`platform-routing/pom.xml:38-41` - and never on config internals; an arch-test rule allowing the
+API package only is written in E10's wave-0 seam.
 
 ## 3. Data model (shape, not DDL)
 
 *Sources: deleted data-design.md §3-4 quoted at `ws/_specs/f3-plan-brief.md:36-48`; ADR-002;
 **New**: contract, delivery hold, stage columns and the definer-function register come from
-ADR-007, 010, 011.*
+ADR-007, 010, 011; **amended 2026-10-12**: message store, delivery uniqueness and retention
+(ADR-014), mapping versions (ADR-013), scheduler tables (ADR-012).*
 
 Every tenant-owned table has `tenant_id` and a row-level security policy; closed value sets are
 `text` with a `CHECK`; high-volume tables are partitioned by day.
@@ -74,12 +80,12 @@ Every tenant-owned table has `tenant_id` and a row-level security policy; closed
 | Tenancy and identity | `tenant`, `app_user` (issuer, subject), `role_grant`, `source_credential` (issuer, client id, status) | Directory under RLS with one bootstrap function (ADR-009) |
 | Systems | `system` (code, name, direction, + `type`, `settings` from the registry phase), `target_endpoint` (timeout, circuit settings, error dictionary, idempotent-receive declaration, typed settings), `target_credential` (envelope-encrypted, ADR-007) | One systems table; settings validated per type |
 | Contracts | `contract` (system, role), `contract_version` (label, status, JSON Schema, optional OpenAPI, derived-from, compatibility, author, approver) | The only home of every schema (ADR-011) |
-| Flow configuration | `interface` (code immutable once published, mode `ASYNC`/`SYNC`, `ordering` `PER_KEY`/`NONE`, current and published version), `interface_version` (immutable snapshot `jsonb` of the whole bundle, business-key rule mandatory, change note, rejection comment, author, approver, `CHECK` approver is not author), `route` (target endpoint, condition, single primary for sync), `mapping` and its versions (one per route, bound to two contract versions), `retry_policy`, `rule_set`, `lookup_table`, `lookup_entry` | Lookup **values** are deliberately not versioned: immediate and audited (OQ-07 stays Dipesh's) |
-| Intake | `message` (interface version, source contract version, business key, **per-key sequence**, state `ACCEPTED`/`ROUTED`/`ROUTE_FAILED`, stage timestamps), `ordering_key` (tenant, interface, business key - unique together; `last_seq`; one row per key, taken by the intake transaction with an upsert that returns the next per-key sequence and holds the row lock to commit, so per key the sequence is commit order; not used when ordering is `NONE` - ADR-011 Decision 6), `payload`, `outbox` (`available_at`, `traceparent`, key bucket 0-63), `idempotency_key` (source credential, key, request-body hash, results; kept 24 hours) | Daily partitions for message and payload; a partition is dropped only when 0 dead-lettered or non-final deliveries reference it (ADR-011 Decision 8) |
-| Delivery | `delivery` (state, message and route - unique together, pinned target endpoint, contract and mapping versions, ordering key, `next_attempt_at`, `claim_token`, `claimed_at`, `bulkhead_deferrals`), `delivery_attempt` (append-only; layer, outcome class, timings), `delivery_event` (holds, releases, circuit, bulkhead and missing-key deferrals, late outcomes, reconciler re-drives, replays) | Daily partitions; attempts never updated or deleted |
+| Flow configuration | `interface` (code immutable once published, mode `ASYNC`/`SYNC`, `ordering` `PER_KEY`/`NONE`, current and published version), `interface_version` (immutable snapshot `jsonb` of the whole bundle, business-key rule mandatory, change note, rejection comment, author, approver, `CHECK` approver is not author), `route` (target endpoint, condition, single primary for sync), `mapping` (the editable copy, one per route) and `mapping_version` (immutable, content-addressed, created at draft save, bound to two contract versions, referenced by id from the snapshot and pinned on every delivery - ADR-013), `retry_policy`, `rule_set`, `lookup_table`, `lookup_entry` | Lookup **values** are deliberately not versioned: immediate and audited (OQ-07 stays Dipesh's) |
+| Intake | `message` (interface version, source contract version, business key, **per-key sequence**, state `ACCEPTED`/`ROUTED`/`ROUTE_FAILED`, stage timestamps), `ordering_key` (tenant, interface, business key - unique together; `last_seq`; one row per key, taken by the intake transaction with an upsert that returns the next per-key sequence and holds the row lock to commit, so per key the sequence is commit order; not used when ordering is `NONE` - ADR-011 Decision 6), `payload`, `outbox` (`available_at`, `traceparent`, key bucket 0-63), `idempotency_key` (source credential, key, request-body hash, results; kept 24 hours) | Daily partitions for message and payload on the message's `accepted_at` (payload carries its message's `accepted_at`; ADR-014); payload retention 30 days (Dipesh, 2026-10-12); one day of message, payload and delivery is dropped together, and only when 0 dead-lettered or non-final deliveries reference it (ADR-011 Decision 8) |
+| Delivery | `delivery` (state, message and route - unique per message day as `(message_id, route_id, created_at)` with `created_at` = the message's `accepted_at`, so a delivery sits in its message's day partition (ADR-014); pinned target endpoint, contract and mapping versions, ordering key, `next_attempt_at`, `claim_token`, `claimed_at`, `bulkhead_deferrals`), `delivery_attempt` (append-only; layer, outcome class, timings), `delivery_event` (holds, releases, circuit, bulkhead and missing-key deferrals, late outcomes, reconciler re-drives, replays) | Daily partitions on the message's day; attempts keep their own insert-day partitions and are never updated or deleted |
 | Ledger | Stage timestamps on message and delivery; `daily_aggregate` per tenant, interface, target, day | The report reads aggregates, which a seeded test proves equal to the rows |
 | Audit | `audit_event` | Append-only; partition drop after 7 years |
-| Scheduler | db-scheduler's task table; `job_definition`, `job_run` | Jobs are configuration rows |
+| Scheduler | Own schema `scheduler`: db-scheduler's task table, `job_definition`, `job_run`, `job_alert`, `operator_credential` (ADR-012) | Jobs are configuration rows; **platform-scoped, no `tenant_id` column**, access by grant only (control T3 exemption register, section 5) |
 
 **Stage timestamps** (*source: `ws/_specs/project-plan.md:118`*): received, validated, transform
 start, transform end, sent, target responded, completed.
@@ -99,7 +105,7 @@ start, transform end, sent, target responded, completed.
 | 5 | ingest | Reply 202 with per-record results and tracking ids | - |
 | 6 | ingest relay | Publishes each outbox row to `platform.message.accepted` (key = hash of tenant, interface, business key; `traceparent` restored) and marks it published; **one publisher per key bucket** (advisory lock), rows in order, stops a bucket at the first failure (ADR-005 Decision 11) | Kafka down -> breaker opens, rows stay, outbox-age alert after 60 s; a crash after publish -> duplicate record, harmless (step 8) |
 | 7 | routing stage 1 | Resolves the tenant from the message row (work function), loads the pinned interface version, evaluates route conditions | Unreadable record or missing row -> `platform.poison`, alert; transient database error -> consumer pauses and backs off, never poison |
-| 8 | routing stage 1 | **One transaction:** key lock; message `ACCEPTED -> ROUTED` by conditional update; one Delivery per matched target, insert-on-conflict `(message_id, route_id)` do nothing (pinning endpoint, contract and mapping versions), plus one outbox row each; release deliveries held only behind this message | 0 rows on the update -> duplicate record, no effect; no route -> `ROUTED` with 0 deliveries, "no route" in the timeline; pinned configuration unreadable -> `ROUTE_FAILED`, alert |
+| 8 | routing stage 1 | **One transaction:** key lock; message `ACCEPTED -> ROUTED` by conditional update; one Delivery per matched target, insert-on-conflict `(message_id, route_id, created_at)` do nothing, `created_at` = the message's `accepted_at` (ADR-014; pinning endpoint, contract and mapping versions), plus one outbox row each; release deliveries held only behind this message | 0 rows on the update -> duplicate record, no effect; no route -> `ROUTED` with 0 deliveries, "no route" in the timeline; pinned configuration unreadable -> `ROUTE_FAILED`, alert |
 | 9 | routing stage 2 | Consumes `platform.delivery.due` on the partition thread; takes a permit from the target's **bulkhead** | Bulkhead full -> no call, `BULKHEAD_FULL` event, `RETRY_WAIT` for 1-5 s |
 | 10 | routing stage 2 | **Claim transaction, one order:** key lock, read the delivery, check the hold (an earlier same-key message still `ACCEPTED`, or an earlier delivery to this target not final), then `HELD` or `SENDING` with a claim token; commit; then commit the Kafka offset | 0 rows -> duplicate, acknowledged; hold applies -> `HELD`, visible on the dashboard |
 | 11 | transform (bulkhead thread) | Mapping version applied to the payload (5 s budget) | Mapping error -> `PERMANENT`, dead-lettered with the reason |
@@ -145,6 +151,20 @@ dies mid-call, the stale-claim rule recovers the delivery (ADR-011 Decision 5).
 | T4 | The setting is stamped per transaction only | Pooled-connection test (ADR-007 Decision 6) |
 | T5 | The definer functions that cross the tenant boundary are exactly four: `ipaas_login_bootstrap`, `ipaas_client_bootstrap`, `ipaas_work_tenant`, `ipaas_active_tenants` - each narrow, ids or status only, `search_path` pinned, `EXECUTE` to the application role only | One negative test each; adding a fifth needs an ADR |
 | T6 | The application role has no `BYPASSRLS` and no DDL; partition maintenance runs as a separate role | Grant inspection test |
+
+**Amended 2026-10-12 (ADR-012, approved by Dipesh):**
+
+- **Platform-scoped exemption register (T2, T3).** Exactly these tables hold no tenant data and
+  sit outside row-level security, in their own schemas, access by grant only (the application role
+  reads and writes, PUBLIC holds nothing): the `console_session` schema (ADR-007 Decision 1) and the
+  `scheduler` schema (db-scheduler's task table, `job_definition`, `job_run`, `job_alert`,
+  `operator_credential`). Each listed table has a test that it has no `tenant_id` column; adding a
+  table needs an ADR.
+- **The first no-tenant principal.** The `OPERATOR_AGENT` caller kind (ADR-007 Decision 5) binds
+  no tenant, so every tenant-owned policy errors for it (T3 error-deny); it reaches only the job and
+  alert operations. Tenant admins hold no job operation in Release 1. Its attack suite is part of the
+  Release 1 security review (T-147). T5 stays at four definer functions: jobs loop
+  `ipaas_active_tenants` and resolve known rows with `ipaas_work_tenant`.
 
 ## 6. Deployment view
 

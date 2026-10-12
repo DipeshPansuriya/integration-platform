@@ -1,7 +1,8 @@
 ---
 type: ADR
 title: "ADR-015 - Target adapters live in platform-routing; the code's system-type register is aligned to ADR-011 (MQ becomes MQ_CSV, KAFKA_TOPIC added) in E10"
-status: "Proposed (mahesh-architect, 2026-10-11) - Dipesh approves. Confirms pre-plan item M8; corrects a code drift from ADR-011 Decision 1"
+status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - confirms pre-plan item M8; corrects a code drift from ADR-011 Decision 1; ADR-010 section 1 and architecture.md section 2 amended in the same change"
+approved: "Dipesh, 2026-10-12 (hub memory m-f1fcfc)"
 date: 2026-10-11
 author: "mahesh-architect (ledger row 307 under row 278)"
 project: ipass/integration-platform
@@ -40,7 +41,7 @@ points apply decisions already accepted; nothing new is chosen except which side
   `platform-config/src/main/java/io/integrationplatform/config/system/application/SystemSettings.java:33`,
   `:53`). [Verified]
 
-## Decision (Proposed)
+## Decision (Accepted 2026-10-12, approved by Dipesh)
 
 1. **Adapters live in `platform-routing`** (`routing/adapter/**`), as the E10 pre-plan decided.
    Outcome classification and retry timing stay in `platform-domain` / `platform-delivery`. The

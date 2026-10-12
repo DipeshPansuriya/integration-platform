@@ -1,7 +1,8 @@
 ---
 type: ADR
 title: "ADR-006 - Transformation engine: JSONata (Dashjoin Java port) called directly by platform-transform, confirmed by the spike"
-status: "Proposed (mahesh-architect, 2026-10-11) - Dipesh approves. Pre-spike draft: the spike results table is TBD until T-030 to T-032 run; the decision is re-scored on measured values before approval"
+status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - the spike T-030 to T-032 still has to confirm gates G1 to G4; lane D T-034 and T-035 may start now; T-036, T-039 and T-108 wait for the spike results"
+approved: "Dipesh, 2026-10-12 (hub memory m-f1fcfc)"
 date: 2026-10-11
 author: "mahesh-architect (ledger row 307 under row 278, task T-033)"
 project: ipass/integration-platform
@@ -27,6 +28,14 @@ Every statement carries a grade: **[Verified]** (read in the cited file this pas
 > question, the candidates, the scoring rule, the gates and the rules carried with the decision;
 > the measured results are **[TBD]** and the weighted table below is a desk score that the spike
 > replaces before Dipesh approves.
+
+> **Approved by Dipesh 2026-10-12** (hub memory m-f1fcfc), as recommended, before the spike ran.
+> What he approved: (1) the JSONata language through the Dashjoin port, **provided the spike
+> T-030 to T-032 confirms gates G1 to G4** - the results table below is still filled from the
+> spike report, and Decision 2 applies if candidate A fails a gate; (2) lane D **may start T-034
+> and T-035 now**; (3) **T-036, T-039 and T-108 wait for the spike results**; (4) JSONata4Java
+> 3.0.0 joins the spike as a same-language control. If the spike moves the decision to C (ZEN) or
+> no candidate passes, the record goes back to Dipesh before any canvas expression code.
 
 ## How this differs from ADR-004
 
@@ -125,7 +134,7 @@ question at `ws/_specs/project-plan.md:217` and are measured by T-032. [TBD]
 
 All cells [TBD]. The spike report goes to `ws/_reports/` and is linked here by path.
 
-## Decision (Proposed)
+## Decision (Accepted 2026-10-12 - the spike confirms the gates)
 
 1. **Adopt the JSONata language, executed by `com.dashjoin:jsonata` 0.9.10, called directly by
    `platform-transform`** - provided candidate A passes gates G1 to G4. [Inferred until the spike]
@@ -184,7 +193,7 @@ All cells [TBD]. The spike report goes to `ws/_reports/` and is linked here by p
 | T-108 transform port, T-109 5 s budget, T-038 round-trip test (lane B) | ADR-006 approved with spike results | [Verified] `ws/_specs/backlog.md:198` |
 | T-036 graph-to-expression emitter (lane B) | ADR-006 approved and T-034 graph types fixed | [Verified] `ws/_specs/backlog.md:198` |
 | T-039 raw-expression editor (lane D) | ADR-006 approved **and** JSONata chosen | [Verified] `ws/_specs/backlog.md:200`, `:1873` |
-| T-034 canvas scaffold, T-035 schema trees and links (lane D) | Depends on how the gate is read - see "Can lane D start" below | [TBD] Dipesh |
+| T-034 canvas scaffold, T-035 schema trees and links (lane D) | May start now - Dipesh 2026-10-12 (see "Can lane D start" below) | [Verified] m-f1fcfc |
 | E9 route templates (E9-F1-S1 depends on E7-F1-S1) and E11 composition T-049 | Indirect: they call the transform port | [Verified] `ws/_specs/backlog.md:2225`; `:3050` |
 
 ### Can lane D start while this ADR is Proposed?
@@ -198,8 +207,9 @@ All cells [TBD]. The spike report goes to `ws/_reports/` and is linked here by p
   engine-independent as long as its link model stores field paths, not expressions. Both are
   reversible within lane D's own files in `ui/`. [Inferred]
 - **Recommendation:** read the gate as "put to Dipesh" for T-034 and T-035 only, so lane D starts
-  them now; keep T-036, T-039 and T-108 behind approval with spike results. Dipesh decides which
-  reading binds (Open item 1). [TBD] Dipesh
+  them now; keep T-036, T-039 and T-108 behind approval with spike results.
+- **Decided by Dipesh 2026-10-12:** as recommended - T-034 and T-035 start now; T-036, T-039 and
+  T-108 wait for the spike results. [Verified] m-f1fcfc
 
 ## Consequences
 
@@ -233,9 +243,9 @@ as in `ws/_specs/backlog.md:197-200`]
 
 ## Open
 
-1. **Needs decision (Dipesh):** may lane D start T-034 and T-035 while ADR-006 is Proposed?
-   Recommend yes (engine-independent, ADR-004 governs, reversible); T-036, T-039, T-108 wait.
-2. **Team proposal for Dipesh's review:** add JSONata4Java 3.0.0 to the spike as a same-language
-   control (same expressions, no extra authoring), so a Dashjoin failure does not drop JSONata
-   itself. Recommend yes.
-3. The weighted table and the results table are re-scored from the spike report before approval.
+1. **Decided (Dipesh, 2026-10-12):** lane D starts T-034 and T-035 now; T-036, T-039 and T-108
+   wait for the spike results.
+2. **Decided (Dipesh, 2026-10-12):** JSONata4Java 3.0.0 joins the spike as a same-language control.
+3. Still open: the weighted table and the results table are re-scored from the spike report
+   (T-030 to T-032). The approval holds while candidate A or B passes all four gates; C winning or
+   no candidate passing returns this record to Dipesh.

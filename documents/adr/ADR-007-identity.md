@@ -3,7 +3,7 @@ type: ADR
 title: "ADR-007 - Identity: Keycloak for login and machine credentials, tenant bound from our database, target credentials encrypted with an out-of-database key"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): key-error classes, credential fields named per type, audience scope, revoke order, Keycloak outage gate, token-lifetime trade-off. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): a missing key uses no attempt, a not-ready instance stops its consumers and skips the retry job"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): key-error classes, credential fields named per type, audience scope, revoke order, Keycloak outage gate, token-lifetime trade-off. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): a missing key uses no attempt, a not-ready instance stops its consumers and skips the retry job. 2026-10-12 - Decision 5 amended with the approval of ADR-012 (Dipesh, 2026-10-12): the caller-kind register gains OPERATOR_AGENT; tenant admins hold no job operation"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -170,6 +170,17 @@ Self-registration is disabled (tenants are onboarded by the platform operator -
   may also approve. Approver-is-never-author is enforced on the record by a database `CHECK`,
   not by the role.
 - Enforced server-side on every endpoint, with a failing test per role written first.
+- **Caller kinds (closed register; amended 2026-10-12 by ADR-012, approved by Dipesh).** Who may
+  call an operation at all, before any role: `ROLE` (a bound human holding one of the operation's
+  roles), `ANY_HUMAN` (any bound human), `SOURCE_SYSTEM` (a source system's machine credential,
+  no human) - today's three (`platform-tenancy/src/main/java/io/integrationplatform/tenancy/RolePolicy.java:40-47`) -
+  and **`OPERATOR_AGENT`** (ADR-012 Decision 5): one confidential Keycloak client per AI agent,
+  bound to **no tenant**, holding no role and no source-system binding. Its operations are exactly:
+  list jobs, inspect a job and its runs, run now, pause, resume, read and acknowledge alerts. It
+  is refused every other operation, and every human role and source credential is refused its
+  operations (403). **Tenant admins hold no job operation in Release 1** - a pause would stop
+  every tenant (Dipesh, 2026-10-12). The five roles above are unchanged. Adding a caller kind
+  needs an ADR amending this register.
 
 ## Decision 6 - The session setting is stamped per transaction (the "GUC residue")
 

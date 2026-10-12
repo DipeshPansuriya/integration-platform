@@ -1,7 +1,8 @@
 ---
 type: ADR
 title: "ADR-014 - Message store and one delivery per message and route: day-partitioned message and payload on the accepted day, deliveries created on their message's day, unique (message_id, route_id, created_at)"
-status: "Proposed (mahesh-architect, 2026-10-11) - Dipesh approves. Amends ADR-010 sections 2 and 6 and architecture.md section 3 on approval. Blocks E8 lane A and E9 lane C"
+status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - payload retention 30 days; ADR-010 sections 2 and 6 and architecture.md sections 3 and 4.1 amended in the same change; unblocks E8 lane A and E9 lane C"
+approved: "Dipesh, 2026-10-12 (hub memory m-f1fcfc)"
 date: 2026-10-11
 author: "mahesh-architect (ledger row 307 under row 278, pre-plan open items M5 and M6)"
 project: ipass/integration-platform
@@ -70,7 +71,7 @@ decision: the way the message table is partitioned decides how the delivery can 
 A global unique index across partitions does not exist in PostgreSQL 17 (`compose/compose.yaml:10`
 pins `postgres:17.11-alpine`). [Verified version; Inferred feature]
 
-## Decision (Proposed)
+## Decision (Accepted 2026-10-12, approved by Dipesh)
 
 ### 1. `message` and `payload` (E8 lane A, `V2_1_810-819`)
 
@@ -154,7 +155,7 @@ CREATE UNIQUE INDEX delivery_message_route_unique
 ### 3. Retention and purge (built by the purge job of ADR-012 / E14)
 
 - One day `D` is one unit: `message_D`, `payload_D` and `delivery_D` are created together and
-  dropped together, after retention (30 days - [TBD Dipesh], backlog Open 9), and only when the
+  dropped together, after retention (**30 days - decided by Dipesh 2026-10-12**, m-f1fcfc; backlog Open 9), and only when the
   ADR-011 guard counts **0** deliveries in `delivery_D` that are `DEAD_LETTERED` or not final.
   A delivery always sits in its message's day, so the guard is one count on one partition.
   `delivery_attempt` keeps its own insert-day partitions; its retention is E14's. [Inferred]
@@ -205,7 +206,8 @@ are T-191 (E8) and T-197 (E9).
 - **Gives up:** no foreign keys into `message` or `delivery` (link enforced by RLS and the insert
   paths, as today); `delivery.created_at` no longer means insert time; by-id lookups probe every
   kept partition (about 38 index probes each).
-- On approval, ADR-010 `:100` and `:215` and `architecture.md:79` read "(message_id, route_id)
+- Applied 2026-10-12 with the approval: ADR-010 section 2 (stage 1 and the unique-key paragraph),
+  section 6 (the `PENDING` row) and `architecture.md` sections 3 and 4.1 (step 8) now read "(message_id, route_id)
   unique per message day - created_at = the message's accepted_at".
 
 ## Revisit if
@@ -217,7 +219,7 @@ are T-191 (E8) and T-197 (E9).
 
 ## Open
 
-1. **Dipesh:** payload retention - 30 days assumed (backlog Open 9). Recommend 30.
+1. **Decided (Dipesh, 2026-10-12):** payload retention is 30 days (backlog Open 9).
 2. **E14 (not an E8/E9 blocker):** the outbox grows by at least 2 rows per message and nothing
    removes published rows (`V2_0_1__outbox.sql:33-34`). Recommend the E14 purge job delete
    published rows older than 24 hours in batches as the maintenance role.
