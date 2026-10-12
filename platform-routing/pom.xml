@@ -39,5 +39,23 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-config</artifactId>
     </dependency>
+    <!-- E8 seam (F6, arjun): the Kafka Testcontainers the E8 lanes test with (T-044's harness builds on
+         these); versions come from the spring-boot BOM's testcontainers-bom, as in platform-config/app.
+         spring-boot-starter-test is contributed by the parent for every module. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-kafka</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>
