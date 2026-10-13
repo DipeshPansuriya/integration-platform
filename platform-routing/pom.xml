@@ -47,6 +47,21 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-ingest</artifactId>
     </dependency>
+    <!-- E8 lane C2 (T-191, ADR-005 Decision 12): the stage consumers' database breaker per consumer group
+         (Resilience4j plain modules, version from resilience4j.version), Micrometer metrics and an observation
+         (span) per consumed record, and the consumer-lag check. -->
+    <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-circuitbreaker</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-micrometer</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-core</artifactId>
+    </dependency>
     <!-- E8 seam (F6, arjun): the Kafka Testcontainers the E8 lanes test with (T-044's harness builds on
          these); versions come from the spring-boot BOM's testcontainers-bom, as in platform-config/app.
          spring-boot-starter-test is contributed by the parent for every module. -->

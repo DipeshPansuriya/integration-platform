@@ -17,7 +17,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * (R11), and the sub-query form keeps the {@code FOR UPDATE SKIP LOCKED} claim in outbox-id order exactly as
  * {@code V2_0_1__outbox.sql} indexes it: {@code (tenant_id, key_bucket, id) WHERE published_at IS NULL}.
  */
-final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRowAccess {
+public final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRowAccess {
 
     /** The claim: one bucket's oldest unpublished due rows, locked for this transaction only. */
     private static final String CLAIM_SELECT_FROM = """
@@ -53,7 +53,7 @@ final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRow
 
     private final TenantContext scopedTenantContext;
 
-    JdbcOutboxAccess(JdbcClient jdbcClient, TenantContext tenantContext) {
+    public JdbcOutboxAccess(JdbcClient jdbcClient, TenantContext tenantContext) {
         super(jdbcClient, tenantContext);
         this.scopedTenantContext = tenantContext;
     }

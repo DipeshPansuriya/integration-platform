@@ -30,12 +30,17 @@ class KafkaPublishPortConfiguration {
     Producer<String, String> kafkaPublishProducer(
             @Value("${platform.routing.kafka.bootstrap-servers}") String bootstrapServers,
             @Value("${platform.routing.kafka.client-id}") String clientId) {
+        return new KafkaProducer<>(producerConfig(bootstrapServers, clientId));
+    }
+
+    /** The relay producer's settings. */
+    static Map<String, Object> producerConfig(String bootstrapServers, String clientId) {
         Map<String, Object> config = new HashMap<>();
         config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         config.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
         config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        return new KafkaProducer<>(config);
+        return config;
     }
 
     @Bean

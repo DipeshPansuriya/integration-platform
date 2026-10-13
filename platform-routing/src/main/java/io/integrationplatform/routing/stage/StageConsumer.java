@@ -106,6 +106,20 @@ public final class StageConsumer {
         this.sleeper = sleeper;
     }
 
+    /** T-191 red skeleton: the controlled constructor - controls not built yet. */
+    public StageConsumer(Consumer<byte[], byte[]> consumer, WorkRecordParser parser, ProtectedRows rows,
+            Handler handler, PoisonSink poison, java.util.function.IntFunction<Duration> backoff,
+            Duration pollTimeout, Clock clock, Sleeper sleeper, StageSettings settings,
+            io.micrometer.core.instrument.MeterRegistry meters,
+            io.micrometer.observation.ObservationRegistry observations, StageAlerts alerts) {
+        this(consumer, parser, rows, handler, poison, backoff, pollTimeout, clock, sleeper);
+    }
+
+    /** T-191 red skeleton: the consumer settings - not built yet. */
+    public static Map<String, Object> consumerConfig(String bootstrapServers, String group) {
+        return Map.of();
+    }
+
     /** Handles one record; the outcome decides the offset and the partition rule of the class javadoc. */
     public Outcome handleOne(ConsumerRecord<byte[], byte[]> record) {
         WorkRecord contract;

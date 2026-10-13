@@ -58,6 +58,15 @@ public final class PostgresOutboxRelay implements OutboxRelay {
         this.batchSize = batchSize;
     }
 
+    /** T-191 red skeleton: the controlled constructor - controls not built yet. */
+    public PostgresOutboxRelay(ActiveTenantSource tenantSource, OutboxRowAccess access,
+            RelayTenantContext tenantContext, TransactionOperations transactions, PublishPort publishPort,
+            Duration acknowledgeTimeout, int batchSize, RelaySettings settings,
+            io.micrometer.core.instrument.MeterRegistry meters,
+            io.micrometer.observation.ObservationRegistry observations, java.time.Clock clock, RelayAlerts alerts) {
+        this(tenantSource, access, tenantContext, transactions, publishPort, acknowledgeTimeout, batchSize);
+    }
+
     @Override
     public int runOnce() {
         int marked = 0;
