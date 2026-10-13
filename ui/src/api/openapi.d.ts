@@ -54,7 +54,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["read_1"];
+        get: operations["read_2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -134,7 +134,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["read"];
+        get: operations["read_1"];
         put: operations["saveDraft"];
         post?: never;
         delete?: never;
@@ -216,6 +216,54 @@ export interface paths {
         };
         get?: never;
         put: operations["editVersion"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/lookups/{lookupId}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/lookups/{lookupId}/entries/{entryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["changeEntry"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/routes/{routeId}/mapping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["read"];
+        put: operations["save"];
         post?: never;
         delete?: never;
         options?: never;
@@ -652,7 +700,7 @@ export interface operations {
             };
         };
     };
-    read_1: {
+    read_2: {
         parameters: {
             query?: never;
             header?: never;
@@ -929,7 +977,7 @@ export interface operations {
             };
         };
     };
-    read: {
+    read_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -1338,6 +1386,210 @@ export interface operations {
                 };
             };
             /** @description Conflict: version content is immutable - save a new draft on the flow */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    listEntries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lookupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK: {lookupId, entries: [{id, key, value}]} in table order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description NO_BOUND_USER, or the role does not allow reading */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the lookup is not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    changeEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lookupId: string;
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonNode"];
+            };
+        };
+        responses: {
+            /** @description OK: {id, key, value} as changed, effective immediately */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description RULE_TABLE_INVALID with the cell and the reason, or a validation refusal (key, value, the table's column shape) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description NO_BOUND_USER, or the role does not allow editing */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the lookup or the entry is not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                routeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The mapping as it was saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description NO_BOUND_USER: the bearer resolves to no directory user */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the route is not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    save: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                routeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonNode"];
+            };
+        };
+        responses: {
+            /** @description Saved; the mapping_version id when bound */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description A validation refusal names the refused field, link or binding */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description NO_BOUND_USER: the bearer resolves to no directory user */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the route is not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Conflict: a binding that is not an approved contract of its role, or a version-number contention under concurrent saves */
             409: {
                 headers: {
                     [name: string]: unknown;

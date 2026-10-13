@@ -1,7 +1,11 @@
-# Local development harness: PostgreSQL and Keycloak (no application image is built yet).
-# R05: every image pinned to the exact tag the tests use (TestImages.POSTGRES, TestImages.KEYCLOAK).
+# Local development harness: PostgreSQL, Keycloak, Kafka (E8) and the engineers' Kafbat UI (T-077).
+# R05: every image pinned to the exact tag the tests use (TestImages.POSTGRES, TestImages.KEYCLOAK,
+# KafkaImages.KAFKA, KafkaImages.KAFBAT - the digest pins Kafbat's release tag).
 # R07: no literal credential - every value comes from a variable; POSTGRES_PASSWORD has no default and compose
 #      refuses to start without it. Names are listed in compose.env.example; values live in the OS secret store.
+# Networks (E8-F2-S1 @negative @security): Kafka joins the work network (what the routing consumers share) and
+#      the operations network; Kafbat joins the operations network ONLY - never the default tenant-facing network
+#      postgres/keycloak and the console sit on, and it requires its own login (KAFBAT_UI_* variables).
 # Usage: docker compose -f compose/compose.yaml up -d   (one Docker suite at a time on the build PC, R06)
 name: integration-platform
 
@@ -59,6 +63,64 @@ services:
       - "8180:8080"
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
+
+  # E8 (T-044/T-077, ADR-010): the work broker, one KRaft node. Same pinned tag as the KafkaHarness
+  # (KafkaImages.KAFKA); topic auto-creation off there and here so the harness/code decides the topics.
+  # Networks: work (the routing module reaches it there) and operations (Kafbat reads it there) - never the
+  # tenant-facing default network. The host port is loopback-only for local admin tools.
+  kafka:
+    image: apache/kafka:4.3.1
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: false
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      TZ: Etc/UTC
+    ports:
+      - "127.0.0.1:9092:9092"
+    networks:
+      - work
+      - operations
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  # E8-F2-S1 (T-077): the engineers' Kafka view - topics, lag and consumer groups for platform people only.
+  # Pinned by the same digest the tests pin (KafkaImages.KAFBAT); release tag v1.5.0 cannot be named as a plain
+  # tag, so the digest of that tag pins it instead. Operations network ONLY (never tenant-facing) and its own
+  # login: AUTH_TYPE LOGIN_FORM with the credentials from the KAFBAT_UI_* variable names (R07: names only).
+  kafbat:
+    image: kafbat/kafka-ui@sha256:7cda86a33344160309fdb65146332e4da65db81a945614f2fe32e210803f6fd1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: platform
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      AUTH_TYPE: LOGIN_FORM
+      SPRING_SECURITY_USER_NAME: ${KAFBAT_UI_USER:?set KAFBAT_UI_USER}
+      SPRING_SECURITY_USER_PASSWORD: ${KAFBAT_UI_PASSWORD:?set KAFBAT_UI_PASSWORD}
+      DYNAMIC_CONFIG_ENABLED: "false"
+      TZ: Etc/UTC
+    ports:
+      - "127.0.0.1:8090:8080"
+    networks:
+      - operations
+
+networks:
+  work:
+  operations:
 
 volumes:
   postgres-data:

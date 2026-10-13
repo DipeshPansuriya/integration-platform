@@ -248,6 +248,21 @@
       "tag": "ADR-005"
     },
     {
+      "id": "kafbat",
+      "type": "frontend",
+      "label": "Kafbat UI",
+      "sublabel": "operations network only",
+      "pos": [
+        780,
+        574
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "ADR-005"
+    },
+    {
       "id": "targets",
       "type": "external",
       "label": "Target systems",
@@ -445,6 +460,15 @@
       "label": "stage 1 + stage 2",
       "variant": "emphasis",
       "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "engineer-view",
+      "from": "kafbat",
+      "to": "kafka",
+      "label": "reads topics, groups, lag",
+      "variant": "dashed",
+      "fromSide": "right",
       "toSide": "bottom"
     },
     {

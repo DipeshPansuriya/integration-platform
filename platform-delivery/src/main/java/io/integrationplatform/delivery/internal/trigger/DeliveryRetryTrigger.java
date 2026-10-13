@@ -1,6 +1,7 @@
 package io.integrationplatform.delivery.internal.trigger;
 
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
+import io.integrationplatform.delivery.port.InstanceReadiness;
 import io.integrationplatform.delivery.port.RetryCandidate;
 import io.integrationplatform.ingest.port.OutboxEntry;
 import io.integrationplatform.ingest.port.OutboxTopic;
@@ -32,11 +33,22 @@ public final class DeliveryRetryTrigger {
     private final TransactionOperations transactions;
     private final DeliveryRetryStore store;
     private final OutboxWriter outboxWriter;
+    private final InstanceReadiness readiness;
     private final int batchSize;
 
     public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
             TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
             int batchSize) {
+        this(tenants, tenantContext, transactions, store, outboxWriter, batchSize, InstanceReadiness.alwaysReady());
+    }
+
+    /**
+     * E9 seam (arjun-fullstack, F14): the readiness gate stub - consulted before each re-drive
+     * (E10's T-201 readiness rules slot in here; the always-ready default changes nothing today).
+     */
+    public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
+            TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
+            int batchSize, InstanceReadiness readiness) {
         if (batchSize < 1) {
             throw new IllegalArgumentException("batchSize must be at least 1");
         }
@@ -45,6 +57,7 @@ public final class DeliveryRetryTrigger {
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.store = Objects.requireNonNull(store, "store");
         this.outboxWriter = Objects.requireNonNull(outboxWriter, "outboxWriter");
+        this.readiness = Objects.requireNonNull(readiness, "readiness");
         this.batchSize = batchSize;
     }
 
@@ -58,7 +71,7 @@ public final class DeliveryRetryTrigger {
         for (UUID tenant : tenants.activeTenantIds()) {
             tenantContext.bind(tenant);
             try {
-                Integer moved = transactions.execute(status -> redriveDue());
+                Integer moved = transactions.execute(status -> redriveDue(tenant));
                 reDriven += moved == null ? 0 : moved;
             } finally {
                 tenantContext.unbind();
@@ -67,10 +80,13 @@ public final class DeliveryRetryTrigger {
         return reDriven;
     }
 
-    private int redriveDue() {
+    private int redriveDue(UUID tenant) {
         List<RetryCandidate> due = store.lockDue(Instant.now(), batchSize);
         int moved = 0;
         for (RetryCandidate candidate : due) {
+            if (!readiness.ready(tenant, candidate.deliveryId())) {
+                continue; // readiness stub: never false today; E10 T-201 fills the rule
+            }
             if (!store.markDue(candidate.deliveryId())) {
                 continue; // 0 rows: the delivery is not ours to move anymore - the store never throws on this
             }

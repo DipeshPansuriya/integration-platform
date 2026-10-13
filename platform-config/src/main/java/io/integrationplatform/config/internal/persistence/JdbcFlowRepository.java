@@ -39,7 +39,8 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
             String targetEndpointId) {
     }
 
-    public record MappingRow(String id, String routeId, String fieldMappingsJson, String compiledExpression) {
+    public record MappingRow(String id, String routeId, String fieldMappingsJson, String compiledExpression,
+            String sourceContractVersionId, String targetContractVersionId, String mappingVersionId) {
     }
 
     public record VersionInfo(String id, int version, String status, String businessKeyRule, String snapshotJson,
@@ -65,7 +66,15 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
             + " r.is_primary, r.status, r.target_endpoint_id::text as target_endpoint_id from public.route r";
 
     private static final String READ_MAPPINGS = "select m.id::text as id, m.route_id::text as route_id,"
-            + " m.field_mappings::text as field_mappings, m.compiled_expression from public.mapping m";
+            + " m.field_mappings::text as field_mappings, m.compiled_expression,"
+            + " m.source_contract_version_id::text as source_contract_version_id,"
+            + " m.target_contract_version_id::text as target_contract_version_id,"
+            + " (select v.id::text from public.mapping_version v"
+            + "     where v.tenant_id = m.tenant_id and v.mapping_id = m.id"
+            + "       and v.source_contract_version_id is not distinct from m.source_contract_version_id"
+            + "       and v.target_contract_version_id is not distinct from m.target_contract_version_id"
+            + "       and v.field_mappings = m.field_mappings and v.compiled_expression = m.compiled_expression"
+            + "     limit 1) as mapping_version_id from public.mapping m";
 
     private static final String MAPPINGS_OF_INTERFACE =
             "m.route_id in (select r.id from public.route r where r.interface_id = :interface_id::uuid)";
@@ -89,9 +98,11 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
             + " returning id, tenant_id) select id::text from ins";
 
     private static final String INSERT_MAPPING_FROM_SNAPSHOT = "with ins as ("
-            + "insert into public.mapping (id, tenant_id, route_id, field_mappings, compiled_expression)"
+            + "insert into public.mapping (id, tenant_id, route_id, field_mappings, compiled_expression,"
+            + "    source_contract_version_id, target_contract_version_id)"
             + " values (:id::uuid, current_setting('app.tenant_id')::uuid, :route_id::uuid,"
-            + "    :field_mappings::jsonb, :compiled_expression)"
+            + "    :field_mappings::jsonb, :compiled_expression, :source_contract_version_id::uuid,"
+            + "    :target_contract_version_id::uuid)"
             + " returning id, tenant_id) select id::text from ins";
 
     private static final String UPDATE_ROUTE_FROM_SNAPSHOT = "update public.route set sequence = :sequence::integer,"
@@ -99,7 +110,9 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
 
     private static final String UPDATE_MAPPING_FROM_SNAPSHOT =
             "update public.mapping set field_mappings = :field_mappings::jsonb,"
-                    + " compiled_expression = :compiled_expression, updated_at = now()";
+                    + " compiled_expression = :compiled_expression,"
+                    + " source_contract_version_id = :source_contract_version_id::uuid,"
+                    + " target_contract_version_id = :target_contract_version_id::uuid, updated_at = now()";
 
     private static final String ROUTE_EXISTS = "select 1 as present from public.route t";
 
@@ -158,7 +171,8 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
 
     private static final RowMapper<MappingRow> MAPPING_ROW = (rs, n) -> new MappingRow(
             rs.getString("id"), rs.getString("route_id"), rs.getString("field_mappings"),
-            rs.getString("compiled_expression"));
+            rs.getString("compiled_expression"), rs.getString("source_contract_version_id"),
+            rs.getString("target_contract_version_id"), rs.getString("mapping_version_id"));
 
     private static final RowMapper<VersionInfo> VERSION_ROW = (rs, n) -> new VersionInfo(
             rs.getString("id"), rs.getInt("version"), rs.getString("status"), rs.getString("business_key_rule"),
@@ -257,17 +271,22 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
     }
 
     public String insertMappingFromSnapshot(String mappingId, String routeId, String fieldMappingsJson,
-            String compiledExpression) {
+            String compiledExpression, String sourceContractVersionId, String targetContractVersionId) {
         return orRow(query(INSERT_MAPPING_FROM_SNAPSHOT, null,
                 Params.of("id", mappingId, "route_id", routeId,
-                        "field_mappings", fieldMappingsJson, "compiled_expression", compiledExpression),
+                        "field_mappings", fieldMappingsJson, "compiled_expression", compiledExpression,
+                        "source_contract_version_id", sourceContractVersionId,
+                        "target_contract_version_id", targetContractVersionId),
                 FIRST_COLUMN));
     }
 
-    public int updateMappingFromSnapshot(String mappingId, String fieldMappingsJson, String compiledExpression) {
+    public int updateMappingFromSnapshot(String mappingId, String fieldMappingsJson, String compiledExpression,
+            String sourceContractVersionId, String targetContractVersionId) {
         return update(UPDATE_MAPPING_FROM_SNAPSHOT, "id = :id::uuid",
                 Params.of("id", mappingId, "field_mappings", fieldMappingsJson,
-                        "compiled_expression", compiledExpression));
+                        "compiled_expression", compiledExpression,
+                        "source_contract_version_id", sourceContractVersionId,
+                        "target_contract_version_id", targetContractVersionId));
     }
 
     // ------------------------------------------------------------------ versions

@@ -265,7 +265,7 @@ final class EndpointMatrix {
                     200,
                     new WriteProbe(s -> "SELECT count(*) || '|@' || coalesce(string_agg(version_label, ','"
                             + " ORDER BY version_label), '-') FROM public.contract_version WHERE tenant_id = '"
-                            + s.a().id() + "'", "1|@1.0", "2|@1.0,1.1")),
+                            + s.a().id() + "'", "2|@1.0,1.0", "3|@1.0,1.0,1.1")),
             new Entry("GET", CONTRACT_VERSIONS + "/{versionId}", false,
                     s -> CONTRACT_VERSIONS + "/" + s.a().config().sourceContractVersionId(),
                     s -> CONTRACT_VERSIONS + "/" + s.b().config().sourceContractVersionId(),

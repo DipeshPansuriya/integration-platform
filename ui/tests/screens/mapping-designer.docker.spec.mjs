@@ -1,0 +1,261 @@
+// T-034 + T-035 (E7 wave 1 lane D1, row 278) - the mapping designer canvas, FAILING FIRST.
+//
+// E7-F2-S1 against the REAL API (no mock, E3-F3-S1), scenarios from backlog.md:1824-1844:
+//
+//   Map Customer A to Target A v1.0        - links drawn on the pair, stored for that pair only,
+//                                            re-rendered exactly as left after a reload.
+//   Add, change and delete elements        - a link added, changed and deleted; all three stored.
+//   Two targets never share one mapping    - the UI leg: Target A's save never touches Target B
+//                                            (separate routes, separate rows), and the other way.
+//   A link targeting a field the target contract does not have is refused - on the canvas, naming
+//                                            the field; nothing is saved.
+//
+// Seeding through the real API from a signed-in page inside this file (the contracts spec's
+// pattern): source + two target systems, their contract versions (Target A/B approved through the
+// harness's second binding, the approver - never the author), one flow "orders" with the two
+// destinations. The flow's routes are rows the API does not list today, so the route ids are read
+// read-only from the suite's own pinned postgres container (`ipass-ui-t41-pg-*`, named by
+// boot-backend.mjs; the docker-suite lock guarantees it is this run's container).
+
+import { execFileSync } from 'node:child_process';
+import { expect, test } from '@playwright/test';
+import { consoleUrl } from './boot-state.mjs';
+
+const PAGE = '[data-page="mapping-designer"]';
+const RUN = Date.now().toString(36);
+const SOURCE_SYSTEM = `src-orders-${RUN}`;
+const TARGET_A = `tgt-a-${RUN}`;
+const TARGET_B = `tgt-b-${RUN}`;
+
+const CUSTOMER_A_V1 = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  type: 'object',
+  required: ['customerId', 'orderId', 'amount'],
+  properties: { customerId: { type: 'string' }, orderId: { type: 'string' }, amount: { type: 'number' } }
+};
+const TARGET_A_V1_SCHEMA = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  type: 'object',
+  required: ['customer_code', 'order_number', 'total_amount'],
+  properties: { customer_code: { type: 'string' }, order_number: { type: 'string' }, total_amount: { type: 'number' } }
+};
+const TARGET_B_V2_SCHEMA = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  type: 'object',
+  required: ['clientId', 'referenceNo', 'invoiceValue'],
+  properties: { clientId: { type: 'string' }, referenceNo: { type: 'string' }, invoiceValue: { type: 'number' } }
+};
+
+/** One API call from inside the page: the browser's own session and CSRF cookies (contracts spec's pattern). */
+async function inBrowser(page, method, apiPath, body, asLogin) {
+  return page.evaluate(
+    async ({ method, apiPath, body, asLogin }) => {
+      const xsrf = document.cookie.split('; ').filter((pair) => pair.startsWith('XSRF-TOKEN=')).pop();
+      const headers = {};
+      if (body !== undefined) headers['content-type'] = 'application/json';
+      if (method !== 'GET' && xsrf) headers['X-XSRF-TOKEN'] = decodeURIComponent(xsrf.slice('XSRF-TOKEN='.length));
+      if (asLogin) headers['X-Harness-Login'] = asLogin;
+      const answer = await fetch(apiPath, {
+        method, headers, credentials: 'include',
+        body: body === undefined ? undefined : JSON.stringify(body)
+      });
+      return { status: answer.status, data: await answer.json().catch(() => null) };
+    },
+    { method, apiPath, body, asLogin }
+  );
+}
+
+const must = (answer, what) => {
+  if (!(answer.status === 200 || answer.status === 201)) {
+    throw new Error(`seed ${what}: HTTP ${answer.status} ${JSON.stringify(answer.data)}`);
+  }
+  return answer.data;
+};
+
+/** The suite's own pinned postgres (boot-backend names it ipass-ui-t41-pg-*) asked read-only for route ids. */
+function routeIdsOfInterface(interfaceId) {
+  const names = execFileSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8' })
+    .split('\n').filter((name) => name.startsWith('ipass-ui-t41-pg-'));
+  if (names.length !== 1) throw new Error(`exactly one booted suite postgres expected, saw: ${names.join(', ')}`);
+  const rows = execFileSync('docker', ['exec', names[0], 'psql', '-U', 'owner', '-d', 'platform', '-t', '-A',
+    '-c', `select r.sequence, m.route_id::text from public.route r join public.mapping m on m.route_id = r.id`
+      + ` where r.interface_id = '${interfaceId}' order by r.sequence`], { encoding: 'utf8' });
+  return rows.split('\n').filter(Boolean).map((row) => row.trim().split('|')[1]);
+}
+
+const sourceNode = (page, path) => page.locator(`[data-tree="source"] [data-node="${path}"]`);
+const targetNode = (page, path) => page.locator(`[data-tree="target"] [data-node="${path}"]`);
+const linkRows = (page) => page.locator('[data-link-row]');
+
+/** Opens the canvas for one route and waits until the saved mapping and the contract lists are loaded. */
+async function openCanvas(page, routeId) {
+  await page.goto(`${consoleUrl()}/#/mappings/${routeId}`);
+  await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
+}
+
+/** Selects a saved link's target path in the DOM editor of its row (the "a link changed" edit). */
+function targetInputOf(page, source, target) {
+  return page.locator(`[data-link-row="${source}->${target}"] [data-field="link-target"]`);
+}
+
+test.describe.configure({ mode: 'serial' });
+
+let ROUTE_A;
+let ROUTE_B;
+let SOURCE_VERSION_ID;
+let TARGET_A_VERSION_ID;
+let TARGET_B_VERSION_ID;
+
+test.beforeAll(async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  try {
+    await page.goto(consoleUrl());
+    for (const s of [
+      { code: SOURCE_SYSTEM, name: 'Customer A', direction: 'INBOUND' },
+      { code: TARGET_A, name: 'Target A', direction: 'OUTBOUND' },
+      { code: TARGET_B, name: 'Target B', direction: 'OUTBOUND' }
+    ]) {
+      must(await inBrowser(page, 'POST', '/api/v1/admin/systems', {
+        code: s.code, name: s.name, direction: s.direction, type: 'API',
+        settings: { baseUrl: `https://${s.code}.partner.test/` }
+      }), `system ${s.code}`);
+    }
+
+    const importVersion = async (system, role, label, document) => must(
+      await inBrowser(page, 'POST', '/api/v1/admin/contracts/versions/import',
+        { system, role, versionLabel: label, format: 'JSON_SCHEMA', document }),
+      `contract ${system}/${role}/${label}`);
+
+    const sourceVersion = importVersion(SOURCE_SYSTEM, 'SOURCE_REQUEST', '1.0', CUSTOMER_A_V1); // draft source is allowed
+    const targetA = importVersion(TARGET_A, 'TARGET_REQUEST', '1.0', TARGET_A_V1_SCHEMA);
+    const targetB = importVersion(TARGET_B, 'TARGET_REQUEST', '2.0', TARGET_B_V2_SCHEMA);
+    SOURCE_VERSION_ID = (await sourceVersion).id;
+    TARGET_A_VERSION_ID = (await targetA).id;
+    TARGET_B_VERSION_ID = (await targetB).id;
+    for (const [id, label] of [[TARGET_A_VERSION_ID, 'Target A v1.0'], [TARGET_B_VERSION_ID, 'Target B v2.0']]) {
+      must(await inBrowser(page, 'POST', `/api/v1/admin/contracts/versions/${id}/submit`,
+        { changeNote: `ready for mapping (${label})` }), `submit ${label}`);
+      must(await inBrowser(page, 'POST', `/api/v1/admin/contracts/versions/${id}/approve`, undefined, 'approver'),
+        `approve ${label}`);
+    }
+
+    // Interface "orders": one flow, two destinations -> two routes, each with its own mapping row.
+    const flow = must(await inBrowser(page, 'POST', '/api/v1/admin/flows', {
+      code: `orders-${RUN}`, name: 'orders', sourceSystem: SOURCE_SYSTEM,
+      destinations: [TARGET_A, TARGET_B], businessKeyRule: 'orderId'
+    }), 'flow orders');
+    [ROUTE_A, ROUTE_B] = routeIdsOfInterface(flow.id);
+  } finally {
+    await context.close();
+  }
+});
+
+// Scenario: Map Customer A to Target A v1.0 (backlog.md:1824-1829).
+test('maps Customer A to Target A v1.0 by drawing the links on the pair', async ({ page }) => {
+  await openCanvas(page, ROUTE_A);
+
+  await page.locator('[data-field="source-version"]').selectOption(SOURCE_VERSION_ID);
+  await page.locator('[data-field="target-version"]').selectOption(TARGET_A_VERSION_ID);
+  for (const field of ['customerId', 'orderId', 'amount']) {
+    await expect(sourceNode(page, field)).toBeVisible();
+  }
+  for (const field of ['customer_code', 'order_number', 'total_amount']) {
+    await expect(targetNode(page, field)).toBeVisible();
+  }
+
+  // link customerId -> customer_code, orderId -> order_number, amount -> total_amount (backlog.md:1827)
+  for (const [from, to] of [['customerId', 'customer_code'], ['orderId', 'order_number'], ['amount', 'total_amount']]) {
+    await sourceNode(page, from).click();
+    await targetNode(page, to).click();
+    await page.click('[data-action="add-link"]');
+  }
+  await page.click('[data-action="save"]');
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
+
+  // the mapping is stored for that pair and re-renders exactly as left
+  await page.reload();
+  await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
+  await expect(page.locator('[data-field="target-version"]')).toHaveValue(TARGET_A_VERSION_ID, { timeout: 10_000 });
+  await expect(linkRows(page)).toHaveCount(3);
+  await expect(targetInputOf(page, 'customerId', 'customer_code')).toHaveValue('customer_code');
+  await expect(targetInputOf(page, 'orderId', 'order_number')).toHaveValue('order_number');
+  await expect(targetInputOf(page, 'amount', 'total_amount')).toHaveValue('total_amount');
+  await expect(sourceNode(page, 'customerId')).toBeVisible();
+  await expect(targetNode(page, 'total_amount')).toBeVisible();
+});
+
+// Scenario: Add, change and delete elements (backlog.md:1831-1834).
+test('an element added, a link changed and a link deleted all reach the stored mapping', async ({ page }) => {
+  await openCanvas(page, ROUTE_A);
+
+  // an element is added: orderId -> total_amount
+  await sourceNode(page, 'orderId').click();
+  await targetNode(page, 'total_amount').click();
+  await page.click('[data-action="add-link"]');
+  await expect(linkRows(page)).toHaveCount(4);
+
+  // a link changed: amount now feeds order_number
+  await targetInputOf(page, 'amount', 'total_amount').fill('order_number');
+  await expect(page.locator('[data-link-row="amount->order_number"]')).toHaveCount(1);
+
+  // an element deleted: the just-added orderId -> total_amount link
+  await page.locator(`[data-link-row="orderId->total_amount"] [data-action="delete-link"]`).click();
+  await expect(linkRows(page)).toHaveCount(3);
+
+  await page.click('[data-action="save"]');
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
+
+  await page.reload();
+  await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
+  await expect(linkRows(page)).toHaveCount(3, { timeout: 10_000 });
+  await expect(targetInputOf(page, 'amount', 'order_number')).toHaveValue('order_number');
+  await expect(page.locator('[data-link-row="orderId->total_amount"]')).toHaveCount(0);
+  await expect(page.locator('[data-link-row="orderId->order_number"]')).toHaveCount(1);
+});
+
+// Scenario: Two targets never share one mapping - the UI leg (backlog.md:1836-1839).
+test('Target A\'s mapping edits leave Target B\'s mapping untouched, and the other way round', async ({ page }) => {
+  await page.goto(consoleUrl()); // the page context the seeding GETs run in (console origin's cookies)
+  const bBefore = await inBrowser(page, 'GET', `/api/v1/admin/routes/${ROUTE_B}/mapping`);
+  expect(bBefore.status).toBe(200);
+  expect(bBefore.data.fieldMappings).toEqual([]);
+
+  // Target A's mapping is changed again and saved
+  await openCanvas(page, ROUTE_A);
+  await targetInputOf(page, 'amount', 'order_number').fill('total_amount');
+  await page.click('[data-action="save"]');
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
+
+  const bAfterAsSave = await inBrowser(page, 'GET', `/api/v1/admin/routes/${ROUTE_B}/mapping`);
+  expect(bAfterAsSave.data.mappingId).toEqual(bBefore.data.mappingId); // separate row per target
+  expect(bAfterAsSave.data.fieldMappings).toEqual([]);
+
+  // Target B's mapping is bound and saved on its own canvas; Target A keeps its content
+  await openCanvas(page, ROUTE_B);
+  await page.locator('[data-field="source-version"]').selectOption(SOURCE_VERSION_ID);
+  await page.locator('[data-field="target-version"]').selectOption(TARGET_B_VERSION_ID);
+  await sourceNode(page, 'customerId').click();
+  await targetNode(page, 'clientId').click();
+  await page.click('[data-action="add-link"]');
+  await page.click('[data-action="save"]');
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
+
+  const aAfterBSave = await inBrowser(page, 'GET', `/api/v1/admin/routes/${ROUTE_A}/mapping`);
+  expect(aAfterBSave.data.targetContractVersionId).toEqual(TARGET_A_VERSION_ID);
+  expect(aAfterBSave.data.fieldMappings.map((l) => [l.source, l.target]))
+    .toEqual([['customerId', 'customer_code'], ['orderId', 'order_number'], ['amount', 'total_amount']]);
+});
+
+// Scenario: A link to a field the target contract does not have is refused - names the field (backlog.md:1841-1844).
+test('a link changed to a field Target A does not have is refused on the canvas, naming the field', async ({ page }) => {
+  await openCanvas(page, ROUTE_A);
+  await targetInputOf(page, 'amount', 'total_amount').fill('customerCod');
+  await expect(page.locator('[data-refusal]')).toBeVisible();
+  await expect(page.locator('[data-refusal]')).toContainText('customerCod');
+  await expect(linkRows(page)).toHaveCount(3); // refused: still the three saved links, nothing saved
+  await page.reload();
+  await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
+  await expect(linkRows(page)).toHaveCount(3, { timeout: 10_000 });
+  await expect(targetInputOf(page, 'amount', 'total_amount')).toHaveValue('total_amount');
+});

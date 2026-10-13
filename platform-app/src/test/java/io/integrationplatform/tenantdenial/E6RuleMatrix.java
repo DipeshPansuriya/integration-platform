@@ -46,8 +46,10 @@ final class E6RuleMatrix implements LaneMatrix {
                         s -> "{\"kind\":\"ROUTING\",\"name\":\"fresh rules\",\"content\":" + RULES_JDM + "}",
                         s -> List.of(s.a().config().flowMainId().toString(), "fresh rules"),
                         201,
+                        // E7 lane B1 (T-163): a lookup table keeps its content in its own LOOKUP rule set (V2_2_51),
+                        // so this lane's count is scoped to the ROUTING rows this entry creates and reads
                         new WriteProbe(s -> "SELECT count(*)::text FROM public.rule_set WHERE tenant_id = '"
-                                + s.a().id() + "'", "1", "2")),
+                                + s.a().id() + "' AND kind = 'ROUTING'", "1", "2")),
                 new Entry("GET", FLOWS + "/{flowId}/rule-sets", false,
                         s -> FLOWS + "/" + s.a().config().flowMainId() + "/rule-sets",
                         s -> FLOWS + "/" + s.b().config().flowMainId() + "/rule-sets",
