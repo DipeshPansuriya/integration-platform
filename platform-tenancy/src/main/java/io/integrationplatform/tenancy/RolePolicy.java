@@ -30,9 +30,19 @@ import java.util.Set;
  * READ_MESSAGE_TIMELINE     role           TENANT_ADMIN, SUPPORT, READ_ONLY   (E13 binds its endpoint)
  * REPLAY_DEAD_LETTER        role           TENANT_ADMIN, SUPPORT      (replay or discard; E13)
  * SUBMIT_MESSAGE            source system  (no human role: the common API, E5 binds it)
+ * LIST_JOBS                 operator agent (no human, no tenant: the agent admin API, E14 T-060 - ADR-012 Decision 5)
+ * INSPECT_JOB               operator agent (job and run rows only - no payload, no configuration: ADR-012 section 5)
+ * RUN_JOB_NOW               operator agent (E14 T-060)
+ * PAUSE_JOB                 operator agent (paused with who/when on the job_definition row; E14 T-060)
+ * RESUME_JOB                operator agent (E14 T-060)
+ * READ_JOB_ALERTS           operator agent (open job_alert rows; the agent polls every 5 min - ADR-012 section 6)
+ * ACKNOWLEDGE_JOB_ALERT     operator agent (E14 T-062)
  * </pre>
  *
- * A machine (source-bound) principal holds no human role, so every role-gated operation refuses it.
+ * A machine (source-bound or operator-agent) principal holds no human role, so every role-gated operation refuses it;
+ * the operator agent is also refused by every operation above - the platform's first no-tenant principal reaches only
+ * the job-admin and alert operations, and tenant admins hold no job operation in Release 1 (ADR-012 Decision 5, as
+ * answered by Dipesh 2026-10-12). The agent's attack suite is T-147 (E15).
  */
 public final class RolePolicy {
 
@@ -43,7 +53,9 @@ public final class RolePolicy {
         /** Any bound human, whatever their roles. */
         ANY_HUMAN,
         /** A source system's machine credential only; no human. */
-        SOURCE_SYSTEM
+        SOURCE_SYSTEM,
+        /** The platform's no-tenant operator-agent credential (E14, ADR-012 section 5); no human, no role, no tenant. */
+        OPERATOR_AGENT
     }
 
     /** Every operation the API offers, with who may call it. */
@@ -63,7 +75,17 @@ public final class RolePolicy {
         MANAGE_TARGET_CREDENTIAL(Caller.ROLE, TENANT_ADMIN),
         READ_MESSAGE_TIMELINE(Caller.ROLE, TENANT_ADMIN, SUPPORT, READ_ONLY),
         REPLAY_DEAD_LETTER(Caller.ROLE, TENANT_ADMIN, SUPPORT),
-        SUBMIT_MESSAGE(Caller.SOURCE_SYSTEM);
+        SUBMIT_MESSAGE(Caller.SOURCE_SYSTEM),
+        // E14 seam (arjun-fullstack, F8; ADR-012 Decision 5): five job-admin operations + the alert read/acknowledge.
+        // Closed pair of caller-kinds: OPERATOR_AGENT only - a source credential, a read-only user or a tenant admin
+        // all get 403; the agent on every tenant operation above is refused by kind (the interceptor's switch).
+        LIST_JOBS(Caller.OPERATOR_AGENT),
+        INSPECT_JOB(Caller.OPERATOR_AGENT),
+        RUN_JOB_NOW(Caller.OPERATOR_AGENT),
+        PAUSE_JOB(Caller.OPERATOR_AGENT),
+        RESUME_JOB(Caller.OPERATOR_AGENT),
+        READ_JOB_ALERTS(Caller.OPERATOR_AGENT),
+        ACKNOWLEDGE_JOB_ALERT(Caller.OPERATOR_AGENT);
 
         private final Caller caller;
         private final Set<Role> roles;
@@ -92,7 +114,9 @@ public final class RolePolicy {
     public static boolean allows(Operation operation, Set<Role> held) {
         return switch (operation.caller) {
             case ANY_HUMAN -> true;
-            case SOURCE_SYSTEM -> false;
+            // no human role reaches an operator-agent operation; the agent itself is checked by
+            // authentication kind (OperatorAgentAuthentication), never by role
+            case SOURCE_SYSTEM, OPERATOR_AGENT -> false;
             case ROLE -> !Collections.disjoint(operation.roles, held);
         };
     }

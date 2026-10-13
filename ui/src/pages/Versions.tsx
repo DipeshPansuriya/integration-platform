@@ -63,6 +63,18 @@ export function Versions() {
     statusRef.current = next;
     setStatus(next);
   };
+  /** The clicked row becomes THE selected version: handlers (ensureSelected) act on it, and every
+   * surface that shows or compares per version (status label, submit snapshot, published bundle)
+   * re-syncs to it instead of carrying the previous row's state. */
+  const selectFlow = (flow: FlowSummary) => {
+    setSelectedId(flow.id);
+    selectedRef.current = flow.id;
+    setVersionStatus(((['DRAFT', 'SUBMITTED', 'APPROVED', 'PUBLISHED'] as VersionStatus[]).includes(flow.status as VersionStatus) ? flow.status : 'DRAFT') as VersionStatus);
+    setSnapshotAtSubmit(null); // the snapshot belongs to the row that submitted it
+    setPublished(false);
+    setBundleEqualsSnapshot(null);
+    setRefusal(null); // a refusal answered for the previous row
+  };
   /** Clicks are fire-and-forget for the specs; actions run in click order on real answers. */
   const enqueue = (action: () => Promise<void>) => {
     queueRef.current = queueRef.current.then(() => action().catch((e) => console.error('versions action failed', e)));
@@ -179,7 +191,7 @@ export function Versions() {
       <ul>
         {flows.map((flow) => (
           <li key={flow.id}>
-            <button type="button" data-flow-row={flow.id} onClick={() => setSelectedId(flow.id)}>
+            <button type="button" data-flow-row={flow.id} onClick={() => selectFlow(flow)}>
               {flow.name}{' '}
               <span data-version-status={flow.id === selectedId ? status : flow.status}>
                 {flow.id === selectedId ? status : flow.status}

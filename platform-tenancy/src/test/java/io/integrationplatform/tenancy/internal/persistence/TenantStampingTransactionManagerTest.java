@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -16,6 +17,7 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +73,33 @@ class TenantStampingTransactionManagerTest {
         manager.commit(manager.getTransaction(TransactionDefinition.withDefaults()));
 
         verify(connection, never()).prepareStatement(anyString());
+    }
+
+    /**
+     * P-1 (row306, Kavita): the suspected defect was a re-entrant borrow - tenant resolution at the stamp fetching a
+     * second connection while the transaction's is held, exhausting the pool under concurrency. The resolution
+     * ({@code TenantContext.currentTenantId()} at {@code TenantStampingTransactionManager:45}) must therefore borrow
+     * nothing: a transaction start takes exactly one {@code getConnection()}. If a future {@link TenantContext}
+     * implementation touches a DataSource inside the stamp, this goes red.
+     */
+    @Test
+    void resolvingTheTenantAtTheStampBorrowsNoSecondConnection() throws SQLException {
+        AtomicInteger borrows = new AtomicInteger();
+        when(dataSource.getConnection()).thenAnswer(invocation -> {
+            borrows.incrementAndGet();
+            return connection;
+        });
+        TenantStampingTransactionManager manager = new TenantStampingTransactionManager(dataSource, tenantContext);
+
+        bound.set(TENANT_A);
+        TransactionStatus status = manager.getTransaction(TransactionDefinition.withDefaults());
+        manager.commit(status);
+
+        verify(dataSource, times(1)).getConnection();
+        assertThat(borrows.get())
+                .as("the stamp resolves the bound tenant from the already-borrowed connection only")
+                .isEqualTo(1);
+        verify(statement).execute();
     }
 
     @Test
