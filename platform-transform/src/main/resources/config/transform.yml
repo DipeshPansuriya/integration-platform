@@ -1,0 +1,8 @@
+# E7 lane B2 (T-108, T-109), imported optionally by platform-app's application.yml
+# (optional:classpath:config/transform.yml). T-109's per-transform budget: the mapping engine stops a runaway
+# expression at this many milliseconds and answers MAPPING_TIMEOUT - every other module stays untouched.
+# The default is exactly the T-109 figure; TRANSFORM_BUDGET_MS lets operators tighten (or widen) it without a
+# rebuild - unlike routing-core.yml no eager binder relies on a bare name here, so a default keeps every
+# application-context boot test running.
+transform:
+  budget-ms: ${TRANSFORM_BUDGET_MS:5000}
