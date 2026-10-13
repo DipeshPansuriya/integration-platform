@@ -154,10 +154,6 @@ class RouteInstanceFactoryTest {
         return UUID.nameUUIDFromBytes(seed.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
-    private RouteConfigRow rowByEndpoint(UUID targetEndpointId) {
-        return reader.rows.values().stream().filter(r -> r.targetEndpointId().equals(targetEndpointId)).findFirst()
-                .orElseThrow();
-    }
 
     /** Reads the configuration rows the running system holds (the port publish and lazy creation read through). */
     static final class FakeRouteConfigReader implements RouteConfigReader {

@@ -88,7 +88,6 @@ class LayerOneRedeliveryTest {
 
     @Test
     void theFirstTrySucceedingWritesOneAttemptRowAndNeverRedelivers() throws Exception {
-        target.succeed();
         startTheRoute();
 
         context.createProducerTemplate().sendBody("direct:stage2-send", send(false));
@@ -248,9 +247,6 @@ class LayerOneRedeliveryTest {
         void alwaysFail(OutcomeClass outcomeClass) {
             this.always = true;
             this.failureClass = outcomeClass;
-        }
-
-        void succeed() {
         }
 
         int calls() {
