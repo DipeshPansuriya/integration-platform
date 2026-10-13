@@ -1,6 +1,7 @@
 package io.integrationplatform.archtest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -62,21 +63,27 @@ class TransformNoCamelRuleTest {
         TransformNoCamelRule.TRANSFORM_IMPORTS_NO_CONFIG_MAPPING_INTERNALS.check(compliant);
     }
 
-    // @negative Scenario: the plants bite - wip red: the direct check() calls fail while
-    // the plants are present; once the bite is proven these become assertThatThrownBy assertions
-    // (the TenantFilterRuleTest convention) and the run goes green.
+    // @negative Scenario: the plants bite - the same rule objects evaluate the planted packages and
+    // fail the build naming the violating class (asserted as expected, the TenantFilterRuleTest convention;
+    // the committed RED run of ae5275e proves the direct check() fails while the plants are present).
     @Test
     void camelImportInTransformIsNamedByTheRule() {
         JavaClasses planted = new ClassFileImporter().importPackages(FIXTURES + ".planted");
 
         assertThat(planted.size()).as("both plants are in scope").isEqualTo(2);
-        TransformNoCamelRule.TRANSFORM_NEVER_IMPORTS_CAMEL.check(planted);
+        assertThatThrownBy(() -> TransformNoCamelRule.TRANSFORM_NEVER_IMPORTS_CAMEL.check(planted))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("PlantedTransformCamelImport")
+                .hasMessageContaining("org.apache.camel");
     }
 
     @Test
     void configMappingInternalInTransformIsNamedByTheRule() {
         JavaClasses planted = new ClassFileImporter().importPackages(FIXTURES + ".planted");
 
-        TransformNoCamelRule.TRANSFORM_IMPORTS_NO_CONFIG_MAPPING_INTERNALS.check(planted);
+        assertThatThrownBy(() -> TransformNoCamelRule.TRANSFORM_IMPORTS_NO_CONFIG_MAPPING_INTERNALS.check(planted))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("PlantedTransformConfigCrossing")
+                .hasMessageContaining("io.integrationplatform.config.mapping");
     }
 }
