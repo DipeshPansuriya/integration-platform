@@ -28,6 +28,7 @@ public class MappingAdminService {
                 mappings.findMappingOfRoute(routeId).orElseThrow(ConfigApiException::notFound);
         return ConfigApiException.body(
                 "routeId", routeId,
+                "mappingId", live.id(),
                 "fieldMappings", tools.jackson.databind.json.JsonMapper.builder().build()
                         .readTree(MappingContent.canonicalFieldMappings(live.fieldMappingsJson())),
                 "compiledExpression", live.compiledExpression(),
