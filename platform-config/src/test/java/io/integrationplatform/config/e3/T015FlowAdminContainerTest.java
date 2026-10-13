@@ -164,7 +164,10 @@ class T015FlowAdminContainerTest {
                 .as("no table was created or removed behind the flow's rows (0 deploys)")
                 .isEqualTo(before.relations());
 
-        // And the flow is available to ingest once published: the lifecycle runs, rows only.
+        // And the flow is available to ingest once published: the mappings bind to contract versions, the
+        // bundle is re-captured (the pin check, T-190), then the lifecycle runs, rows only.
+        LaneCLifecycle.bindAllRoutesAndResnapshot(base, actors.author(), E3ConfigDatabase.tenantA().id(),
+                UUID.fromString(flowId));
         LaneCLifecycle.submitApprovePublish(base, actors, UUID.fromString(flowId), "rows-only onboarding");
 
         Response published = ConfigAdminApi.call("GET", base + ConfigAdminApi.FLOWS + "/" + flowId,

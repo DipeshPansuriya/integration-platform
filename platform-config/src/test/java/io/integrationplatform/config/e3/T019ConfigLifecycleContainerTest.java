@@ -118,6 +118,9 @@ class T019ConfigLifecycleContainerTest {
         LaneCLifecycle.Draft draft = LaneCLifecycle.createDraftFlowWithTwoDestinations(base, actors);
         UUID flowId = draft.flowId();
 
+        // T-190: the mappings bind to contract versions and a new draft captures the bound bundle.
+        LaneCLifecycle.bindAllRoutesAndResnapshot(base, actors.author(), E3ConfigDatabase.tenantA().id(),
+                flowId);
         LaneCLifecycle.submit(base, actors, flowId, "lifecycle: the bundle is ready");
 
         UUID versionId = LaneCLifecycle.latestVersionId(flowId);
