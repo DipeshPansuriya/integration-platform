@@ -129,19 +129,6 @@ public class JdbcMappingRepository extends TenantScopedRepository {
                 of("route_id", routeId), LIVE_MAPPING));
     }
 
-    /**
-     * The live mapping by its own id, or empty when not visible to the bound tenant. E7 lane B2's mapping
-     * test endpoint reads by mapping id ({@code POST /api/v1/admin/mappings/{id}/test}, the id
-     * {@code MappingSampleRuns.record} keys on) - arjun file-freeze exception (B2): one read method added
-     * to JdbcMappingRepository for the mapping test endpoint - route-keyed option declined as a
-     * backlog-path deviation; the statement mirrors {@link #READ_MAPPING_OF_ROUTE} with
-     * {@code m.id = :id::uuid} under the same tenant predicate.
-     */
-    public Optional<LiveMapping> findMappingById(String mappingId) {
-        return first(query(READ_MAPPING_OF_ROUTE, "m.id = :id::uuid",
-                of("id", mappingId), LIVE_MAPPING));
-    }
-
     /** Updates the live row's content and bindings (null ids unbind); 1 when the route is the bound tenant's. */
     public int updateMappingOfRoute(String routeId, String fieldMappingsJson, String compiledExpression,
             String sourceContractVersionId, String targetContractVersionId) {

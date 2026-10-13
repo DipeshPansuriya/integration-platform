@@ -29,6 +29,13 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
+    <!-- E7 lane B2 (T-108, ADR-006): the mapping test endpoint runs the stored compiled expression through the
+         TransformPort seam - config consumes the transform engine, never the reverse (the transform module stays
+         engine-only; lane A's ArchUnit guards its edge). -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-transform</artifactId>
+    </dependency>
     <!-- E3 T36: annotations only - the admin controllers declare the statuses they really answer in the OpenAPI
          document (springdoc itself stays in platform-app); the version is the one springdoc already pulls. -->
     <dependency>
@@ -40,14 +47,6 @@
     <dependency>
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>
-    </dependency>
-    <!-- E7 lane B2 (sanjay-developer, row 278): the mapping test endpoint runs the stored expression through
-         the TransformPort. This is the resolved config -> transform direction (E7-plan Open 2): transform never
-         depends on config (LookupSource is its only edge back), the engine types never reach any other module
-         (ADR-006 rule 1) - the controller sees the port interface only. -->
-    <dependency>
-      <groupId>io.integrationplatform</groupId>
-      <artifactId>platform-transform</artifactId>
     </dependency>
     <!-- E5 seam (arjun-fullstack, F13): every library an E5 lane needs in this module, declared once so no E5 lane
          edits this pom (E6 edits it too). Lane A (T-105): JSON Schema validation (the one networknt version, R12)
