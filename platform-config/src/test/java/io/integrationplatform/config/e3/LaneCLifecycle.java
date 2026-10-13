@@ -9,8 +9,10 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -233,6 +235,129 @@ final class LaneCLifecycle {
         }
     }
 
+    /** T-190: how many live routes the flow carries (the bind helper walks them). */
+    static int routeCount(UUID flowId) {
+        try (Connection owner = E3ConfigDatabase.ownerConnection();
+                PreparedStatement read = owner.prepareStatement(
+                        "select count(*) from public.route where interface_id = ?::uuid")) {
+            read.setString(1, flowId.toString());
+            try (ResultSet rs = read.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("the route count read failed", e);
+        }
+    }
+
+    /**
+     * T-190: the approved TARGET_REQUEST contract version a mapping pin binds (one stable row pair per system;
+     * the publish pin check requires APPROVED + TARGET_REQUEST on the route's system - ADR-011 rule 6).
+     */
+    static String seedApprovedTargetVersion(UUID tenantId, String systemId) {
+        UUID contractId = UUID.nameUUIDFromBytes(
+                ("mapping-target-contract|" + systemId).getBytes(StandardCharsets.UTF_8));
+        UUID versionId = UUID.nameUUIDFromBytes(
+                ("mapping-target-version|" + systemId).getBytes(StandardCharsets.UTF_8));
+        String schema = "{\"type\":\"object\",\"properties\":{\"customer_code\":{\"type\":\"string\"},"
+                + "\"order_number\":{\"type\":\"string\"},\"total_amount\":{\"type\":\"number\"}}}";
+        try (Connection owner = E3ConfigDatabase.ownerConnection();
+                PreparedStatement contract = owner.prepareStatement(
+                        "insert into public.contract (id, tenant_id, system_id, code, role, name)"
+                        + " values (?::uuid, ?::uuid, ?::uuid, ?, 'TARGET_REQUEST', ?)"
+                        + " on conflict (tenant_id, id) do nothing");
+                PreparedStatement version = owner.prepareStatement(
+                        "insert into public.contract_version (id, tenant_id, contract_id, version_label, status,"
+                        + " json_schema_draft_2020_12, author_id)"
+                        + " values (?::uuid, ?::uuid, ?::uuid, '1.0', 'APPROVED', ?::jsonb, ?::uuid)"
+                        + " on conflict (tenant_id, id) do nothing")) {
+            contract.setString(1, contractId.toString());
+            contract.setString(2, tenantId.toString());
+            contract.setString(3, systemId);
+            contract.setString(4, "map-target-" + contractId.toString().substring(0, 8));
+            contract.setString(5, "mapping pin target contract");
+            contract.executeUpdate();
+            version.setString(1, versionId.toString());
+            version.setString(2, tenantId.toString());
+            version.setString(3, contractId.toString());
+            version.setString(4, schema);
+            version.setString(5, tenantId.toString());
+            version.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("the approved target version seed failed", e);
+        }
+        return versionId.toString();
+    }
+
+    /** T-190: the source contract version the flow's latest version pins (the binding must match it). */
+    static String sourceContractVersionIdOfLatestVersion(UUID flowId) {
+        try (Connection owner = E3ConfigDatabase.ownerConnection();
+                PreparedStatement read = owner.prepareStatement(
+                        "select v.source_contract_version_id::text from public.interface_version v"
+                        + " where v.interface_id = ?::uuid order by v.version desc limit 1")) {
+            read.setString(1, flowId.toString());
+            try (ResultSet rs = read.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("the source version read failed", e);
+        }
+    }
+
+    /** T-190: binds one route's mapping - the flow's pinned source version and an approved target version. */
+    static void bindRouteMapping(String base, String bearer, UUID tenantId, UUID flowId, UUID routeId,
+            String compiledExpression) {
+        String sourceVersion = sourceContractVersionIdOfLatestVersion(flowId);
+        String systemId;
+        try (Connection owner = E3ConfigDatabase.ownerConnection();
+                PreparedStatement read = owner.prepareStatement(
+                        "select te.system_id::text from public.route r"
+                        + " join public.target_endpoint te on te.id = r.target_endpoint_id"
+                        + " where r.id = ?::uuid")) {
+            read.setString(1, routeId.toString());
+            try (ResultSet rs = read.executeQuery()) {
+                rs.next();
+                systemId = rs.getString(1);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("the endpoint system read failed", e);
+        }
+        String targetVersion = seedApprovedTargetVersion(tenantId, systemId);
+        Response bound = ConfigAdminApi.call("PUT",
+                base + "/api/v1/admin/routes/" + routeId + "/mapping", bearer,
+                "{\"fieldMappings\":[],\"compiledExpression\":\"" + compiledExpression + "\","
+                        + "\"sourceContractVersionId\":\"" + sourceVersion + "\","
+                        + "\"targetContractVersionId\":\"" + targetVersion + "\"}");
+        if (bound.status() == 404) {
+            throw new PendingIntegration("the mapping save API answered 404", "lane C (T-190)");
+        }
+        assertThat(bound.status()).as("the mapping binds to contract versions, body: %s", bound.body())
+                .isEqualTo(200);
+    }
+
+    /** T-190: binds every route's mapping ('$' content) and re-captures the bundle as a new draft version. */
+    static void bindAllRoutesAndResnapshot(String base, String bearer, UUID tenantId, UUID flowId) {
+        bindAllRoutesAndResnapshot(base, bearer, tenantId, flowId, "$");
+    }
+
+    static void bindAllRoutesAndResnapshot(String base, String bearer, UUID tenantId, UUID flowId,
+            String compiledExpression) {
+        for (int sequence = 1; sequence <= routeCount(flowId); sequence++) {
+            try {
+                bindRouteMapping(base, bearer, tenantId, flowId, routeIdOfLiveRow(flowId, sequence),
+                        compiledExpression);
+            } catch (SQLException e) {
+                throw new IllegalStateException("the mapping bind fixture failed", e);
+            }
+        }
+        JsonNode flow = ConfigAdminApi.call("GET", base + ConfigAdminApi.FLOWS + "/" + flowId, bearer, null)
+                .json();
+        List<String> destinations = new ArrayList<>();
+        flow.path("destinations").forEach(destination -> destinations.add(destination.asString()));
+        saveFlowDraft(base, bearer, flowId, flow.path("sourceSystem").asString(), destinations);
+    }
+
     static int countRows(String table, UUID flowId) throws SQLException {
         String sql = "route".equals(table)
                 ? "select count(*) from public.route where interface_id = ?::uuid"
@@ -310,7 +435,16 @@ final class LaneCLifecycle {
                 }
             }
             try (PreparedStatement mapping = owner.prepareStatement(
-                    "select m.id::text, m.route_id::text, m.field_mappings::text, m.compiled_expression "
+                    "select m.id::text, m.route_id::text, m.field_mappings::text, m.compiled_expression, "
+                            + "m.source_contract_version_id::text, m.target_contract_version_id::text, "
+                            + "(select v.id::text from public.mapping_version v"
+                            + "  where v.tenant_id = m.tenant_id and v.mapping_id = m.id"
+                            + "  and v.source_contract_version_id is not distinct from"
+                            + "      m.source_contract_version_id"
+                            + "  and v.target_contract_version_id is not distinct from"
+                            + "      m.target_contract_version_id"
+                            + "  and v.field_mappings = m.field_mappings"
+                            + "  and v.compiled_expression = m.compiled_expression limit 1) "
                             + "from public.mapping m join public.route r on r.id = m.route_id "
                             + "where r.interface_id = ?::uuid order by r.sequence, m.id")) {
                 mapping.setString(1, flowId.toString());
@@ -324,6 +458,9 @@ final class LaneCLifecycle {
                                         ? JsonNodeFactory.instance.nullNode()
                                         : JSON.readTree(rs.getString(3)));
                         entry.put("compiledExpression", rs.getString(4));
+                        entry.put("sourceContractVersionId", rs.getString(5));
+                        entry.put("targetContractVersionId", rs.getString(6));
+                        entry.put("mappingVersionId", rs.getString(7));
                         mappings.add(entry);
                     }
                 }

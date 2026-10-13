@@ -175,6 +175,15 @@
       "label": "Rejected",
       "sublabel": "comment, back to draft",
       "width": 136
+    },
+    {
+      "id": "pinRefused",
+      "lane": "refusals",
+      "col": 5,
+      "type": "external",
+      "label": "Pin mismatch",
+      "sublabel": "route + versions named",
+      "width": 136
     }
   ],
   "edges": [
@@ -242,6 +251,14 @@
       "role": "main"
     },
     {
+      "id": "e-pin-refused",
+      "from": "publish",
+      "to": "pinRefused",
+      "label": "mapping pin mismatch",
+      "variant": "security",
+      "role": "error"
+    },
+    {
       "id": "e-reject",
       "from": "approveBundle",
       "to": "rejected",
@@ -287,6 +304,7 @@
       "dot": "emerald",
       "title": "After publish",
       "items": [
+        "Every route's mapping is pinned to its saved contract versions; a pin mismatch refuses the publish and names the route and both versions",
         "The data plane uses the new version on the next message",
         "Any publish failure changes nothing (one transaction)"
       ]

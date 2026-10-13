@@ -38,11 +38,14 @@ public class FlowAdminService {
     private final JdbcFlowRepository flows;
     private final SystemAdminService systems;
     private final ContractAdminService contracts;
+    private final io.integrationplatform.config.mapping.application.MappingPublishPinCheck mappingPins;
 
-    public FlowAdminService(JdbcFlowRepository flows, SystemAdminService systems, ContractAdminService contracts) {
+    public FlowAdminService(JdbcFlowRepository flows, SystemAdminService systems, ContractAdminService contracts,
+            io.integrationplatform.config.mapping.application.MappingPublishPinCheck mappingPins) {
         this.flows = Objects.requireNonNull(flows, "flows");
         this.systems = Objects.requireNonNull(systems, "systems");
         this.contracts = Objects.requireNonNull(contracts, "contracts");
+        this.mappingPins = Objects.requireNonNull(mappingPins, "mappingPins");
     }
 
     // ------------------------------------------------------------------ T-015: create and read
@@ -197,6 +200,10 @@ public class FlowAdminService {
                 .orElseThrow(() -> ConfigApiException.conflict("the flow has no approved version to publish"));
         Parsed bundle = FlowBundle.parse(approved.snapshotJson());
 
+        // T-190, ADR-013 Decision 5: the mapped pins of every route are verified against the contract
+        // versions the approved version pinned - ONE call site, the only E7 edit to this file.
+        mappingPins.verifyPublishPins(interfaceRow.id(), approved, bundle);
+
         flows.archivePublishedVersions(interfaceRow.id(), approved.id());
         for (SnapshotRoute route : bundle.routes()) {
             if (flows.routeExists(route.id())) {
@@ -210,10 +217,12 @@ public class FlowAdminService {
         for (SnapshotMapping mapping : bundle.mappings()) {
             if (flows.mappingExists(mapping.id())) {
                 flows.updateMappingFromSnapshot(mapping.id(), mapping.fieldMappingsJson(),
-                        mapping.compiledExpression());
+                        mapping.compiledExpression(), mapping.sourceContractVersionId(),
+                        mapping.targetContractVersionId());
             } else {
                 flows.insertMappingFromSnapshot(mapping.id(), mapping.routeId(), mapping.fieldMappingsJson(),
-                        mapping.compiledExpression());
+                        mapping.compiledExpression(), mapping.sourceContractVersionId(),
+                        mapping.targetContractVersionId());
             }
         }
         if (flows.publishVersion(approved.id()) != 1) {
