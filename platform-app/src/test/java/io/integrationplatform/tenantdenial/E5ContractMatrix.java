@@ -40,7 +40,7 @@ final class E5ContractMatrix implements LaneMatrix {
                         201,
                         new WriteProbe(s -> "SELECT count(*) || '|@' || coalesce(string_agg(version_label, ','"
                                 + " ORDER BY version_label), '-') FROM public.contract_version WHERE tenant_id = '"
-                                + s.a().id() + "'", "1|@1.0", "2|@1.0,2.0")),
+                                + s.a().id() + "'", "2|@1.0,1.0", "3|@1.0,1.0,2.0")),
                 // T-105: every contract of the tenant with its versions side by side
                 new Entry("GET", CONTRACTS, false,
                         s -> CONTRACTS, null, null,

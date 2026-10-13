@@ -3,6 +3,7 @@ package io.integrationplatform.config.internal.persistence;
 import io.integrationplatform.config.adapter.in.ConfigActors;
 import io.integrationplatform.config.contract.application.ContractAdminService;
 import io.integrationplatform.config.flow.application.FlowAdminService;
+import io.integrationplatform.config.mapping.application.MappingPublishPinCheck;
 import io.integrationplatform.config.system.application.SystemAdminService;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.port.LoginBootstrap;
@@ -34,8 +35,8 @@ class ConfigPersistenceConfiguration {
 
     @Bean
     FlowAdminService flowAdminService(JdbcFlowRepository flows, SystemAdminService systems,
-            ContractAdminService contracts) {
-        return new FlowAdminService(flows, systems, contracts);
+            ContractAdminService contracts, MappingPublishPinCheck mappingPins) {
+        return new FlowAdminService(flows, systems, contracts, mappingPins);
     }
 
     @Bean

@@ -43,8 +43,9 @@ import tools.jackson.databind.JsonNode;
  *
  * <p>The mid-way failure is injected on the REAL database, not a repository mock (E3-C6): the owner connection
  * installs a {@code BEFORE INSERT OR UPDATE} trigger on {@code public.mapping} that raises when the exact
- * sentinel expression arrives with the new bundle. The bundle is built so the mapping row for the new route does
- * not exist at publish time - the write takes its INSERT path, where the trigger fires. Everything the failed
+ * sentinel expression arrives with the new bundle. The bundle carries route 3's bound sentinel mapping, so
+ * the pin check passes and the publish's mapping write takes the UPDATE path, where the trigger fires.
+ * Everything the failed
  * transaction touched (route rows, version statuses, the interface pointer) must roll back; the trigger is
  * removed in a finally block so no other suite inherits it.
  */
@@ -100,17 +101,20 @@ class T021AtomicPublishContainerTest {
         LaneCLifecycle.Draft draft = LaneCLifecycle.createDraftFlowWithTwoDestinations(base, actors);
         UUID flowId = draft.flowId();
 
-        LaneCLifecycle.submitApprovePublish(base, actors, flowId, "T-021: version 1 is complete");
+        LaneCLifecycle.bindAllRoutesAndResnapshot(base, actors.author(), E3ConfigDatabase.tenantA().id(),
+                flowId);
+        LaneCLifecycle.submitApprovePublish(base, actors, flowId, "T-021: the bound bundle is complete");
 
         // The interface part: the published pointer and the live status, in the interface row.
         JsonNode interfaceRow = LaneCLifecycle.interfaceRow(flowId);
         assertThat(interfaceRow.path("status").asString()).as("the interface is published")
                 .isEqualTo("PUBLISHED");
-        assertThat(interfaceRow.path("published_version").asString()).as("version 1 is the published pointer")
-                .isEqualTo("1");
+        assertThat(interfaceRow.path("published_version").asString())
+                .as("the bound version is the published pointer")
+                .isEqualTo("2");
 
         // The routes and mappings parts: the live rows carry exactly the published snapshot's bundle.
-        String snapshotV1 = LaneCLifecycle.snapshotText(LaneCLifecycle.latestVersionId(flowId));
+        String snapshotV1 = LaneCLifecycle.snapshotText(LaneCLifecycle.latestVersionId(flowId)); // the bound v2
         assertThat(LaneCLifecycle.bundleOfLiveRows(flowId))
                 .as("routes and mappings landed as the snapshot holds them")
                 .isEqualTo(LaneCLifecycle.bundleOfSnapshot(snapshotV1));
@@ -123,21 +127,25 @@ class T021AtomicPublishContainerTest {
         LaneCLifecycle.createSystem(base, actors.author(), destination3, "OUTBOUND");
         LaneCLifecycle.saveFlowDraft(base, actors.author(), flowId, draft.sourceSystem(),
                 List.of(draft.destination1(), draft.destination2(), destination3));
-        LaneCLifecycle.submitApprovePublish(base, actors, flowId, "T-021: version 2 adds a destination");
+        // T-190: the new route's mapping is bound and the bundle re-snapshotted before the publish - an
+        // unbound mapping refuses the publish (ADR-011 rule 6).
+        LaneCLifecycle.bindAllRoutesAndResnapshot(base, actors.author(), E3ConfigDatabase.tenantA().id(),
+                flowId);
+        LaneCLifecycle.submitApprovePublish(base, actors, flowId, "T-021: the bound v3 adds a destination");
 
         JsonNode afterSecond = LaneCLifecycle.interfaceRow(flowId);
         assertThat(afterSecond.path("published_version").asString())
-                .as("one transaction moved the interface pointer to version 2")
-                .isEqualTo("2");
+                .as("one transaction moved the interface pointer to the new bound version")
+                .isEqualTo("4");
         assertThat(LaneCLifecycle.countRows("route", flowId)).as("the third route landed with the pointer")
                 .isEqualTo(3);
         assertThat(LaneCLifecycle.countRows("mapping", flowId)).as("and its mapping landed with them")
                 .isEqualTo(3);
-        assertThat(LaneCLifecycle.versionStatus(flowId, 1)).as("the superseded version is archived")
+        assertThat(LaneCLifecycle.versionStatus(flowId, 2)).as("the superseded version is archived")
                 .isEqualTo("ARCHIVED");
-        assertThat(LaneCLifecycle.versionStatus(flowId, 2)).as("the new version is published")
+        assertThat(LaneCLifecycle.versionStatus(flowId, 4)).as("the new version is published")
                 .isEqualTo("PUBLISHED");
-        String snapshotV2 = LaneCLifecycle.snapshotText(LaneCLifecycle.latestVersionId(flowId));
+        String snapshotV2 = LaneCLifecycle.snapshotText(LaneCLifecycle.latestVersionId(flowId)); // the bound v4
         assertThat(LaneCLifecycle.bundleOfLiveRows(flowId))
                 .as("the live bundle equals the published snapshot again")
                 .isEqualTo(LaneCLifecycle.bundleOfSnapshot(snapshotV2));
@@ -153,7 +161,9 @@ class T021AtomicPublishContainerTest {
         Actors actors = actors();
         LaneCLifecycle.Draft draft = LaneCLifecycle.createDraftFlowWithTwoDestinations(base, actors);
         UUID flowId = draft.flowId();
-        LaneCLifecycle.submitApprovePublish(base, actors, flowId, "T-021: the bundle that stays live");
+        LaneCLifecycle.bindAllRoutesAndResnapshot(base, actors.author(), E3ConfigDatabase.tenantA().id(),
+                flowId);
+        LaneCLifecycle.submitApprovePublish(base, actors, flowId, "T-021: the bound bundle stays live");
 
         // Version 2 is a superseded draft (the first save), version 3 the failing bundle: every save is a new
         // version row. Its live mapping is drifted to the sentinel, then the mapping and route rows removed -
@@ -164,13 +174,18 @@ class T021AtomicPublishContainerTest {
         LaneCLifecycle.saveFlowDraft(base, actors.author(), flowId, draft.sourceSystem(),
                 List.of(draft.destination1(), draft.destination2(), destination3));
         UUID newRouteId = LaneCLifecycle.routeIdOfLiveRow(flowId, 3);
-        LaneCLifecycle.tamperLiveMapping(newRouteId, sentinel);
+        // T-190: the sentinel arrives as the route 3 SAVES - the expression is legitimate content that mints its
+        // version row, so the snapshot passes the pin check; the sentinel stays as the live row's content and the
+        // publish's mapping write takes the UPDATE path, where the trigger still fails mid-bundle.
+        LaneCLifecycle.bindRouteMapping(base, actors.author(), E3ConfigDatabase.tenantA().id(), flowId,
+                newRouteId, sentinel);
         LaneCLifecycle.saveFlowDraft(base, actors.author(), flowId, draft.sourceSystem(),
                 List.of(draft.destination1(), draft.destination2(), destination3));
         String snapshotV3 = LaneCLifecycle.snapshotText(LaneCLifecycle.latestVersionId(flowId));
         assertThat(snapshotV3).as("the new draft's snapshot carries the sentinel (the premise)")
                 .contains(sentinel);
-        LaneCLifecycle.deleteLiveMappingAndRoute(newRouteId);
+        // The live rows stand as the bound bundle put them - the failing publish may not move them at all.
+        String liveBeforePublish = LaneCLifecycle.bundleOfLiveRows(flowId).toString();
 
         LaneCLifecycle.submit(base, actors, flowId, "T-021: the bundle that will fail");
         Response approved = LaneCLifecycle.approve(base, actors.approver(), flowId);
@@ -193,42 +208,41 @@ class T021AtomicPublishContainerTest {
         JsonNode interfaceRow = LaneCLifecycle.interfaceRow(flowId);
         assertThat(interfaceRow.path("published_version").asString())
                 .as("the failed publish moved no interface pointer")
-                .isEqualTo("1");
+                .isEqualTo("2");
         assertThat(interfaceRow.path("status").asString())
                 .as("the interface stayed published - the previous version stays live")
                 .isEqualTo("PUBLISHED");
         assertThat(LaneCLifecycle.countRows("route", flowId))
-                .as("the route the transaction inserted is rolled back")
-                .isEqualTo(2);
+                .as("the routes stand where the last publish left them")
+                .isEqualTo(3);
         assertThat(LaneCLifecycle.countRows("mapping", flowId))
-                .as("no half-written mapping is left behind")
-                .isEqualTo(2);
+                .as("no half-written mapping row is added or dropped")
+                .isEqualTo(3);
         assertThat(LaneCLifecycle.bundleOfLiveRows(flowId).toString())
-                .as("no sentinel expression reached any live row")
-                .doesNotContain(sentinel);
-        assertThat(LaneCLifecycle.versionStatus(flowId, 1)).as("version 1 was not archived")
+                .as("the failed publish changed no live row - the bundle is the pre-publish state byte for byte")
+                .isEqualTo(liveBeforePublish);
+        assertThat(LaneCLifecycle.versionStatus(flowId, 2)).as("the bound version was not archived")
                 .isEqualTo("PUBLISHED");
-        assertThat(LaneCLifecycle.versionStatus(flowId, 2)).as("the superseded draft is untouched")
+        assertThat(LaneCLifecycle.versionStatus(flowId, 3)).as("the superseded draft is untouched")
                 .isEqualTo("DRAFT");
-        assertThat(LaneCLifecycle.versionStatus(flowId, 3)).as("version 3 stands approved, not published")
+        assertThat(LaneCLifecycle.versionStatus(flowId, 4)).as("the sentinel version stands approved")
                 .isEqualTo("APPROVED");
 
         // And the same approved version publishes cleanly once the injected failure is gone - the data plane
         // moves from the old bundle to the new one, never to nothing.
         LaneCLifecycle.publish(base, actors.approver(), flowId);
         assertThat(LaneCLifecycle.interfaceRow(flowId).path("published_version").asString())
-                .as("the whole retry of the publish lands version 3")
-                .isEqualTo("3");
+                .as("the whole retry of the publish lands the sentinel version")
+                .isEqualTo("4");
         assertThat(LaneCLifecycle.bundleOfLiveRows(flowId))
                 .as("and the live bundle equals the snapshot again")
                 .isEqualTo(LaneCLifecycle.bundleOfSnapshot(snapshotV3));
-        // The retried publish materializes the snapshot's own rows: the sentinel it carried is the snapshot's
-        // content; after the retry the live mapping for route 3 exists and holds it (the bundle IS the
-        // approved snapshot - byte for byte, failures rolled back, retries exact).
+        // The retried publish lands the snapshot's own rows: the live bundle equals the approved snapshot
+        // byte for byte, failures rolled back, retries exact.
         assertThat(LaneCLifecycle.countRows("route", flowId)).as("the third route landed on the clean retry")
                 .isEqualTo(3);
         assertThat(LaneCLifecycle.bundleOfLiveRows(flowId).toString()).contains(sentinel);
-        assertThat(LaneCLifecycle.versionStatus(flowId, 1)).as("the superseded published version archived at last")
+        assertThat(LaneCLifecycle.versionStatus(flowId, 2)).as("the superseded published version archived at last")
                 .isEqualTo("ARCHIVED");
     }
 
