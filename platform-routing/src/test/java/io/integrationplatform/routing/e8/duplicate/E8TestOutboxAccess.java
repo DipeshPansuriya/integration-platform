@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
@@ -41,6 +42,8 @@ final class E8TestOutboxAccess extends TenantScopedRepository implements OutboxR
 
     private static final Map<OutboxTopic, String> TOPIC_NAMES = topicNames();
 
+    private final TenantContext tenantContext;
+
     private volatile boolean markAfterAck;
 
     private static Map<OutboxTopic, String> topicNames() {
@@ -53,6 +56,21 @@ final class E8TestOutboxAccess extends TenantScopedRepository implements OutboxR
 
     E8TestOutboxAccess(JdbcClient jdbcClient, TenantContext tenantContext) {
         super(jdbcClient, tenantContext);
+        this.tenantContext = tenantContext;
+    }
+
+    /**
+     * The relay's seam (T-179, merged with lane B): the key-bucket advisory lock before the claim, the same
+     * statement the real {@code JdbcOutboxAccess} runs - {@code pg_advisory_xact_lock} on the (bound tenant,
+     * bucket) hash, held to commit.
+     */
+    @Override
+    public void lockKeyBucket(int keyBucket) {
+        UUID boundTenant = tenantContext.requireTenantId();
+        query("select pg_advisory_xact_lock(hashtextextended(:scope, 0))"
+                        + " from (values (:own_tenant::uuid)) as scoped (tenant_id)", null,
+                Map.of("scope", boundTenant + ":" + keyBucket, "own_tenant", boundTenant),
+                (rs, rowNum) -> Boolean.TRUE).forEach(unused -> { });
     }
 
     /** Opens (true) or closes (false) the crash window: whether a broker-acked publish is allowed to be marked. */
