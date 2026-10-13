@@ -113,7 +113,11 @@ class SchedulerIncidentAlertsContainerTest {
                 SchedulerJobTasks.recurringTask("DAILY_REPORT", repository, wrapper),
                 SchedulerJobTasks.recurringTask("CREDENTIAL_CLEANUP", repository, wrapper));
 
+        // the raw scheduler must own the same task table as the app context (scheduler.scheduled_tasks,
+        // V2_2_1400): Scheduler.create defaults to the unqualified db-scheduler table, whose polls then fail
+        // on every run (window-1 evidence, row278: relation "scheduled_tasks" does not exist).
         scheduler = Scheduler.create(dataSource, tasks)
+                .tableName("scheduler.scheduled_tasks")
                 .pollingInterval(Duration.ofSeconds(1))
                 .addSchedulerListener(listener)
                 .build();
