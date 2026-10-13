@@ -8,7 +8,7 @@
     "column_fit": "spread",
     "viewBox": [
       1400,
-      794
+      806
     ],
     "views": [
       {
@@ -92,12 +92,12 @@
     },
     {
       "from": 474,
-      "to": 648,
+      "to": 676,
       "label": "2. Relay + route (stage 1)"
     },
     {
-      "from": 662,
-      "to": 724,
+      "from": 684,
+      "to": 732,
       "label": "3. SYNC only"
     }
   ],
@@ -199,24 +199,33 @@
     {
       "id": "m08",
       "from": "ingest",
-      "to": "kafka",
+      "to": "routing",
       "y": 494,
-      "label": "relay: message.accepted, in order per key bucket",
+      "label": "relay publishes via the publish port (the Kafka adapter)",
       "variant": "emphasis",
-      "note": "One publisher per key bucket (advisory lock); stops at the first failed row (ADR-005 D11)"
+      "note": "Fire-and-forget publish + acknowledge; the adapter lives in platform-routing (T-110, ADR-015)"
+    },
+    {
+      "id": "m08b",
+      "from": "routing",
+      "to": "kafka",
+      "y": 522,
+      "label": "record: key = SHA-256(tenant, interface, business key); traceparent header",
+      "variant": "emphasis",
+      "note": "Ids-only value; the row's traceparent is the ONLY header (T-112); the key-bucket advisory lock keeps one publisher per bucket, in order (T-179)"
     },
     {
       "id": "m09",
       "from": "kafka",
       "to": "routing",
-      "y": 522,
+      "y": 550,
       "label": "stage 1 consumes"
     },
     {
       "id": "m09b",
       "from": "routing",
       "to": "db",
-      "y": 550,
+      "y": 578,
       "label": "claim idempotency_key \"outbox:<id>\"",
       "note": "Consumer-side duplicate guard (T-010): the key is stable per outbox row, so a crash re-publish finds a committed claim - duplicate, acknowledged, no effect (architecture.md section 3, ADR-001)"
     },
@@ -224,7 +233,7 @@
       "id": "m10",
       "from": "routing",
       "to": "db",
-      "y": 578,
+      "y": 606,
       "label": "one tx: ACCEPTED to ROUTED + deliveries + outbox",
       "variant": "emphasis",
       "note": "Key lock; 0 rows = duplicate; insert on conflict (message, route) do nothing; releases holds"
@@ -233,7 +242,7 @@
       "id": "m11",
       "from": "routing",
       "to": "kafka",
-      "y": 606,
+      "y": 634,
       "label": "unreadable record: platform.poison",
       "variant": "dashed"
     },
@@ -241,7 +250,7 @@
       "id": "m12",
       "from": "routing",
       "to": "kafka",
-      "y": 634,
+      "y": 662,
       "label": "DB error: pause partitions, back off",
       "variant": "dashed",
       "note": "A transient database error never poisons a record (ADR-005 D13)"
@@ -250,7 +259,7 @@
       "id": "m13",
       "from": "ingest",
       "to": "routing",
-      "y": 682,
+      "y": 690,
       "label": "inline stage 1, bulkhead permit, claim, one call",
       "variant": "dashed",
       "note": "Message and delivery outbox rows deferred by budget + 5 s (ADR-011 D5)"
@@ -259,7 +268,7 @@
       "id": "m14",
       "from": "ingest",
       "to": "source",
-      "y": 710,
+      "y": 718,
       "label": "200 mapped, error, or 202 PENDING",
       "variant": "return"
     }
