@@ -13,10 +13,13 @@ import {
   addLink as addLinkToGraph, changeLink as changeLinkOnGraph, deleteLink as deleteLinkFromGraph,
   emptyGraph, parseSavedMapping, schemaPaths, targetRefusal, toSaveRequest
 } from '../mapping/graph';
+import { applyExpressionEdit as applyRawEdit } from '../mapping/expression/raw';
 import type { FieldSchema, MappingGraph, SavedMappingAnswer } from '../mapping/graph';
 import type { CanvasSelected } from '../mapping/MappingCanvas';
 
 const MappingCanvas = lazy(() => import('../mapping/MappingCanvas'));
+// T-039 (E7 wave 2 lane D2): the CodeMirror raw-expression editor, its own lazy chunk like the canvas.
+const RawExpressionEditor = lazy(() => import('../mapping/expression/RawExpressionEditor'));
 
 type VersionOption = {
   id: string;
@@ -156,6 +159,15 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
     setRefusal(null);
   };
 
+  // T-039: a raw-expression edit lands back through applyExpressionEdit - a $round edit (ADR-006
+  // rule 8: money rounding never via $round) is refused here and shown with the rule named.
+  const editExpression = (text: string) => {
+    setSaved(false);
+    const { graph: next, refusal: refused } = applyRawEdit(graph, text);
+    setGraph(next);
+    setRefusal(refused);
+  };
+
   async function save() {
     if (!routeId) return;
     setSaved(false);
@@ -284,18 +296,11 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
               </tbody>
             </table>
             <p>
-              <label>
-                Compiled expression{' '}
-                <input
-                  data-field="expression"
-                  value={graph.expression}
-                  onChange={(e) => {
-                    setSaved(false);
-                    setGraph({ ...graph, expression: e.target.value });
-                  }}
-                />
-              </label>
+              <label>Raw expression (JSONata - typed, ADR-006)</label>
             </p>
+            <Suspense fallback={<p data-raw-loading="true">Loading the raw expression editor...</p>}>
+              <RawExpressionEditor graph={graph} onEdit={editExpression} />
+            </Suspense>
           </>
         )
       ) : (
