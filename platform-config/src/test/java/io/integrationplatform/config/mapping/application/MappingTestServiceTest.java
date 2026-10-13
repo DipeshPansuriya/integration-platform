@@ -15,6 +15,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -50,7 +51,7 @@ class MappingTestServiceTest {
         MappingTestService service = service(new StubMappings(Optional.of(LIVE)), transform, runs);
 
         Map<String, Object> answer = service.test(MAPPING_ID,
-                "{\"sample\":{\"customerId\":\"acme-1\",\"odd\":{\"b\":2,\"a\":1}}}");
+                JSON.readTree("{\"sample\":{\"customerId\":\"acme-1\",\"odd\":{\"b\":2,\"a\":1}}}"));
 
         assertEquals(TransformPort.Status.OK.name(), answer.get("status"), "the pass answers OK");
         assertEquals(MAPPING_ID, answer.get("mappingId"), "the answer names the mapping");
@@ -84,7 +85,7 @@ class MappingTestServiceTest {
         CapturingRuns runs = new CapturingRuns();
         MappingTestService service = service(new StubMappings(Optional.of(LIVE)), transform, runs);
 
-        Map<String, Object> answer = service.test(MAPPING_ID, "{\"sample\":{}}");
+        Map<String, Object> answer = service.test(MAPPING_ID, JSON.readTree("{\"sample\":{}}"));
 
         assertEquals(TransformPort.Status.MAPPING_TIMEOUT.name(), answer.get("status"));
         assertNull(answer.get("output"), "a timeout carries no output");
@@ -101,7 +102,7 @@ class MappingTestServiceTest {
         CapturingRuns runs = new CapturingRuns();
         MappingTestService service = service(new StubMappings(Optional.of(LIVE)), transform, runs);
 
-        Map<String, Object> answer = service.test(MAPPING_ID, "{\"sample\":{}}");
+        Map<String, Object> answer = service.test(MAPPING_ID, JSON.readTree("{\"sample\":{}}"));
 
         assertEquals(TransformPort.Status.ERROR.name(), answer.get("status"));
         assertNull(answer.get("output"));
@@ -117,7 +118,7 @@ class MappingTestServiceTest {
         CapturingRuns runs = new CapturingRuns();
         MappingTestService service = service(new StubMappings(Optional.empty()), transform, runs);
 
-        ConfigApiException thrown = catchIt(() -> service.test(MAPPING_ID, "{\"sample\":{}}"));
+        ConfigApiException thrown = catchIt(() -> service.test(MAPPING_ID, JSON.readTree("{\"sample\":{}}")));
 
         assertEquals(404, thrown.httpStatus(), "an unknown mapping answers exactly 404");
         assertEquals(0, transform.calls, "the engine never ran");
@@ -131,7 +132,7 @@ class MappingTestServiceTest {
         CapturingRuns runs = new CapturingRuns();
         MappingTestService service = service(new StubMappings(Optional.of(LIVE)), transform, runs);
 
-        ConfigApiException thrown = catchIt(() -> service.test(MAPPING_ID, "{\"other\":1}"));
+        ConfigApiException thrown = catchIt(() -> service.test(MAPPING_ID, JSON.readTree("{\"other\":1}")));
 
         assertEquals(400, thrown.httpStatus(), "a missing sample is a validation refusal");
         assertEquals(0, transform.calls, "the engine never ran");

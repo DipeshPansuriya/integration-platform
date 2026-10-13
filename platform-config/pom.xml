@@ -29,6 +29,13 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
+    <!-- E7 lane B2 (T-108, ADR-006): the mapping test endpoint runs the stored compiled expression through the
+         TransformPort seam - config consumes the transform engine, never the reverse (the transform module stays
+         engine-only; lane A's ArchUnit guards its edge). -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-transform</artifactId>
+    </dependency>
     <!-- E3 T36: annotations only - the admin controllers declare the statuses they really answer in the OpenAPI
          document (springdoc itself stays in platform-app); the version is the one springdoc already pulls. -->
     <dependency>
