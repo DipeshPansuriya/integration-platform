@@ -52,6 +52,14 @@
       <artifactId>testcontainers-kafka</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- E9 lane A1 (T-116/T-119): the PostgreSQL container the delivery-ledger container proof runs against
+         (one delivery_attempt row per layer-1 call on the real append-only tables). Versions come from the
+         spring-boot BOM's testcontainers-bom, as in platform-delivery/config. -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-junit-jupiter</artifactId>
