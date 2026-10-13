@@ -29,7 +29,6 @@ function FieldNode({ data }: NodeProps<FieldNodeFlow>) {
   return (
     <div
       data-tree={data.side}
-      data-node={data.path}
       style={{
         border: data.selected ? '2px solid #0b5cab' : '1px solid #8a939e',
         borderRadius: 4,
@@ -40,11 +39,7 @@ function FieldNode({ data }: NodeProps<FieldNodeFlow>) {
       {/* The left handle accepts links, the right (source) handle draws them: an edge always runs
           source tree -> target tree, so a link can never be drawn backwards. */}
       <Handle type="target" position={Position.Left} id="l" isConnectable={false} />
-      <button
-        type="button"
-        aria-pressed={data.selected}
-        style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit' }}
-      >
+      <button type="button" data-node={data.path} aria-pressed={data.selected}>
         {data.path}
       </button>
       <Handle type="source" position={Position.Right} id="r" isConnectable={false} />

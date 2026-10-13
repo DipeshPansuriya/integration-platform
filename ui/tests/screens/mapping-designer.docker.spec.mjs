@@ -216,6 +216,7 @@ test('an element added, a link changed and a link deleted all reach the stored m
 
 // Scenario: Two targets never share one mapping - the UI leg (backlog.md:1836-1839).
 test('Target A\'s mapping edits leave Target B\'s mapping untouched, and the other way round', async ({ page }) => {
+  await page.goto(consoleUrl()); // the page context the seeding GETs run in (console origin's cookies)
   const bBefore = await inBrowser(page, 'GET', `/api/v1/admin/routes/${ROUTE_B}/mapping`);
   expect(bBefore.status).toBe(200);
   expect(bBefore.data.fieldMappings).toEqual([]);
