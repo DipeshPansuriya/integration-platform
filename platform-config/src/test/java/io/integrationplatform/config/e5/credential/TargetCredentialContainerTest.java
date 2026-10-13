@@ -272,6 +272,36 @@ class TargetCredentialContainerTest {
                 + "\",\"destinations\":[\"" + targetCode + "\"],\"businessKeyRule\":\"$.orderId\"}");
         assertThat(flow.status()).as(flow.body()).isEqualTo(201);
         String flowId = flow.json().path("id").asString();
+        // T-190: the mapping binds to contract versions and the bundle is re-captured - the publish-time pin
+        // check refuses an unbound route (ADR-011 rule 6), so the fixture binds before the lifecycle walks.
+        String routeId = scalar("SELECT id::text FROM public.route WHERE interface_id = ?::uuid", flowId);
+        String sourceVersion = scalar("SELECT source_contract_version_id::text FROM public.interface_version"
+                + " WHERE interface_id = ?::uuid ORDER BY version DESC LIMIT 1", flowId);
+        String endpointSystem = scalar("SELECT te.system_id::text FROM public.route r"
+                + " JOIN public.target_endpoint te ON te.id = r.target_endpoint_id WHERE r.id = ?::uuid", routeId);
+        UUID targetContractId = UUID.nameUUIDFromBytes(("mapping-target-contract|" + endpointSystem)
+                .getBytes(StandardCharsets.UTF_8));
+        UUID targetVersionId = UUID.nameUUIDFromBytes(("mapping-target-version|" + endpointSystem)
+                .getBytes(StandardCharsets.UTF_8));
+        E5CredentialFixture.execute("INSERT INTO public.contract (id, tenant_id, system_id, code, role, name)"
+                + " VALUES (?::uuid, ?::uuid, ?::uuid, ?, 'TARGET_REQUEST', ?)"
+                + " ON CONFLICT (tenant_id, id) DO NOTHING",
+                targetContractId.toString(), tenantA().id().toString(), endpointSystem,
+                "map-target-" + targetContractId.toString().substring(0, 8), "mapping pin target contract");
+        E5CredentialFixture.execute("INSERT INTO public.contract_version (id, tenant_id, contract_id,"
+                + " version_label, status, json_schema_draft_2020_12, author_id)"
+                + " VALUES (?::uuid, ?::uuid, ?::uuid, '1.0', 'APPROVED', ?::jsonb, ?::uuid)"
+                + " ON CONFLICT (tenant_id, id) DO NOTHING",
+                targetVersionId.toString(), tenantA().id().toString(), targetContractId.toString(),
+                "{\"type\":\"object\",\"properties\":{\"customer_code\":{\"type\":\"string\"}}}",
+                tenantA().id().toString());
+        assertThat(call(port, "PUT", "/api/v1/admin/routes/" + routeId + "/mapping", author,
+                "{\"fieldMappings\":[],\"compiledExpression\":\"$\",\"sourceContractVersionId\":\""
+                        + sourceVersion + "\",\"targetContractVersionId\":\"" + targetVersionId + "\"}")
+                .status()).isEqualTo(200);
+        assertThat(call(port, "PUT", "/api/v1/admin/flows/" + flowId, author, "{\"sourceSystem\":\"" + sourceCode
+                + "\",\"destinations\":[\"" + targetCode + "\"],\"businessKeyRule\":\"$.orderId\"}")
+                .status()).isEqualTo(200);
         assertThat(call(port, "POST", "/api/v1/admin/flows/" + flowId + "/submit", author,
                 "{\"changeNote\":\"targets use credentials\"}").status()).isEqualTo(200);
         assertThat(call(port, "POST", "/api/v1/admin/flows/" + flowId + "/approve", approver, "{}").status())

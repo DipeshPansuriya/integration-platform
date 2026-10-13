@@ -12,6 +12,8 @@ import io.integrationplatform.config.contract.adapter.in.ContractVersionAdminCon
 import io.integrationplatform.config.contract.application.ContractAdminService;
 import io.integrationplatform.config.flow.adapter.in.FlowAdminController;
 import io.integrationplatform.config.flow.application.FlowAdminService;
+import io.integrationplatform.config.mapping.adapter.in.MappingAdminController;
+import io.integrationplatform.config.mapping.application.MappingAdminService;
 import io.integrationplatform.config.rule.adapter.in.LookupAdminController;
 import io.integrationplatform.config.rule.adapter.in.RuleEvaluationController;
 import io.integrationplatform.config.rule.adapter.in.RuleSetAdminController;
@@ -176,7 +178,9 @@ class EndpointMatrixCoverageTest {
                 new RuleEvaluationController(mock(RuleEvaluationPort.class)),
                 // E5 lane C (T-103): the credential endpoints, covered by E5SecretMatrix
                 new SourceCredentialAdminController(mock(SourceCredentialService.class), mock(ConfigActors.class)),
-                new TargetCredentialAdminController(mock(TargetCredentialService.class), mock(ConfigActors.class))};
+                new TargetCredentialAdminController(mock(TargetCredentialService.class), mock(ConfigActors.class)),
+                // E7 lane C (T-190): the mapping endpoints, covered by E7MappingMatrix
+                new MappingAdminController(mock(MappingAdminService.class), mock(ConfigActors.class))};
     }
 
     private static Object[] withPlanted(Object planted) {
