@@ -84,6 +84,10 @@
     <surefire.excludedGroups>container</surefire.excludedGroups>
     <!-- Empty default so @{argLine} resolves when no agent (e.g. JaCoCo) sets it. -->
     <argLine></argLine>
+    <!-- Fork JVM args for surefire (R06 small-run default; the container profile raises heap/metaspace
+         because a full Boot 4 app context + testcontainer inside one fork exceeds the default pair --
+         window-1 evidence 2026-10-13: fork died malloc, hs_err on platform-app 2a4b579). -->
+    <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx256m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>
   </properties>
 
   <dependencyManagement>
@@ -278,7 +282,7 @@
         <configuration>
           <groups>${surefire.groups}</groups>
           <excludedGroups>${surefire.excludedGroups}</excludedGroups>
-          <argLine>@{argLine} -Duser.timezone=Etc/UTC -Xmx256m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true -javaagent:${org.mockito:mockito-core:jar}</argLine>
+          <argLine>@{argLine} ${surefireJvmArgs} -javaagent:${org.mockito:mockito-core:jar}</argLine>
         </configuration>
       </plugin>
     </plugins>
@@ -291,6 +295,8 @@
       <properties>
         <surefire.groups>container</surefire.groups>
         <surefire.excludedGroups></surefire.excludedGroups>
+        <!-- ponytail override: only heap/metaspace grow; flags stay. Serialized suites keep R06 cost bounded. -->
+        <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx1g -XX:MaxMetaspaceSize=512m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>
       </properties>
     </profile>
   </profiles>
