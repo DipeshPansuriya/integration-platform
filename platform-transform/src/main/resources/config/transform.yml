@@ -1,0 +1,8 @@
+# E7 lane B2, T-109 (ADR-006 rule 5; sanjay-developer, row 278): the mapping transform budget. The values
+# feed JsonataTransformEngine at wiring: evaluation runs on the engine's native runtime bound (timeout +
+# recursion depth) and a bounded pool of platform threads behind it; exceeding it answers MAPPING_TIMEOUT
+# (E7-C10, T-109), never a partial output. Imported by config/application.yml (the import line is on main).
+# G2's proof: a runaway expression stops within budget + a small margin and the worker is free afterwards.
+transform:
+  budget-millis: 5000
+  max-depth: 200
