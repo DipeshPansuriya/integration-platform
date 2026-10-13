@@ -33,14 +33,17 @@ class Stage1DeliveriesContainerTest {
 
     /** Today's day partition always exists (the migration pre-creates CURRENT_DATE-1..+7 at container start). */
     private static final Instant DAY = Instant.now().truncatedTo(ChronoUnit.DAYS);
-    private static final UUID MESSAGE = UUID.fromString("a1000000-0000-4000-8000-000000000001");
-    private static final UUID OTHER_MESSAGE = UUID.fromString("a1000000-0000-4000-8000-000000000002");
-    private static final UUID ROUTE_A = UUID.fromString("b2000000-0000-4000-8000-000000000001");
-    private static final UUID ROUTE_B = UUID.fromString("b2000000-0000-4000-8000-000000000002");
-    private static final UUID ROUTE_C = UUID.fromString("b2000000-0000-4000-8000-000000000003");
-    private static final UUID TARGET_B = UUID.fromString("22222222-0000-4000-8000-0000000000b2");
-    private static final UUID MAP3 = UUID.fromString("c3000000-0000-4000-8000-000000000003");
-    private static final UUID MAP7 = UUID.fromString("c3000000-0000-4000-8000-000000000007");
+    // instance fields (JUnit builds one test instance per method): the class shares the database and today's
+    // partition with every other method, so each method gets its own pins - fixed pins leaked stage-1 rows
+    // from one method into the next once the insert landed
+    private final UUID MESSAGE = UUID.randomUUID();
+    private final UUID OTHER_MESSAGE = UUID.randomUUID();
+    private final UUID ROUTE_A = UUID.randomUUID();
+    private final UUID ROUTE_B = UUID.randomUUID();
+    private final UUID ROUTE_C = UUID.randomUUID();
+    private final UUID TARGET_B = UUID.randomUUID();
+    private final UUID MAP3 = UUID.randomUUID();
+    private final UUID MAP7 = UUID.randomUUID();
 
     private final DeliveryTestDatabase db = DeliveryTestDatabase.get();
     private HikariDataSource pool;

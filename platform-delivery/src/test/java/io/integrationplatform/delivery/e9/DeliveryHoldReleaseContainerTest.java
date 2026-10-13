@@ -78,15 +78,27 @@ class DeliveryHoldReleaseContainerTest {
         return id;
     }
 
-    /** Claims (SENDING) and then retries the delivery, so it sits in RETRY_WAIT as the gherkin's predecessor. */
-    private void sending(UUID id, Instant at) {
+    /** Claims (SENDING) and returns the claim token the retry and the final state must carry. */
+    private UUID sending(UUID id, Instant at) {
         UUID token = UUID.randomUUID();
         tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> repository().claimSend(id, token, at));
+        return token;
     }
 
     private void toRetryWait(UUID id, UUID token, Instant next, Instant at) {
         tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> repository().scheduleRetry(id, token, next, at.plusSeconds(1)));
+    }
+
+    /** Re-drives the RETRY_WAIT delivery to DUE and re-claims it: the fresh token its final state requires. */
+    private UUID reClaim(UUID id, Instant at) {
+        UUID token = UUID.randomUUID();
+        tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> {
+            var repository = repository();
+            repository.redrive(id, at);
+            repository.claimSend(id, token, at);
+        });
+        return token;
     }
 
     private DeliveryState state(UUID id) {
@@ -115,9 +127,9 @@ class DeliveryHoldReleaseContainerTest {
                 "release-key", 1L, base);
         UUID successor = newDelivery(DeliveryTestDatabase.TENANT_A, DeliveryTestDatabase.TARGET_ID,
                 "release-key", 2L, base);
-        UUID token = UUID.randomUUID();
-        sending(predecessor, base); // SENDING behind claim token
+        UUID token = sending(predecessor, base); // SENDING behind claim token
         toRetryWait(predecessor, token, base.plusSeconds(60), base); // update 1 is in RETRY_WAIT
+        UUID finalToken = reClaim(predecessor, base.plusSeconds(61)); // the fresh token the final state requires
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> bareClaimService().claim("release-key", successor, UUID.randomUUID(), base.plusSeconds(2))))
                 .isEqualTo(Outcome.HELD); // update 2 is held (E2's claim order)
@@ -125,7 +137,7 @@ class DeliveryHoldReleaseContainerTest {
 
         // the predecessor's final state releases the successor IN THE SAME TRANSACTION (ADR-011 Decision 6, B4)
         boolean delivered = tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> repository().markDelivered(predecessor, token, base.plusSeconds(3)));
+                () -> repository().markDelivered(predecessor, finalToken, base.plusSeconds(3)));
         assertThat(delivered).isTrue();
         assertThat(state(predecessor)).isEqualTo(DeliveryState.DELIVERED);
         assertThat(state(successor))
@@ -147,15 +159,15 @@ class DeliveryHoldReleaseContainerTest {
                 "dead-release-key", 1L, base);
         UUID successor = newDelivery(DeliveryTestDatabase.TENANT_A, DeliveryTestDatabase.TARGET_ID,
                 "dead-release-key", 2L, base);
-        UUID token = UUID.randomUUID();
-        sending(predecessor, base);
+        UUID token = sending(predecessor, base);
         toRetryWait(predecessor, token, base.plusSeconds(60), base);
+        UUID finalToken = reClaim(predecessor, base.plusSeconds(61)); // the fresh token the final state requires
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> bareClaimService().claim("dead-release-key", successor, UUID.randomUUID(), base.plusSeconds(2))))
                 .isEqualTo(Outcome.HELD);
 
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> repository().deadLetter(predecessor, token, OutcomeClass.AMBIGUOUS, base.plusSeconds(3))))
+                () -> repository().deadLetter(predecessor, finalToken, OutcomeClass.AMBIGUOUS, base.plusSeconds(3))))
                 .isTrue();
         assertThat(state(successor)).isEqualTo(DeliveryState.DUE); // a dead-lettered predecessor releases too
         assertThat(eventCount(successor, DeliveryEventType.RELEASE)).isEqualTo(1);
@@ -170,16 +182,17 @@ class DeliveryHoldReleaseContainerTest {
                 "rollback-key", 1L, base);
         UUID successor = newDelivery(DeliveryTestDatabase.TENANT_A, DeliveryTestDatabase.TARGET_ID,
                 "rollback-key", 2L, base);
-        UUID token = UUID.randomUUID();
-        sending(predecessor, base);
+        UUID token = sending(predecessor, base);
         toRetryWait(predecessor, token, base.plusSeconds(60), base);
+        UUID finalToken = reClaim(predecessor, base.plusSeconds(61)); // the fresh token the final state requires
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> bareClaimService().claim("rollback-key", successor, UUID.randomUUID(), base.plusSeconds(2))))
                 .isEqualTo(Outcome.HELD);
 
         TransactionTemplate rollbackTransaction = new TransactionTemplate(new DataSourceTransactionManager(pool));
         assertThatThrownBy(() -> rollbackTransaction.execute(status -> {
-            repository().markDelivered(predecessor, token, base.plusSeconds(3));
+            repository().stampTenant(); // the E9 helper shape: a transaction the code opened is stamped by us
+            repository().markDelivered(predecessor, finalToken, base.plusSeconds(3));
             status.setRollbackOnly(); // the outcome failed downstream of the delivery's own store
             throw new IllegalStateException("the bulkhead could not hand the send over");
         })).isInstanceOf(IllegalStateException.class);
@@ -199,9 +212,9 @@ class DeliveryHoldReleaseContainerTest {
                 "chain-key", 2L, base);
         UUID third = newDelivery(DeliveryTestDatabase.TENANT_A, DeliveryTestDatabase.TARGET_ID,
                 "chain-key", 3L, base);
-        UUID token = UUID.randomUUID();
-        sending(first, base);
+        UUID token = sending(first, base);
         toRetryWait(first, token, base.plusSeconds(60), base);
+        UUID finalToken = reClaim(first, base.plusSeconds(61)); // the fresh token the final state requires
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> bareClaimService().claim("chain-key", second, UUID.randomUUID(), base.plusSeconds(2))))
                 .isEqualTo(Outcome.HELD);
@@ -211,7 +224,7 @@ class DeliveryHoldReleaseContainerTest {
 
         // release the first chain: the earliest held becomes due, the later HELD has a non-final predecessor left
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> repository().markDelivered(first, token, base.plusSeconds(4)))).isTrue();
+                () -> repository().markDelivered(first, finalToken, base.plusSeconds(4)))).isTrue();
         assertThat(state(second)).isEqualTo(DeliveryState.DUE);
         assertThat(state(third))
                 .as("the next held delivery stays held until its own predecessor is final")
@@ -229,8 +242,7 @@ class DeliveryHoldReleaseContainerTest {
         UUID sameTarget = newDelivery(DeliveryTestDatabase.TENANT_A, DeliveryTestDatabase.TARGET_ID,
                 "scope-key", 2L, base);
         UUID otherTarget = newDelivery(DeliveryTestDatabase.TENANT_A, targetB, "scope-key", 3L, base);
-        UUID token = UUID.randomUUID();
-        sending(predecessor, base);
+        UUID token = sending(predecessor, base);
         toRetryWait(predecessor, token, base.plusSeconds(60), base);
 
         // update 2 goes to both targets: Target B's delivery is sent at once, only Target A's is held
@@ -251,8 +263,7 @@ class DeliveryHoldReleaseContainerTest {
                 "none-key", 1L, base);
         UUID follower = newDelivery(DeliveryTestDatabase.TENANT_A, DeliveryTestDatabase.TARGET_ID,
                 "none-key", null, base); // key_seq NULL - interface ordering is NONE
-        UUID token = UUID.randomUUID();
-        sending(predecessor, base);
+        UUID token = sending(predecessor, base);
         toRetryWait(predecessor, token, base.plusSeconds(60), base);
 
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
@@ -271,8 +282,7 @@ class DeliveryHoldReleaseContainerTest {
                 "helper-claim-key", 1L, base);
         UUID successor = newDelivery(DeliveryTestDatabase.TENANT_A, DeliveryTestDatabase.TARGET_ID,
                 "helper-claim-key", 2L, base);
-        UUID token = UUID.randomUUID();
-        sending(predecessor, base);
+        UUID token = sending(predecessor, base);
         toRetryWait(predecessor, token, base.plusSeconds(60), base);
 
         // NO inTenantTx here: the helper's own-transaction shape must be indistinguishable in outcome

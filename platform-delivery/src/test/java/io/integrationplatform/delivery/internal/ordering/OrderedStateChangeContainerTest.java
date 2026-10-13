@@ -202,8 +202,10 @@ class OrderedStateChangeContainerTest {
 
             ExecutorService executor = Executors.newFixedThreadPool(1);
             try {
+                // no delivery ids up front: the BODY's hold is the update that loses the race (the helper's
+                // row-lock phase would wait before the body ever ran and the latches below would never fire)
                 Future<Boolean> attempt = executor.submit(
-                        () -> change.run("40001-key", null, List.of(id), (Supplier<Boolean>) () -> {
+                        () -> change.run("40001-key", null, List.of(), (Supplier<Boolean>) () -> {
                             if (bodyRuns.incrementAndGet() == 1) { // the losing attempt: wait for the control commit
                                 bodyStarted.countDown();
                                 try {

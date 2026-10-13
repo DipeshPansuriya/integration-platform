@@ -2,6 +2,7 @@ package io.integrationplatform.delivery;
 
 import io.integrationplatform.delivery.internal.JdbcDeliveryRepository;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,6 +16,12 @@ import java.util.UUID;
  * outcome is {@link Outcome#NO_EFFECT} and the record is acknowledged with nothing changed. The tenant and the
  * transaction come from the caller ({@code TenantContext}, R08, R11); {@code platform-routing} runs this inside
  * its stage-2 claim transaction.
+ *
+ * <p>Two shapes (T-197): the bare E2 service runs the order directly in the caller's transaction; when the E9
+ * helper is wired the order runs behind {@link io.integrationplatform.delivery.port.OrderedStateChange} - the
+ * helper takes the locks (key first, then the delivery; the message-row lock is wave-1) and supplies the
+ * transaction and the tenant stamp when the caller opened none, with the 40001/40P01 in-place retry on its own
+ * transaction only.
  */
 public final class DeliveryClaimService {
 
@@ -60,9 +67,18 @@ public final class DeliveryClaimService {
      * @param at          the transition time stored with the event
      */
     public Outcome claim(String orderingKey, UUID deliveryId, UUID claimToken, Instant at) {
-        if (orderingKey != null && !orderingKey.isBlank()) {
-            repository.lockOrderingKey(orderingKey);
+        if (orderedChange != null) {
+            return orderedChange.run(orderingKey, null, List.of(deliveryId),
+                    () -> claimBody(deliveryId, claimToken, at));
         }
+        if (orderingKey != null && !orderingKey.isBlank()) {
+            repository.lockOrderingKey(orderingKey); // the bare path locks within the caller's transaction
+        }
+        return claimBody(deliveryId, claimToken, at);
+    }
+
+    /** The read, hold check and conditional state - the key lock is already held (bare path or helper). */
+    private Outcome claimBody(UUID deliveryId, UUID claimToken, Instant at) {
         Optional<JdbcDeliveryRepository.Claimable> row = repository.readForClaim(deliveryId);
         if (row.isEmpty()) {
             return Outcome.NO_EFFECT;
