@@ -85,8 +85,8 @@
     <!-- Empty default so @{argLine} resolves when no agent (e.g. JaCoCo) sets it. -->
     <argLine></argLine>
     <!-- Fork JVM args for surefire (R06 small-run default; the container profile raises heap/metaspace
-         because a full Boot 4 app context + testcontainer inside one fork exceeds the default pair --
-         window-1 evidence 2026-10-13: fork died malloc, hs_err on platform-app 2a4b579). -->
+         because a full Boot 4 app context + testcontainer inside one fork exceeds the default pair
+         (window-1 evidence 2026-10-13: fork died malloc, hs_err on platform-app 2a4b579). -->
     <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx256m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>
   </properties>
 
