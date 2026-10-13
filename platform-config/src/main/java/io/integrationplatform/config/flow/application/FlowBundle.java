@@ -33,8 +33,11 @@ public final class FlowBundle {
             String targetEndpointId) {
     }
 
-    /** One mapping entry of a parsed snapshot; {@code fieldMappingsJson} is the stored JSON text. */
-    public record SnapshotMapping(String id, String routeId, String fieldMappingsJson, String compiledExpression) {
+    /** One mapping entry of a parsed snapshot; {@code fieldMappingsJson} is the stored JSON text.
+     *  The entries carry the mapping's bound contract versions and its pinned mapping_version row
+     *  (null when the mapping is still unbound - the publish pin check refuses those). */
+    public record SnapshotMapping(String id, String routeId, String fieldMappingsJson, String compiledExpression,
+            String sourceContractVersionId, String targetContractVersionId, String mappingVersionId) {
     }
 
     /** The parsed snapshot the publish materializes. */
@@ -80,6 +83,9 @@ public final class FlowBundle {
                     ? JsonNodeFactory.instance.nullNode()
                     : JSON.readTree(mapping.fieldMappingsJson()));
             entry.put("compiledExpression", mapping.compiledExpression());
+            entry.put("sourceContractVersionId", mapping.sourceContractVersionId());
+            entry.put("targetContractVersionId", mapping.targetContractVersionId());
+            entry.put("mappingVersionId", mapping.mappingVersionId());
         }
         return snapshot.toString();
     }
@@ -103,9 +109,18 @@ public final class FlowBundle {
                     entry.path("id").asString(),
                     entry.path("routeId").asString(),
                     entry.path("fieldMappings").isMissingNode() ? "[]" : entry.path("fieldMappings").toString(),
-                    entry.path("compiledExpression").asString()));
+                    entry.path("compiledExpression").asString(),
+                    textOrNull(entry.path("sourceContractVersionId")),
+                    textOrNull(entry.path("targetContractVersionId")),
+                    textOrNull(entry.path("mappingVersionId"))));
         }
         return new Parsed(routes, mappings);
+    }
+
+    /** The mapping order follows the owning route; an unseen route sorts after every known one (stable, no NPE). */
+    /** A snapshot field that may carry JSON null (an unbound mapping) reads as Java null. */
+    private static String textOrNull(JsonNode node) {
+        return node.isMissingNode() || node.isNull() ? null : node.asString();
     }
 
     /** The mapping order follows the owning route; an unseen route sorts after every known one (stable, no NPE). */

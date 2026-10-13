@@ -24,11 +24,32 @@ spring:
       # E9 seam (arjun-fullstack, F14): config/routing-core.yml - lane A (bulkhead size, routing budget,
       # allowedSchemes). R07: every value stays an environment-variable NAME - no value, no default.
       - optional:classpath:config/routing-core.yml
+      # E14 seam (arjun-fullstack, F8): scheduler.yml arrives with lane B's T-056 (platform-app owns the runtime
+      # wiring, ADR-012 section 2) - the db-scheduler task-table name (schema scheduler), enabled flag, poll interval.
+      - optional:classpath:config/scheduler.yml
   # R07: connection settings come only from environment variable names; no value, no default.
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+    # T64 (Karan P-1, row278 review): the pool is explicit, not the silent Hikari default - the row306 smoke hit
+    # HikariPool-1 total=10 active=10 exhausted, other calls hung 30 s then failed (_reports/
+    # row306-demo-smoke-20261012.txt:92-95, CWE-400/770 availability risk). The smallest sane sizing: Postgres
+    # default max_connections=100 keeps the headroom for the owner login, the sessions, the admin tooling and
+    # further instances; 10 per instance is the figure the platform already runs on - pinned so a Boot upgrade
+    # cannot change it quietly. The 30 s borrow patience and the 60 s leak report (Karan's P-1 figure, below the
+    # borrow patience) are safety figures, not deploy-time parameters, so they carry values here (the
+    # tenancy-console.yml precedent: fixed figures that must not be configurable away).
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 30000
+      leak-detection-threshold: 60000
+  # T65 (Karan P-1): the platform default transaction timeout is unbounded; pinned to 30 s so a long-borrow
+  # stall surfaces as a bounded timeout, matched to the pool's 30 s borrow patience above - a stuck transaction
+  # start never holds a pool slot past it. Every state change still rechecks its own deadline through the
+  # one lock order (ADR-014's 40001/40P01 in-place retries stay well inside).
+  transaction:
+    default-timeout: 30
 
 management:
   endpoints:

@@ -76,6 +76,10 @@ public final class PostgresOutboxRelay implements OutboxRelay {
     }
 
     private int publishBucket(int keyBucket) {
+        // T-179 (ADR fix m-817272 B3): the bucket work is serialized before the claim, so a second relay
+        // instance cannot SKIP LOCKED its way ahead of this transaction's unpublished rows and publish
+        // them out of sequence (E8-C2; the container sibling proves the two-instance race).
+        access.lockKeyBucket(keyBucket);
         List<ClaimedOutboxRow> rows = access.claimUnpublished(keyBucket, Instant.now(), batchSize);
         int marked = 0;
         for (ClaimedOutboxRow row : rows) {

@@ -1,0 +1,12 @@
+# E14 T-056 (ADR-012 section 3; sanjay-developer): db-scheduler runs the closed register. The task table is the
+# Flyway-created scheduler.scheduled_tasks (V2_2_1400, plus this platform's job_definition/job_run/job_alert), so
+# the auto-create is off and the schema-qualified table name is passed through. Jobs are platform-wide (no tenant
+# id in any row or task data - ADR-012 section 4); every execution is recorded by the run/alert wrapper
+# (RunRecordingSchedulerListener) and missed runs are detected independently of this polling (JobOverdueDetector).
+db-scheduler:
+  enabled: true
+  table-name: scheduler.scheduled_tasks
+  polling-interval: 10s
+  threads: 3
+  shutdown-max-wait: 10s
+  immediate-execution-enabled: true

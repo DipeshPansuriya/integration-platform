@@ -72,6 +72,19 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-session-jdbc</artifactId>
     </dependency>
+    <!-- E14 T-056 (sanjay-developer, F8): ADR-012 Decision 1 - the scheduler engine on the deployable's classpath;
+         platform-app owns the runtime wiring, the run/alert wrapper and the placeholder handlers (ADR-012 section 2).
+         Version managed in the parent pom (the seam). -->
+    <dependency>
+      <groupId>com.github.kagkarlsson</groupId>
+      <artifactId>db-scheduler-spring-boot-starter</artifactId>
+    </dependency>
+    <!-- E14 T-062 (sanjay-developer, F8): ADR-012 section 6 - Prometheus counters for runs by outcome and the
+         oldest-overdue gauge (computed at scrape time). Version from the Boot BOM. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>

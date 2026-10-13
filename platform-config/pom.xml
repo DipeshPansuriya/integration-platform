@@ -17,10 +17,24 @@
   <!-- E3 seam (arjun-fullstack): the skeleton only. Lane B owns db/migration V2_2_* (T-014, T-018, T-020); lane C
        owns the APIs in adapter/in and application (T-015, T-019, T-021). Package root: io.integrationplatform.config. -->
   <dependencies>
+    <!-- E7 lane B1 (T-163): the one audit event a configuration edit publishes is the shared domain's
+         AuditEvent record (E7 seam c4c9486) - the shared module's own edge rule (no Spring, no other module)
+         makes the downward direction the sanctioned one, as platform-delivery already does. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-domain</artifactId>
+    </dependency>
     <!-- Configuration rows are served over the admin HTTP API (E3-F1-S1 / E3-F2-S1). -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <!-- E7 lane B2 (T-108, ADR-006): the mapping test endpoint runs the stored compiled expression through the
+         TransformPort seam - config consumes the transform engine, never the reverse (the transform module stays
+         engine-only; lane A's ArchUnit guards its edge). -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-transform</artifactId>
     </dependency>
     <!-- E3 T36: annotations only - the admin controllers declare the statuses they really answer in the OpenAPI
          document (springdoc itself stays in platform-app); the version is the one springdoc already pulls. -->
@@ -91,6 +105,13 @@
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
       <scope>runtime</scope>
+    </dependency>
+    <!-- E14 T-056 (sanjay-developer, F8): ADR-012 section 2 - platform-config owns the job_definition rows and the
+         schedule sync (reads the rows, reconciles db-scheduler; a row change takes effect at the next sync). The
+         version is managed in the parent pom (the seam). -->
+    <dependency>
+      <groupId>com.github.kagkarlsson</groupId>
+      <artifactId>db-scheduler-spring-boot-starter</artifactId>
     </dependency>
     <!-- E6 seam (sanjay-developer, T-024): rule sets (ZEN decision tables, ADR-003) are checked at save and
          evaluated behind RuleEvaluationPort; only rule/adapter/out touches the engine. Version managed in the root. -->

@@ -1,5 +1,7 @@
 package io.integrationplatform.config.e3;
 
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.integrationplatform.config.e3.ConfigAdminApi.Response;
@@ -173,6 +175,9 @@ class T016RowsOnlyOnboardingContainerTest {
 
         // And the flow is available to ingest once published: the real lifecycle runs, rows only. The approver is
         // a second user of tenant A ("another user", ADR-007 Decision 2) - never a user of another tenant.
+        // T-190: the mapping binds to contract versions and the bundle is re-captured before the lifecycle.
+        LaneCLifecycle.bindAllRoutesAndResnapshot(base, bearerOfTenantA, E3ConfigDatabase.tenantA().id(),
+                UUID.fromString(flowId));
         Response submit = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS + "/" + flowId + "/submit",
                 bearerOfTenantA, ConfigAdminApi.submit("rows-only onboarding"));
         Response approve = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS + "/" + flowId + "/approve",

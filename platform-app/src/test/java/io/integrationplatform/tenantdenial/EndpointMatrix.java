@@ -265,7 +265,7 @@ final class EndpointMatrix {
                     200,
                     new WriteProbe(s -> "SELECT count(*) || '|@' || coalesce(string_agg(version_label, ','"
                             + " ORDER BY version_label), '-') FROM public.contract_version WHERE tenant_id = '"
-                            + s.a().id() + "'", "1|@1.0", "2|@1.0,1.1")),
+                            + s.a().id() + "'", "2|@1.0,1.0", "3|@1.0,1.0,1.1")),
             new Entry("GET", CONTRACT_VERSIONS + "/{versionId}", false,
                     s -> CONTRACT_VERSIONS + "/" + s.a().config().sourceContractVersionId(),
                     s -> CONTRACT_VERSIONS + "/" + s.b().config().sourceContractVersionId(),
@@ -296,7 +296,7 @@ final class EndpointMatrix {
      * lane part is one line here, written by the integrator, never by a lane.
      */
     static final List<LaneMatrix> LANES = List.of(new E5ContractMatrix(), new E5SystemMatrix(), new E5SecretMatrix(),
-            new E6RuleMatrix(), new E7MappingMatrix(), new E7LookupMatrix());
+            new E6RuleMatrix(), new E7MappingMatrix(), new E7LookupMatrix(), new E7MappingTestMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),
