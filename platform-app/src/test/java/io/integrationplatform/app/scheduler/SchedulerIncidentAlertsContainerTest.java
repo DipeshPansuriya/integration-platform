@@ -7,6 +7,7 @@ import com.github.kagkarlsson.scheduler.task.Task;
 import io.integrationplatform.config.scheduler.JdbcJobDefinitionRepository;
 import io.integrationplatform.config.scheduler.JobScheduleSync;
 import io.integrationplatform.domain.scheduler.JobHandler;
+import io.integrationplatform.tenancy.internal.persistence.JdbcSchedulerRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
@@ -49,6 +50,7 @@ class SchedulerIncidentAlertsContainerTest {
 
     static PostgreSQLContainer POSTGRES;
     static PGSimpleDataSource dataSource;
+    static JdbcSchedulerRegistry registry;
     static JdbcJobDefinitionRepository repository;
     static JobIncidentJdbcSink sink;
     static Scheduler scheduler;
@@ -101,8 +103,9 @@ class SchedulerIncidentAlertsContainerTest {
         // the operator changed the row (the register seed carries the production cadence; this suite runs fast)
         updateJobDefinition("DELIVERY_RETRY", "FIXED_DELAY", "2");
 
-        repository = new JdbcJobDefinitionRepository(dataSource);
-        sink = new JobIncidentJdbcSink(dataSource);
+        registry = new JdbcSchedulerRegistry(dataSource);
+        repository = new JdbcJobDefinitionRepository(registry);
+        sink = new JobIncidentJdbcSink(registry);
         JobRunWrapper wrapper = new JobRunWrapper(List.of(new ThrowingOnceJobHandler()));
         RunRecordingSchedulerListener listener =
                 new RunRecordingSchedulerListener(sink, repository, new SimpleMeterRegistry());
@@ -153,7 +156,7 @@ class SchedulerIncidentAlertsContainerTest {
     @Order(2)
     void anOverdueUnclaimedExecutionRaisesOneMissedAlertAndCancelsThePendingExecution() throws SQLException {
         // a quiet table: nothing is overdue
-        JobOverdueDetector detector = new JobOverdueDetector(dataSource, sink, scheduler);
+        JobOverdueDetector detector = new JobOverdueDetector(registry, sink, scheduler);
         assertThat(detector.oldestOverdueSeconds()).isEqualTo(0.0);
         assertThat(detector.detectAndRecord()).isEqualTo(0);
 
