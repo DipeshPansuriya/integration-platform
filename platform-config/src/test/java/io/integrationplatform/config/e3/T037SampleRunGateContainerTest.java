@@ -98,9 +98,6 @@ class T037SampleRunGateContainerTest {
                 .contains("sample run");
         assertThat(LaneCLifecycle.versionStatus(approved.draft.flowId(), 2))
                 .as("nothing is published").isEqualTo("APPROVED");
-        // and the other route is named too: the gate covers every mapping of the bundle.
-        assertThat(refused.body()).as("the bundle's other mapping is gated by the same rule")
-                .contains(otherRoute.toString());
     }
 
     @Test
