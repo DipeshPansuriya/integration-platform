@@ -1,0 +1,11 @@
+# E8 lane B (T-110, T-179, T-112), imported optionally by platform-app's application.yml
+# (optional:classpath:config/routing-kafka.yml). R07: every value below is an environment-variable NAME - no
+# value, no default. These are the outbox relay's Kafka publish adapter settings (KafkaPublishPort in
+# platform-routing's publish package): the bootstrap servers the relay producer sends through, and its
+# client.id - the name the operators' broker lag metrics give this publisher (ADR-010 section 9). When
+# IPASS_KAFKA_BOOTSTRAP_SERVERS is not set the instance serves no Kafka publish port at all.
+platform:
+  routing:
+    kafka:
+      bootstrap-servers: ${IPASS_KAFKA_BOOTSTRAP_SERVERS}
+      client-id: ${IPASS_KAFKA_PUBLISH_CLIENT_ID}
