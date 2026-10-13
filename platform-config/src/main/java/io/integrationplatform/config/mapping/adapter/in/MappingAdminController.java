@@ -20,7 +20,7 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * The mapping save and read API (T-190): {@code GET/PUT /api/v1/admin/routes/{routeId}/mapping}. The tenant
- * never travels in the path (ADR-011 Decision 4); the roles are read- and edit-configuration (ConfigEndpointRoles),
+ * never travels in the path (ADR-011 Decision 4); the roles are read- and edit-configuration (MappingEndpointRoles),
  * and another tenant's route answers 404, never 403.
  */
 @RestController

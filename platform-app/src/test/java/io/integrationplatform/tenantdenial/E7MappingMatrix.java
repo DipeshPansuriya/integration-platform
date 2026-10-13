@@ -81,11 +81,15 @@ final class E7MappingMatrix implements LaneMatrix {
 
   @Override
   public void clearTenantRows(Connection owner, SeededTenant tenant) throws Exception {
-    // Lane-owned rows only (the core seeds its own route/mapping rows): the version row by its mapping,
-    // then the mapping, the route and the target contract pair, deepest first.
-    update(owner, "DELETE FROM public.mapping_version WHERE mapping_id = ?::uuid",
-        mappingIdOf(tenant).toString());
-    update(owner, "DELETE FROM public.mapping WHERE id = ?::uuid", mappingIdOf(tenant).toString());
+    // Lane C1's own tables, tenant-wide and deepest first: the mapping save API and the publish
+    // materialization (JdbcFlowRepository insertMappingFromSnapshot) create mapping/mapping_version rows
+    // whose ids this reset cannot name, and the V2_2_730 composite FKs (mapping -> contract_version,
+    // mapping_version -> mapping/contract_version, mapping_sample_run -> mapping) make deleting the lane's
+    // target contract version fail while any of them survive. The route and the target contract pair stay
+    // id-scoped; the core's tenant-wide deletes take the materialized route rows after this.
+    update(owner, "DELETE FROM public.mapping_sample_run WHERE tenant_id = ?::uuid", tenant.id().toString());
+    update(owner, "DELETE FROM public.mapping_version WHERE tenant_id = ?::uuid", tenant.id().toString());
+    update(owner, "DELETE FROM public.mapping WHERE tenant_id = ?::uuid", tenant.id().toString());
     update(owner, "DELETE FROM public.route WHERE id = ?::uuid", routeIdOf(tenant).toString());
     update(owner, "DELETE FROM public.contract_version WHERE contract_id = ?::uuid",
         targetContractId(tenant).toString());
