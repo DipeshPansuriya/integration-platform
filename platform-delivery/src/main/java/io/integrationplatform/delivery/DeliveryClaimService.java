@@ -32,9 +32,22 @@ public final class DeliveryClaimService {
     }
 
     private final JdbcDeliveryRepository repository;
+    private final io.integrationplatform.delivery.port.OrderedStateChange orderedChange;
 
+    /** The bare E2 shape (T-193): the caller supplies the whole transaction; the claim order runs directly. */
     public DeliveryClaimService(JdbcDeliveryRepository repository) {
+        this(repository, null);
+    }
+
+    /**
+     * The E9 shape (T-197): the claim order runs behind the ONE lock-order helper, which supplies the
+     * transaction and the tenant stamp when the caller opened none and joins the caller transaction otherwise -
+     * the 40001/40P01 in-place retry applies only to the helper's own transaction.
+     */
+    public DeliveryClaimService(JdbcDeliveryRepository repository,
+            io.integrationplatform.delivery.port.OrderedStateChange orderedChange) {
         this.repository = repository;
+        this.orderedChange = orderedChange;
     }
 
     /**
