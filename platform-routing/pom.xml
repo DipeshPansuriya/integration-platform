@@ -64,6 +64,9 @@
          need - lane A's stage fixture (message/payload migrations, protected-path tests, T-111) and lane B's
          same-key ordering gate (outbox -> relay -> the Kafka adapter -> a real broker, R05). Versions from the
          spring-boot BOM's testcontainers-bom, as platform-app's suite pins them. -->
+    <!-- E9 lane A1 (T-116/T-119): the same pinned PostgreSQL container the delivery-ledger container proof runs
+         against (one delivery_attempt row per layer-1 call on the real append-only tables) - one dependency
+         block serves lanes A (E8) and A1 (E9). -->
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-postgresql</artifactId>
