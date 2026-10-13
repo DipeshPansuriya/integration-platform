@@ -7,8 +7,8 @@ import io.integrationplatform.config.mapping.internal.persistence.MappingTestRep
 import io.integrationplatform.config.rule.internal.JdbcLookupSource;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.transform.api.LookupSource;
+import io.integrationplatform.transform.api.TransformEngines;
 import io.integrationplatform.transform.api.TransformPort;
-import io.integrationplatform.transform.internal.DashjoinJsonataTransformPort;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -20,7 +20,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * 5 s per-transform budget, the tenant-scoped lookup resolver, the sample-run seam's wave-1 no-op bean and the test
  * service - in the lane's own composition file (the MappingPersistenceConfiguration pattern). The budget comes from
  * {@code config/transform.yml} (imported optionally by platform-app's application.yml); its default is exactly
- * T-109's figure, so an unset operator seam answers the 5 s budget rather than a silent figure.
+ * T-109's figure, so an unset operator seam answers the 5 s budget rather than a silent figure. The engine comes from
+ * transform's public {@link TransformEngines} factory - config never names {@code transform.internal}
+ * (arch-test ModuleInternalsRule).
  */
 @Configuration(proxyBeanMethods = false)
 public class MappingTestConfiguration {
@@ -33,7 +35,7 @@ public class MappingTestConfiguration {
 
     @Bean
     TransformPort mappingTestTransformPort(@Value("${transform.budget-ms:5000}") long budgetMs) {
-        return new DashjoinJsonataTransformPort(budgetMs);
+        return TransformEngines.jsonata(budgetMs);
     }
 
     @Bean

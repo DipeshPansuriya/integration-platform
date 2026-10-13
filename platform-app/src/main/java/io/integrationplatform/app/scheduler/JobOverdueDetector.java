@@ -2,12 +2,11 @@ package io.integrationplatform.app.scheduler;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import com.github.kagkarlsson.scheduler.task.TaskInstanceId;
+import io.integrationplatform.tenancy.port.SchedulerRegistry;
 import java.time.Instant;
 import java.util.List;
-import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
@@ -23,20 +22,14 @@ public class JobOverdueDetector {
 
     private static final Logger LOG = LoggerFactory.getLogger(JobOverdueDetector.class);
 
-    private static final String OVERDUE_SQL = """
-            select st.task_name, st.task_instance, st.execution_time
-            from scheduler.scheduled_tasks st
-            join scheduler.job_definition jd on jd.job_type = st.task_name
-            where st.picked = false
-              and st.execution_time < now() - make_interval(secs => jd.late_threshold_seconds)
-            order by st.execution_time""";
-
-    private final JdbcTemplate jdbc;
+    /** The scheduler tables are platform-wide (ADR-012 section 4): their statements live in the reviewed
+     *  SchedulerRegistry crossing, not here - the arch-test tenant filter rule refuses a second call site. */
+    private final SchedulerRegistry registry;
     private final JobIncidentSink sink;
     private final SchedulerClient client;
 
-    public JobOverdueDetector(DataSource dataSource, JobIncidentSink sink, SchedulerClient client) {
-        this.jdbc = new JdbcTemplate(dataSource);
+    public JobOverdueDetector(SchedulerRegistry registry, JobIncidentSink sink, SchedulerClient client) {
+        this.registry = registry;
         this.sink = sink;
         this.client = client;
     }
@@ -46,7 +39,7 @@ public class JobOverdueDetector {
 
     /** Records every overdue unclaimed execution; returns how many MISSED incidents were new. */
     public int detectAndRecord() {
-        List<Overdue> overdue = jdbc.query(OVERDUE_SQL, (rs, rowNum) -> new Overdue(
+        List<Overdue> overdue = registry.overdueExecutions((rs, rowNum) -> new Overdue(
                 rs.getString("task_name"), rs.getString("task_instance"),
                 rs.getObject("execution_time", Instant.class)));
         int incidents = 0;
@@ -68,13 +61,6 @@ public class JobOverdueDetector {
 
     /** The oldest overdue unclaimed execution in seconds - 0.0 when nothing is overdue (the gauge's scrape view). */
     public double oldestOverdueSeconds() {
-        Double oldest = jdbc.queryForObject("""
-                select coalesce(max(extract(epoch from (now() - st.execution_time))), 0)
-                from scheduler.scheduled_tasks st
-                join scheduler.job_definition jd on jd.job_type = st.task_name
-                where st.picked = false
-                  and st.execution_time < now() - make_interval(secs => jd.late_threshold_seconds)""",
-                Double.class);
-        return oldest == null ? 0.0 : oldest;
+        return registry.oldestOverdueSeconds();
     }
 }
