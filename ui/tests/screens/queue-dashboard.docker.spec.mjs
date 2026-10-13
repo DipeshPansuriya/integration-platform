@@ -7,12 +7,12 @@
 // how many delivered their contract-translated output (DELIVERED), and how much failed
 // (ROUTE_FAILED messages + DEAD_LETTERED deliveries). Every figure is derived LIVE from
 // public.message + public.delivery through GET /api/v1/admin/queue/summary - no hand-maintained
-// counters anywhere. The counts change when the tables do.
+// counters anywhere. The counts move when the state tables move.
 //
-// Seeding: the flow comes up through the REAL API from the signed-in page (session + CSRF), and
-// the message/delivery state rows are inserted straight into the suite's own pinned postgres
+// Seeding: each scenario onboards its OWN fresh flow through the real API from the signed-in page
+// (session + CSRF), so the lifecycle journey's state can never leak into an exact count; the
+// message/delivery state rows are inserted straight into the suite's own pinned postgres
 // (`ipass-ui-t41-pg-*`, as owner - fixtures, never production paths; the app itself reads only).
-// The counts must move when a second batch of rows lands.
 
 import { execFileSync } from 'node:child_process';
 import process from 'node:process';
@@ -49,39 +49,34 @@ function psql(sql) {
     { encoding: 'utf8' }).trim();
 }
 
-/** One interface_version/source_contract_version value is enough for the state rows (plain uuids, no FK). */
+/** The signed-in tenant's id, looked up by the harness tenant code. */
+function tenantIdOf() {
+  const id = psql(`select id::text from public.tenant where code = '${process.env.CONSOLE_TENANT_CODE}'`);
+  expect(id, 'the harness tenant row exists').not.toBe('');
+  return id;
+}
+
+/** Onboards ONE fresh flow through the real onboarding API; its own flow keeps the scenario deterministic. */
+async function freshFlow(page, scenario) {
+  await page.goto(consoleUrl()); // the browser session must exist before the page-side fetch
+  await expect(page.locator('nav')).toBeVisible();
+  const created = await inBrowser(page, 'POST', '/api/v1/admin/flows',
+    { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' });
+  expect(created?.data?.id, `scenario ${scenario} onboards a flow: ${JSON.stringify(created?.data ?? created)}`).toBeTruthy();
+  return { id: created.data.id, scenario };
+}
+
 function seedMessage(tenantId, flowId, state, index, at) {
   psql(`insert into public.message (tenant_id, interface_id, interface_version_id, source_contract_version_id,`
     + ` business_key, state, accepted_at, routed_at) select '${tenantId}'::uuid, '${flowId}'::uuid,`
-    + ` gen_random_uuid(), gen_random_uuid(), 'bk-${index}', '${state}', '${at}'::timestamptz,`
+    + ` gen_random_uuid(), gen_random_uuid(), '${index}', '${state}', '${at}'::timestamptz,`
     + ` ${state === 'ACCEPTED' ? 'null' : `'${at}'::timestamptz`}`);
 }
 
 function seedDelivery(tenantId, flowId, state, index, at) {
   psql(`insert into public.delivery (tenant_id, state, created_at, updated_at, interface_id, business_key,`
     + ` target_id) select '${tenantId}'::uuid, '${state}', '${at}'::timestamptz, '${at}'::timestamptz,`
-    + ` '${flowId}'::uuid, 'bk-${index}', gen_random_uuid()`);
-}
-
-/** The signed-in tenant's flow (created through the real onboarding API when the tenant has none). */
-function flowOfTenant(page) {
-  return page.evaluate(async () => {
-    const xsrf = document.cookie.split('; ').filter((pair) => pair.startsWith('XSRF-TOKEN=')).pop();
-    const headers = { 'content-type': 'application/json' };
-    if (xsrf) headers['X-XSRF-TOKEN'] = decodeURIComponent(xsrf.slice('XSRF-TOKEN='.length));
-    const read = async (method, path, body) => {
-      const answer = await fetch(path, { method, headers, credentials: 'include', body: body === undefined ? undefined : JSON.stringify(body) });
-      return answer.json().catch(() => null);
-    };
-    let rows = (await read('GET', '/api/v1/admin/flows')) ?? [];
-    if (!Array.isArray(rows) || rows.length === 0) {
-      const created = await read('POST', '/api/v1/admin/flows', { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' });
-      if (!created || !created.id) return null;
-      rows = (await read('GET', '/api/v1/admin/flows')) ?? [];
-    }
-    const row = Array.isArray(rows) ? rows[0] : null;
-    return row && row.id ? { id: row.id, code: row.code ?? null } : null;
-  });
+    + ` '${flowId}'::uuid, '${index}', gen_random_uuid()`);
 }
 
 async function openQueue(page) {
@@ -91,10 +86,8 @@ async function openQueue(page) {
 }
 
 test('the dashboard derives live queued/processed/converted/failed counts per flow and day, and they move', async ({ page }) => {
-  const flow = await flowOfTenant(page);
-  expect(flow, 'tenant A has or onboards one flow through the real API').not.toBeNull();
-  const tenantId = psql(`select id::text from public.tenant where code = '${process.env.CONSOLE_TENANT_CODE}'`);
-  expect(tenantId, 'the harness tenant row exists').not.toBe('');
+  const flow = await freshFlow(page, 'counts');
+  const tenantId = tenantIdOf();
 
   // the seed: one message per state group, one delivery per state group, all on today's UTC day.
   const at = `${DAY} 12:00:00+00`;
@@ -124,23 +117,20 @@ test('the dashboard derives live queued/processed/converted/failed counts per fl
 });
 
 test('a flow with no message or delivery rows shows no row - the dashboard never invents figures', async ({ page }) => {
-  const flow = await flowOfTenant(page);
-  expect(flow).not.toBeNull();
-  const tenantId = psql(`select id::text from public.tenant where code = '${process.env.CONSOLE_TENANT_CODE}'`);
-  const work = psql(`select count(*) from public.message where tenant_id = '${tenantId}'::uuid`
-    + ` and interface_id = '${flow.id}'::uuid and accepted_at::date = date '${DAY}'`);
-  if (work !== '0') test.skip(true, 'another spec already put today-dated work on this flow');
-
+  const flow = await freshFlow(page, 'no-work');
   await openQueue(page);
-  await expect(page.locator(`[data-queue-row="${flow.id}"]`).and(page.locator(`[data-day="${DAY}"]`))).toHaveCount(0);
+  await expect(page.locator('[data-empty="queue-no-work"]')).toBeVisible();
+  await expect(page.locator(`[data-queue-row="${flow.id}"]`)).toHaveCount(0);
 });
 
-// @negative @tenant: the counts are tenant-scoped - tenant B never sees tenant A's rows.
-test("tenant B's console lists none of tenant A's work", async ({ page }) => {
-  const flow = await flowOfTenant(page);
-  expect(flow).not.toBeNull();
+// @negative @tenant @role: the figures ride READ_MESSAGE_TIMELINE (tenant admin, support, read-only)
+// and are tenant-scoped - the harness's other-tenant binding is a CONFIGURATOR of tenant B, whose
+// console is refused outright and never lists tenant A's work (or anyone's).
+test("the other tenant's console is refused and lists none of tenant A's work", async ({ page }) => {
+  const flow = await freshFlow(page, 'tenant-cut');
 
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
   await openQueue(page);
+  await expect(page.locator('[data-refusal="queue-summary-refused"]')).toBeVisible();
   await expect(page.locator(`[data-queue-row="${flow.id}"]`)).toHaveCount(0);
 });
