@@ -126,15 +126,16 @@ class LayerOneAttemptRowsContainerTest {
                 new Stage2Send(delivery, claimToken, null, endpoint, false));
 
         assertThat(target.calls()).as("three calls for two transient failures then success").isEqualTo(3);
-        List<String> rows = tx.jdbcClient().sql(
+        List<String> rows = stampedRead(jc -> jc.sql(
                         "select layer || ':' || outcome_class from public.delivery_attempt"
                                 + " where delivery_id = :id::uuid and tenant_id = :t::uuid order by id")
                 .params(Map.of("id", delivery.toString(), "t", TENANT.toString()))
-                .query(String.class).list();
+                .query(String.class).list());
         assertThat(rows).as("one append-only row per call, layer 1, in order (the report equals the rows)")
                 .containsExactly("1:TRANSIENT", "1:TRANSIENT", "1:SUCCESS");
-        assertThat(tx.jdbcClient().sql("select state from public.delivery where id = :id::uuid")
-                .params(Map.of("id", delivery.toString())).query(String.class).single())
+        String state = stampedRead(jc -> jc.sql("select state from public.delivery where id = :id::uuid")
+                .params(Map.of("id", delivery.toString())).query(String.class).single());
+        assertThat(state)
                 .as("the delivery is still SENDING: layer 1 succeeded inside the one attempt, "
                         + "the classifier's DELIVERED move is not this test's slice")
                 .isEqualTo("SENDING");
@@ -161,17 +162,32 @@ class LayerOneAttemptRowsContainerTest {
         context.createProducerTemplate().sendBody("direct:stage2-send",
                 new Stage2Send(delivery, claimToken, null, endpoint, false));
 
-        assertThat(tx.jdbcClient().sql("select count(*)::int from public.delivery_attempt"
+        int attemptRows = stampedRead(jc -> jc.sql("select count(*)::int from public.delivery_attempt"
                         + " where delivery_id = :id::uuid and tenant_id = :t::uuid")
-                .params(Map.of("id", delivery.toString(), "t", TENANT.toString())).query(Integer.class).single())
+                .params(Map.of("id", delivery.toString(), "t", TENANT.toString()))
+                .query(Integer.class).single());
+        assertThat(attemptRows)
                 .as("first try + 2 redeliveries: 3 rows, no more").isEqualTo(3);
-        assertThat(tx.jdbcClient().sql("select state from public.delivery where id = :id::uuid")
-                .params(Map.of("id", delivery.toString())).query(String.class).single())
+        String state = stampedRead(jc -> jc.sql("select state from public.delivery where id = :id::uuid")
+                .params(Map.of("id", delivery.toString())).query(String.class).single());
+        assertThat(state)
                 .as("layer 2 took over through the recorder path: RETRY_WAIT with a next_attempt_at")
                 .isEqualTo("RETRY_WAIT");
     }
 
     private JdbcDeliveryRepository repository(UUID tenant) {
         return new JdbcDeliveryRepository(jdbc, RoutingTestDatabase.tenant(tenant));
+    }
+
+    /**
+     * Every read assertion runs INSIDE a tenant-stamped transaction, exactly like every production read (R11): the
+     * ledger's RLS policy evaluates {@code tenant_id = current_setting('app.tenant_id')::uuid} and fails CLOSED
+     * (V2_3_2:44) - a read on an unstamped connection makes the server see the empty setting and report
+     * "invalid input syntax for type uuid: \"\"" (the defect this test carried since it was written; caught by the
+     * container suite on integrated main). The write paths here always stamped theirs, which is why only the two
+     * bare reads failed.
+     */
+    private <T> T stampedRead(java.util.function.Function<JdbcClient, T> query) {
+        return tx.stamping(RoutingTestDatabase.tenant(TENANT)).execute(status -> query.apply(tx.jdbcClient()));
     }
 }
