@@ -52,6 +52,13 @@
       <artifactId>testcontainers-kafka</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Lane A stage fixture (T-111): the PostgreSQL container the message/payload migrations and the
+         protected-path tests run against; version from the spring-boot BOM's testcontainers-bom. -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-junit-jupiter</artifactId>
