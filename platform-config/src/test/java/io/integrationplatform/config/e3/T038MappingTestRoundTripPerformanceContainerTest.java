@@ -6,12 +6,6 @@ import io.integrationplatform.config.e3.ConfigAdminApi.Response;
 import io.integrationplatform.config.e3.E3ConfigDatabase.RestrictedLogin;
 import io.integrationplatform.config.e3.LaneCLifecycle.Actors;
 import io.integrationplatform.e3lanec.E3LaneCSuiteApp;
-import jakarta.servlet.Filter;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.ServletRequest;
-import jakarta.servlet.ServletResponse;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -45,10 +39,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * tiers of the request path and the JSONata engine, the first JWT verification and Jackson serializer caches -
  * so the 100 measured calls show the steady state the criterion speaks about. Ten is enough: the measured calls
  * themselves are the proof (a warm-up too short would show as a slow measured call, which fails the test).
+ *
+ * <p>The test bites: its red commit planted a 600 ms servlet filter on ONE measured call (#57) and failed on
+ * that call alone while the mean stayed 22.7 ms - the bound is checked per call, never on the average.
  */
 @Tag("container")
-@SpringBootTest(classes = {E3LaneCSuiteApp.class, T038MappingTestRoundTripPerformanceContainerTest.PlantedSlowCall.class},
-        webEnvironment = WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = E3LaneCSuiteApp.class, webEnvironment = WebEnvironment.RANDOM_PORT)
 class T038MappingTestRoundTripPerformanceContainerTest {
 
     static final int WARM_UP = 10;
@@ -127,7 +123,6 @@ class T038MappingTestRoundTripPerformanceContainerTest {
 
         List<Long> nanos = new ArrayList<>(ROUND_TRIPS);
         for (int i = 0; i < ROUND_TRIPS; i++) {
-            PlantedSlowCall.SLOW_NEXT.set(i == PlantedSlowCall.SLOW_CALL_INDEX);
             nanos.add(timedRoundTrip(url, bearer, i, "measured"));
         }
 
@@ -171,32 +166,6 @@ class T038MappingTestRoundTripPerformanceContainerTest {
 
     private static double ms(long nanos) {
         return nanos / 1_000_000d;
-    }
-
-    /**
-     * RED-ONLY planted slow seam (this commit only; the green commit removes it): a servlet filter in the real
-     * request path that adds 600 ms to ONE measured call (#{@value #SLOW_CALL_INDEX} + 1). One 600 ms call among
-     * 100 fast ones keeps the mean far under 500 ms, so the test can only go red if it truly checks every call.
-     * It is a plain class (no stereotype) registered only through this suite's {@code classes}, so the shared
-     * {@code io.integrationplatform.config} component scan never carries it into another suite's context.
-     */
-    static class PlantedSlowCall implements Filter {
-
-        static final int SLOW_CALL_INDEX = 56;
-        static final AtomicBoolean SLOW_NEXT = new AtomicBoolean();
-
-        @Override
-        public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
-                throws IOException, ServletException {
-            if (SLOW_NEXT.getAndSet(false)) {
-                try {
-                    Thread.sleep(600);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-            chain.doFilter(request, response);
-        }
     }
 
     // ------------------------------------------------------------------ seeding
