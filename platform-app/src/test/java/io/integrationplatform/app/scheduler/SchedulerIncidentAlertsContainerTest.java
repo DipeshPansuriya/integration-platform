@@ -78,15 +78,18 @@ class SchedulerIncidentAlertsContainerTest {
         POSTGRES.start();
         // the beside-tenancy migrations (they create ipaas_app and the tenant gates) and this platform's own -
         // version-ordered, applied by the real Flyway as the owner user, exactly the SchedulerSchemaContainerTest
-        // deployment way
+        // deployment way. The scheduler tables (V2_2_1400) and the register seed (V2_2_1420) live in
+        // platform-config's migration directory, so that location is part of the deploy list.
         Path basedir = Path.of(System.getProperty("basedir", ".")).toAbsolutePath().normalize();
         String tenancy = basedir.getParent().resolve("platform-tenancy/src/main/resources/db/migration")
+                .normalize().toString().replace('\\', '/');
+        String sharedConfig = basedir.getParent().resolve("platform-config/src/main/resources/db/migration")
                 .normalize().toString().replace('\\', '/');
         String config = basedir.resolve("src/main/resources/db/migration").normalize().toString()
                 .replace('\\', '/');
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .locations("filesystem:" + tenancy, "filesystem:" + config)
+                .locations("filesystem:" + tenancy, "filesystem:" + sharedConfig, "filesystem:" + config)
                 .load()
                 .migrate();
 
