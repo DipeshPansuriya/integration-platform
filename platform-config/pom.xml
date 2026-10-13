@@ -41,6 +41,14 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>
     </dependency>
+    <!-- E7 lane B2 (sanjay-developer, row 278): the mapping test endpoint runs the stored expression through
+         the TransformPort. This is the resolved config -> transform direction (E7-plan Open 2): transform never
+         depends on config (LookupSource is its only edge back), the engine types never reach any other module
+         (ADR-006 rule 1) - the controller sees the port interface only. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-transform</artifactId>
+    </dependency>
     <!-- E5 seam (arjun-fullstack, F13): every library an E5 lane needs in this module, declared once so no E5 lane
          edits this pom (E6 edits it too). Lane A (T-105): JSON Schema validation (the one networknt version, R12)
          and the OpenAPI 3.x import (ADR-011:103). Lane B (T-104): the five controls of R13 on test-connection
