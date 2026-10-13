@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
@@ -30,6 +31,16 @@ final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRow
 
     private static final String MARK_PUBLISH = "update outbox set published_at = now()";
 
+    /**
+     * T-179 (ADR fix m-817272 B3), styled after the delivery claim's ordering-key lock
+     * ({@code JdbcDeliveryRepository.lockOrderingKey}): a transaction-level advisory lock hashed from the bound
+     * tenant and the bucket number - the two values {@code outbox_unpublished_idx} names the rows by - so one
+     * key bucket's rows are published by one relay transaction at a time, held to commit.
+     */
+    private static final String LOCK_KEY_BUCKET =
+            "select pg_advisory_xact_lock(hashtextextended(:scope, 0))"
+                    + " from (values (:own_tenant::uuid)) as scoped (tenant_id)";
+
     private static final Map<OutboxTopic, String> TOPIC_NAMES = topicNames();
 
     private static Map<OutboxTopic, String> topicNames() {
@@ -40,8 +51,22 @@ final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRow
         return Map.copyOf(names);
     }
 
+    private final TenantContext scopedTenantContext;
+
     JdbcOutboxAccess(JdbcClient jdbcClient, TenantContext tenantContext) {
         super(jdbcClient, tenantContext);
+        this.scopedTenantContext = tenantContext;
+    }
+
+    @Override
+    public void lockKeyBucket(int keyBucket) {
+        // the (tenant, bucket) identity goes into the advisory hash as the bound tenant's uuid text plus the
+        // bucket number: tenants never serialize against each other, and one key never spans two tenants
+        // (the claim's tenant predicate, R08).
+        UUID tenant = scopedTenantContext.requireTenantId();
+        query(LOCK_KEY_BUCKET, null,
+                Map.of("scope", tenant + ":" + keyBucket, "own_tenant", tenant),
+                (rs, rowNum) -> Boolean.TRUE).forEach(unused -> { });
     }
 
     @Override

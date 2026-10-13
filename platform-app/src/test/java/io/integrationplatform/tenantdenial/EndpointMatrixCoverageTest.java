@@ -12,9 +12,15 @@ import io.integrationplatform.config.contract.adapter.in.ContractVersionAdminCon
 import io.integrationplatform.config.contract.application.ContractAdminService;
 import io.integrationplatform.config.flow.adapter.in.FlowAdminController;
 import io.integrationplatform.config.flow.application.FlowAdminService;
+import io.integrationplatform.config.mapping.adapter.in.MappingAdminController;
+import io.integrationplatform.config.mapping.adapter.in.MappingTestController;
+import io.integrationplatform.config.mapping.application.MappingAdminService;
+import io.integrationplatform.config.mapping.application.MappingTestService;
+import io.integrationplatform.config.rule.adapter.in.LookupAdminController;
 import io.integrationplatform.config.rule.adapter.in.RuleEvaluationController;
 import io.integrationplatform.config.rule.adapter.in.RuleSetAdminController;
 import io.integrationplatform.config.rule.api.RuleEvaluationPort;
+import io.integrationplatform.config.rule.application.LookupEntryService;
 import io.integrationplatform.config.rule.application.RuleSetAdminService;
 import io.integrationplatform.config.system.adapter.in.SystemAdminController;
 import io.integrationplatform.config.system.application.SystemAdminService;
@@ -169,10 +175,16 @@ class EndpointMatrixCoverageTest {
                 new ContractVersionAdminController(mock(ContractAdminService.class), mock(ConfigActors.class)),
                 new SystemAdminController(mock(SystemAdminService.class), mock(ConfigActors.class)),
                 new RuleSetAdminController(mock(RuleSetAdminService.class), mock(ConfigActors.class)),
+                // E7 lane B1 (T-163): the lookup-entry endpoints, covered by E7LookupMatrix
+                new LookupAdminController(mock(LookupEntryService.class), mock(ConfigActors.class)),
                 new RuleEvaluationController(mock(RuleEvaluationPort.class)),
                 // E5 lane C (T-103): the credential endpoints, covered by E5SecretMatrix
                 new SourceCredentialAdminController(mock(SourceCredentialService.class), mock(ConfigActors.class)),
-                new TargetCredentialAdminController(mock(TargetCredentialService.class), mock(ConfigActors.class))};
+                new TargetCredentialAdminController(mock(TargetCredentialService.class), mock(ConfigActors.class)),
+                // E7 lane C (T-190): the mapping endpoints, covered by E7MappingMatrix
+                new MappingAdminController(mock(MappingAdminService.class), mock(ConfigActors.class)),
+                // E7 lane B2 (T-108/T-109): the mapping test endpoint, covered by E7MappingTestMatrix
+                new MappingTestController(mock(MappingTestService.class), mock(ConfigActors.class))};
     }
 
     private static Object[] withPlanted(Object planted) {

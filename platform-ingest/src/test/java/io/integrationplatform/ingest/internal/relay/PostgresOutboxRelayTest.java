@@ -205,6 +205,41 @@ class PostgresOutboxRelayTest {
                 .isZero();
     }
 
+    // ---------- T-179 (E8-F1-S1 @negative, ADR fix m-817272 B3): one relay publish per key bucket at a time ----------
+
+    @Test
+    void theRelayTakesTheKeyBucketAdvisoryLockBeforeItClaimsThatBucket() {
+        RelayTenantContext context = new RelayTenantContext();
+        FakeOutboxAccess access = new FakeOutboxAccess(context);
+        access.add(TENANT_A, 7, 1, OutboxTopic.MESSAGE_ACCEPTED);
+        access.add(TENANT_A, 7, 2, OutboxTopic.MESSAGE_ACCEPTED);
+        access.add(TENANT_A, 9, 3, OutboxTopic.DELIVERY_DUE);
+        PostgresOutboxRelay relay = new PostgresOutboxRelay(() -> List.of(TENANT_A), access, context,
+                new FakeTransactions(access), new InMemoryPublishPort(), ACK_TIMEOUT, BATCH);
+
+        relay.runOnce();
+
+        assertThat(access.operationLog())
+                .as("the bucket lock is taken inside the bucket's transaction, before any row of it is claimed -"
+                        + " a second relay instance waits instead of SKIP LOCKED-ing rows ahead of an"
+                        + " unpublished row (E8-C2 same-key order)")
+                .containsSubsequence("lock:7", "claim:7", "lock:9", "claim:9");
+    }
+
+    @Test
+    void aKeyBucketLockIsTakenForEveryBucketTheCycleWorks() {
+        RelayTenantContext context = new RelayTenantContext();
+        FakeOutboxAccess access = new FakeOutboxAccess(context);
+        access.add(TENANT_A, 0, 1, OutboxTopic.MESSAGE_ACCEPTED);
+        access.add(TENANT_A, 63, 2, OutboxTopic.MESSAGE_ACCEPTED);
+
+        new PostgresOutboxRelay(() -> List.of(TENANT_A), access, context, new FakeTransactions(access),
+                new InMemoryPublishPort(), ACK_TIMEOUT, BATCH).runOnce();
+
+        assertThat(access.lockedBuckets()).as("every bucket the cycle works is locked before its claim,")
+                .contains("lock:0", "lock:63");
+    }
+
     // ---------- helpers ----------
 
     private static UUID tenant(String name) {
@@ -261,6 +296,7 @@ class PostgresOutboxRelayTest {
         private final List<Row> rows = new ArrayList<>();
         private final List<Long> stagedMarks = new ArrayList<>();
         private final List<UUID> claimTenants = new ArrayList<>();
+        private final List<String> operationLog = new ArrayList<>();
         private long crashAtMarkId;
 
         FakeOutboxAccess(RelayTenantContext tenantContext) {
@@ -295,6 +331,15 @@ class PostgresOutboxRelayTest {
             return List.copyOf(claimTenants);
         }
 
+        /** Every lock and claim call, in call order - the lock-before-claim order of one bucket transaction. */
+        List<String> operationLog() {
+            return List.copyOf(operationLog);
+        }
+
+        List<String> lockedBuckets() {
+            return operationLog.stream().filter(operation -> operation.startsWith("lock:")).toList();
+        }
+
         void commitMarks() {
             stagedMarks.forEach(id -> rows.stream().filter(row -> row.id == id)
                     .forEach(row -> row.published = true));
@@ -306,9 +351,15 @@ class PostgresOutboxRelayTest {
         }
 
         @Override
+        public void lockKeyBucket(int keyBucket) {
+            operationLog.add("lock:" + keyBucket);
+        }
+
+        @Override
         public List<ClaimedOutboxRow> claimUnpublished(int keyBucket, Instant availableAtOrBefore, int limit) {
             UUID tenant = tenantContext.requireTenantId();
             claimTenants.add(tenant);
+            operationLog.add("claim:" + keyBucket);
             // The fake filters by the BOUND tenant exactly as the tenant predicate and row-level security do in
             // the real table (V2_0_1__outbox.sql); the container test proves the database enforces it.
             return rows.stream()

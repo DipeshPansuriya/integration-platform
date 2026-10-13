@@ -1,0 +1,28 @@
+# E9 lane A1 (T-116, T-119), imported optionally by platform-app's application.yml
+# (optional:classpath:config/routing-core.yml). R07: every value below stays an ENVIRONMENT-VARIABLE NAME -
+# no value, no default, in this file; a missing name fails the import, never a silent figure.
+routing:
+  core:
+    # Route instances from configuration, lazily, on every consuming instance (ADR-010 section 3, T-116):
+    # an instance is removed after this much idle time.
+    route-templates:
+      idle-timeout: ${ROUTING_CORE_ROUTE_IDLE_TIMEOUT}
+    # T-120 machinery at route build (E9-C6): the endpoint URI schemes a route instance may be built with.
+    # Comma-separated names; exec:, file: and anything unlisted is refused at build.
+    allowed-schemes: ${ROUTING_CORE_ALLOWED_SCHEMES}
+    # Routing stays inside its 1 s budget (E9-F1-S3): the synchronous routing step's budget, measured by
+    # T-122's performance test.
+    budget: ${ROUTING_CORE_BUDGET}
+    stage2:
+      bulkhead:
+        # Each target's sends run in that target's own bounded pool (T-177, ADR-010 section 2): the per-target
+        # cap (the delivery table's max_concurrent_sends per target is seeded from this at wiring time).
+        max-concurrent-sends: ${TARGET_BULKHEAD_MAX_CONCURRENT_SENDS}
+        # A full bulkhead defers, never blocks (E9-F1-S4): the pool's queue the permit hand-off bounds.
+        queue-capacity: ${TARGET_BULKHEAD_QUEUE_CAPACITY}
+      layer-one:
+        # Camel in-attempt redelivery (T-119, ADR-010 section 4): at most 2 redeliveries, 500 ms initial
+        # delay, doubling, with jitter, the 5 s cap is DELAY time only.
+        max-redeliveries: ${ROUTING_CORE_LAYER_ONE_MAX_REDELIVERIES}
+        initial-delay: ${ROUTING_CORE_LAYER_ONE_INITIAL_DELAY}
+        delay-cap: ${ROUTING_CORE_LAYER_ONE_DELAY_CAP}

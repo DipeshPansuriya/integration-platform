@@ -1,0 +1,46 @@
+# E14 T-062 (ADR-012 section 6; sanjay-developer): the scheduler alert rules. Deployed to the Prometheus that
+# scrapes the platform (the rules file is part of the promotion step's wiring - compose/deploy wiring is not a
+# code change; Release 1 has no push channel: the agent reads alerts via the T-060 API every 5 minutes,
+# ADR-012, Dipesh 2026-10-12; this file is the PromQL those alerts are backed by).
+#
+# Metrics (platform-app SchedulerMetrics + db-scheduler's own micrometer metrics):
+#   platform_scheduler_job_runs_total{outcome="SUCCEEDED|FAILED"}   one run counter per outcome
+#   platform_scheduler_job_oldest_overdue_seconds                   computed at scrape time (0 when none)
+#   db_scheduler_tasks_*                                            db-scheduler's own task stats
+# The absent() rule covers "no instance is alive": when no platform process is up, the run metrics vanish.
+groups:
+  - name: platform-scheduler-alerts
+    rules:
+      - alert: SchedulerJobFailed
+        expr: |
+          sum by (outcome) (increase(platform_scheduler_job_runs_total{outcome="FAILED"}[10m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A scheduled job run failed in the last 10 minutes"
+          description: >
+            The run/alert wrapper wrote job_run FAILED rows (and job_alert rows - one per incident on
+            (job_type, scheduled_for, kind) - and the agent polls the T-060 alert API every 5 minutes).
+
+      - alert: SchedulerJobOverdue
+        expr: platform_scheduler_job_oldest_overdue_seconds > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A scheduled job's execution was never picked within its late threshold"
+          description: >
+            Missed detection is independent of db-scheduler's polling: the overdue scan raised MISSED alerts
+            (recorded once per incident) and the stuck pending execution is scheduled again at the next sync.
+
+      - alert: SchedulerPlatformDown
+        expr: absent(platform_scheduler_job_runs_total)
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No platform instance with the scheduler register is alive"
+          description: >
+            The run metrics are absent - no instance reports them. Nothing is scheduled, nothing is recorded;
+            fix the platform and the register resumes from the job_definition rows at the next schedule sync.

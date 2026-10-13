@@ -39,13 +39,15 @@ final class TenantFilterRule {
 
     static final String CROSSING_PACKAGE = "io.integrationplatform.tenancy.internal..";
 
-    /** The definer functions of architecture.md section 5 (control T5) and the per-transaction stamp. */
+    /** The definer functions of architecture.md section 5 (control T5), the per-transaction stamp and the
+     *  e14 platform-wide scheduler registry (ADR-012 section 4: no row of the scheduler tables is tenant data). */
     static final Set<String> REVIEWED_CROSSINGS = Set.of(
             "ipaas_login_bootstrap",
             "ipaas_client_bootstrap",
             "ipaas_work_tenant",
             "ipaas_active_tenants",
-            "ADR-007 Decision 6");
+            "ADR-007 Decision 6",
+            "ADR-012 section 4");
 
     /** Types whose every method runs or prepares SQL. */
     private static final List<String> SQL_TYPES = List.of(

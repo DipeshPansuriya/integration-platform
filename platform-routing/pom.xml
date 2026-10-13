@@ -39,6 +39,14 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-config</artifactId>
     </dependency>
+    <!-- E8 lane B (T-110): the ingest outbox port types are the relay's publishing contract - the Kafka adapter
+         here implements io.integrationplatform.ingest.port.PublishPort (ADR-015: the adapter's placement is this
+         module). Until this line the reach was transitive through platform-delivery; the direct edge is the same
+         graph edge named where it is used. No cycle: platform-ingest imports no routing class. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-ingest</artifactId>
+    </dependency>
     <!-- E8 seam (F6, arjun): the Kafka Testcontainers the E8 lanes test with (T-044's harness builds on
          these); versions come from the spring-boot BOM's testcontainers-bom, as in platform-config/app.
          spring-boot-starter-test is contributed by the parent for every module. -->
@@ -50,6 +58,18 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-kafka</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- E8 lanes A + B (T-110/T-111, row278-integration merge): the pinned PostgreSQL container both suites
+         need - lane A's stage fixture (message/payload migrations, protected-path tests, T-111) and lane B's
+         same-key ordering gate (outbox -> relay -> the Kafka adapter -> a real broker, R05). Versions from the
+         spring-boot BOM's testcontainers-bom, as platform-app's suite pins them. -->
+    <!-- E9 lane A1 (T-116/T-119): the same pinned PostgreSQL container the delivery-ledger container proof runs
+         against (one delivery_attempt row per layer-1 call on the real append-only tables) - one dependency
+         block serves lanes A (E8) and A1 (E9). -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

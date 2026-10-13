@@ -711,7 +711,7 @@ class ForgedTenantDenialSuiteTest {
         insertFlow(owner, tenant, c, "draft", c.flowDraftId(), "DRAFT", null, tenant.userId(), null);
         insertFlow(owner, tenant, c, "submit", c.flowSubmitId(), "DRAFT", null, tenant.userId(), null);
         insertFlow(owner, tenant, c, "approve", c.flowApproveId(), "PENDING_APPROVAL", null, c.otherAuthorId(), null);
-        insertFlow(owner, tenant, c, "publish", c.flowPublishId(), "APPROVED", publishSnapshot(c),
+        insertFlow(owner, tenant, c, "publish", c.flowPublishId(), "APPROVED", publishSnapshot(c, tenant),
                 c.otherAuthorId(), tenant.userId());
         insertFlow(owner, tenant, c, "immutable", c.flowImmutableId(), "DRAFT", null, tenant.userId(), null);
     }
@@ -736,13 +736,20 @@ class ForgedTenantDenialSuiteTest {
                 c.sourceContractVersionId(), authorId, approverId);
     }
 
-    /** The APPROVED version's bundle, in the one serialization the publish materializes (T-021). */
-    private static String publishSnapshot(Config c) {
+    /**
+     * The APPROVED version's bundle, in the one serialization the publish materializes (T-021). Since the
+     * publish-time pin check (T-190, ADR-013 Decision 5) the entries carry the bindings and the pinned mapping
+     * version id - the same content the lane's writeTenantRows seeds, so the check verifies 200 on publish.
+     */
+    private static String publishSnapshot(Config c, SeededTenant tenant) {
+        String source = c.sourceContractVersionId().toString();
+        String target = E7MappingMatrix.targetCvId(tenant).toString();
         return FlowBundle.serialize(c.flowCode("publish"), c.flowCode("publish") + " publish", "PER_KEY",
                 "$.orderId",
                 List.of(new RouteRow(c.pubRouteId().toString(), 1, null, false, "ACTIVE",
                         c.dstEndpointId().toString())),
-                List.of(new MappingRow(c.pubMappingId().toString(), c.pubRouteId().toString(), "[]", "$")));
+                List.of(new MappingRow(c.pubMappingId().toString(), c.pubRouteId().toString(), "[]", "$",
+                        source, target, E7MappingMatrix.mappingVersionIdOf(tenant).toString())));
     }
 
     private static void execute(Connection owner, String sql, Object... values) throws Exception {
