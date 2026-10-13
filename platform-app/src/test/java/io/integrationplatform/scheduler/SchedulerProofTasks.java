@@ -103,7 +103,7 @@ public class SchedulerProofTasks {
         return runs == null || runs.isEmpty() ? null : runs.get(0);
     }
 
-    static void writeRunRow(String jobType, Instant scheduledFor, Instant started, String instance, boolean isLate) {
+    void writeRunRow(String jobType, Instant scheduledFor, Instant started, String instance, boolean isLate) {
         try (java.sql.Connection connection = dataSource.getConnection();
                 java.sql.PreparedStatement insert = connection.prepareStatement(
                         "INSERT INTO scheduler.job_run (job_type, scheduled_for, started, finished, instance, outcome,"

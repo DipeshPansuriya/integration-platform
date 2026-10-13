@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.github.kagkarlsson.scheduler.Scheduler;
 import com.github.kagkarlsson.scheduler.task.TaskInstance;
 import io.integrationplatform.IntegrationPlatformApplication;
+import io.integrationplatform.PlatformTestWiring;
+import io.integrationplatform.TestImages;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;

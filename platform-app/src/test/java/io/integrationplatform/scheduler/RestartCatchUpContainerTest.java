@@ -3,6 +3,8 @@ package io.integrationplatform.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.integrationplatform.IntegrationPlatformApplication;
+import io.integrationplatform.PlatformTestWiring;
+import io.integrationplatform.TestImages;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.Duration;

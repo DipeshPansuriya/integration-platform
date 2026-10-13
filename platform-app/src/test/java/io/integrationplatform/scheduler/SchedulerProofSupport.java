@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import io.integrationplatform.PlatformTestWiring;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
