@@ -23,6 +23,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * T-015 (lane C, E3-F1-S1): the flow admin API on a running system - the scenarios lane C owes E3-F1-S1, driving
@@ -181,6 +184,20 @@ class T015FlowAdminContainerTest {
                 .isEqualTo(before.appliedVersionRows());
     }
 
+    /** The create body with the interface name the configurator typed (F-1). */
+    private static String flowBodyNamed(String sourceSystem, List<String> destinations,
+            String businessKeyRulePath, String name) {
+        JsonMapper mapper = JsonMapper.builder().build();
+        ObjectNode json = mapper.createObjectNode();
+        json.put("sourceSystem", sourceSystem);
+        ArrayNode array = mapper.createArrayNode();
+        destinations.forEach(array::add);
+        json.set("destinations", array);
+        json.put("businessKeyRule", businessKeyRulePath);
+        json.put("name", name);
+        return mapper.writeValueAsString(json);
+    }
+
     @Test
     @DisplayName("Scenario: The interface carries its business-key rule and ordering setting (ADR-011)")
     void theInterfaceCarriesItsBusinessKeyRuleAndOrderingSetting() {
@@ -232,6 +249,59 @@ class T015FlowAdminContainerTest {
                 LaneCLifecycle.flowBody(sourceSystem, List.of(destination), "$.orderId", "BY_DATE"));
         assertThat(refused.status()).as("an unknown ordering is refused, body: %s", refused.body())
                 .isEqualTo(400);
+    }
+
+    @Test
+    @DisplayName("Scenario: The created flow carries the name the configurator typed (F-1)")
+    void theCreatedFlowCarriesTheTypedName() {
+        String base = ConfigAdminApi.baseUrl(port);
+        Actors actors = actors();
+        String sourceSystem = LaneCIdentities.randomCode("src");
+        String destination = LaneCIdentities.randomCode("tgt");
+
+        LaneCLifecycle.createSystem(base, actors.author(), sourceSystem, "INBOUND");
+        LaneCLifecycle.createSystem(base, actors.author(), destination, "OUTBOUND");
+
+        // The configurator types an interface name with the create: the flow is born with it (F-1),
+        Response saved = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS, actors.author(),
+                flowBodyNamed(sourceSystem, List.of(destination), "$.orderId", "Orders in from S"));
+        assertThat(saved.status()).as("the flow is created, body: %s", saved.body()).isEqualTo(201);
+        String flowId = saved.json().path("id").asString();
+
+        Response read = ConfigAdminApi.call("GET", base + ConfigAdminApi.FLOWS + "/" + flowId,
+                actors.author(), null);
+        assertThat(read.status()).as("the created flow is readable, body: %s", read.body()).isEqualTo(200);
+        assertThat(read.json().path("name").asString())
+                .as("the created flow carries the name the configurator typed, not the generated code: %s",
+                        read.body())
+                .isEqualTo("Orders in from S");
+
+        // And a flow created without a name still works: it falls back to the generated code
+        // (Versions.tsx creates flows with no name and must keep working). A blank name is no name.
+        Response nameless = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS, actors.author(),
+                ConfigAdminApi.createFlow(sourceSystem, List.of(destination), "$.customerRef"));
+        assertThat(nameless.status()).as("a flow without a name is still created, body: %s",
+                nameless.body()).isEqualTo(201);
+        String namelessId = nameless.json().path("id").asString();
+        Response readNameless = ConfigAdminApi.call("GET", base + ConfigAdminApi.FLOWS + "/" + namelessId,
+                actors.author(), null);
+        String code = readNameless.json().path("code").asString();
+        assertThat(namelessId).as("the premise: a created flow has an id").isNotBlank();
+        assertThat(readNameless.json().path("name").asString())
+                .as("with no name in the create body the flow falls back to its generated code, body: %s",
+                        readNameless.body())
+                .isEqualTo(code);
+
+        // A whitespace-only name is no name: the generated code stands in (the fallback rule, pinned).
+        Response blank = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS, actors.author(),
+                flowBodyNamed(sourceSystem, List.of(destination), "$.orderRef", "   "));
+        assertThat(blank.status()).as("a whitespace-only name is still created, body: %s",
+                blank.body()).isEqualTo(201);
+        Response readBlank = ConfigAdminApi.call("GET", base + ConfigAdminApi.FLOWS + "/"
+                + blank.json().path("id").asString(), actors.author(), null);
+        assertThat(readBlank.json().path("name").asString())
+                .as("a whitespace-only name falls back to the generated code too, body: %s", readBlank.body())
+                .isEqualTo(readBlank.json().path("code").asString());
     }
 
     @Test

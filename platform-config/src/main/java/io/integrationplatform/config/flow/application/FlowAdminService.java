@@ -62,8 +62,9 @@ public class FlowAdminService {
         List<String> endpointIds = resolveDestinations(destinations);
 
         String code = "flow-" + UUID.randomUUID();
-        String interfaceId = flows.insertInterface(code, code, ordering);
-        InterfaceRow created = new InterfaceRow(interfaceId, code, code, ordering, "DRAFT");
+        String name = nameFromBody(body, code); // F-1: the typed interface name is born on the flow; no name -> the code
+        String interfaceId = flows.insertInterface(code, name, ordering);
+        InterfaceRow created = new InterfaceRow(interfaceId, code, name, ordering, "DRAFT");
 
         String sourceContractVersionId = contracts.getOrCreateSourceDraftVersion(sourceSystem, actorId);
         alignRoutes(interfaceId, endpointIds);
@@ -235,6 +236,14 @@ public class FlowAdminService {
 
     private InterfaceRow requireInterface(String flowId) {
         return flows.findInterface(flowId).orElseThrow(ConfigApiException::notFound);
+    }
+
+    /** F-1: the create body's optional name - used when present and non-blank, otherwise the generated code. */
+    private static String nameFromBody(JsonNode body, String fallback) {
+        JsonNode node = body == null ? null : body.path("name");
+        String text = node == null || node.isMissingNode() || node.isNull() ? null : node.asString();
+        // A blank or whitespace-only name carries nothing a configurator typed: fall back, don't store "".
+        return text == null || text.isBlank() ? fallback : text.trim();
     }
 
     private static String businessKeyRule(JsonNode body) {
