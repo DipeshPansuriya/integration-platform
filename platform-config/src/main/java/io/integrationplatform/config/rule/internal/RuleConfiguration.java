@@ -2,11 +2,13 @@ package io.integrationplatform.config.rule.internal;
 
 import io.integrationplatform.config.rule.adapter.out.ZenDecisionEngine;
 import io.integrationplatform.config.rule.application.DecisionEngine;
+import io.integrationplatform.config.rule.application.LookupEntryService;
 import io.integrationplatform.config.rule.application.RuleEvaluationService;
 import io.integrationplatform.config.rule.application.RuleSetAdminService;
 import io.integrationplatform.config.rule.api.RuleEvaluationPort;
 import io.integrationplatform.tenancy.TenantContext;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -36,5 +38,12 @@ class RuleConfiguration {
     @Bean
     RuleEvaluationPort ruleEvaluationPort(JdbcRuleSetRepository ruleSets, DecisionEngine engine) {
         return new RuleEvaluationService(ruleSets, engine);
+    }
+
+    /** E7 lane B1 (T-163): the lookup-entry edit path; the publisher arrives as the application context itself. */
+    @Bean
+    LookupEntryService lookupEntryService(JdbcRuleSetRepository ruleSets, DecisionEngine engine,
+            ApplicationEventPublisher events) {
+        return new LookupEntryService(ruleSets, engine, events);
     }
 }

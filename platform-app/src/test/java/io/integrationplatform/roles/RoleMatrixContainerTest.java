@@ -16,6 +16,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -253,6 +254,7 @@ class RoleMatrixContainerTest {
     @DisplayName("A tenant admin may do everything in the tenant, approving included (PRD section 3)")
     void aTenantAdminMayApproveAndPublish() throws Exception {
         String flowId = newFlow(); // authored by the tenant admin
+        bindMappingAndResnapshot(flowId);
         submit(flowId);
 
         HttpResponse<String> ownApproval = call("TENANT_ADMIN", "POST", FLOWS + "/" + flowId + "/approve", null);
@@ -270,6 +272,67 @@ class RoleMatrixContainerTest {
         assertThat(response.statusCode()).as("%s %s -> %s", response.request().method(), response.request().uri(),
                 response.body()).isEqualTo(403);
         assertThat(JSON.readTree(response.body()).path("refusal").asString()).isEqualTo(ROLE_REFUSAL);
+    }
+
+    /** T-190: binds the route's mapping to contract versions and re-captures the bundle (the pin check). */
+    private void bindMappingAndResnapshot(String flowId) throws Exception {
+        String routeId;
+        String sourceVersion;
+        String systemId;
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
+            routeId = ownerScalar(owner, "SELECT id::text FROM public.route WHERE interface_id = ?::uuid", flowId);
+            sourceVersion = ownerScalar(owner,
+                    "SELECT source_contract_version_id::text FROM public.interface_version"
+                            + " WHERE interface_id = ?::uuid ORDER BY version DESC LIMIT 1", flowId);
+            systemId = ownerScalar(owner, "SELECT s.id::text FROM public.system s WHERE s.code = ?",
+                    "dst-" + sourceSystem);
+            UUID contractId = UUID.nameUUIDFromBytes(
+                    ("mapping-target-contract|" + systemId).getBytes(StandardCharsets.UTF_8));
+            UUID versionId = UUID.nameUUIDFromBytes(
+                    ("mapping-target-version|" + systemId).getBytes(StandardCharsets.UTF_8));
+            ownerExec(owner, "INSERT INTO contract (id, tenant_id, system_id, code, role, name)"
+                    + " VALUES (?::uuid, ?::uuid, ?::uuid, ?, 'TARGET_REQUEST', ?)"
+                    + " ON CONFLICT (tenant_id, id) DO NOTHING",
+                    contractId.toString(), tenantId.toString(), systemId,
+                    "map-target-" + contractId.toString().substring(0, 8), "mapping pin target contract");
+            ownerExec(owner, "INSERT INTO contract_version (id, tenant_id, contract_id, version_label, status,"
+                    + " json_schema_draft_2020_12, author_id)"
+                    + " VALUES (?::uuid, ?::uuid, ?::uuid, '1.0', 'APPROVED', ?::jsonb, ?::uuid)"
+                    + " ON CONFLICT (tenant_id, id) DO NOTHING",
+                    versionId.toString(), tenantId.toString(), contractId.toString(),
+                    "{\"type\":\"object\",\"properties\":{\"customer_code\":{\"type\":\"string\"}}}",
+                    tenantId.toString());
+        }
+        String targetVersion = UUID.nameUUIDFromBytes(("mapping-target-version|" + systemId)
+                .getBytes(StandardCharsets.UTF_8)).toString();
+        HttpResponse<String> bound = call("TENANT_ADMIN", "PUT",
+                "/api/v1/admin/routes/" + routeId + "/mapping",
+                "{\"fieldMappings\":[],\"compiledExpression\":\"$\",\"sourceContractVersionId\":\""
+                        + sourceVersion + "\",\"targetContractVersionId\":\"" + targetVersion + "\"}");
+        assertThat(bound.statusCode()).as("the mapping binds: %s", bound.body()).isEqualTo(200);
+        HttpResponse<String> redraft = call("TENANT_ADMIN", "PUT", FLOWS + "/" + flowId, flowBody());
+        assertThat(redraft.statusCode()).as("the bound bundle is re-captured: %s", redraft.body()).isEqualTo(200);
+    }
+
+    private static String ownerScalar(Connection owner, String sql, String... values) throws SQLException {
+        try (PreparedStatement statement = owner.prepareStatement(sql)) {
+            for (int position = 0; position < values.length; position++) {
+                statement.setString(position + 1, values[position]);
+            }
+            try (ResultSet rs = statement.executeQuery()) {
+                assertThat(rs.next()).as("the binding premise query answers: %s", sql).isTrue();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private static void ownerExec(Connection owner, String sql, String... values) throws SQLException {
+        try (PreparedStatement statement = owner.prepareStatement(sql)) {
+            for (int position = 0; position < values.length; position++) {
+                statement.setObject(position + 1, values[position]);
+            }
+            statement.executeUpdate();
+        }
     }
 
     private String newFlow() throws Exception {

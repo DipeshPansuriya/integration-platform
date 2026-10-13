@@ -60,9 +60,10 @@
       <artifactId>testcontainers-kafka</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- E8 lane B (T-110): the same-key ordering gate runs outbox -> relay -> the Kafka adapter -> a real broker,
-         with the outbox table under its row-level security on the pinned PostgreSQL container (R05). Versions
-         from the spring-boot BOM's testcontainers-bom, as platform-app's suite pins them. -->
+    <!-- E8 lanes A + B (T-110/T-111, row278-integration merge): the pinned PostgreSQL container both suites
+         need - lane A's stage fixture (message/payload migrations, protected-path tests, T-111) and lane B's
+         same-key ordering gate (outbox -> relay -> the Kafka adapter -> a real broker, R05). Versions from the
+         spring-boot BOM's testcontainers-bom, as platform-app's suite pins them. -->
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-postgresql</artifactId>

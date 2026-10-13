@@ -3,6 +3,7 @@ package io.integrationplatform.tenancy.internal.web;
 import io.integrationplatform.tenancy.Role;
 import io.integrationplatform.tenancy.RolePolicy;
 import io.integrationplatform.tenancy.RolePolicy.Operation;
+import io.integrationplatform.tenancy.internal.principal.OperatorAgentAuthentication;
 import io.integrationplatform.tenancy.internal.principal.SourceBoundAuthentication;
 import io.integrationplatform.tenancy.internal.principal.TenantBoundAuthentication;
 import io.integrationplatform.tenancy.port.ApiOperationRules;
@@ -95,6 +96,9 @@ final class RoleEnforcementInterceptor implements HandlerInterceptor {
     private boolean allowed(Operation operation, Authentication caller) {
         return switch (operation.caller()) {
             case SOURCE_SYSTEM -> caller instanceof SourceBoundAuthentication;
+            // E14 (ADR-012 Decision 5): the agent credential only; its Principal binds no tenant, so the
+            // existing operations' kinds below all refuse it and every tenant-table read under it errors
+            case OPERATOR_AGENT -> caller instanceof OperatorAgentAuthentication;
             case ANY_HUMAN -> caller instanceof TenantBoundAuthentication;
             case ROLE -> caller instanceof TenantBoundAuthentication human
                     && RolePolicy.allows(operation, rolesOf(human.binding().userId()));
