@@ -49,12 +49,13 @@ public class MappingTestService {
      */
     @Transactional
     public Map<String, Object> test(String mappingId, JsonNode body) {
-        JsonNode sample = sampleOf(body);
-        String canonicalSample = MappingContent.canonicalize(sample).toString();
-
-        // A non-uuid path id finds no row, exactly like a foreign one: the same 404, never a 500.
+        // The mapping resolves first (B8): an unknown, foreign or non-uuid id answers the same 404 - never a 500,
+        // never a 403 - before the body is looked at, so a missing sample cannot mask a not-found.
         JdbcMappingRepository.LiveMapping live =
                 mappings.findLiveMapping(mappingId).orElseThrow(ConfigApiException::notFound);
+
+        JsonNode sample = sampleOf(body);
+        String canonicalSample = MappingContent.canonicalize(sample).toString();
 
         TransformPort.Result result = transform.transform(live.compiledExpression(), canonicalSample, lookups);
         boolean passed = result.status() == TransformPort.Status.OK;
@@ -66,7 +67,7 @@ public class MappingTestService {
                 "error", result.error());
     }
 
-    /** The mandatory posted sample document; its absence is a validation refusal before anything else runs. */
+    /** The mandatory posted sample document; its absence is a validation refusal before the engine runs. */
     private static JsonNode sampleOf(JsonNode body) {
         JsonNode sample = body == null ? null : body.get("sample");
         if (sample == null || sample.isNull() || sample.isMissingNode()) {
