@@ -255,6 +255,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/queue/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/routes/{routeId}/mapping": {
         parameters: {
             query?: never;
@@ -1485,6 +1501,49 @@ export interface operations {
             };
             /** @description Not found: the lookup or the entry is not visible to the bound tenant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    summary: {
+        parameters: {
+            query?: {
+                flowId?: string;
+                date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The four live counts per flow and UTC day, ordered by flow code then day */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description A bad query value (a flowId that is not a uuid, a non-ISO date) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description NO_BOUND_USER, or ROLE_NOT_GRANTED: the figures are message-timeline reads */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
