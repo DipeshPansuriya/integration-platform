@@ -49,7 +49,12 @@ final class E7MappingMatrix implements LaneMatrix {
     return LaneMatrix.laneId(tenant, "matrix-mapping-version");
   }
 
-  /** The compiled expression the matrix PUT saves (constant, so the probe's expected state is a plain literal). */
+  /**
+   * The compiled expression the matrix PUT saves - a constant, so the WriteProbe's expected row state is a plain
+   * literal. It is deliberately NOT in {@link #markers}: it is the same for both tenants, so it cannot
+   * discriminate whose data an answer carries; the probe (row state) and the tenant-A data containment check own
+   * that. Tenant markers are the ids and codes, which are unique per tenant.
+   */
   static final String SAVE_COMPILED = "compiled-e7-save";
 
   @Override
@@ -68,15 +73,16 @@ final class E7MappingMatrix implements LaneMatrix {
                 + "\"compiledExpression\":\"" + SAVE_COMPILED
                 + "\",\"sourceContractVersionId\":\"" + s.a().config().sourceContractVersionId()
                 + "\",\"targetContractVersionId\":\"" + targetCvId(s.a()) + "\"}",
-            s -> List.of(routeIdOf(s.a()).toString(), mappingIdOf(s.a()).toString(), SAVE_COMPILED),
+            s -> List.of(routeIdOf(s.a()).toString(), mappingIdOf(s.a()).toString(),
+                SAVE_COMPILED),
             200,
             new WriteProbe(s -> "SELECT m.field_mappings::text || '/' || m.compiled_expression || '/v'"
                 + " || (SELECT count(*) FROM public.mapping_version v WHERE v.mapping_id = m.id)"
                 + " FROM public.mapping m WHERE m.id = '" + mappingIdOf(s.a()) + "'",
-                "[]|$|1",
+                "[]/$/v1",
                 // jsonb::text renders with PostgreSQL's normalized spacing - the probe reads that text
-                "[{\"source\": \"$.customerNumber\", \"target\": \"customer_code\"}]|"
-                    + SAVE_COMPILED + "|2")));
+                "[{\"source\": \"$.customerNumber\", \"target\": \"customer_code\"}]/"
+                    + SAVE_COMPILED + "/v2")));
   }
 
   @Override
@@ -139,7 +145,7 @@ final class E7MappingMatrix implements LaneMatrix {
   public List<String> markers(SeededTenant tenant) {
     return List.of(routeIdOf(tenant).toString(), mappingIdOf(tenant).toString(),
         mappingVersionIdOf(tenant).toString(), targetContractId(tenant).toString(),
-        targetCvId(tenant).toString(), targetContractCode(tenant), SAVE_COMPILED);
+        targetCvId(tenant).toString(), targetContractCode(tenant));
   }
 
   @Override
