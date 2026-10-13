@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
@@ -30,6 +31,8 @@ final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRow
 
     private static final String MARK_PUBLISH = "update outbox set published_at = now()";
 
+    /** LOCK_KEY_BUCKET arrives green (T-179, ADR fix m-817272 B3) - the stub fails the written tests first. */
+
     private static final Map<OutboxTopic, String> TOPIC_NAMES = topicNames();
 
     private static Map<OutboxTopic, String> topicNames() {
@@ -40,8 +43,17 @@ final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRow
         return Map.copyOf(names);
     }
 
+    private final TenantContext scopedTenantContext;
+
     JdbcOutboxAccess(JdbcClient jdbcClient, TenantContext tenantContext) {
         super(jdbcClient, tenantContext);
+        this.scopedTenantContext = tenantContext;
+    }
+
+    @Override
+    public void lockKeyBucket(int keyBucket) {
+        // RED state of T-179: the advisory lock is written green; the tests that order it exist first.
+        throw new UnsupportedOperationException("red (T-179): the key-bucket advisory lock is not implemented yet");
     }
 
     @Override
