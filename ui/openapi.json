@@ -501,7 +501,7 @@
     },
     "/api/v1/admin/contracts/versions/{versionId}": {
       "get": {
-        "operationId": "read_1",
+        "operationId": "read_2",
         "parameters": [
           {
             "in": "path",
@@ -835,7 +835,7 @@
     },
     "/api/v1/admin/flows/{flowId}": {
       "get": {
-        "operationId": "read",
+        "operationId": "read_1",
         "parameters": [
           {
             "in": "path",
@@ -1354,6 +1354,266 @@
         },
         "tags": [
           "flow-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/lookups/{lookupId}/entries": {
+      "get": {
+        "operationId": "listEntries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lookupId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK: {lookupId, entries: [{id, key, value}]} in table order"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow reading"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the lookup is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "lookup-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/lookups/{lookupId}/entries/{entryId}": {
+      "put": {
+        "operationId": "changeEntry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lookupId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK: {id, key, value} as changed, effective immediately"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "RULE_TABLE_INVALID with the cell and the reason, or a validation refusal (key, value, the table's column shape)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow editing"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the lookup or the entry is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "lookup-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/routes/{routeId}/mapping": {
+      "get": {
+        "operationId": "read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "routeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The mapping as it was saved"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER: the bearer resolves to no directory user"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the route is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "mapping-admin-controller"
+        ]
+      },
+      "put": {
+        "operationId": "save",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "routeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Saved; the mapping_version id when bound"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "A validation refusal names the refused field, link or binding"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER: the bearer resolves to no directory user"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the route is not visible to the bound tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Conflict: a binding that is not an approved contract of its role, or a version-number contention under concurrent saves"
+          }
+        },
+        "tags": [
+          "mapping-admin-controller"
         ]
       }
     },
@@ -2299,7 +2559,7 @@
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:51040"
+      "url": "http://127.0.0.1:65230"
     }
   ]
 }
