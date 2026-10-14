@@ -14,8 +14,8 @@
 // The [data-nav] attribute values, the sign-out semantics and the hash routes are UNCHANGED
 // - the screen e2e suite keys off these exact attributes and URLs.
 
-import { lazy, Suspense, useEffect, useState } from 'react';
-import { api, readCookie } from './api/client';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { api, LOGIN_ROUTE, readCookie } from './api/client';
 import { FlowDefinition } from './pages/FlowDefinition';
 import { Versions } from './pages/Versions';
 // E5 seam (arjun-fullstack, F13): route + menu stubs for E5 lane D's screens (T-159 systems registry, T-160
@@ -28,13 +28,17 @@ import { QueueDashboard } from './pages/QueueDashboard';
 // E7 seam (arjun-fullstack, F5): route + menu stub for lane D1's mapping canvas (#/mappings/<routeId>, T-034);
 // lane D fills the page file and never edits this shell.
 import { MappingDesigner } from './pages/MappingDesigner';
+// Row 310 lane A (sanjay-developer, T87): the Dashboard at #/ and the in-app sign-in card at #/login.
+import { Dashboard } from './pages/Dashboard';
+import { Login } from './pages/Login';
+import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
 // #/rules/<ruleSetId> authors one as decision tables beside the always-visible test panel. Loaded on
 // first use: the decision-table editor is a large bundle no other screen should pay for (page-load p95).
 const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
 
 type Route = {
-  page: 'home' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue';
+  page: 'home' | 'login' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue';
   flowId: string | null;
   ruleSetId?: string | null;
   routeId?: string | null;
@@ -84,6 +88,7 @@ const NAV_GROUPS: Array<{ title: string; entries: Array<{ label: string; nav: st
 
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#\/?/, '');
+  if (hash.startsWith('login')) return { page: 'login', flowId: null };
   const flow = /^flow\/(.+)$/.exec(hash);
   if (flow) return { page: 'flows', flowId: flow[1] };
   if (hash.startsWith('flows')) return { page: 'flows', flowId: null };
@@ -103,9 +108,13 @@ function parseHash(): Route {
 
 export function App() {
   const [route, setRoute] = useState<Route>(parseHash());
-  // The bound tenant of the browser's console session; a 401 sends the browser to the Keycloak
-  // login in client.ts, so `me` stays null exactly while there is no session.
+  // The bound tenant of the browser's console session; a 401 sends the browser to the #/login
+  // sign-in card in client.ts, so `me` stays null exactly while there is no session.
   const [me, setMe] = useState<Me | null>(null);
+  // Lane A: what GET /api/v1/me said - 'checking' until it answers (10-screens §2 states).
+  const [session, setSession] = useState<SessionState | 'checking'>('checking');
+  const onLogin = route.page === 'login';
+  const sessionChecked = useRef(false);
   // The theme index.html already applied before first paint - React mirrors it for the toggle.
   const [theme, setTheme] = useState<Theme>(currentTheme);
   // Collapse state persisted per browser (00-§2); storage may be unavailable in hardened runs.
@@ -120,13 +129,35 @@ export function App() {
   useEffect(() => {
     const onHashChange = () => setRoute(parseHash());
     window.addEventListener('hashchange', onHashChange);
-
-    api
-      .GET('/api/v1/me')
-      .then(({ data }) => setMe(data ?? null))
-      .catch(() => null);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  function checkSession() {
+    setSession('checking');
+    api
+      .GET('/api/v1/me')
+      .then(({ data, response }) => {
+        setMe(data ?? null);
+        setSession(sessionStateOf(response.status, data));
+      })
+      .catch(() => setSession(sessionStateOf(null, undefined)));
+  }
+
+  // Once on load, and again on every arrival at #/login (a mid-session 401 lands there with a
+  // stale 'signed-in' - re-asking /me is what keeps #/login -> #/ from looping).
+  useEffect(() => {
+    if (sessionChecked.current && !onLogin) return;
+    sessionChecked.current = true;
+    checkSession();
+  }, [onLogin]);
+
+  // A live session never sees the sign-in card: #/login goes on to the Dashboard (no history entry).
+  // A known no-session never sees a screen: a hash-only move off #/login (no API call, so no 401
+  // from client.ts) goes back to the card.
+  useEffect(() => {
+    if (onLogin && session === 'signed-in') window.location.replace('#/');
+    if (!onLogin && session === 'signed-out') window.location.hash = LOGIN_ROUTE;
+  }, [onLogin, session]);
 
   function toggleNav() {
     setCollapsed((c) => {
@@ -165,6 +196,9 @@ export function App() {
     const body = (await answer.json().catch(() => null)) as { redirect?: string } | null;
     window.location.assign(body?.redirect || '/');
   }
+
+  // #/login is the empty shell: the card alone - no top bar, no side nav, no [data-nav].
+  if (onLogin) return <Login state={session === 'signed-in' ? 'checking' : session} onRetry={checkSession} />;
 
   return (
     <div className={collapsed ? 'shell shell-collapsed' : 'shell'}>
@@ -240,7 +274,7 @@ export function App() {
             </div>
           ))}
         </nav>
-        <main className="content" data-page={route.page === 'home' ? 'console-home' : undefined}>
+        <main className="content">
           {route.page === 'flows' && <FlowDefinition openFlowId={route.flowId} />}
           {route.page === 'versions' && <Versions />}
           {route.page === 'systems' && <Systems />}
@@ -252,7 +286,8 @@ export function App() {
             </Suspense>
           )}
           {route.page === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
-          {route.page === 'home' && 'Integration Platform Console'}
+          {route.page === 'home' &&
+            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard user={me?.userId} />)}
         </main>
       </div>
     </div>

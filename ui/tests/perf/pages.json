@@ -1,7 +1,7 @@
 {
   "_comment": "T-096 (E3-F1-S2): the admin pages measured for the p95 under 1.5 s figure, seeded with 50 interfaces and 200 targets (run-perf-suite.mjs). Paths are relative to the running console's base; hash routes make every screen directly loadable. A page's optional 'wait' selector is awaited INSIDE the timed load, so the figure includes the real data round-trip, not just the shell.",
   "pages": [
-    { "name": "console-home", "path": "/", "wait": "[data-page=\"console-home\"]" },
+    { "name": "console-home", "path": "/", "wait": "[data-page=\"dashboard\"][data-dashboard-loaded=\"true\"]" },
     { "name": "flow-definition", "path": "/#/flows", "wait": "[data-field=\"source-system\"]" },
     { "name": "versions", "path": "/#/versions", "wait": "[data-flow-row]" },
     { "name": "systems", "path": "/#/systems", "wait": "[data-page=\"systems\"][data-systems-loaded=\"true\"]" },
