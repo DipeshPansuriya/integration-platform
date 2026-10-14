@@ -1,0 +1,29 @@
+# Prometheus alert rules for the messaging backbone (T-191, E8-F1-S3; ADR-005 Decision 12 "Alerts").
+# Each rule reads a metric the relay or the stage consumer actually registers; the alert names are
+# what the operators route to the on-call.
+
+groups:
+  - name: messaging-outbox
+    rules:
+      # The outbox backlog is aging: the relay has not published the oldest due row for over 60 s
+      # (the relay's own episode alert is platform.alerts.fired{alert="outbox_age"}).
+      - alert: OutboxUnpublishedTooOld
+        expr: platform_outbox_oldest_unpublished_age_seconds > 60
+        for: 0m
+
+  - name: messaging-stage-consumers
+    rules:
+      # A group is falling behind: more than 1,000 unconsumed records across the group's partitions.
+      - alert: ConsumerLagTooHigh
+        expr: sum by (group) (platform_stage_lag_records) > 1000
+        for: 0m
+
+      # A record is older than the lag-age bound (2 minutes): the oldest partition is not draining.
+      - alert: ConsumerLagTooOld
+        expr: platform_stage_lag_stale_partitions > 0
+        for: 0m
+
+      # Any poison arrival means the intake contract and a producer disagreed: page the owning tenant.
+      - alert: PoisonArrival
+        expr: increase(platform_stage_poison_arrivals_total[5m]) > 0
+        for: 0m

@@ -3,6 +3,7 @@ package io.integrationplatform.tenancy.internal.persistence;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.port.ClientBootstrap;
 import io.integrationplatform.tenancy.port.LoginBootstrap;
+import io.integrationplatform.tenancy.port.SchedulerRegistry;
 import io.integrationplatform.tenancy.port.SourceCredentialStore;
 import java.util.Optional;
 import javax.sql.DataSource;
@@ -51,5 +52,11 @@ class TenancyPersistenceConfiguration {
     SourceCredentialStore sourceCredentialStore(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts) {
         return new JdbcSourceCredentialStore(jdbcClient,
                 () -> Optional.ofNullable(tenantContexts.getIfAvailable()).flatMap(TenantContext::currentTenantId));
+    }
+
+    /** E14 T-056/T-060/T-062 (ADR-012 section 4): the platform-wide scheduler registry's reviewed crossing. */
+    @Bean
+    SchedulerRegistry schedulerRegistry(JdbcTemplate jdbcTemplate) {
+        return new JdbcSchedulerRegistry(jdbcTemplate);
     }
 }

@@ -30,12 +30,28 @@ class KafkaPublishPortConfiguration {
     Producer<String, String> kafkaPublishProducer(
             @Value("${platform.routing.kafka.bootstrap-servers}") String bootstrapServers,
             @Value("${platform.routing.kafka.client-id}") String clientId) {
+        return new KafkaProducer<>(producerConfig(bootstrapServers, clientId));
+    }
+
+    /**
+     * The relay producer's settings. T-191 (E8-F1-S3; ADR-005 Decisions 7 and 12): every blocking client call
+     * is bounded - {@code request.timeout.ms} 10 s, {@code delivery.timeout.ms} 30 s, a bounded {@code
+     * max.block.ms} so a missing broker never blocks the relay thread for the client's 60 s default - and the
+     * idempotent producer ({@code acks=all}, at most 5 in flight) retries transient broker failures itself.
+     */
+    static Map<String, Object> producerConfig(String bootstrapServers, String clientId) {
         Map<String, Object> config = new HashMap<>();
         config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         config.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
         config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        return new KafkaProducer<>(config);
+        config.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
+        config.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 30_000);
+        config.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, 10_000);
+        config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        config.put(ProducerConfig.ACKS_CONFIG, "all");
+        config.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
+        return config;
     }
 
     @Bean

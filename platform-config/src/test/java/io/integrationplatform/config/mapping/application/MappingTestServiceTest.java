@@ -126,6 +126,21 @@ class MappingTestServiceTest {
     }
 
     @Test
+    @DisplayName("An unknown (or another tenant's) mapping answers 404 even when the sample is missing - the mapping"
+            + " resolves before the sample is validated (B8, T109MappingTestEndpointContainerTest:128-137)")
+    void anUnknownMappingWithoutASampleAnswers404NotTheSampleRefusal() {
+        StubPort transform = new StubPort();
+        CapturingRuns runs = new CapturingRuns();
+        MappingTestService service = service(new StubMappings(Optional.empty()), transform, runs);
+
+        ConfigApiException thrown = catchIt(() -> service.test(MAPPING_ID, JSON.readTree("{}")));
+
+        assertEquals(404, thrown.httpStatus(), "an unknown mapping answers 404 before any sample validation");
+        assertEquals(0, transform.calls, "the engine never ran");
+        assertEquals(0, runs.recorded.size(), "nothing is recorded for an unknown mapping");
+    }
+
+    @Test
     @DisplayName("A post without a sample answers 400 and neither engine nor sample run is touched")
     void aMissingSampleAnswers400AndRunsNothing() {
         StubPort transform = new StubPort();

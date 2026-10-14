@@ -34,4 +34,14 @@ public interface OutboxRowAccess {
      * @return {@code false} when 0 rows changed (already marked or gone) - no effect, never an exception
      */
     boolean markPublished(long outboxId);
+
+    /**
+     * The bound tenant's due unpublished rows: their count and the oldest {@code available_at} (T-191, the backlog
+     * gauges and the outbox-age alert). Runs inside the caller's tenant-bound transaction like the other methods.
+     * The default answers {@link OutboxBacklog#NONE} for accesses that cannot count (test doubles); the real
+     * {@link JdbcOutboxAccess} counts.
+     */
+    default OutboxBacklog backlog(Instant now) {
+        return OutboxBacklog.NONE;
+    }
 }
