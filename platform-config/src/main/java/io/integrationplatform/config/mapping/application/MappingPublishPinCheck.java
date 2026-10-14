@@ -3,11 +3,14 @@ package io.integrationplatform.config.mapping.application;
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.flow.application.FlowBundle.Parsed;
 import io.integrationplatform.config.flow.application.FlowBundle.SnapshotMapping;
+import io.integrationplatform.config.mapping.api.MappingSampleRuns;
 import io.integrationplatform.config.mapping.internal.persistence.JdbcMappingRepository;
 import java.security.MessageDigest;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,13 +24,19 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>EXACTLY ONE call site: {@code FlowAdminService#publish} after the bundle parse. Snapshot rows whose
  * bindings were null (the '$' default of a fresh route) are refused: publishing an unbound route is not
  * possible under the pin rule (ADR-011 rule 6 with ADR-004 rule 3.</p>
+ *
+ * <p>T-037 (E7-C5, ADR-013 Decision 6): the pinned mapping content must also have a PASSING sample run of exactly
+ * that content hash ({@link MappingSampleRuns#lastPassing}); a mapping never sample-run, changed since its last
+ * passing run, or whose run did not pass refuses the publish and asks for the sample run.</p>
  */
 public class MappingPublishPinCheck {
 
     private final JdbcMappingRepository mappings;
+    private final MappingSampleRuns sampleRuns;
 
-    public MappingPublishPinCheck(JdbcMappingRepository mappings) {
+    public MappingPublishPinCheck(JdbcMappingRepository mappings, MappingSampleRuns sampleRuns) {
         this.mappings = Objects.requireNonNull(mappings, "mappings");
+        this.sampleRuns = Objects.requireNonNull(sampleRuns, "sampleRuns");
     }
 
     @Transactional(readOnly = true)
@@ -53,6 +62,19 @@ public class MappingPublishPinCheck {
             verifyContent(flowId, route.id(), mapping, version);
             verifySourcePin(flowId, route.id(), version, approved);
             verifyTargetPin(flowId, route, version);
+            verifySampleRun(flowId, route.id(), mapping, version);
+        }
+    }
+
+    /** T-037: the pinned content's last PASSING sample run must exist - exactly this content hash, nothing older. */
+    private void verifySampleRun(String flowId, String routeId, SnapshotMapping mapping,
+            JdbcMappingRepository.VersionFacts version) {
+        if (sampleRuns.lastPassing(UUID.fromString(mapping.id()), HexFormat.of().formatHex(version.contentSha256()))
+                .isEmpty()) {
+            throw ConfigApiException.conflict("publish refused on flow " + flowId + " route " + routeId
+                    + ": its mapping " + mapping.id() + " has no passing sample run of its pinned content (mapping "
+                    + "version " + version.id() + ") - run the sample run (POST /api/v1/admin/mappings/"
+                    + mapping.id() + "/test) and publish again (T-037)");
         }
     }
 

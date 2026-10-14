@@ -334,6 +334,34 @@ final class LaneCLifecycle {
         }
         assertThat(bound.status()).as("the mapping binds to contract versions, body: %s", bound.body())
                 .isEqualTo(200);
+        passSampleRun(base, bearer, routeId);
+    }
+
+    /** The sample the T-037 premise runs: every fixture expression ('$', '$.bound', a sentinel) evaluates on it. */
+    static final String PASSING_SAMPLE = "{\"sample\":{\"customerId\":\"c-1\",\"bound\":{}}}";
+
+    /**
+     * T-037: the author runs the sample run on the route mapping's current content through the real test endpoint,
+     * so the publish gate (a passing run of exactly the pinned content) holds - the premise of every bound publish.
+     */
+    static void passSampleRun(String base, String bearer, UUID routeId) {
+        String mappingId;
+        try (Connection owner = E3ConfigDatabase.ownerConnection();
+                PreparedStatement read = owner.prepareStatement(
+                        "select id::text from public.mapping where route_id = ?::uuid")) {
+            read.setString(1, routeId.toString());
+            try (ResultSet rs = read.executeQuery()) {
+                assertThat(rs.next()).as("the route %s has its mapping row", routeId).isTrue();
+                mappingId = rs.getString(1);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("the mapping id read failed", e);
+        }
+        Response ran = ConfigAdminApi.call("POST", base + "/api/v1/admin/mappings/" + mappingId + "/test", bearer,
+                PASSING_SAMPLE);
+        assertThat(ran.status()).as("the sample run answers, body: %s", ran.body()).isEqualTo(200);
+        assertThat(ran.json().path("status").asString()).as("the sample run passes, body: %s", ran.body())
+                .isEqualTo("OK");
     }
 
     /** T-190: binds every route's mapping ('$' content) and re-captures the bundle as a new draft version. */
