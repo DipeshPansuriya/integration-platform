@@ -1601,7 +1601,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
+            /** @description The sample ran; status is OK, ERROR or MAPPING_TIMEOUT */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1610,6 +1610,33 @@ export interface operations {
                     "*/*": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation refusal: the mandatory sample is missing */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description NO_BOUND_USER: the bearer resolves to no directory user */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the mapping is unknown, not a uuid, or not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
                 };
             };
         };

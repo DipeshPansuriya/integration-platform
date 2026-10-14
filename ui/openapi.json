@@ -1578,7 +1578,37 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "The sample ran; status is OK, ERROR or MAPPING_TIMEOUT"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Validation refusal: the mandatory sample is missing"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER: the bearer resolves to no directory user"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the mapping is unknown, not a uuid, or not visible to the bound tenant"
           }
         },
         "tags": [
@@ -2722,7 +2752,7 @@
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:51698"
+      "url": "http://127.0.0.1:50975"
     }
   ]
 }
