@@ -635,3 +635,52 @@ test('T90 no token comment claims the false dark white-on-accent 5.17:1', () => 
   const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
   assert.ok(!/dark accent same ratio/.test(base), 'base.css .btn-primary comment is false for dark');
 });
+
+
+// ---------------------------------------------------------------------------
+// row 310 T90b (amit-developer): link text. Bare <a> in main.content painted the
+// browser default blue; the realm card painted the dark accent #3b82f6 (3.98:1 on
+// surface). --color-link / --platform-link carry >= 4.5:1 on every surface tier,
+// at rest and on hover, in both themes.
+
+const linkSel = `${SCOPE} :where(a)${NOT_3P}`;
+const linkHoverSel = `${SCOPE} :where(a):where(:hover)${NOT_3P}`;
+
+for (const theme of ['light', 'dark']) {
+  test(`T90b main.content links >= 4.5:1 on canvas, surface and raised (rest + hover) in the ${theme} theme`, () => {
+    const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
+    const map = appMap(theme);
+    const c = resolver(map, '--color-', theme);
+    const rest = ruleDecls(base, linkSel);
+    assert.equal(rest.get('color'), 'var(--color-link)', 'bare links take the link token');
+    const hover = ruleOrNull(base, linkHoverSel);
+    const states = [['rest', rest.get('color')], ['hover', hover?.get('color') ?? rest.get('color')]];
+    const measured = [];
+    for (const [state, value] of states) {
+      for (const bgTok of ['--color-canvas', '--color-surface', '--color-surface-raised']) {
+        measured.push({ name: `link ${state} ${value} on ${bgTok}`, r: ratio(c(value), parseColor(map.get(bgTok))) });
+      }
+    }
+    for (const p of measured) console.log(`# ${theme} ${p.name} = ${p.r}:1`);
+    assert.deepEqual(measured.filter((p) => p.r < 4.5).map((p) => `${p.name} = ${p.r}:1`), []);
+    assert.equal(map.get('--color-accent'), theme === 'dark' ? '#3b82f6' : '#2563eb', 'accent value unchanged');
+  });
+
+  test(`T90b realm login links carry --platform-link (= console --color-link) at >= 4.5:1 in the ${theme} theme`, () => {
+    const app = appMap(theme);
+    const realm = realmMap(theme);
+    assert.ok(app.has('--color-link'), `--color-link must exist in the console (${theme})`);
+    assert.equal(realm.get('--platform-link'), app.get('--color-link'), `--platform-link must equal console --color-link in ${theme}`);
+    const styles = stripComments(readFileSync(join(REALM_CSS, 'styles.css'), 'utf8'));
+    const c = resolver(realm, '--platform-', theme);
+    assert.equal(ruleDecls(styles, 'a').get('color'), 'var(--platform-link)', 'realm links take the link token');
+    const measured = [];
+    for (const s of ['a', 'a:visited', 'a:hover']) {
+      for (const bgTok of ['--platform-canvas', '--platform-surface', '--platform-raised']) {
+        measured.push({ name: `${s} on ${bgTok}`, r: ratio(c(ruleDecls(styles, s).get('color')), parseColor(realm.get(bgTok))) });
+      }
+    }
+    for (const p of measured) console.log(`# realm ${theme} link ${p.name} = ${p.r}:1`);
+    assert.deepEqual(measured.filter((p) => p.r < 4.5).map((p) => `${p.name} = ${p.r}:1`), []);
+  });
+}
