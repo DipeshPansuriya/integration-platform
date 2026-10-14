@@ -7,6 +7,7 @@ import com.github.kagkarlsson.scheduler.task.Task;
 import io.integrationplatform.config.scheduler.JdbcJobDefinitionRepository;
 import io.integrationplatform.config.scheduler.JobScheduleSync;
 import io.integrationplatform.domain.scheduler.JobHandler;
+import io.integrationplatform.tenancy.internal.persistence.JdbcSchedulerRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
@@ -49,6 +50,7 @@ class SchedulerIncidentAlertsContainerTest {
 
     static PostgreSQLContainer POSTGRES;
     static PGSimpleDataSource dataSource;
+    static JdbcSchedulerRegistry registry;
     static JdbcJobDefinitionRepository repository;
     static JobIncidentJdbcSink sink;
     static Scheduler scheduler;
@@ -78,15 +80,18 @@ class SchedulerIncidentAlertsContainerTest {
         POSTGRES.start();
         // the beside-tenancy migrations (they create ipaas_app and the tenant gates) and this platform's own -
         // version-ordered, applied by the real Flyway as the owner user, exactly the SchedulerSchemaContainerTest
-        // deployment way
+        // deployment way. The scheduler tables (V2_2_1400) and the register seed (V2_2_1420) live in
+        // platform-config's migration directory, so that location is part of the deploy list.
         Path basedir = Path.of(System.getProperty("basedir", ".")).toAbsolutePath().normalize();
         String tenancy = basedir.getParent().resolve("platform-tenancy/src/main/resources/db/migration")
+                .normalize().toString().replace('\\', '/');
+        String sharedConfig = basedir.getParent().resolve("platform-config/src/main/resources/db/migration")
                 .normalize().toString().replace('\\', '/');
         String config = basedir.resolve("src/main/resources/db/migration").normalize().toString()
                 .replace('\\', '/');
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .locations("filesystem:" + tenancy, "filesystem:" + config)
+                .locations("filesystem:" + tenancy, "filesystem:" + sharedConfig, "filesystem:" + config)
                 .load()
                 .migrate();
 
@@ -98,8 +103,9 @@ class SchedulerIncidentAlertsContainerTest {
         // the operator changed the row (the register seed carries the production cadence; this suite runs fast)
         updateJobDefinition("DELIVERY_RETRY", "FIXED_DELAY", "2");
 
-        repository = new JdbcJobDefinitionRepository(dataSource);
-        sink = new JobIncidentJdbcSink(dataSource);
+        registry = new JdbcSchedulerRegistry(dataSource);
+        repository = new JdbcJobDefinitionRepository(registry);
+        sink = new JobIncidentJdbcSink(registry);
         JobRunWrapper wrapper = new JobRunWrapper(List.of(new ThrowingOnceJobHandler()));
         RunRecordingSchedulerListener listener =
                 new RunRecordingSchedulerListener(sink, repository, new SimpleMeterRegistry());
@@ -110,7 +116,11 @@ class SchedulerIncidentAlertsContainerTest {
                 SchedulerJobTasks.recurringTask("DAILY_REPORT", repository, wrapper),
                 SchedulerJobTasks.recurringTask("CREDENTIAL_CLEANUP", repository, wrapper));
 
+        // the raw scheduler must own the same task table as the app context (scheduler.scheduled_tasks,
+        // V2_2_1400): Scheduler.create defaults to the unqualified db-scheduler table, whose polls then fail
+        // on every run (window-1 evidence, row278: relation "scheduled_tasks" does not exist).
         scheduler = Scheduler.create(dataSource, tasks)
+                .tableName("scheduler.scheduled_tasks")
                 .pollingInterval(Duration.ofSeconds(1))
                 .addSchedulerListener(listener)
                 .build();
@@ -146,7 +156,7 @@ class SchedulerIncidentAlertsContainerTest {
     @Order(2)
     void anOverdueUnclaimedExecutionRaisesOneMissedAlertAndCancelsThePendingExecution() throws SQLException {
         // a quiet table: nothing is overdue
-        JobOverdueDetector detector = new JobOverdueDetector(dataSource, sink, scheduler);
+        JobOverdueDetector detector = new JobOverdueDetector(registry, sink, scheduler);
         assertThat(detector.oldestOverdueSeconds()).isEqualTo(0.0);
         assertThat(detector.detectAndRecord()).isEqualTo(0);
 

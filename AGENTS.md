@@ -53,6 +53,13 @@ export JAVA_TOOL_OPTIONS=-Duser.timezone=Etc/UTC
 
 - Container tests carry `@Tag("container")`; the parent pom excludes that group by default.
 - Run **one Docker suite at a time** on the build machine, with the capped JVM flags in R06.
+  The machine-wide lock file `.docker-suite.lock` sits one level **above** this root; take and
+  release it with a holder note.
+- Export `JAVA_HOME` (JDK 25) - the wrapper refuses without it. Cap the Maven JVM with
+  `MAVEN_OPTS=-Xmx768m` (an uncapped one ran out of commit memory). Never pass a bare
+  `-DargLine` (the pom and the container profile carry it). Build a module with `-pl <m> -am`;
+  run `install -DskipTests -am` before any `-rf` resume, or stale local-repository jars are used.
+- Container tests read RLS tables inside a tenant-stamped transaction, never in auto-commit.
 - Dependency rules: `build-checks/check-dependency-tree.sh` and
   `build-checks/check-planted-violations.sh`; this file is checked by
   `build-checks/check-agent-guidance.sh`; every section of the recreated documents names its

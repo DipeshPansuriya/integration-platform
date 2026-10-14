@@ -17,7 +17,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * (R11), and the sub-query form keeps the {@code FOR UPDATE SKIP LOCKED} claim in outbox-id order exactly as
  * {@code V2_0_1__outbox.sql} indexes it: {@code (tenant_id, key_bucket, id) WHERE published_at IS NULL}.
  */
-final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRowAccess {
+public final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRowAccess {
 
     /** The claim: one bucket's oldest unpublished due rows, locked for this transaction only. */
     private static final String CLAIM_SELECT_FROM = """
@@ -30,6 +30,26 @@ final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRow
                   for update skip locked) claimed""";
 
     private static final String MARK_PUBLISH = "update outbox set published_at = now()";
+
+    /**
+     * T-191 (ADR-005 Decision 12): the relay's bucket work and backlog read run under a 5 s database statement
+     * timeout - a slow statement can hold a bucket transaction (and its key-bucket lock) for seconds at most.
+     * Set transaction-locally inside this access - every statement it issues, and the claim and the marks of
+     * the same bucket transaction after it, run under it (the callers keep lock-before-claim and all of it
+     * inside one tenant-bound transaction, R11).
+     */
+    public static final String STATEMENT_TIMEOUT = "5s";
+
+    /**
+     * Arms the statement timeout for the rest of the caller's transaction; always exactly one row (the
+     * {@code values} row), so the timeout is set even when the outbox is empty.
+     */
+    private static final String ARM_STATEMENT_TIMEOUT = "select set_config('statement_timeout', "
+            + "'" + STATEMENT_TIMEOUT + "', true) as armed from (values (:tenant_id::uuid)) as armed(tenant_id)";
+
+    /** T-191: the bound tenant's due unpublished rows - the inputs of the backlog gauges and the age alert. */
+    private static final String BACKLOG_SELECT =
+            "select count(*) as due_rows, min(available_at) as oldest_due_at from outbox";
 
     /**
      * T-179 (ADR fix m-817272 B3), styled after the delivery claim's ordering-key lock
@@ -53,7 +73,7 @@ final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRow
 
     private final TenantContext scopedTenantContext;
 
-    JdbcOutboxAccess(JdbcClient jdbcClient, TenantContext tenantContext) {
+    public JdbcOutboxAccess(JdbcClient jdbcClient, TenantContext tenantContext) {
         super(jdbcClient, tenantContext);
         this.scopedTenantContext = tenantContext;
     }
@@ -64,6 +84,7 @@ final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRow
         // bucket number: tenants never serialize against each other, and one key never spans two tenants
         // (the claim's tenant predicate, R08).
         UUID tenant = scopedTenantContext.requireTenantId();
+        armStatementTimeout();
         query(LOCK_KEY_BUCKET, null,
                 Map.of("scope", tenant + ":" + keyBucket, "own_tenant", tenant),
                 (rs, rowNum) -> Boolean.TRUE).forEach(unused -> { });
@@ -84,6 +105,23 @@ final class JdbcOutboxAccess extends TenantScopedRepository implements OutboxRow
     public boolean markPublished(long outboxId) {
         // "and published_at is null": a mark never rewrites an existing one (append-only semantics of the outbox).
         return update(MARK_PUBLISH, "id = :outbox_id and published_at is null", Map.of("outbox_id", outboxId)) == 1;
+    }
+
+    @Override
+    public OutboxBacklog backlog(Instant now) {
+        // the driver cannot infer the SQL type of an Instant - the explicit Timestamp is the cast of R09
+        Timestamp asOf = Timestamp.from(now);
+        armStatementTimeout();
+        return query(BACKLOG_SELECT, "published_at is null and available_at <= :as_of",
+                Map.of("as_of", asOf), (rs, rowNum) -> new OutboxBacklog(rs.getLong("due_rows"),
+                        rs.getTimestamp("oldest_due_at") == null ? null
+                                : rs.getTimestamp("oldest_due_at").toInstant())).get(0);
+    }
+
+    private void armStatementTimeout() {
+        // the timeout arms the caller's transaction before the expensive work; one row always, so it is set
+        // even when the outbox is empty. :tenant_id is the value the base binds from the TenantContext (R11).
+        query(ARM_STATEMENT_TIMEOUT, null, Map.of(), (rs, rowNum) -> Boolean.TRUE).forEach(unused -> { });
     }
 
     private static OutboxTopic topicOf(String stored) {
