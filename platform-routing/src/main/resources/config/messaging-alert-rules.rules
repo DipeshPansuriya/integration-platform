@@ -27,3 +27,15 @@ groups:
       - alert: PoisonArrival
         expr: increase(platform_stage_poison_arrivals_total[5m]) > 0
         for: 0m
+  - name: messaging-publish
+    rules:
+      # More than 5% of the relay's Kafka publishes on a topic failed over 5 minutes, held for 5 minutes
+      # (KafkaPublishPort's platform.publish.records{outcome,failure} counter; rows stay in the outbox).
+      - alert: PublishFailureRateHigh
+        expr: sum by (topic) (rate(platform_publish_records_total{outcome="failure"}[5m])) / sum by (topic) (rate(platform_publish_records_total[5m])) > 0.05
+        for: 5m
+
+      # Publishes on a topic keep failing and none succeeded for 10 minutes: the backbone is not taking records.
+      - alert: PublishFailuresSustained
+        expr: sum by (topic) (increase(platform_publish_records_total{outcome="failure"}[10m])) > 0 unless sum by (topic) (increase(platform_publish_records_total{outcome="success"}[10m])) > 0
+        for: 10m
