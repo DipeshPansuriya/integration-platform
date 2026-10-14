@@ -22,7 +22,7 @@ final class B9FlowRoutesMatrix implements LaneMatrix {
                         s -> FLOWS + "/" + s.a().config().flowMainId() + ROUTES,
                         s -> FLOWS + "/" + s.b().config().flowMainId() + ROUTES,
                         null,
-                        s -> List.of(s.a().config().flowMainId().toString(),
-                                s.a().config().flowCode("main"), s.a().config().srcCode())));
+                        // the answer carries the flow id (and its version's id); the seeded main flow has no routes
+                        s -> List.of(s.a().config().flowMainId().toString())));
     }
 }
