@@ -84,6 +84,10 @@ class KafkaPublishPortContainerTest {
     private static final String VALUE_PREFIX = "{\"v\":1,\"type\":\"message.accepted\",\"id\":\"";
     private static final Duration ACK_TIMEOUT = Duration.ofSeconds(30);
 
+    /** E8 tail: the relay's publish metrics land here - one registry per test instance. */
+    private final io.micrometer.core.instrument.simple.SimpleMeterRegistry meters =
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+
     @Container
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE);
 
@@ -169,6 +173,17 @@ class KafkaPublishPortContainerTest {
                     .startsWith(VALUE_PREFIX).containsOnlyOnce("\"id\":\"").endsWith("\"}")
                     .doesNotContain("payload").doesNotContain("tenant");
         }
+        // E8 tail: the real-broker relay run is counted and timed - 100 acknowledged successes, no failure.
+        assertThat(meters.find(KafkaPublishPort.RECORDS_COUNTER)
+                .tags("topic", Topics.MESSAGE_ACCEPTED, "outcome", "success", "failure", "none").counter())
+                .as("the publish success counter is registered").isNotNull()
+                .extracting(io.micrometer.core.instrument.Counter::count).isEqualTo(100.0);
+        assertThat(meters.find(KafkaPublishPort.LATENCY_TIMER)
+                .tags("topic", Topics.MESSAGE_ACCEPTED, "outcome", "success").timer())
+                .as("the publish latency timer is registered").isNotNull()
+                .extracting(io.micrometer.core.instrument.Timer::count).isEqualTo(100L);
+        assertThat(meters.find(KafkaPublishPort.RECORDS_COUNTER).tag("outcome", "failure").counters())
+                .as("no publish failed").isEmpty();
     }
 
     /**
@@ -208,7 +223,7 @@ class KafkaPublishPortContainerTest {
     private void runRelay() {
         RelayTenantContext relayContext = new RelayTenantContext();
         new PostgresOutboxRelay(() -> List.of(TENANT), new TestRelayRowAccess(appPool, relayContext),
-                relayContext, transactions, new KafkaPublishPort(kafkaProducer()), ACK_TIMEOUT, 25).runOnce();
+                relayContext, transactions, new KafkaPublishPort(kafkaProducer(), meters), ACK_TIMEOUT, 25).runOnce();
     }
 
     private static final class TenantContextFixed implements TenantContext {

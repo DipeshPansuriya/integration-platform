@@ -1,6 +1,7 @@
 package io.integrationplatform.config.internal.persistence;
 
 import io.integrationplatform.config.mapping.adapter.in.MappingAdminController;
+import io.integrationplatform.config.mapping.api.MappingSampleRuns;
 import io.integrationplatform.config.mapping.internal.persistence.JdbcMappingRepository;
 import io.integrationplatform.config.mapping.application.MappingAdminService;
 import io.integrationplatform.config.mapping.application.MappingPublishPinCheck;
@@ -29,7 +30,9 @@ class MappingPersistenceConfiguration {
     }
 
     @Bean
-    MappingPublishPinCheck mappingPublishPinCheck(JdbcMappingRepository mappings) {
-        return new MappingPublishPinCheck(mappings);
+    MappingPublishPinCheck mappingPublishPinCheck(JdbcMappingRepository mappings,
+            ObjectProvider<MappingSampleRuns> sampleRuns) {
+        // T-037: a composition without the sample-run bean fails closed - the no-op never passes, publish refuses.
+        return new MappingPublishPinCheck(mappings, sampleRuns.getIfAvailable(MappingSampleRuns::noop));
     }
 }

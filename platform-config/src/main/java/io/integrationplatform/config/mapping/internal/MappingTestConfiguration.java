@@ -1,7 +1,9 @@
 package io.integrationplatform.config.mapping.internal;
 
+import io.integrationplatform.config.adapter.in.ConfigActors;
 import io.integrationplatform.config.mapping.api.MappingSampleRuns;
 import io.integrationplatform.config.mapping.application.MappingTestService;
+import io.integrationplatform.config.mapping.internal.persistence.JdbcMappingSampleRuns;
 import io.integrationplatform.config.mapping.internal.persistence.JdbcMappingTestRepository;
 import io.integrationplatform.config.mapping.internal.persistence.MappingTestRepository;
 import io.integrationplatform.config.rule.internal.JdbcLookupSource;
@@ -17,7 +19,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * E7 lane B2's mapping-test wiring (T-108/T-109): the mapping-by-id read, the JSONata transform engine behind its
- * 5 s per-transform budget, the tenant-scoped lookup resolver, the sample-run seam's wave-1 no-op bean and the test
+ * 5 s per-transform budget, the tenant-scoped lookup resolver, lane C2's JDBC sample-run record (T-037) and the test
  * service - in the lane's own composition file (the MappingPersistenceConfiguration pattern). The budget comes from
  * {@code config/transform.yml} (imported optionally by platform-app's application.yml); its default is exactly
  * T-109's figure, so an unset operator seam answers the 5 s budget rather than a silent figure. The engine comes from
@@ -43,10 +45,15 @@ public class MappingTestConfiguration {
         return new JdbcLookupSource(jdbcClient, tenantContexts);
     }
 
-    /** The wave-1 fallback until lane C2's JDBC bean lands: records nothing, never passing (the seam's own words). */
+    /**
+     * Lane C2's JDBC sample-run record (T-037) replacing the wave-1 no-op: the test endpoint records into
+     * {@code mapping_sample_run} as the request's bound user, and the publish gate reads the last passing run.
+     */
     @Bean
-    MappingSampleRuns mappingSampleRuns() {
-        return MappingSampleRuns.noop();
+    MappingSampleRuns mappingSampleRuns(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts,
+            ObjectProvider<ConfigActors> actors) {
+        return new JdbcMappingSampleRuns(jdbcClient, tenantContexts,
+                () -> actors.getObject().requireActor().userId());
     }
 
     @Bean
