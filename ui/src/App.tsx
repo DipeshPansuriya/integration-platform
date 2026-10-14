@@ -6,6 +6,13 @@
 //
 // T-097 (E4-F1-S1): the shell shows the session's bound tenant (GET /api/v1/me) and signs
 // out by POSTing /logout (CSRF header) and navigating to the answer's sign-out address.
+//
+// T78 lane F (amit-developer, ui-modernization 00-§2 + 02-style-guide v3): the shell is
+// redesigned on the token layer (src/tokens.css + src/ui/base.css) - persistent left side
+// nav (232px / 64px collapsed rail, collapse persisted), 48px top bar with tenant chip,
+// theme toggle and account menu, landmarks banner/navigation/main, real-link nav entries.
+// The [data-nav] attribute values, the sign-out semantics and the hash routes are UNCHANGED
+// - the screen e2e suite keys off these exact attributes and URLs.
 
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { api, readCookie } from './api/client';
@@ -40,6 +47,41 @@ type Me = {
   timeZone?: string;
 };
 
+type Theme = 'light' | 'dark';
+
+/** The theme index.html resolved pre-paint; React only toggles it. */
+function currentTheme(): Theme {
+  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+}
+
+// Nav groups in the order a configuration is actually done (00-§2). Dashboard is the
+// Overview entry (route `#/`; the dashboard screen itself is lane A's work).
+const NAV_GROUPS: Array<{ title: string; entries: Array<{ label: string; nav: string; hash: string; page: Route['page'] }> }> = [
+  {
+    title: 'Overview',
+    entries: [
+      { label: 'Dashboard', nav: 'dashboard', hash: '#/', page: 'home' },
+      { label: 'Queue', nav: 'queue', hash: '#/queue', page: 'queue' },
+    ],
+  },
+  {
+    title: 'Build',
+    entries: [
+      { label: 'Flows', nav: 'flows', hash: '#/flows', page: 'flows' },
+      { label: 'Versions', nav: 'versions', hash: '#/versions', page: 'versions' },
+      { label: 'Systems', nav: 'systems', hash: '#/systems', page: 'systems' },
+      { label: 'Contracts', nav: 'contracts', hash: '#/contracts', page: 'contracts' },
+    ],
+  },
+  {
+    title: 'Author',
+    entries: [
+      { label: 'Rules', nav: 'rules', hash: '#/rules', page: 'rules' },
+      { label: 'Mappings', nav: 'mappings', hash: '#/mappings', page: 'mappings' },
+    ],
+  },
+];
+
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#\/?/, '');
   const flow = /^flow\/(.+)$/.exec(hash);
@@ -64,6 +106,16 @@ export function App() {
   // The bound tenant of the browser's console session; a 401 sends the browser to the Keycloak
   // login in client.ts, so `me` stays null exactly while there is no session.
   const [me, setMe] = useState<Me | null>(null);
+  // The theme index.html already applied before first paint - React mirrors it for the toggle.
+  const [theme, setTheme] = useState<Theme>(currentTheme);
+  // Collapse state persisted per browser (00-§2); storage may be unavailable in hardened runs.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('ip.navCollapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     const onHashChange = () => setRoute(parseHash());
@@ -76,6 +128,29 @@ export function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
+  function toggleNav() {
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem('ip.navCollapsed', next ? '1' : '0');
+      } catch {
+        /* storage unavailable - the toggle still works for this session */
+      }
+      return next;
+    });
+  }
+
+  function toggleTheme() {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem('ip.theme', next);
+    } catch {
+      /* storage unavailable - the toggle still works for this session */
+    }
+    setTheme(next);
+  }
+
   /** RP-initiated logout: POST /logout (CSRF-protected), then the answer names the sign-out URL. */
   async function logout() {
     const headers = new Headers();
@@ -87,48 +162,94 @@ export function App() {
   }
 
   return (
-    <div>
-      <nav>
-        <button type="button" data-nav="flows" onClick={() => (window.location.hash = '#/flows')}>
-          Flows
+    <div className={collapsed ? 'shell shell-collapsed' : 'shell'}>
+      <header className="topbar">
+        <button
+          type="button"
+          className="btn btn-icon"
+          data-action="toggle-nav"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          onClick={toggleNav}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
         </button>
-        <button type="button" data-nav="versions" onClick={() => (window.location.hash = '#/versions')}>
-          Versions
-        </button>
-        <button type="button" data-nav="systems" onClick={() => (window.location.hash = '#/systems')}>
-          Systems
-        </button>
-        <button type="button" data-nav="queue" onClick={() => (window.location.hash = '#/queue')}>
-          Queue
-        </button>
-        <button type="button" data-nav="contracts" onClick={() => (window.location.hash = '#/contracts')}>
-          Contracts
-        </button>
-        <button type="button" data-nav="rules" onClick={() => (window.location.hash = '#/rules')}>
-          Rules
-        </button>
-        <button type="button" data-nav="mappings" onClick={() => (window.location.hash = '#/mappings')}>
-          Mappings
-        </button>
-        {me?.tenantCode && <span data-session-tenant>{me.tenantCode}</span>}
-        {me && (
-          <button type="button" data-action="logout" onClick={() => void logout()}>
-            Sign out
+        <span className="brand">Integration Platform</span>
+        <div className="topbar-right">
+          {me?.tenantCode && <span className="chip" data-session-tenant>{me.tenantCode}</span>}
+          <button
+            type="button"
+            className="btn btn-icon"
+            data-action="toggle-theme"
+            aria-label={`Switch to the ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            title={`Switch to the ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? (
+              <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="3.4" fill="currentColor" />
+                <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M13 3l-1.4 1.4M4.4 11.6L3 13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M13.5 9.7A6 6 0 0 1 6.3 2.5a6 6 0 1 0 7.2 7.2Z" fill="currentColor" />
+              </svg>
+            )}
           </button>
-        )}
-      </nav>
-      {route.page === 'flows' && <FlowDefinition openFlowId={route.flowId} />}
-      {route.page === 'versions' && <Versions />}
-      {route.page === 'systems' && <Systems />}
-      {route.page === 'queue' && <QueueDashboard />}
-      {route.page === 'contracts' && <ContractVersions />}
-      {route.page === 'rules' && (
-        <Suspense fallback={<p>Loading the rules editor...</p>}>
-          <RulesEditor ruleSetId={route.ruleSetId ?? null} />
-        </Suspense>
-      )}
-      {route.page === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
-      {route.page === 'home' && <main data-page="console-home">Integration Platform Console</main>}
+          {me && (
+            <details className="account">
+              <summary className="chip account-summary" data-action="account">{me.userId ?? 'Account'}</summary>
+              <div className="menu">
+                <button type="button" data-action="logout" onClick={() => void logout()}>
+                  Sign out
+                </button>
+              </div>
+            </details>
+          )}
+        </div>
+      </header>
+      <div className="shell-body">
+        <nav className="sidenav" aria-label="Primary">
+          {NAV_GROUPS.map((group) => (
+            <div className="nav-group" key={group.title}>
+              <p className="nav-title" aria-hidden="true">{group.title}</p>
+              {group.entries.map((entry) => {
+                const active = route.page === entry.page;
+                return (
+                  <a
+                    key={entry.nav}
+                    className={active ? 'nav-item nav-item-active' : 'nav-item'}
+                    data-nav={entry.nav}
+                    data-initial={entry.label.charAt(0)}
+                    href={entry.hash}
+                    title={entry.label}
+                    aria-current={active ? 'page' : undefined}
+                  >
+                    <span className="nav-label">{entry.label}</span>
+                  </a>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+        <main className="content" data-page={route.page === 'home' ? 'console-home' : undefined}>
+          {route.page === 'flows' && <FlowDefinition openFlowId={route.flowId} />}
+          {route.page === 'versions' && <Versions />}
+          {route.page === 'systems' && <Systems />}
+          {route.page === 'queue' && <QueueDashboard />}
+          {route.page === 'contracts' && <ContractVersions />}
+          {route.page === 'rules' && (
+            <Suspense fallback={<p>Loading the rules editor...</p>}>
+              <RulesEditor ruleSetId={route.ruleSetId ?? null} />
+            </Suspense>
+          )}
+          {route.page === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
+          {route.page === 'home' && 'Integration Platform Console'}
+        </main>
+      </div>
     </div>
   );
 }
