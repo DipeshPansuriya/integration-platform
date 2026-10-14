@@ -62,19 +62,22 @@ public class MappingPublishPinCheck {
             verifyContent(flowId, route.id(), mapping, version);
             verifySourcePin(flowId, route.id(), version, approved);
             verifyTargetPin(flowId, route, version);
-            verifySampleRun(flowId, route.id(), mapping, version);
+            verifySampleRun(flowId, route.id(), version);
         }
     }
 
-    /** T-037: the pinned content's last PASSING sample run must exist - exactly this content hash, nothing older. */
-    private void verifySampleRun(String flowId, String routeId, SnapshotMapping mapping,
-            JdbcMappingRepository.VersionFacts version) {
-        if (sampleRuns.lastPassing(UUID.fromString(mapping.id()), HexFormat.of().formatHex(version.contentSha256()))
-                .isEmpty()) {
+    /**
+     * T-037: the pinned content's last PASSING sample run must exist - exactly this content hash, nothing older. The
+     * run is keyed by the pinned version row's OWN mapping (mapping_version's (mapping_id, content_sha256) identity,
+     * ADR-013), never by the id the snapshot names: the version row is the content authority.
+     */
+    private void verifySampleRun(String flowId, String routeId, JdbcMappingRepository.VersionFacts version) {
+        if (sampleRuns.lastPassing(UUID.fromString(version.mappingId()),
+                HexFormat.of().formatHex(version.contentSha256())).isEmpty()) {
             throw ConfigApiException.conflict("publish refused on flow " + flowId + " route " + routeId
-                    + ": its mapping " + mapping.id() + " has no passing sample run of its pinned content (mapping "
-                    + "version " + version.id() + ") - run the sample run (POST /api/v1/admin/mappings/"
-                    + mapping.id() + "/test) and publish again (T-037)");
+                    + ": its mapping " + version.mappingId() + " has no passing sample run of its pinned content"
+                    + " (mapping version " + version.id() + ") - run the sample run (POST /api/v1/admin/mappings/"
+                    + version.mappingId() + "/test) and publish again (T-037)");
         }
     }
 
