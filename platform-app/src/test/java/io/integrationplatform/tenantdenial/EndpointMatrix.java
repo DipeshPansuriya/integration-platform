@@ -253,7 +253,8 @@ final class EndpointMatrix {
                             + " FROM public.interface i, public.interface_version v"
                             + " WHERE i.id = '" + s.a().config().flowPublishId() + "'"
                             + " AND v.interface_id = i.id AND v.version = 1",
-                            "DRAFT|-|APPROVED|r0|m0", "PUBLISHED|1|PUBLISHED|r1|m1")),
+                            // row 278 T84: the snapshot's route + mapping are live before publish (E7MappingMatrix)
+                            "DRAFT|-|APPROVED|r1|m1", "PUBLISHED|1|PUBLISHED|r1|m1")),
 
             // --- T-019: the contract draft-save, read and submit -----------------------------------------------
             new Entry("POST", CONTRACT_VERSIONS, true,
@@ -297,7 +298,7 @@ final class EndpointMatrix {
      */
     static final List<LaneMatrix> LANES = List.of(new E5ContractMatrix(), new E5SystemMatrix(), new E5SecretMatrix(),
             new E6RuleMatrix(), new E7MappingMatrix(), new E7LookupMatrix(), new E7MappingTestMatrix(),
-            new B9FlowRoutesMatrix());
+            new B9FlowRoutesMatrix(), new F10QueueSummaryMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),

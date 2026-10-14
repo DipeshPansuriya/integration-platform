@@ -54,6 +54,7 @@ export function Versions() {
   const [status, setStatus] = useState<VersionStatus>('DRAFT');
   const [changeNote, setChangeNote] = useState('');
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [refusalText, setRefusalText] = useState<string | null>(null); // the API's own words for a refused publish
   const [snapshotAtSubmit, setSnapshotAtSubmit] = useState<string | null>(null);
   const [published, setPublished] = useState(false);
   const [bundleEqualsSnapshot, setBundleEqualsSnapshot] = useState<boolean | null>(null);
@@ -153,7 +154,12 @@ export function Versions() {
     if (!id) return;
     setRefusal(null);
     const result = await publishFlow(id);
-    if (!result.ok) return;
+    if (!result.ok) {
+      // T83: a server-refused publish (e.g. the T-037 sample-run gate's 409) is shown, never swallowed.
+      setRefusalText(result.error ?? `the API answered ${result.status}`);
+      setRefusal('publish');
+      return;
+    }
     setPublished(true);
     const detail = await detailForSubmit(id);
     setBundleEqualsSnapshot(detail !== null && snapshotAtSubmit !== null && bundleOf(detail) === snapshotAtSubmit);
@@ -235,7 +241,12 @@ export function Versions() {
         </>
       )}
       {refusal === 'not-pending-approval' && <p data-refusal="not-pending-approval">No version is pending approval.</p>}
-      {refusal !== null && !['author-cannot-approve', 'submitted-version-immutable', 'not-pending-approval'].includes(refusal) && (
+      {refusal === 'publish' && (
+        <p role="alert" data-refusal="publish">
+          Publish refused: {refusalText}
+        </p>
+      )}
+      {refusal !== null && !['author-cannot-approve', 'submitted-version-immutable', 'not-pending-approval', 'publish'].includes(refusal) && (
         <p data-refusal={refusal}>The API refused this action ({refusal}).</p>
       )}
       {published && <p data-published="true">Published.</p>}

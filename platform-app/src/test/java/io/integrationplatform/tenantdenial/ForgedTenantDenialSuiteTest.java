@@ -749,7 +749,7 @@ class ForgedTenantDenialSuiteTest {
                 List.of(new RouteRow(c.pubRouteId().toString(), 1, null, false, "ACTIVE",
                         c.dstEndpointId().toString())),
                 List.of(new MappingRow(c.pubMappingId().toString(), c.pubRouteId().toString(), "[]", "$",
-                        source, target, E7MappingMatrix.mappingVersionIdOf(tenant).toString())));
+                        source, target, E7MappingMatrix.publishMappingVersionIdOf(tenant).toString())));
     }
 
     private static void execute(Connection owner, String sql, Object... values) throws Exception {
