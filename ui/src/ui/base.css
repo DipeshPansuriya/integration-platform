@@ -410,6 +410,15 @@ summary:focus-visible {
   color: var(--color-ink-faint);
   opacity: 1;
 }
+/* row 310 T90b: bare links took the browser default blue (fails on the dark surface).
+   Author colour beats the UA :visited colour, so visited links stay on the token too. */
+:where(main.content) :where(a):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  color: var(--color-link);
+  text-decoration: none;
+}
+:where(main.content) :where(a):where(:hover):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  text-decoration: underline; /* hover is shown by the underline, not a second colour */
+}
 :where(main.content) :where(fieldset):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
   max-width: 560px;
   margin: 0 0 var(--space-4);

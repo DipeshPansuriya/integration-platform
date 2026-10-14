@@ -223,12 +223,14 @@ button.secondary,
 
 a,
 a:visited {
-  color: var(--platform-accent);
-  text-decoration: none; /* accent 5.75:1+ as link text */
+  color: var(--platform-link); /* row310 T90b: >= 5.17:1 on the card in both themes */
+  text-decoration: none;
   font-size: 13px;
 }
 a:hover {
-  color: var(--platform-accent-hover); /* link hover tier (01 §1) */
+  /* row310 T90b: underline, same colour - dark accent-hover #2563eb is 2.8:1 on the card */
+  color: var(--platform-link);
+  text-decoration: underline;
 }
 
 /* Checkbox row (remember me, OTP) - label text stays inline and readable */

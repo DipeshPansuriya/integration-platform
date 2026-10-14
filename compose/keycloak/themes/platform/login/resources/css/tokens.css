@@ -35,6 +35,8 @@
   --platform-accent: #2563eb;
   /* 01 §1 --color-accent-hover */
   --platform-accent-hover: #1d4ed8;
+  /* row310 T90b --color-link: link text (= accent in light, 5.17:1 on the card) */
+  --platform-link: #2563eb;
   /* 01 §1 --color-accent-faint */
   --platform-accent-faint: #dbeafe;
   /* 01 §1 --color-accent-faint-ink (light info-tint text per the §1 status
@@ -100,6 +102,9 @@
     --platform-border-control: #6b7a90;
     --platform-accent: #3b82f6;
     --platform-accent-hover: #2563eb;
+    /* row310 T90b: dark accent #3b82f6 is 3.98:1 on the card as text; links use
+       #60a5fa (7.02 canvas / 5.75 surface / 5.22:1 raised), same as the console */
+    --platform-link: #60a5fa;
     --platform-accent-faint: #1e3a8a;
     --platform-accent-faint-ink: #bfdbfe;
     /* row310 T90: white on the dark accent #3b82f6 is only 3.68:1, so the dark
