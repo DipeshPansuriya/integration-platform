@@ -24,10 +24,13 @@
   --platform-ink-muted: #475569;
   /* 01 §1 --color-ink-faint (helper/meta text, only at >= 12.5px) */
   --platform-ink-faint: #64748b;
-  /* 01 §1 --color-border */
+  /* 01 §1 --color-border (hairlines only - 1.18:1, not a control boundary) */
   --platform-border: #e2e8f0;
   /* 01 §1 --color-border-strong */
   --platform-border-strong: #94a3b8;
+  /* row310 T90 --color-border-control: input boundary, WCAG 1.4.11
+     (3.19:1 canvas, 3.33:1 surface) */
+  --platform-border-control: #7f8ea3;
   /* 01 §1 --color-accent */
   --platform-accent: #2563eb;
   /* 01 §1 --color-accent-hover */
@@ -37,8 +40,8 @@
   /* 01 §1 --color-accent-faint-ink (light info-tint text per the §1 status
      mapping: #1e40af on #dbeafe = 7.15:1) */
   --platform-accent-faint-ink: #1e40af;
-  /* 01 §1 white-on-accent (primary buttons; 5.17:1 on --color-accent,
-       same value in the dark pair) */
+  /* 01 §1 white-on-accent (primary buttons; 5.17:1 on light --color-accent;
+       in dark it sits on accent-hover, see styles.css - row310 T90) */
   --platform-text-on-accent: #ffffff;
   /* 01 §1 --color-success (icon fill only - never as text) */
   --platform-success: #16a34a;
@@ -88,14 +91,19 @@
     --platform-raised: #253043;
     --platform-ink: #e2e8f0;
     --platform-ink-muted: #94a3b8;
-    --platform-ink-faint: #7d8da5;
+    /* row310 T90 (was #7d8da5, 4.34:1 on surface): 6.24 canvas / 5.12 surface /
+       4.64:1 raised, same as the console */
+    --platform-ink-faint: #8a9ab2;
     --platform-border: #334155;
     --platform-border-strong: #475569;
+    /* row310 T90 control boundary: 4.09 canvas / 3.35 surface / 3.04:1 raised */
+    --platform-border-control: #6b7a90;
     --platform-accent: #3b82f6;
     --platform-accent-hover: #2563eb;
     --platform-accent-faint: #1e3a8a;
     --platform-accent-faint-ink: #bfdbfe;
-    /* dark accent also measures 5.17:1 with white text (01 §1) */
+    /* row310 T90: white on the dark accent #3b82f6 is only 3.68:1, so the dark
+       primary button fills with accent-hover #2563eb (5.17:1) - styles.css */
     --platform-text-on-accent: #ffffff;
     --platform-success: #4ade80;
     --platform-success-text: #4ade80;

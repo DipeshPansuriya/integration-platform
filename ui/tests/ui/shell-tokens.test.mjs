@@ -474,6 +474,24 @@ function resolver(map, prefix, theme) {
 }
 
 const ratio = (fg, bg) => Math.round(contrast(fg, bg) * 100) / 100;
+
+/** filter: brightness(x) scales label AND fill. Browsers differ on the colour space, so
+    both readings are returned (sRGB channels, linear light) and each must pass. */
+function brightnessPairs(filter, fg, bg) {
+  const m = (filter ?? '').match(/^brightness\(([\d.]+)\)$/);
+  assert.ok(m, `only a brightness() filter is modelled (got ${filter})`);
+  const x = +m[1];
+  const srgb = (c) => ({ r: c.r * x, g: c.g * x, b: c.b * x, a: 1 });
+  const lin = (c) => {
+    const f = (v) => {
+      const s = v / 255;
+      const l = (s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4) * x;
+      return 255 * (l <= 0.0031308 ? l * 12.92 : 1.055 * l ** (1 / 2.4) - 0.055);
+    };
+    return { r: f(c.r), g: f(c.g), b: f(c.b), a: 1 };
+  };
+  return [['sRGB', ratio(srgb(fg), srgb(bg))], ['linear', ratio(lin(fg), lin(bg))]];
+}
 const DARK_BTN = '[data-theme="dark"] .btn-primary';
 
 for (const theme of ['light', 'dark']) {
@@ -484,6 +502,7 @@ for (const theme of ['light', 'dark']) {
     const text = c(primary.get('color'));
     // every fill that can paint under the label in this theme (rest and hover rules)
     const fills = [['.btn-primary:hover', ruleOrNull(base, '.btn-primary:hover')]];
+    const dimmed = [];
     if (theme === 'dark') {
       const darkRest = ruleOrNull(base, DARK_BTN);
       assert.ok(darkRest?.get('background'), `${DARK_BTN} must override the fill (white on dark accent is 3.68:1)`);
@@ -492,15 +511,19 @@ for (const theme of ['light', 'dark']) {
       if (darkHover?.get('background')) fills.push([`${DARK_BTN}:hover`, darkHover]);
       const f = darkHover?.get('filter');
       if (f) {
-        const m = f.match(/^brightness\(([\d.]+)\)$/);
-        assert.ok(m && +m[1] <= 1, `dark hover may only darken the fill (got ${f})`);
+        // the hovered label is dimmed together with the fill it sits on
+        for (const [name, d] of fills) {
+          for (const [space, r] of brightnessPairs(f, text, c(d.get('background')))) {
+            dimmed.push({ name: `${name} under ${DARK_BTN}:hover ${f} (${space})`, r });
+          }
+        }
       }
       // consistent with the T89 submit default: same dark primary fill
       assert.equal(darkRest.get('background'), ruleDecls(base, sel.darkSubmit).get('background'));
     } else {
       fills.unshift(['.btn-primary', primary]);
     }
-    const measured = fills.map(([name, d]) => ({ name, r: ratio(text, c(d.get('background'))) }));
+    const measured = fills.map(([name, d]) => ({ name, r: ratio(text, c(d.get('background'))) })).concat(dimmed);
     for (const p of measured) console.log(`# ${theme} white on ${p.name} fill = ${p.r}:1`);
     assert.deepEqual(measured.filter((p) => p.r < 4.5).map((p) => `${p.name} = ${p.r}:1`), []);
   });
@@ -576,6 +599,14 @@ for (const theme of ['light', 'dark']) {
     const text = c(pick('#kc-login', 'color'));
     for (const s of ['#kc-login', '#kc-login:hover']) {
       measured.push({ name: `text-on-accent on ${s}`, r: ratio(text, c(pick(s, 'background'))), floor: 4.5 });
+    }
+    const hoverFilter = theme === 'dark' ? ruleOrNull(darkBody, '#kc-login:hover')?.get('filter') : undefined;
+    if (hoverFilter) {
+      for (const s of ['#kc-login', '#kc-login:hover']) {
+        for (const [space, r] of brightnessPairs(hoverFilter, text, c(pick(s, 'background')))) {
+          measured.push({ name: `text-on-accent on ${s} under hover ${hoverFilter} (${space})`, r, floor: 4.5 });
+        }
+      }
     }
     const border = ruleDecls(styles, 'input[type="text"]').get('border');
     const rest = (border ?? '').replace(/^1px solid /, '');

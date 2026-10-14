@@ -17,8 +17,9 @@
   --color-ink: #0f172a;               /* primary text 17.9:1 */
   --color-ink-muted: #475569;         /* secondary text 7.6:1 */
   --color-ink-faint: #64748b;         /* helper/meta, 12.5px floor 4.76:1 */
-  --color-border: #e2e8f0;            /* hairlines */
-  --color-border-strong: #94a3b8;     /* input hover, weighted dividers */
+  --color-border: #e2e8f0;            /* hairlines (dividers only - 1.18:1, not a control boundary) */
+  --color-border-strong: #94a3b8;     /* weighted dividers, table header rule */
+  --color-border-control: #7f8ea3;    /* input/select/textarea boundary, WCAG 1.4.11: 3.19:1 canvas, 3.33:1 surface (row 310 T90) */
 
   /* Accent (one blue family) */
   --color-accent: #2563eb;            /* primary buttons, links, active nav (white text 5.17:1) */
@@ -72,11 +73,12 @@
   --color-surface-raised: #253043;    /* ~10.6:1 */
   --color-ink: #e2e8f0;               /* 11.9:1 */
   --color-ink-muted: #94a3b8;         /* 5.71:1 */
-  --color-ink-faint: #8292aa;         /* 4.63:1 on surface (row 310 T85: #7d8da5 was 4.34:1 on surface, 4.6 only on canvas) */
+  --color-ink-faint: #8a9ab2;         /* 6.24 canvas / 5.12 surface / 4.64:1 raised (row 310 T90: #8292aa was 4.20:1 on raised menus); ink-muted stays brighter */
   --color-border: #334155;
   --color-border-strong: #475569;
+  --color-border-control: #6b7a90;    /* control boundary 4.09 canvas / 3.35 surface / 3.04:1 raised (row 310 T90) */
 
-  --color-accent: #3b82f6;            /* white text 5.17:1; as link text 5.75:1 */
+  --color-accent: #3b82f6;            /* NOT a white-text fill (3.68:1) - dark primary fills use accent-hover (row 310 T90); as text 4.85 canvas / 3.98:1 surface */
   --color-accent-hover: #2563eb;
   --color-accent-faint: #1e3a8a;
   --color-accent-faint-ink: #bfdbfe;  /* 7.29:1 on tint */

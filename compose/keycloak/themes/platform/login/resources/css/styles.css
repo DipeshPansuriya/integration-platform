@@ -95,7 +95,7 @@ textarea {
   font-size: 14px;
   color: var(--platform-ink);
   background: var(--platform-surface);
-  border: 1px solid var(--platform-border); /* hairline input borders */
+  border: 1px solid var(--platform-border-control); /* row310 T90: >= 3:1 boundary, WCAG 1.4.11 */
   border-radius: var(--platform-r-1); /* inputs 8px */
   transition: border-color var(--platform-motion);
 }
@@ -103,7 +103,8 @@ textarea {
 input:hover,
 select:hover,
 textarea:hover {
-  border-color: var(--platform-border-strong); /* hovered input borders */
+  /* row310 T90: ink-faint (>= 4.5:1) as the console does; border-strong is below 3:1 */
+  border-color: var(--platform-ink-faint);
 }
 
 /* row310 T86: password field + visibility toggle on one row (kcInputGroup). The toggle is
@@ -164,8 +165,8 @@ label:focus-visible,
   transition: box-shadow var(--platform-motion);
 }
 
-/* Primary button: accent, hover = accent-hover (01 §1); white text passes
-   5.17:1 (light) / 5.17:1 (dark) per the spec's measured ratios */
+/* Primary button: accent, hover = accent-hover (01 §1); white text 5.17:1 on the
+   light accent. Dark fills with accent-hover instead (row310 T90, block below). */
 #kc-login,
 input[type="submit"],
 button[type="submit"],
@@ -191,6 +192,24 @@ input[type="submit"]:hover,
 button[type="submit"]:hover,
 button.primary:hover {
   background: var(--platform-accent-hover);
+}
+
+/* row310 T90: white on the dark accent #3b82f6 is 3.68:1, so dark fills with
+   accent-hover #2563eb (5.17:1) and hovers darker - same as the console's .btn-primary. */
+@media (prefers-color-scheme: dark) {
+  #kc-login,
+  input[type="submit"],
+  button[type="submit"],
+  button.primary {
+    background: var(--platform-accent-hover);
+  }
+
+  #kc-login:hover,
+  input[type="submit"]:hover,
+  button[type="submit"]:hover,
+  button.primary:hover {
+    filter: brightness(.9);
+  }
 }
 
 /* Ghost secondary (Cancel on the OTP step): tint bg + accent-faint-ink text */
