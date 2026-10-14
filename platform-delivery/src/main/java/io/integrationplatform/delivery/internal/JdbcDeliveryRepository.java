@@ -384,7 +384,9 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
             lockOrderingKey(OrderingKey.recordKeyFor(tenantContext.requireTenantId(), scope.interfaceId(),
                     scope.businessKey()));
         }
-        lockMessageRow(scope.messageId()); // null on the E2 rows - no-op; wave-1 on the stage-1 pins
+        if (scope.messageId() != null) { // no stage-1 pin (E2 insert, pre-V2_3_930 rows): no message row to lock
+            lockMessageRow(scope.messageId()); // as the one-order helper does (JdbcOrderedStateChange)
+        }
     }
 
     // ------------------------------------------------------------------ E9: the stage-1 write (T-117 + T-178)

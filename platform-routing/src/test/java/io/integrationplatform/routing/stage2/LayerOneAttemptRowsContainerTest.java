@@ -35,7 +35,12 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class LayerOneAttemptRowsContainerTest {
 
     private static final UUID TENANT = RoutingTestDatabase.TENANT_A;
-    private static final Instant NOW = Instant.parse("2026-10-12T12:00:00Z");
+    /**
+     * Noon of the database's own CURRENT_DATE (read in {@link #database()}), never a fixed date: V2_3_1 creates
+     * the delivery day partitions only for CURRENT_DATE-1..+7 at migration time, so a hard-coded instant
+     * (formerly 2026-10-12) stops matching any partition once the calendar moves on (row 278 T68 date bomb).
+     */
+    private static Instant NOW;
 
     private static RoutingTestDatabase db;
     private static HikariDataSource pool;
@@ -50,6 +55,8 @@ class LayerOneAttemptRowsContainerTest {
         pool = db.appPool(4);
         jdbc = JdbcClient.create(pool);
         tx = new RoutingTestDatabase.TenantTx(pool);
+        NOW = jdbc.sql("select current_date::timestamptz + interval '12 hours'")
+                .query(java.time.OffsetDateTime.class).single().toInstant();
     }
 
     @AfterAll
