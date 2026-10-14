@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -43,6 +44,9 @@ import tools.jackson.databind.JsonNode;
  */
 @Tag("container")
 @SpringBootTest(classes = E3LaneCSuiteApp.class, webEnvironment = WebEnvironment.RANDOM_PORT)
+// Its own @DynamicPropertySource makes this a context of its own; closing it after the class hands its pool's
+// connections back, so the suites after it (T190 ...) do not exhaust the shared test postgres's connection slots.
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class T081FlowRoutesListingContainerTest {
 
     private static final AtomicBoolean SEEDED = new AtomicBoolean();
