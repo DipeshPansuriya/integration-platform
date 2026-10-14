@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -39,6 +40,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  */
 @Tag("container")
 @SpringBootTest(classes = E3LaneCSuiteApp.class, webEnvironment = WebEnvironment.RANDOM_PORT)
+// Its own restricted login makes its own context: closed after the class so the shared container keeps its
+// connection slots for the suites after it (the parity suites' pattern).
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class T037SampleRunGateContainerTest {
 
     private static final String ROUTES = "/api/v1/admin/routes";

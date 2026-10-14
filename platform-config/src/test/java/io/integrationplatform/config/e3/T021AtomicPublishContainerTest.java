@@ -169,7 +169,8 @@ class T021AtomicPublishContainerTest {
         // version row. Its live mapping is drifted to the sentinel, then the mapping and route rows removed -
         // so the publish of the snapshot (which carries them) takes the INSERT path.
         String destination3 = LaneCIdentities.randomCode("tgt");
-        String sentinel = "T021-SENTINEL-" + LaneCIdentities.randomCode("abort");
+        // T-037: the sentinel is a valid JSONata name, so its sample run passes and the publish reaches the trigger.
+        String sentinel = "T021_SENTINEL_" + LaneCIdentities.randomCode("abort").replace('-', '_');
         LaneCLifecycle.createSystem(base, actors.author(), destination3, "OUTBOUND");
         LaneCLifecycle.saveFlowDraft(base, actors.author(), flowId, draft.sourceSystem(),
                 List.of(draft.destination1(), draft.destination2(), destination3));
