@@ -12,6 +12,7 @@ import io.integrationplatform.config.contract.adapter.in.ContractVersionAdminCon
 import io.integrationplatform.config.contract.application.ContractAdminService;
 import io.integrationplatform.config.flow.adapter.in.FlowAdminController;
 import io.integrationplatform.config.flow.application.FlowAdminService;
+import io.integrationplatform.config.flow.application.FlowRoutesQuery;
 import io.integrationplatform.config.mapping.adapter.in.MappingAdminController;
 import io.integrationplatform.config.mapping.adapter.in.MappingTestController;
 import io.integrationplatform.config.mapping.application.MappingAdminService;
@@ -171,7 +172,8 @@ class EndpointMatrixCoverageTest {
      */
     private static Object[] allHandlers() {
         return new Object[] {probeController(), new MeContract(),
-                new FlowAdminController(mock(FlowAdminService.class), mock(ConfigActors.class)),
+                new FlowAdminController(mock(FlowAdminService.class), mock(ConfigActors.class),
+                        mock(FlowRoutesQuery.class)),
                 new ContractVersionAdminController(mock(ContractAdminService.class), mock(ConfigActors.class)),
                 new SystemAdminController(mock(SystemAdminService.class), mock(ConfigActors.class)),
                 new RuleSetAdminController(mock(RuleSetAdminService.class), mock(ConfigActors.class)),

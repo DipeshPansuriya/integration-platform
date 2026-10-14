@@ -296,7 +296,8 @@ final class EndpointMatrix {
      * lane part is one line here, written by the integrator, never by a lane.
      */
     static final List<LaneMatrix> LANES = List.of(new E5ContractMatrix(), new E5SystemMatrix(), new E5SecretMatrix(),
-            new E6RuleMatrix(), new E7MappingMatrix(), new E7LookupMatrix(), new E7MappingTestMatrix());
+            new E6RuleMatrix(), new E7MappingMatrix(), new E7LookupMatrix(), new E7MappingTestMatrix(),
+            new B9FlowRoutesMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),
