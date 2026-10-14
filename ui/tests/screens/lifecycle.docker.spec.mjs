@@ -114,3 +114,43 @@ test('submit, approve and publish walk the row that was clicked, never the pinne
   await expect(page.locator(`[data-flow-row="${pinnedId}"] [data-version-status="DRAFT"]`)).toBeVisible();
   await expect(page.locator(`[data-flow-row="${clickedId}"] [data-version-status="PUBLISHED"]`)).toBeVisible();
 });
+/** One call through the browser's own signed-in session (the console's cookie + XSRF), like the typed client. */
+async function inBrowser(page, method, apiPath, body) {
+  return page.evaluate(
+    async ({ method, apiPath, body }) => {
+      const xsrf = document.cookie.split('; ').filter((pair) => pair.startsWith('XSRF-TOKEN=')).pop();
+      const headers = {};
+      if (body !== undefined) headers['content-type'] = 'application/json';
+      if (method !== 'GET' && xsrf) headers['X-XSRF-TOKEN'] = decodeURIComponent(xsrf.slice('XSRF-TOKEN='.length));
+      const answer = await fetch(apiPath, { method, headers, credentials: 'include', body: body === undefined ? undefined : JSON.stringify(body) });
+      return { status: answer.status, data: await answer.json().catch(() => null) };
+    },
+    { method, apiPath, body }
+  );
+}
+
+// T83 (row 278, close E7): a publish the SERVER refuses is surfaced on the Versions screen, never
+// hidden. A fresh draft's mapping has never been sample-run, so the real publish gate (T-037,
+// MappingPublishPinCheck) answers 409 with a named reason; the screen shows that reason and the
+// version stays APPROVED - nothing claims it was published.
+test('a publish the server refuses shows the refusal on the screen and the version is not published', async ({ page }) => {
+  const created = await inBrowser(page, 'POST', '/api/v1/admin/flows', { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' });
+  const flowId = created.data?.id;
+  if (!flowId) throw new Error(`the fresh draft was refused (${created.status})`);
+
+  await page.click('[data-nav="versions"]');
+  await page.click(`[data-flow-row="${flowId}"]`);
+  await page.fill('[data-field="change-note"]', 'a publish the gate refuses');
+  await page.click('[data-action="submit-for-approval"]');
+  await expect(page.locator(`[data-flow-row="${flowId}"] [data-version-status="SUBMITTED"]`)).toBeVisible();
+  await page.click('[data-action="approve-as-approver"]');
+  await expect(page.locator(`[data-flow-row="${flowId}"] [data-version-status="APPROVED"]`)).toBeVisible();
+
+  await page.click('[data-action="publish"]');
+
+  const refusal = page.locator('[data-refusal="publish"]');
+  await expect(refusal).toBeVisible();
+  await expect(refusal).toContainText(`publish refused on flow ${flowId}`); // the 409 body's own text
+  await expect(page.locator('[data-published="true"]')).toHaveCount(0);
+  await expect(page.locator(`[data-flow-row="${flowId}"] [data-version-status="APPROVED"]`)).toBeVisible();
+});
