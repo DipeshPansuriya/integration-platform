@@ -1,5 +1,6 @@
 package io.integrationplatform.config.mapping.application;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -68,10 +69,13 @@ class MappingPublishPinCheckTest {
 
         assertThatThrownBy(() -> check.verifyPublishPins(FLOW, approved, snapshotNaming(MAPPING_X)))
                 .isInstanceOf(ConfigApiException.class)
-                .satisfies(e -> org.assertj.core.api.Assertions.assertThat(((ConfigApiException) e).httpStatus())
-                        .isEqualTo(409))
-                .hasMessageContaining(FLOW).hasMessageContaining(ROUTE)
-                .hasMessageContaining(MAPPING_X).hasMessageContaining(MAPPING_Y);
+                .satisfies(e -> {
+                    ConfigApiException refused = (ConfigApiException) e;
+                    assertThat(refused.httpStatus()).isEqualTo(409);
+                    // the 409 response body's "error" text is what the caller reads
+                    assertThat(String.valueOf(refused.body().get("error")))
+                            .contains(FLOW).contains(ROUTE).contains(MAPPING_X).contains(MAPPING_Y);
+                });
     }
 
     @Test
