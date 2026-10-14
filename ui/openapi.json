@@ -1487,6 +1487,72 @@
         ]
       }
     },
+    "/api/v1/admin/queue/summary": {
+      "get": {
+        "operationId": "summary",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "flowId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The four live counts per flow and UTC day, ordered by flow code then day"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "A bad query value (a flowId that is not a uuid, a non-ISO date)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: the figures are message-timeline reads"
+          }
+        },
+        "tags": [
+          "queue-summary-controller"
+        ]
+      }
+    },
     "/api/v1/admin/routes/{routeId}/mapping": {
       "get": {
         "operationId": "read",

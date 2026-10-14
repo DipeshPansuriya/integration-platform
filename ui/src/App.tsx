@@ -15,6 +15,9 @@ import { Versions } from './pages/Versions';
 // contract versions); lane D fills the two page files and never edits this shell.
 import { Systems } from './pages/Systems';
 import { ContractVersions } from './pages/ContractVersions';
+// F10-narrow seam (arjun-fullstack, row278 plan step 8): route + menu entry for lane D's queue
+// dashboard; the page file is the whole slice's UI - this shell line stays one route + one menu line.
+import { QueueDashboard } from './pages/QueueDashboard';
 // E7 seam (arjun-fullstack, F5): route + menu stub for lane D1's mapping canvas (#/mappings/<routeId>, T-034);
 // lane D fills the page file and never edits this shell.
 import { MappingDesigner } from './pages/MappingDesigner';
@@ -24,7 +27,7 @@ import { MappingDesigner } from './pages/MappingDesigner';
 const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
 
 type Route = {
-  page: 'home' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings';
+  page: 'home' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue';
   flowId: string | null;
   ruleSetId?: string | null;
   routeId?: string | null;
@@ -44,6 +47,7 @@ function parseHash(): Route {
   if (hash.startsWith('flows')) return { page: 'flows', flowId: null };
   if (hash.startsWith('versions')) return { page: 'versions', flowId: null };
   if (hash.startsWith('systems')) return { page: 'systems', flowId: null };
+  if (hash.startsWith('queue')) return { page: 'queue', flowId: null };
   if (hash.startsWith('contracts')) return { page: 'contracts', flowId: null };
   const ruleSet = /^rules\/(.+)$/.exec(hash);
   if (ruleSet) return { page: 'rules', flowId: null, ruleSetId: decodeURIComponent(ruleSet[1]) };
@@ -94,6 +98,9 @@ export function App() {
         <button type="button" data-nav="systems" onClick={() => (window.location.hash = '#/systems')}>
           Systems
         </button>
+        <button type="button" data-nav="queue" onClick={() => (window.location.hash = '#/queue')}>
+          Queue
+        </button>
         <button type="button" data-nav="contracts" onClick={() => (window.location.hash = '#/contracts')}>
           Contracts
         </button>
@@ -113,6 +120,7 @@ export function App() {
       {route.page === 'flows' && <FlowDefinition openFlowId={route.flowId} />}
       {route.page === 'versions' && <Versions />}
       {route.page === 'systems' && <Systems />}
+      {route.page === 'queue' && <QueueDashboard />}
       {route.page === 'contracts' && <ContractVersions />}
       {route.page === 'rules' && (
         <Suspense fallback={<p>Loading the rules editor...</p>}>

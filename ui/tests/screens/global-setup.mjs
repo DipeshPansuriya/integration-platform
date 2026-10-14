@@ -24,7 +24,7 @@ export default async function globalSetup() {
   fs.mkdirSync(path.join(UI, 'public'), { recursive: true });
   fs.writeFileSync(
     path.join(UI, 'public', 'console-config.json'),
-    JSON.stringify({ logins: ['approver', 'other-tenant'] }, null, 2)
+    JSON.stringify({ logins: ['approver', 'other-tenant', 'empty-tenant'] }, null, 2)
   );
   const build = spawnSync('npm', ['run', 'build'], { cwd: UI, encoding: 'utf8', shell: process.platform === 'win32' });
   if (build.status !== 0) {

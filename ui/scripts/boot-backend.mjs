@@ -281,21 +281,27 @@ export default async function bootBackend({ loginSeed = false } = {}) {
     // psql; the app login only reads the directory through ipaas_login_bootstrap, ADR-009) to the
     // (issuer, subject) of their Keycloak account. The configurator and the approver (T-022: never
     // the author) are users of tenant A; one configurator belongs to ANOTHER tenant (E3-F1-S1
-    // @negative @tenant, E4-F1-S1 own tenant only).
+    // @negative @tenant, E4-F1-S1 own tenant only). A third, EMPTY tenant C holds one tenant admin
+    // and never any message/delivery rows, so a spec that must see "no work at all" (F10 queue
+    // dashboard) is isolated from the specs that seed tenant A's state tables (row 310).
     const tenantCode = `lane-d-${crypto.randomBytes(3).toString('hex')}`;
     const otherTenantCode = `${tenantCode}-b`;
+    const emptyTenantCode = `${tenantCode}-c`;
     psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${tenantCode}', 'ACTIVE')`);
     psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${otherTenantCode}', 'ACTIVE')`);
+    psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${emptyTenantCode}', 'ACTIVE')`);
     const users = {
       default: await keycloak.createUser('lane-d-configurator'),
       approver: await keycloak.createUser('lane-d-approver'),
-      'other-tenant': await keycloak.createUser('lane-d-other-tenant')
+      'other-tenant': await keycloak.createUser('lane-d-other-tenant'),
+      'empty-tenant': await keycloak.createUser('lane-d-empty-tenant')
     };
     // E4 T-099 seeding: roles are role_grant rows (ADR-007 Decision 5). The default login authors AND is refused
     // its own approval on screen, so it must pass the role check: tenant admin (admins may also approve).
-    const roles = { default: 'TENANT_ADMIN', approver: 'APPROVER', 'other-tenant': 'CONFIGURATOR' };
+    const roles = { default: 'TENANT_ADMIN', approver: 'APPROVER', 'other-tenant': 'CONFIGURATOR', 'empty-tenant': 'TENANT_ADMIN' };
+    const tenantOf = { 'other-tenant': otherTenantCode, 'empty-tenant': emptyTenantCode };
     for (const [login, user] of Object.entries(users)) {
-      const code = login === 'other-tenant' ? otherTenantCode : tenantCode;
+      const code = tenantOf[login] ?? tenantCode;
       psql(pgName,
         `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${keycloak.issuer}', '${user.subject}', 'ACTIVE' FROM public.tenant WHERE code='${code}'`);
       psql(pgName,
@@ -323,8 +329,9 @@ export default async function bootBackend({ loginSeed = false } = {}) {
 
     // E3-F1-S1's onboarding premise, through the REAL systems seam (T-015): the source system S
     // the flow-definition and lifecycle screens name is registered for the seeded tenant - and for
-    // the other tenant, whose one flow must never appear on tenant A's screens (E4-F1-S1).
-    for (const login of ['default', 'other-tenant']) {
+    // the other tenant, whose one flow must never appear on tenant A's screens (E4-F1-S1), and for
+    // the empty tenant C (a system row only - no flow, message or delivery is seeded there).
+    for (const login of ['default', 'other-tenant', 'empty-tenant']) {
       const systemSeed = await call(login, 'POST', '/api/v1/admin/systems', { code: 'S', name: 'orders source', direction: 'INBOUND' });
       if (systemSeed.status !== 201 && systemSeed.status !== 409) {
         throw new Error(`boot-backend: seeding the source system (${login}) answered ${systemSeed.status} (expected 201/409)`);
@@ -355,6 +362,7 @@ export default async function bootBackend({ loginSeed = false } = {}) {
       ownTenantFlowId: ownFlow?.data?.id,
       otherTenantCode,
       otherTenantFlowId: otherFlow.data.id,
+      emptyTenantCode,
       seededVia: 'directory rows (tenant + app_user) as the migration owner for realm users; systems and flows through the real API with console sessions',
       /** The realm users (passwords in memory only) - the browser logs in with `users.default`. */
       users,
