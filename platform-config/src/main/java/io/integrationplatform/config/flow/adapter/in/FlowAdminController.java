@@ -4,6 +4,7 @@ import io.integrationplatform.config.adapter.in.ConfigActors;
 import io.integrationplatform.config.adapter.in.ConfigErrorBody;
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.flow.application.FlowAdminService;
+import io.integrationplatform.config.flow.application.FlowRoutesQuery;
 import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.InterfaceRow;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
@@ -35,10 +37,12 @@ public class FlowAdminController {
 
     private final FlowAdminService service;
     private final ConfigActors actors;
+    private final FlowRoutesQuery routes;
 
-    public FlowAdminController(FlowAdminService service, ConfigActors actors) {
+    public FlowAdminController(FlowAdminService service, ConfigActors actors, FlowRoutesQuery routes) {
         this.service = Objects.requireNonNull(service, "service");
         this.actors = Objects.requireNonNull(actors, "actors");
+        this.routes = Objects.requireNonNull(routes, "routes");
     }
 
     @ApiResponses({
@@ -75,6 +79,24 @@ public class FlowAdminController {
     public ResponseEntity<Map<String, Object>> read(@PathVariable String flowId) {
         actors.requireActor();
         return ResponseEntity.ok(service.read(flowId));
+    }
+
+    /**
+     * T81 / B9: the routes the flow designer navigates by - the current (latest) version's bundle routes, or those of
+     * the version named by {@code versionId}: id, name (the target endpoint's), sequence, isPrimary, status,
+     * condition, targetEndpointId, targetEndpointCode, targetSystem and the mappingId the designer opens.
+     */
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "OK"),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER: the bearer resolves to no directory user",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "404", description = "Not found: the flow, or the named version of it, is not visible to the bound tenant",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+    @GetMapping("/{flowId}/routes")
+    public ResponseEntity<Map<String, Object>> routes(@PathVariable String flowId,
+            @RequestParam(required = false) String versionId) {
+        actors.requireActor();
+        return ResponseEntity.ok(routes.routes(flowId, versionId));
     }
 
     @ApiResponses({
