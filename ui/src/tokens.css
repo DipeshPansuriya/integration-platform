@@ -72,7 +72,7 @@
   --color-surface-raised: #253043;    /* ~10.6:1 */
   --color-ink: #e2e8f0;               /* 11.9:1 */
   --color-ink-muted: #94a3b8;         /* 5.71:1 */
-  --color-ink-faint: #7d8da5;         /* ~4.6:1 */
+  --color-ink-faint: #8292aa;         /* 4.63:1 on surface (row 310 T85: #7d8da5 was 4.34:1 on surface, 4.6 only on canvas) */
   --color-border: #334155;
   --color-border-strong: #475569;
 

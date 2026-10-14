@@ -142,7 +142,12 @@ export function App() {
 
   function toggleTheme() {
     const next: Theme = theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
+    const html = document.documentElement;
+    // Transitions off for the flip (base.css .theme-switching), on again after a painted frame.
+    html.classList.add('theme-switching');
+    html.dataset.theme = next;
+    void html.offsetHeight; // commit the new theme's styles while transitions are off
+    requestAnimationFrame(() => requestAnimationFrame(() => html.classList.remove('theme-switching')));
     try {
       localStorage.setItem('ip.theme', next);
     } catch {

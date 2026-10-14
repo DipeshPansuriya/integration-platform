@@ -42,6 +42,14 @@ summary:focus-visible {
     animation: none !important;
   }
 }
+/* Theme flip: App.tsx sets .theme-switching on <html> for one frame around the
+   data-theme change, so no colour tweens from the old theme's value (row 310 T85:
+   nav labels showed light ink over the dark surface mid-transition). */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
 
 /* --- Buttons --- */
 .btn {
