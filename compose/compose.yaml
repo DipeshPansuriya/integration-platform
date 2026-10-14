@@ -63,6 +63,7 @@ services:
       - "8180:8080"
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
+      - ./keycloak/themes:/opt/keycloak/themes:ro
 
   # E8 (T-044/T-077, ADR-010): the work broker, one KRaft node. Same pinned tag as the KafkaHarness
   # (KafkaImages.KAFKA); topic auto-creation off there and here so the harness/code decides the topics.

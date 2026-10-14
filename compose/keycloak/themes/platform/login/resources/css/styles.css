@@ -1,0 +1,302 @@
+/* Realm login skin - lane K (T79). Layout mirrors the in-app sign-in card
+ * (10-screens.md §2 layer 2: 420px centered card on canvas) and matches
+ * the console's login card, so moving between the two never changes worlds.
+ *
+ * Selectors anchor on the ids the Keycloak base template renders in stable
+ * form (#kc-content, #kc-content-wrapper, #kc-form-login, #username,
+ * #password, #kc-login) plus plain elements, not PatternFly classes, so the
+ * skin survives class drift between Keycloak releases. Markup anchors were
+ * chosen against Keycloak's documented base theme; see the lane note in
+ * _reports/ for what was verified in a running container vs. what is
+ * theoretical.
+ */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: var(--platform-canvas);
+  color: var(--platform-ink);
+  font-family: var(--platform-font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* One centered card, like the console's #/login state */
+#kc-header {
+  display: none; /* the realm name already sits in the card's h1 */
+}
+
+#kc-content {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 96px 16px 48px;
+  box-sizing: border-box;
+}
+
+#kc-content-wrapper {
+  background: var(--platform-surface);
+  border: 1px solid var(--platform-border);
+  border-radius: var(--platform-r-2); /* cards = 12px */
+  padding: 24px; /* card padding on the 4/8 grid */
+  box-shadow: var(--platform-shadow-1);
+}
+
+/* Card/section title tier (01 §2: 16px · 600) */
+h1,
+#kc-page-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--platform-ink);
+  margin: 0 0 4px;
+}
+
+/* Body / form-label tier (01 §2: 14px) */
+p,
+#instruction {
+  margin: 0 0 16px;
+  color: var(--platform-ink-muted);
+}
+
+form {
+  margin: 0;
+}
+
+/* 14px · 500 label tier, muted */
+label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--platform-ink-muted);
+  margin: 16px 0 6px;
+}
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="tel"],
+input[type="number"],
+input[type="url"],
+select,
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  font-family: var(--platform-font);
+  font-size: 14px;
+  color: var(--platform-ink);
+  background: var(--platform-surface);
+  border: 1px solid var(--platform-border); /* hairline input borders */
+  border-radius: var(--platform-r-1); /* inputs 8px */
+  transition: border-color var(--platform-motion);
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--platform-border-strong); /* hovered input borders */
+}
+
+/* focus-visible: 2px ring + soft halo, same geometry as the console (01 §3) */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+label:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--platform-focus);
+  outline-offset: 2px;
+  border-radius: var(--platform-r-1);
+  box-shadow: 0 0 0 5px var(--platform-halo);
+  transition: box-shadow var(--platform-motion);
+}
+
+/* Primary button: accent, hover = accent-hover (01 §1); white text passes
+   5.17:1 (light) / 5.17:1 (dark) per the spec's measured ratios */
+#kc-login,
+input[type="submit"],
+button[type="submit"],
+button.primary {
+  display: inline-block;
+  width: 100%;
+  margin-top: 20px;
+  padding: 9px 16px;
+  font-family: var(--platform-font);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--platform-text-on-accent);
+  background: var(--platform-accent);
+  border: 1px solid transparent;
+  border-radius: var(--platform-r-1);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .10), 0 4px 12px -2px rgba(37, 99, 235, .28);
+  transition: background var(--platform-motion);
+}
+
+#kc-login:hover,
+input[type="submit"]:hover,
+button[type="submit"]:hover,
+button.primary:hover {
+  background: var(--platform-accent-hover);
+}
+
+/* Ghost secondary (Cancel on the OTP step): tint bg + accent-faint-ink text */
+input[type="submit"].secondary,
+button.secondary,
+#kc-cancel {
+  color: var(--platform-accent-faint-ink);
+  background: var(--platform-accent-faint);
+  box-shadow: none;
+}
+
+a,
+a:visited {
+  color: var(--platform-accent);
+  text-decoration: none; /* accent 5.75:1+ as link text */
+  font-size: 13px;
+}
+a:hover {
+  color: var(--platform-accent-hover); /* link hover tier (01 §1) */
+}
+
+/* Checkbox row (remember me, OTP) - label text stays inline and readable */
+input[type="checkbox"] {
+  margin: 0 8px 0 0;
+  vertical-align: middle;
+  accent-color: var(--platform-accent);
+}
+label[for="rememberMe"] {
+  display: inline;
+  font-size: 13px; /* 12.5px floor kept */
+}
+
+/* Helper / meta text: the 12.5px floor (01 §2) */
+#instruction small,
+.kc-feedback-text,
+.muted,
+.form-help-text,
+small.text,
+#kc-info,
+#kc-locale,
+p small,
+small {
+  font-size: 12.5px;
+  color: var(--platform-ink-faint);
+  line-height: 1.35;
+}
+
+/* Messages / alerts. Status is never colour alone: each alert keeps its
+   wording, gets a 3px left rule (shape, not just hue) and a text marker.
+   Errors land in the danger pair (01 §1 --color-danger-text/bg). */
+[class*="alert"],
+#kc-error-message,
+#kc-success-message,
+#kc-warning-message,
+#kc-info-message {
+  position: relative;
+  margin: 0 0 16px;
+  padding: 10px 12px 10px 34px;
+  font-size: 14px;
+  border-radius: var(--platform-r-1);
+  border: 1px solid transparent;
+}
+
+/* shape marker keeps every state readable when colour is dropped */
+[class*="alert"]::before,
+#kc-error-message::before,
+#kc-success-message::before,
+#kc-warning-message::before,
+#kc-info-message::before {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.alert-error,
+#kc-error-message {
+  background: var(--platform-danger-bg);
+  color: var(--platform-danger-text);
+  border-left: 3px solid var(--platform-danger);
+}
+.alert-error::before,
+#kc-error-message::before {
+  content: "!";
+}
+
+.alert-warning,
+#kc-warning-message {
+  background: var(--platform-warn-bg);
+  color: var(--platform-warn-text);
+  border-left: 3px solid var(--platform-warn-text);
+}
+.alert-warning::before,
+#kc-warning-message::before {
+  content: "!";
+}
+
+.alert-success,
+#kc-success-message {
+  background: var(--platform-success-bg);
+  color: var(--platform-success-text);
+  border-left: 3px solid var(--platform-success);
+}
+.alert-success::before,
+#kc-success-message::before {
+  content: "OK";
+}
+
+.alert-info,
+#kc-info-message {
+  background: var(--platform-accent-faint);
+  color: var(--platform-accent-faint-ink);
+  border-left: 3px solid var(--platform-accent);
+}
+.alert-info::before,
+#kc-info-message::before {
+  content: "i";
+}
+
+/* links inside tinted alerts keep the paired ink */
+[class*="alert"] a {
+  font-size: 14px;
+  text-decoration: underline;
+  color: inherit;
+}
+
+/* realm-select / social-auth grids collapse gracefully if any render */
+#kc-social-providers,
+#kc-social-links,
+#kc-providers-wrapper {
+  display: grid;
+  gap: 8px;
+}
+
+/* locale selector follows the card, 12.5px floor */
+#kc-locale {
+  margin-top: 24px;
+  text-align: center;
+}
+
+/* OTP one-time code input keeps the mono tier (01 §2) */
+input[name="otp"],
+input#otp {
+  font-family: var(--platform-mono);
+  font-size: 14px;
+  letter-spacing: .08em;
+}
+
+/* footer note under the card, outside the card's world */
+#kc-footer {
+  max-width: 420px;
+  margin: 16px auto 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--platform-ink-faint);
+}
