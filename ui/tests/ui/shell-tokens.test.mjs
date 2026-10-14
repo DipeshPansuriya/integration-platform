@@ -155,11 +155,27 @@ function tokenValues(block) {
   return map;
 }
 
+/** A selector list split on its top-level commas (commas inside :where(...)/:not(...) stay). */
+function splitTopLevel(list) {
+  const parts = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of list) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  return [...parts, cur];
+}
+
 /** Declarations of the base.css rule whose selector list contains exactly `selector`. */
 function ruleDecls(css, selector) {
   const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
   for (const m of clean.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const selectors = m[1].split(',').map((s) => s.trim().replace(/\s+/g, ' '));
+    const selectors = splitTopLevel(m[1]).map((s) => s.trim().replace(/\s+/g, ' '));
     if (!selectors.includes(selector)) continue;
     const decls = new Map();
     for (const d of m[2].matchAll(/([a-z-]+)\s*:\s*([^;]+);/g)) decls.set(d[1], d[2].trim());
@@ -258,3 +274,138 @@ test('theme toggle never paints a mid-transition frame (transitions off while da
   assert.ok(add >= 0 && flip > add, 'the switching class goes on before data-theme flips');
   assert.ok(raf > flip && remove > raf, 'the class comes off only in a later animation frame');
 });
+
+// ---------------------------------------------------------------------------
+// row 310 T89 (amit-developer): element defaults for pages not yet redesigned
+// (bare label/input/select/textarea/button/table/h1/h2 inside the shell's
+// main.content). Zero specificity (:where) so a wave 2-4 page class always wins;
+// third-party subtrees (jdm decision table, xyflow canvas, CodeMirror) excluded.
+
+const SCOPE = ':where(main.content)';
+const DARK_SCOPE = ':where([data-theme="dark"] main.content)';
+const NOT_3P = ':not(:where([data-decision-table], [data-canvas], .raw-expression) *)';
+const FIELDS = ':where(input:not([type="checkbox"], [type="radio"], [type="hidden"]), select, textarea)';
+const sel = {
+  heading: `${SCOPE} :where(h1, h2)`,
+  label: `${SCOPE} :where(label)${NOT_3P}`,
+  inlineLabel: `${SCOPE} :where(label:has(> input[type="checkbox"], > input[type="radio"]))${NOT_3P}`,
+  field: `${SCOPE} ${FIELDS}${NOT_3P}`,
+  placeholder: `${SCOPE} :where(input, textarea)${NOT_3P}::placeholder`,
+  button: `${SCOPE} :where(button)${NOT_3P}`,
+  submit: `${SCOPE} :where(button[type="submit"])${NOT_3P}`,
+  darkSubmit: `${DARK_SCOPE} :where(button[type="submit"])${NOT_3P}`,
+  table: `${SCOPE} :where(table)${NOT_3P}`,
+  th: `${SCOPE} :where(th)${NOT_3P}`,
+  td: `${SCOPE} :where(td)${NOT_3P}`,
+  hidden: `${SCOPE} :where([hidden])`,
+};
+
+/** Selector with every :where(...) group removed - what is left is what carries specificity. */
+function specificResidue(selector) {
+  let out = '';
+  for (let i = 0; i < selector.length; i++) {
+    if (selector.startsWith(':where(', i)) {
+      let depth = 0;
+      for (i += 6; i < selector.length; i++) {
+        if (selector[i] === '(') depth++;
+        else if (selector[i] === ')' && --depth === 0) break;
+      }
+      continue;
+    }
+    out += selector[i];
+  }
+  return out.replace(/:not\(\s*\*\s*\)/g, '').trim();
+}
+
+/** A value that is var(--color-x) resolves through the theme map; a literal colour stays itself. */
+function themeColour(theme) {
+  const { light, dark } = readTokens();
+  const lightMap = tokenValues(light);
+  const map = theme === 'dark' ? new Map([...lightMap, ...tokenValues(dark)]) : lightMap;
+  return (value) => {
+    assert.ok(value, 'a colour declaration is missing');
+    const m = value.match(/^var\((--color-[a-z-]+)\)$/);
+    if (!m) return parseColor(value);
+    assert.ok(map.has(m[1]), `${m[1]} must be declared for the ${theme} theme`);
+    return parseColor(map.get(m[1]));
+  };
+}
+
+test('element defaults: scoped to main.content, zero specificity, third-party subtrees excluded', () => {
+  const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
+  for (const s of Object.values(sel)) ruleDecls(base, s); // every expected rule exists (throws if not)
+  // ...and every main.content rule in base.css is specificity-free
+  const clean = base.replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const m of clean.matchAll(/([^{}]+)\{[^{}]*\}/g)) {
+    for (const s of splitTopLevel(m[1]).map((x) => x.trim().replace(/\s+/g, ' '))) {
+      if (!s.includes('main.content')) continue;
+      const residue = specificResidue(s);
+      assert.ok(/^(::[a-z-]+)?$/.test(residue), `${s} must carry no specificity (left: "${residue}")`);
+    }
+  }
+  for (const key of ['label', 'field', 'button', 'submit', 'table', 'th', 'td']) {
+    assert.ok(sel[key].includes(NOT_3P), `${key} defaults must skip the third-party subtrees`);
+  }
+});
+
+test('element defaults: forms stack (label above a full-width field, capped), checkboxes inline', () => {
+  const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
+  const label = ruleDecls(base, sel.label);
+  assert.equal(label.get('display'), 'flex');
+  assert.equal(label.get('flex-direction'), 'column', 'the label text sits above its field');
+  const max = Number((label.get('max-width') ?? '').replace('px', ''));
+  assert.ok(max >= 480 && max <= 560, `fields are capped at 480-560px (got ${label.get('max-width')})`);
+  assert.equal(ruleDecls(base, sel.inlineLabel).get('flex-direction'), 'row', 'checkbox/radio stay inline');
+  const field = ruleDecls(base, sel.field);
+  assert.equal(field.get('border'), '1px solid var(--color-border)');
+  assert.equal(field.get('border-radius'), 'var(--r-1)');
+  assert.equal(field.get('background'), 'var(--color-surface)');
+  assert.equal(field.get('color'), 'var(--color-ink)');
+  assert.equal(ruleDecls(base, sel.placeholder).get('opacity'), '1', 'placeholder colour is not faded further');
+  assert.equal(ruleDecls(base, sel.hidden).get('display'), 'none !important', '[hidden] must still hide (Queue Reload)');
+});
+
+test('element defaults: secondary button, submit as primary, bare tables, h1/h2 on the type scale', () => {
+  const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
+  const button = ruleDecls(base, sel.button);
+  assert.equal(button.get('border-radius'), 'var(--r-2)');
+  assert.equal(button.get('background'), 'var(--color-surface)');
+  const submit = ruleDecls(base, sel.submit);
+  assert.equal(submit.get('background'), 'var(--color-accent)', 'type=submit is the primary action');
+  assert.equal(submit.get('color'), '#ffffff');
+  const th = ruleDecls(base, sel.th);
+  assert.equal(th.get('color'), 'var(--color-ink-muted)');
+  assert.equal(th.get('font-size'), '12.5px', 'table headers sit on the 12.5px floor');
+  assert.equal(th.get('border-bottom'), '1px solid var(--color-border-strong)');
+  assert.equal(ruleDecls(base, sel.td).get('border-bottom'), '1px solid var(--color-border)');
+  const heading = ruleDecls(base, sel.heading);
+  assert.equal(heading.get('font-size'), '20px', 'page titles are 20px (01-§2.1)');
+  assert.equal(heading.get('font-weight'), '600');
+});
+
+for (const theme of ['light', 'dark']) {
+  test(`element defaults meet WCAG AA 4.5:1 in the ${theme} theme`, () => {
+    const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
+    const c = themeColour(theme);
+    const canvas = c(ruleDecls(base, 'body').get('background'));
+    const ink = ruleDecls(base, 'body').get('color');
+    const field = ruleDecls(base, sel.field);
+    const button = ruleDecls(base, sel.button);
+    const submit = ruleDecls(base, sel.submit);
+    const darkSubmit = ruleDecls(base, sel.darkSubmit);
+    const submitFill = theme === 'dark' ? darkSubmit.get('background') ?? submit.get('background') : submit.get('background');
+    const tableBg = c(ruleDecls(base, sel.table).get('background'));
+    const fieldBg = composite(c(field.get('background')), canvas);
+    const pairs = [
+      ['label text on canvas', c(ruleDecls(base, sel.label).get('color') ?? ink), canvas],
+      ['input text on input', c(field.get('color')), fieldBg],
+      ['placeholder on input', c(ruleDecls(base, sel.placeholder).get('color')), fieldBg],
+      ['secondary button text', c(button.get('color')), composite(c(button.get('background')), canvas)],
+      ['primary (submit) text on fill', c(submit.get('color')), composite(c(submitFill), canvas)],
+      ['th text on table', c(ruleDecls(base, sel.th).get('color')), tableBg],
+      ['td text on table', c(ruleDecls(base, sel.td).get('color') ?? ink), tableBg],
+    ].map(([name, fg, bg]) => ({ name, ratio: contrast(fg, bg) }));
+    for (const p of pairs) console.log(`# ${theme} ${p.name} = ${p.ratio.toFixed(2)}:1`);
+    assert.deepEqual(pairs.filter((p) => p.ratio < 4.5).map((p) => `${p.name} = ${p.ratio.toFixed(2)}:1`), []);
+  });
+}
