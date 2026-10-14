@@ -65,6 +65,9 @@ test('Logout ends the session: back at the Keycloak login, and the API answers 4
   expect(session?.httpOnly, 'the session cookie is HttpOnly').toBe(true);
   expect(session?.sameSite).toBe('Lax');
 
+  // The shell (lane F, row 310) puts Sign out in the account menu: open it the way a user does.
+  await page.click('[data-action="account"]');
+  await expect(page.locator('[data-action="logout"]')).toBeVisible();
   await page.click('[data-action="logout"]');
   await page.waitForURL(atTheRealmLogin);
   // The session is really over (server-side, not just out of the jar): the console reloads, the
