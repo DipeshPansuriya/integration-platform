@@ -16,7 +16,8 @@ import java.util.UUID;
  * and target contract versions) and its {@code mapping_version} rows. Each tenant gets one live route + mapping
  * on its main flow (bound to the source contract version the core seeds and an approved TARGET_REQUEST contract
  * version of the tenant's destination system) plus one deduplicated version row behind it; the publish flow's
- * pinned version row is the same row, referenced by the snapshot the core seeds. Entries target tenant A's route
+ * pinned version row is the same row, referenced by the snapshot the core seeds, with one passing sample run of its
+ * content (the T-037 publish gate). Entries target tenant A's route
  * (or the other tenant's, the forged id). Only that lane edits this file; see {@link LaneMatrix} for the rules.
  */
 final class E7MappingMatrix implements LaneMatrix {
@@ -138,6 +139,15 @@ final class E7MappingMatrix implements LaneMatrix {
         mappingVersionIdOf(tenant).toString(), tenant.id().toString(), mappingIdOf(tenant).toString(),
         source, target,
         MappingContent.contentSha256Hex(MappingContent.ENGINE, source, target, "[]", "$"),
+        tenant.userId().toString());
+    // T-037: the author's passing sample run of exactly that content - the publish gate keys on the version row's
+    // own mapping and content hash, so the matrix's publish entries reach their tenant assertions.
+    update(owner,
+        "INSERT INTO public.mapping_sample_run (tenant_id, mapping_id, content_sha256, sample_sha256, passed,"
+            + " actor_id) VALUES (?::uuid, ?::uuid, decode(?, 'hex'), decode(?, 'hex'), true, ?::uuid)",
+        tenant.id().toString(), mappingIdOf(tenant).toString(),
+        MappingContent.contentSha256Hex(MappingContent.ENGINE, source, target, "[]", "$"),
+        MappingContent.contentSha256Hex(MappingContent.ENGINE, source, target, "[]", "matrix-sample"),
         tenant.userId().toString());
   }
 

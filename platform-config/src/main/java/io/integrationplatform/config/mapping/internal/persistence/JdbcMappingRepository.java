@@ -40,10 +40,13 @@ public class JdbcMappingRepository extends TenantScopedRepository {
             String systemId, String systemCode) {
     }
 
-    /** The mapping_version row's facts for the publish pin check: content, pins, engine, target version's status. */
+    /**
+     * The mapping_version row's facts for the publish pin check: content, pins, engine, target version's status, and
+     * the mapping the row belongs to (T-037: the sample-run gate keys on it with the content hash).
+     */
     public record VersionFacts(String id, int version, String engine, String sourceId, String targetId,
             String fieldMappingsText, String compiledExpression, byte[] contentSha256, String targetStatus,
-            String targetRole, String targetSystemId) {
+            String targetRole, String targetSystemId, String mappingId) {
     }
 
     /** The (mapping_id, version) pair after minting. */
@@ -83,7 +86,8 @@ public class JdbcMappingRepository extends TenantScopedRepository {
     private static final String READ_NEXT_VERSION = "select coalesce(max(v.version), 0) + 1 as next"
             + " from public.mapping_version v";
 
-    private static final String READ_VERSION_BY_ID = "select v.id::text as id, v.version, v.engine,"
+    private static final String READ_VERSION_BY_ID = "select v.id::text as id, v.mapping_id::text as mapping_id,"
+            + " v.version, v.engine,"
             + " v.source_contract_version_id::text as source_id, v.target_contract_version_id::text as target_id,"
             + " v.field_mappings::text as field_mappings, v.compiled_expression, v.content_sha256,"
             + " (select cv.status from public.contract_version cv where cv.id = v.target_contract_version_id)"
@@ -181,7 +185,7 @@ public class JdbcMappingRepository extends TenantScopedRepository {
                 rs.getString("id"), rs.getInt("version"), rs.getString("engine"), rs.getString("source_id"),
                 rs.getString("target_id"), rs.getString("field_mappings"), rs.getString("compiled_expression"),
                 rs.getBytes("content_sha256"), rs.getString("target_status"), rs.getString("target_role"),
-                rs.getString("target_system_id"))).stream().findFirst();
+                rs.getString("target_system_id"), rs.getString("mapping_id"))).stream().findFirst();
     }
 
     /** A contract version's facts (role, owning system, status, label). */

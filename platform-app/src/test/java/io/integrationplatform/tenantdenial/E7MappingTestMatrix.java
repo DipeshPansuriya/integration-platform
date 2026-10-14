@@ -12,10 +12,10 @@ import java.util.List;
  * identity {@code $}, so the sample passes and echoes), so this part seeds no rows of its own and the id fns read
  * the ids that part already plants - the two parts ride one tenant seed, like one lane.
  *
- * <p>Wave-1 write state: lane B2's {@code MappingSampleRuns} bean is the seam's no-op, so a legitimate test writes
- * nothing - the probe answers {@code 0} both ways, which still proves a forged call wrote nothing. When lane C2's
- * JDBC bean replaces the no-op (the known seam collision), {@code afterWrite} becomes {@code 1}; lane C2 supplies
- * that change at its landing, never by editing this file's semantics silently.
+ * <p>Write state (lane C2's landing, T-037): the JDBC {@code MappingSampleRuns} bean replaced the wave-1 no-op, so
+ * a legitimate test records one sample run. {@link E7MappingMatrix} seeds one passing run of the pinned content (the
+ * publish gate's premise), so the probe reads {@code 1} seeded and {@code 2} after the legitimate write - a forged or
+ * refused call must leave it at {@code 1}.
  */
 final class E7MappingTestMatrix implements LaneMatrix {
 
@@ -36,6 +36,6 @@ final class E7MappingTestMatrix implements LaneMatrix {
             200,
             new WriteProbe(s -> "SELECT count(*) FROM public.mapping_sample_run WHERE mapping_id = '"
                     + E7MappingMatrix.mappingIdOf(s.a()) + "'",
-                "0", "0")));
+                "1", "2")));
   }
 }
