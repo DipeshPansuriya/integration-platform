@@ -59,6 +59,7 @@ public class MappingPublishPinCheck {
                             .orElseThrow(() -> ConfigApiException.conflict("publish refused on flow " + flowId
                                     + " route " + route.id() + ": pinned mapping version "
                                     + mapping.mappingVersionId() + " is not visible"));
+            verifyOwningMapping(flowId, route.id(), mapping, version);
             verifyContent(flowId, route.id(), mapping, version);
             verifySourcePin(flowId, route.id(), version, approved);
             verifyTargetPin(flowId, route, version);
@@ -78,6 +79,19 @@ public class MappingPublishPinCheck {
                     + ": its mapping " + version.mappingId() + " has no passing sample run of its pinned content"
                     + " (mapping version " + version.id() + ") - run the sample run (POST /api/v1/admin/mappings/"
                     + version.mappingId() + "/test) and publish again (T-037)");
+        }
+    }
+
+    /**
+     * Row 278 T84: the pinned version row must belong to the mapping the snapshot names - identical content in a
+     * version row of ANOTHER mapping (same tenant) is not this route's mapping and is refused.
+     */
+    private void verifyOwningMapping(String flowId, String routeId, SnapshotMapping mapping,
+            JdbcMappingRepository.VersionFacts version) {
+        if (!Objects.equals(version.mappingId(), mapping.id())) {
+            throw ConfigApiException.conflict("publish refused on flow " + flowId + " route " + routeId
+                    + ": its pinned mapping version " + version.id() + " belongs to mapping " + version.mappingId()
+                    + ", not to the snapshot's mapping " + mapping.id());
         }
     }
 

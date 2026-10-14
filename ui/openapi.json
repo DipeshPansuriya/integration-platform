@@ -1085,6 +1085,65 @@
         ]
       }
     },
+    "/api/v1/admin/flows/{flowId}/routes": {
+      "get": {
+        "operationId": "routes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "flowId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "versionId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER: the bearer resolves to no directory user"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the flow, or the named version of it, is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "flow-admin-controller"
+        ]
+      }
+    },
     "/api/v1/admin/flows/{flowId}/rule-sets": {
       "get": {
         "operationId": "listRuleSets",
@@ -1487,6 +1546,46 @@
         ]
       }
     },
+    "/api/v1/admin/mappings/{id}/test": {
+      "post": {
+        "operationId": "test",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "mapping-test-controller"
+        ]
+      }
+    },
     "/api/v1/admin/queue/summary": {
       "get": {
         "operationId": "summary",
@@ -1498,8 +1597,7 @@
             "schema": {
               "format": "uuid",
               "type": "string"
-            },
-            "style": "form"
+            }
           },
           {
             "in": "query",
@@ -1508,8 +1606,7 @@
             "schema": {
               "format": "date",
               "type": "string"
-            },
-            "style": "form"
+            }
           }
         ],
         "responses": {
@@ -1525,7 +1622,7 @@
                 }
               }
             },
-            "description": "The four live counts per flow and UTC day, ordered by flow code then day"
+            "description": "OK"
           },
           "400": {
             "content": {
@@ -2625,7 +2722,7 @@
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:65230"
+      "url": "http://127.0.0.1:51698"
     }
   ]
 }
