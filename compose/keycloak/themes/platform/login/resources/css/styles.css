@@ -3,12 +3,12 @@
  * the console's login card, so moving between the two never changes worlds.
  *
  * Selectors anchor on the ids the Keycloak base template renders in stable
- * form (#kc-content, #kc-content-wrapper, #kc-form-login, #username,
- * #password, #kc-login) plus plain elements, not PatternFly classes, so the
- * skin survives class drift between Keycloak releases. Markup anchors were
- * chosen against Keycloak's documented base theme; see the lane note in
- * _reports/ for what was verified in a running container vs. what is
- * theoretical.
+ * form (#kc-page-title, #kc-form-login, #username, #password, #kc-login),
+ * plain elements, and the few platform-* classes this theme names itself
+ * through theme.properties (kcFormCardClass and the password-visibility
+ * keys), never PatternFly classes, so the skin survives class drift between
+ * Keycloak releases. Verified against a running quay.io/keycloak/keycloak:26.8.0
+ * (row310 T86, light + dark render through ui/scripts/keycloak-harness.mjs).
  */
 
 html,
