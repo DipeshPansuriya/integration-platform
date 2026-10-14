@@ -1,7 +1,12 @@
 package io.integrationplatform.config.mapping.adapter.in;
 
 import io.integrationplatform.config.adapter.in.ConfigActors;
+import io.integrationplatform.config.adapter.in.ConfigErrorBody;
 import io.integrationplatform.config.mapping.application.MappingTestService;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.http.ResponseEntity;
@@ -31,6 +36,18 @@ public class MappingTestController {
     }
 
     /** {@code body} is the whole post; the sample is its {@code sample} member (MappingTestService). */
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "The sample ran; status is OK, ERROR or MAPPING_TIMEOUT"),
+        @ApiResponse(responseCode = "400", description = "Validation refusal: the mandatory sample is missing",
+            content = @Content(mediaType = "application/json",
+                schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER: the bearer resolves to no directory user",
+            content = @Content(mediaType = "application/json",
+                schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "404", description = "Not found: the mapping is unknown, not a uuid, or not visible"
+                + " to the bound tenant",
+            content = @Content(mediaType = "application/json",
+                schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping("/{id}/test")
     public ResponseEntity<Map<String, Object>> test(@PathVariable String id,
             @RequestBody(required = false) JsonNode body) {
