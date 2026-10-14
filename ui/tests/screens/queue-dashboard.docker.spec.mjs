@@ -116,7 +116,11 @@ test('the dashboard derives live queued/processed/converted/failed counts per fl
   await expect(after).toHaveAttribute('data-count-processed', '1');
 });
 
+// Isolation (row 310): test 1 seeds message/delivery rows into tenant A on the same booted backend,
+// so "no work at all" is read as the harness's empty-tenant binding - a tenant admin of tenant C,
+// which never holds a state row. The flow is onboarded AND the dashboard read as that tenant.
 test('a flow with no message or delivery rows shows no row - the dashboard never invents figures', async ({ page }) => {
+  await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'empty-tenant' });
   const flow = await freshFlow(page, 'no-work');
   await openQueue(page);
   await expect(page.locator('[data-empty="queue-no-work"]')).toBeVisible();
