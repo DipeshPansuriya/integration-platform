@@ -357,7 +357,8 @@ test('element defaults: forms stack (label above a full-width field, capped), ch
   assert.ok(max >= 480 && max <= 560, `fields are capped at 480-560px (got ${label.get('max-width')})`);
   assert.equal(ruleDecls(base, sel.inlineLabel).get('flex-direction'), 'row', 'checkbox/radio stay inline');
   const field = ruleDecls(base, sel.field);
-  assert.equal(field.get('border'), '1px solid var(--color-border)');
+  // row 310 T90: the field boundary is the >= 3:1 control token (WCAG 1.4.11), not the hairline
+  assert.equal(field.get('border'), '1px solid var(--color-border-control)');
   assert.equal(field.get('border-radius'), 'var(--r-1)');
   assert.equal(field.get('background'), 'var(--color-surface)');
   assert.equal(field.get('color'), 'var(--color-ink)');
@@ -409,3 +410,197 @@ for (const theme of ['light', 'dark']) {
     assert.deepEqual(pairs.filter((p) => p.ratio < 4.5).map((p) => `${p.name} = ${p.ratio.toFixed(2)}:1`), []);
   });
 }
+
+
+// ---------------------------------------------------------------------------
+// row 310 T90 (amit-developer): WCAG AA polish - primary button text (1.4.3),
+// form-control boundaries (1.4.11, >= 3:1 against every backdrop a control sits
+// on) and dark --color-ink-faint on every surface tier (menus/popups included).
+// The realm login theme mirrors the console, so the same values are pinned there.
+
+const REALM_CSS = join(root, '..', 'compose', 'keycloak', 'themes', 'platform', 'login', 'resources', 'css');
+const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+/** Body of the first block opened after `head` (an at-rule or a selector), braces matched. */
+function blockBody(css, head) {
+  const at = css.indexOf(head);
+  assert.ok(at >= 0, `missing block ${head}`);
+  const open = css.indexOf('{', at);
+  let depth = 0;
+  for (let i = open; i < css.length; i++) {
+    if (css[i] === '{') depth++;
+    else if (css[i] === '}' && --depth === 0) return css.slice(open + 1, i);
+  }
+  throw new Error(`unclosed block ${head}`);
+}
+
+function ruleOrNull(css, selector) {
+  try {
+    return ruleDecls(css, selector);
+  } catch {
+    return null;
+  }
+}
+
+function appMap(theme) {
+  const { light, dark } = readTokens();
+  const lightMap = tokenValues(light);
+  return theme === 'dark' ? new Map([...lightMap, ...tokenValues(dark)]) : lightMap;
+}
+
+function platformValues(block) {
+  const map = new Map();
+  for (const m of stripComments(block).matchAll(/(--platform-[a-z-]+)\s*:\s*([^;]+);/g)) map.set(m[1], m[2].trim());
+  return map;
+}
+
+function realmMap(theme) {
+  const css = stripComments(readFileSync(join(REALM_CSS, 'tokens.css'), 'utf8'));
+  const light = platformValues(blockBody(css, ':root'));
+  if (theme === 'light') return light;
+  const dark = platformValues(blockBody(blockBody(css, '@media (prefers-color-scheme: dark)'), ':root'));
+  return new Map([...light, ...dark]);
+}
+
+/** Resolve `var(--prefix-x)` (or a literal colour) through a theme map. */
+function resolver(map, prefix, theme) {
+  return (value) => {
+    assert.ok(value, 'a colour declaration is missing');
+    const m = value.match(new RegExp(`^var\\((${prefix}[a-z-]+)\\)$`));
+    if (!m) return parseColor(value);
+    assert.ok(map.has(m[1]), `${m[1]} must be declared for the ${theme} theme`);
+    return parseColor(map.get(m[1]));
+  };
+}
+
+const ratio = (fg, bg) => Math.round(contrast(fg, bg) * 100) / 100;
+const DARK_BTN = '[data-theme="dark"] .btn-primary';
+
+for (const theme of ['light', 'dark']) {
+  test(`T90 .btn-primary white text >= 4.5:1 at rest and hover in the ${theme} theme`, () => {
+    const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
+    const c = resolver(appMap(theme), '--color-', theme);
+    const primary = ruleDecls(base, '.btn-primary');
+    const text = c(primary.get('color'));
+    // every fill that can paint under the label in this theme (rest and hover rules)
+    const fills = [['.btn-primary:hover', ruleOrNull(base, '.btn-primary:hover')]];
+    if (theme === 'dark') {
+      const darkRest = ruleOrNull(base, DARK_BTN);
+      assert.ok(darkRest?.get('background'), `${DARK_BTN} must override the fill (white on dark accent is 3.68:1)`);
+      fills.unshift([DARK_BTN, darkRest]);
+      const darkHover = ruleOrNull(base, `${DARK_BTN}:hover`);
+      if (darkHover?.get('background')) fills.push([`${DARK_BTN}:hover`, darkHover]);
+      const f = darkHover?.get('filter');
+      if (f) {
+        const m = f.match(/^brightness\(([\d.]+)\)$/);
+        assert.ok(m && +m[1] <= 1, `dark hover may only darken the fill (got ${f})`);
+      }
+      // consistent with the T89 submit default: same dark primary fill
+      assert.equal(darkRest.get('background'), ruleDecls(base, sel.darkSubmit).get('background'));
+    } else {
+      fills.unshift(['.btn-primary', primary]);
+    }
+    const measured = fills.map(([name, d]) => ({ name, r: ratio(text, c(d.get('background'))) }));
+    for (const p of measured) console.log(`# ${theme} white on ${p.name} fill = ${p.r}:1`);
+    assert.deepEqual(measured.filter((p) => p.r < 4.5).map((p) => `${p.name} = ${p.r}:1`), []);
+  });
+
+  test(`T90 form-control boundary >= 3:1 on canvas, surface and raised (rest, hover, focus) in the ${theme} theme`, () => {
+    const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
+    const map = appMap(theme);
+    const c = resolver(map, '--color-', theme);
+    const field = ruleDecls(base, sel.field);
+    const m = (field.get('border') ?? '').match(/^1px solid (var\(--color-[a-z-]+\))$/);
+    assert.ok(m, `field border must be one 1px token line (got ${field.get('border')})`);
+    const states = [
+      ['rest', m[1]],
+      ['hover', ruleDecls(base, `${SCOPE} ${FIELDS}:where(:hover)${NOT_3P}`).get('border-color')],
+      ['focus', ruleDecls(base, `${SCOPE} ${FIELDS}:where(:focus)${NOT_3P}`).get('border-color')],
+    ];
+    const measured = [];
+    for (const [state, value] of states) {
+      for (const bgTok of ['--color-canvas', '--color-surface', '--color-surface-raised']) {
+        measured.push({ name: `${state} ${value} on ${bgTok}`, r: ratio(c(value), parseColor(map.get(bgTok))) });
+      }
+    }
+    for (const p of measured) console.log(`# ${theme} control ${p.name} = ${p.r}:1`);
+    assert.deepEqual(measured.filter((p) => p.r < 3).map((p) => `${p.name} = ${p.r}:1`), []);
+    assert.notEqual(m[1], 'var(--color-border)', 'the hairline token is for dividers, not control boundaries');
+    // hairlines stay hairlines
+    assert.equal(map.get('--color-border'), theme === 'dark' ? '#334155' : '#e2e8f0');
+  });
+
+  test(`T90 --color-ink-faint >= 4.5:1 on canvas, surface and raised, still fainter than ink-muted (${theme})`, () => {
+    const map = appMap(theme);
+    const faint = parseColor(map.get('--color-ink-faint'));
+    const muted = parseColor(map.get('--color-ink-muted'));
+    const measured = ['--color-canvas', '--color-surface', '--color-surface-raised'].map((bgTok) => {
+      const bg = parseColor(map.get(bgTok));
+      return { name: `ink-faint on ${bgTok}`, r: ratio(faint, bg), muted: ratio(muted, bg) };
+    });
+    for (const p of measured) console.log(`# ${theme} ${p.name} = ${p.r}:1 (ink-muted ${p.muted}:1)`);
+    assert.deepEqual(measured.filter((p) => p.r < 4.5).map((p) => `${p.name} = ${p.r}:1`), []);
+    for (const p of measured) assert.ok(p.r < p.muted, `${p.name} must stay fainter than ink-muted`);
+    if (theme === 'light') assert.equal(map.get('--color-ink-faint'), '#64748b', 'light ink-faint is unchanged');
+  });
+
+  test(`T90 realm login tokens carry the console values (${theme} parity)`, () => {
+    const app = appMap(theme);
+    const realm = realmMap(theme);
+    for (const [a, r] of [
+      ['--color-ink-faint', '--platform-ink-faint'],
+      ['--color-border-control', '--platform-border-control'],
+      ['--color-accent-hover', '--platform-accent-hover'],
+      ['--color-accent', '--platform-accent'],
+      ['--color-canvas', '--platform-canvas'],
+      ['--color-surface', '--platform-surface'],
+      ['--color-surface-raised', '--platform-raised'],
+      ['--color-ink-muted', '--platform-ink-muted'],
+      ['--color-border', '--platform-border'],
+    ]) {
+      assert.ok(app.has(a), `${a} must exist in the console (${theme})`);
+      assert.equal(realm.get(r), app.get(a), `${r} must equal console ${a} in ${theme}`);
+    }
+  });
+
+  test(`T90 realm login: primary text, control boundary and faint text pass in the ${theme} theme`, () => {
+    const styles = stripComments(readFileSync(join(REALM_CSS, 'styles.css'), 'utf8'));
+    const map = realmMap(theme);
+    const c = resolver(map, '--platform-', theme);
+    const darkBody = styles.includes('@media (prefers-color-scheme: dark)')
+      ? blockBody(styles, '@media (prefers-color-scheme: dark)')
+      : '';
+    const pick = (selector, prop) =>
+      (theme === 'dark' ? ruleOrNull(darkBody, selector)?.get(prop) : undefined) ?? ruleDecls(styles, selector).get(prop);
+    const measured = [];
+    const text = c(pick('#kc-login', 'color'));
+    for (const s of ['#kc-login', '#kc-login:hover']) {
+      measured.push({ name: `text-on-accent on ${s}`, r: ratio(text, c(pick(s, 'background'))), floor: 4.5 });
+    }
+    const border = ruleDecls(styles, 'input[type="text"]').get('border');
+    const rest = (border ?? '').replace(/^1px solid /, '');
+    for (const [state, value] of [['rest', rest], ['hover', pick('input:hover', 'border-color')]]) {
+      for (const bgTok of ['--platform-canvas', '--platform-surface', '--platform-raised']) {
+        measured.push({ name: `input ${state} ${value} on ${bgTok}`, r: ratio(c(value), parseColor(map.get(bgTok))), floor: 3 });
+      }
+    }
+    for (const bgTok of ['--platform-canvas', '--platform-surface', '--platform-raised']) {
+      measured.push({ name: `ink-faint on ${bgTok}`, r: ratio(c('var(--platform-ink-faint)'), parseColor(map.get(bgTok))), floor: 4.5 });
+    }
+    for (const p of measured) console.log(`# realm ${theme} ${p.name} = ${p.r}:1 (floor ${p.floor})`);
+    assert.deepEqual(measured.filter((p) => p.r < p.floor).map((p) => `${p.name} = ${p.r}:1 < ${p.floor}`), []);
+    assert.equal(border, '1px solid var(--platform-border-control)', 'realm inputs use the control token');
+  });
+}
+
+test('T90 no token comment claims the false dark white-on-accent 5.17:1', () => {
+  const { dark } = readTokens();
+  const line = dark.split('\n').find((l) => l.includes('--color-accent:'));
+  assert.ok(!/white text 5\.17/.test(line), `app dark accent comment is false: ${line.trim()}`);
+  const realm = readFileSync(join(REALM_CSS, 'tokens.css'), 'utf8');
+  assert.ok(!/dark accent also measures 5\.17/.test(realm), 'realm dark accent comment is false (3.68:1)');
+  const styles = readFileSync(join(REALM_CSS, 'styles.css'), 'utf8');
+  assert.ok(!/5\.17:1 \(dark\)/.test(styles), 'realm primary-button comment is false for dark');
+  const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
+  assert.ok(!/dark accent same ratio/.test(base), 'base.css .btn-primary comment is false for dark');
+});
