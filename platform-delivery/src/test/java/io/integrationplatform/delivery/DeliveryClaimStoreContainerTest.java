@@ -272,13 +272,17 @@ class DeliveryClaimStoreContainerTest {
                 () -> claimService().claim("t|order-held", held, UUID.randomUUID(), base.plusSeconds(5))))
                 .isEqualTo(Outcome.NO_EFFECT); // HELD is not re-claimable; release is a separate transition
 
-        // the blocker becomes final and the held delivery is released (ADR-010 section 6, HELD -> DUE)
+        // the blocker becomes final and the held delivery is released IN THE SAME TRANSACTION (E9, T-165;
+        // ADR-011 Decision 6 - the E2 order stays: HELD is never re-claimable, release is its own transition)
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> repository().markDelivered(earlier, earlierToken, base.plusSeconds(6)))).isTrue();
-        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> repository().release(held, base.plusSeconds(7)))).isTrue();
-        assertThat(state(held)).isEqualTo(DeliveryState.DUE);
+        assertThat(state(held)).isEqualTo(DeliveryState.DUE); // released by the final state's own transaction
         assertThat(eventCount(held, DeliveryEventType.RELEASE)).isEqualTo(1);
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> repository().release(held, base.plusSeconds(7))))
+                .as("nothing is left for a separate release to do - the final state already released it")
+                .isFalse();
+        assertThat(eventCount(held, DeliveryEventType.RELEASE)).isEqualTo(1); // the no-op release moved nothing
     }
 
     @Test

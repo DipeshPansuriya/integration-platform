@@ -2,6 +2,11 @@ package io.integrationplatform.routing.stage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.transport.ReceiverContext;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -16,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.MockConsumer;
@@ -172,6 +178,148 @@ class StageConsumerTest {
         assertThat(poisonedValues).isEmpty();
     }
 
+    // ---------- T-191 (E8-F1-S3; ADR-005 Decision 12): the five controls on the stage consumers ----------
+
+    private static final String GROUP = "platform-stage-1";
+    private static final TopicPartition SECOND_PARTITION = new TopicPartition(TOPIC, 1);
+    private static final String TRACEPARENT = "00-4bf92f3577b34da6a3ce929d84e974e6-00f067aa0ba902b7-01";
+
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    private final List<String> alerts = new ArrayList<>();
+    private final StageAlerts recordingAlerts = new StageAlerts() {
+        @Override
+        public void poisonArrived(String group, String topic, int partition, long offset, String reason) {
+            alerts.add("poison " + group + " " + topic + "-" + partition + "@" + offset);
+        }
+
+        @Override
+        public void lagExceeded(LagAlert alert) {
+            alerts.add("lag " + alert.group());
+        }
+    };
+
+    private StageConsumer controlledStage(ObservationRegistry observations) {
+        return new StageConsumer(broker, new WorkRecordParser(), rows, (record, tenantId) -> workDone.add(tenantId),
+                (key, value, reason) -> poisonedValues.add(value), attempt -> Duration.ofMillis(250L * attempt),
+                Duration.ofMillis(50), clock, duration -> {
+                    clock.advance(duration);
+                    sleeps.add(duration);
+                }, new StageSettings(GROUP, 5, Duration.ofSeconds(30)), meters, observations, recordingAlerts);
+    }
+
+    private ConsumerRecord<byte[], byte[]> workRecordAt(int partition, long offset) {
+        ConsumerRecord<byte[], byte[]> record = new ConsumerRecord<>(TOPIC, partition, offset, new byte[0],
+                ("{\"v\":1,\"type\":\"message.accepted\",\"id\":\"" + ROW_ID + "\"}").getBytes());
+        record.headers().add("traceparent", TRACEPARENT.getBytes());
+        return record;
+    }
+
+    @Test
+    void fiveConsecutiveTransientErrorsOpenTheGroupsDatabaseBreakerAndPauseEveryPartitionForTheOpenPeriod()
+            throws Exception {
+        redeliverFake.assign(List.of(PARTITION, SECOND_PARTITION));
+        redeliverFake.seed(PARTITION, workRecordAt(0, 0));
+        redeliverFake.seed(SECOND_PARTITION, workRecordAt(1, 0));
+        rows.failTheNextVisibleChecks(5); // the database is down for exactly five calls
+        StageConsumer stage = controlledStage(ObservationRegistry.NOOP);
+
+        for (int turn = 0; turn < 20 && !breakerOpen(); turn++) {
+            stage.drainOnce();
+        }
+        assertThat(breakerOpen()).as("5 consecutive transient database errors open the group's breaker").isTrue();
+        assertThat(redeliverFake.pauseCalls())
+                .as("the open breaker pauses ALL the group's partitions, not only the failing one")
+                .anySatisfy(paused -> assertThat(paused).contains(PARTITION, SECOND_PARTITION));
+
+        stage.drainOnce();
+        stage.drainOnce();
+        assertThat(workDone).as("inside the open period nothing is consumed, though the database is back")
+                .isEmpty();
+        assertThat(meters.get("platform.stage.pauses").tags("group", GROUP, "reason", "breaker").counter().count())
+                .isGreaterThanOrEqualTo(1.0);
+
+        stage.runUntil(clock.instant().plusSeconds(120));
+
+        assertThat(workDone).as("after the open period both records are consumed - none skipped, none poisoned")
+                .hasSize(2);
+        assertThat(redeliverFake.pausedPartitions()).as("every partition resumed").isEmpty();
+        assertThat(poisonedValues).isEmpty();
+    }
+
+    @Test
+    void everyConsumedRecordIsObservableOutcomesPausesPoisonArrivalsAndASpanRestoringTheTraceparent()
+            throws Exception {
+        ConsumerRecord<byte[], byte[]> unreadable = new ConsumerRecord<>(TOPIC, 0, 0, new byte[0],
+                "not a record contract at all".getBytes());
+        redeliverFake.seed(PARTITION, unreadable, workRecordAt(0, 1));
+        rows.failTheNextVisibleChecks(1);
+        ObservationRegistry observations = ObservationRegistry.create();
+        List<Observation.Context> stopped = new ArrayList<>();
+        observations.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public void onStop(Observation.Context context) {
+                stopped.add(context);
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        StageConsumer stage = controlledStage(observations);
+
+        stage.runUntil(clock.instant().plusSeconds(10));
+
+        assertThat(outcomes("poisoned")).as("records per outcome").isEqualTo(1.0);
+        assertThat(outcomes("transient")).isEqualTo(1.0);
+        assertThat(outcomes("consumed")).isEqualTo(1.0);
+        assertThat(meters.get("platform.stage.pauses").tags("group", GROUP, "reason", "transient").counter()
+                .count()).as("pauses").isEqualTo(1.0);
+        assertThat(meters.get("platform.stage.poison.arrivals").tags("group", GROUP, "topic", TOPIC).counter()
+                .count()).as("poison arrivals").isEqualTo(1.0);
+        assertThat(alerts).as("every poison arrival raises the alert, naming group, topic, partition, offset")
+                .containsExactly("poison " + GROUP + " " + TOPIC + "-0@0");
+        assertThat(meters.get("platform.alerts.fired").tags("alert", "poison").counter().count()).isEqualTo(1.0);
+        assertThat(stopped).extracting(Observation.Context::getName).as("a finished span per record")
+                .containsOnly("platform.stage.record").hasSize(3);
+        List<String> restored = stopped.stream()
+                .filter(observation -> observation instanceof ReceiverContext<?>)
+                .map(observation -> restoredTraceparent((ReceiverContext<?>) observation)).toList();
+        assertThat(restored).as("a span per record, restoring the record's traceparent header").hasSize(3)
+                .contains(TRACEPARENT);
+    }
+
+    @Test
+    void theConsumerSettingsCarryTheTimeoutControls() {
+        Map<String, Object> config = StageConsumer.consumerConfig("broker:9092", GROUP);
+
+        assertThat(config).containsEntry(ConsumerConfig.GROUP_ID_CONFIG, GROUP)
+                .containsEntry(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false)
+                .as("ADR-005 D12: max.poll.interval.ms 5 minutes - no target call runs on the poll thread")
+                .containsEntry(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 300_000)
+                .as("every blocking client call (commit, position) is bounded")
+                .containsEntry(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 10_000)
+                .containsEntry(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
+    }
+
+    private boolean breakerOpen() {
+        return meters.find("resilience4j.circuitbreaker.state").tags("name", "database-" + GROUP, "state", "open")
+                .gauge() != null
+                && meters.get("resilience4j.circuitbreaker.state").tags("name", "database-" + GROUP, "state", "open")
+                        .gauge().value() == 1.0;
+    }
+
+    private double outcomes(String outcome) {
+        return meters.get("platform.stage.records").tags("group", GROUP, "topic", TOPIC, "outcome", outcome)
+                .counter().count();
+    }
+
+    private static String restoredTraceparent(ReceiverContext<?> context) {
+        @SuppressWarnings("unchecked")
+        ReceiverContext<Object> receiver = (ReceiverContext<Object>) context;
+        return receiver.getGetter().get(receiver.getCarrier(), "traceparent");
+    }
+
     /** The protected-row fake: the row always carries {@link #ROW_TENANT}, its visibility can fail transiently. */
     private static final class DecidingRows implements StageConsumer.ProtectedRows {
 
@@ -228,6 +376,7 @@ class StageConsumerTest {
         private final Map<TopicPartition, Long> position = new HashMap<>();
         private final List<Long> commitLog = new ArrayList<>();
         private final Set<TopicPartition> paused = new HashSet<>();
+        private final List<Set<TopicPartition>> pauseCalls = new ArrayList<>();
 
         RedeliverConsumer() {
             super(OffsetResetStrategy.EARLIEST);
@@ -248,6 +397,11 @@ class StageConsumerTest {
 
         Set<TopicPartition> pausedPartitions() {
             return paused;
+        }
+
+        /** Every pause call's partitions, in call order. */
+        List<Set<TopicPartition>> pauseCalls() {
+            return pauseCalls;
         }
 
         @Override
@@ -274,6 +428,7 @@ class StageConsumerTest {
 
         @Override
         public synchronized void pause(Collection<TopicPartition> partitions) {
+            pauseCalls.add(Set.copyOf(partitions));
             paused.addAll(partitions);
         }
 

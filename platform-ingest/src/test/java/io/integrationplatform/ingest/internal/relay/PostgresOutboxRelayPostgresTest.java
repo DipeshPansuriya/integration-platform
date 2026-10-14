@@ -249,6 +249,49 @@ class PostgresOutboxRelayPostgresTest {
                 .isLessThanOrEqualTo(1);
     }
 
+    // ---------- T-191 (E8-F1-S3; ADR-005 Decision 12): statement timeout and the backlog the gauges read ----------
+
+    @Test
+    void theRelaysBucketAndBacklogTransactionsRunUnderTheFiveSecondStatementTimeout() {
+        context.bind(TENANT_A);
+        try {
+            String inBucket = transactions.execute(status -> {
+                access.lockKeyBucket(0);
+                return JdbcClient.create(appPool).sql("show statement_timeout").query(String.class).single();
+            });
+            String inBacklog = transactions.execute(status -> {
+                access.backlog(java.time.Instant.now());
+                return JdbcClient.create(appPool).sql("show statement_timeout").query(String.class).single();
+            });
+
+            assertThat(inBucket).as("ADR-005 D12: database statement timeout 5 s on the relay's bucket work")
+                    .isEqualTo("5s");
+            assertThat(inBacklog).as("and on the backlog read").isEqualTo("5s");
+        } finally {
+            context.unbind();
+        }
+    }
+
+    @Test
+    void theBacklogCountsOnlyTheBoundTenantsDueUnpublishedRowsAndTheOldestDueTime() {
+        seed(TENANT_A, 1, "key-a1");
+        seed(TENANT_A, 2, "key-a2");
+        seed(TENANT_B, 1, "key-b1");
+        java.time.Instant now = java.time.Instant.now();
+
+        context.bind(TENANT_A);
+        OutboxBacklog backlog;
+        try {
+            backlog = transactions.execute(status -> access.backlog(now));
+        } finally {
+            context.unbind();
+        }
+
+        assertThat(backlog.unpublishedRows()).as("tenant A's two due rows - never tenant B's (RLS)").isEqualTo(2);
+        assertThat(backlog.oldestDueAt()).as("seeded due 5 s ago")
+                .isBetween(now.minusSeconds(60), now.minusSeconds(4));
+    }
+
     // ---------- wiring and helpers ----------
 
     private PostgresOutboxRelay relay(io.integrationplatform.ingest.port.PublishPort port, int batchSize) {
