@@ -73,11 +73,21 @@
          engine-candidate additions for the spike stay in lane A's diff (test scope, platform-transform/pom.xml). -->
     <jsonata.version>0.9.10</jsonata.version>
 
+    <!-- E14 seam (arjun-fullstack, F8): ADR-012 Decision 1 - the scheduler engine is db-scheduler via its Spring Boot
+         starter, Apache-2.0. Version re-checked against Maven Central's maven-metadata at seam time: 16.12.0 is the
+         newest release. Pinning is the seam; the modules that use it add the starter themselves (T-056:
+         platform-config + platform-app - no new module, config owns rows/API, app owns wiring, ADR-012 section 2). -->
+    <db-scheduler.version>16.12.0</db-scheduler.version>
+
     <!-- Surefire (R03, R06): container tests are excluded unless -Pcontainer. -->
     <surefire.groups></surefire.groups>
     <surefire.excludedGroups>container</surefire.excludedGroups>
     <!-- Empty default so @{argLine} resolves when no agent (e.g. JaCoCo) sets it. -->
     <argLine></argLine>
+    <!-- Fork JVM args for surefire (R06 small-run default; the container profile raises heap/metaspace
+         because a full Boot 4 app context + testcontainer inside one fork exceeds the default pair
+         (window-1 evidence 2026-10-13: fork died malloc, hs_err on platform-app 2a4b579). -->
+    <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx256m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>
   </properties>
 
   <dependencyManagement>
@@ -193,6 +203,13 @@
         <artifactId>jsonata</artifactId>
         <version>${jsonata.version}</version>
       </dependency>
+      <!-- E14 seam (arjun-fullstack, F8): ADR-012 Decision 1 (Accepted, Dipesh 2026-10-12) - the scheduler engine;
+           its task table is created by Flyway (V2_2_1400, scheduler schema), never auto-created. -->
+      <dependency>
+        <groupId>com.github.kagkarlsson</groupId>
+        <artifactId>db-scheduler-spring-boot-starter</artifactId>
+        <version>${db-scheduler.version}</version>
+      </dependency>
       <dependency>
         <groupId>com.tngtech.archunit</groupId>
         <artifactId>archunit-junit5</artifactId>
@@ -265,7 +282,7 @@
         <configuration>
           <groups>${surefire.groups}</groups>
           <excludedGroups>${surefire.excludedGroups}</excludedGroups>
-          <argLine>@{argLine} -Duser.timezone=Etc/UTC -Xmx256m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true -javaagent:${org.mockito:mockito-core:jar}</argLine>
+          <argLine>@{argLine} ${surefireJvmArgs} -javaagent:${org.mockito:mockito-core:jar}</argLine>
         </configuration>
       </plugin>
     </plugins>
@@ -278,6 +295,8 @@
       <properties>
         <surefire.groups>container</surefire.groups>
         <surefire.excludedGroups></surefire.excludedGroups>
+        <!-- ponytail override: only heap/metaspace grow; flags stay. Serialized suites keep R06 cost bounded. -->
+        <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx1g -XX:MaxMetaspaceSize=512m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>
       </properties>
     </profile>
   </profiles>

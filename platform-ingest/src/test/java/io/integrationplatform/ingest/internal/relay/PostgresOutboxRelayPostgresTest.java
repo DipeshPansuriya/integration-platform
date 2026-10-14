@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.ingest.internal.publish.InMemoryPublishPort;
+import io.integrationplatform.ingest.port.OutboundRecord;
 import io.integrationplatform.ingest.port.OutboxTopic;
+import io.integrationplatform.ingest.port.PublishReceipt;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.sql.Connection;
@@ -190,9 +192,109 @@ class PostgresOutboxRelayPostgresTest {
         assertThat(countWhere("published_at is null")).as("everything marked").isZero();
     }
 
+    /**
+     * T-179, E8-F1-S1 gherkin @negative "Two relay instances never reorder one key" (per ADR fix m-817272
+     * B3): 100 same-key outbox rows of one bucket, two relay instances running at once. The first publish
+     * holds its transaction open until the OTHER relay has published something or a window elapses, so the
+     * moment their claims overlap is reproduced deliberately, not left to the scheduler. The key-bucket
+     * advisory lock (taken inside {@code publishBucket} before the claim) is what stops the second instance
+     * from SKIP LOCKED-ing later rows ahead of an unpublished one: the rows go out in outbox-id order, and
+     * only one relay works the bucket at a time.
+     */
+    @Test
+    void twoRelayInstancesNeverReorderOneKey() throws Exception {
+        for (int row = 0; row < 100; row++) {
+            seed(TENANT_A, 4, "one-ordering-key");
+        }
+        OrderRecordingPublishPort log = new OrderRecordingPublishPort(Duration.ofSeconds(2, 500000000L));
+        PostgresOutboxRelay relayOne = relay(log, 25);
+        PostgresOutboxRelay relayTwo = relay(log, 25);
+        CountDownLatch go = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        Thread one = new Thread(() -> {
+            try {
+                go.await();
+                for (int cycle = 0; cycle < 6; cycle++) {
+                    relayOne.runOnce();
+                }
+            } catch (Throwable thrown) {
+                failure.compareAndSet(null, thrown);
+            }
+        });
+        Thread two = new Thread(() -> {
+            try {
+                go.await();
+                for (int cycle = 0; cycle < 6; cycle++) {
+                    relayTwo.runOnce();
+                }
+            } catch (Throwable thrown) {
+                failure.compareAndSet(null, thrown);
+            }
+        });
+        one.start();
+        two.start();
+        go.countDown();
+        one.join();
+        two.join();
+
+        assertThat(failure.get()).isNull();
+        assertThat(log.order()).as("every same-key row was published exactly once").hasSize(100)
+                .doesNotHaveDuplicates();
+        assertThat(log.order()).as("published in sequence order - the earliest row never overtaken")
+                .isSorted();
+        assertThat(log.publishesAtHolderRelease())
+                .as("only one relay published that key's rows while the first publish held the bucket: the"
+                        + " second instance waited on the key-bucket advisory lock instead of racing ahead")
+                .isLessThanOrEqualTo(1);
+    }
+
+    // ---------- T-191 (E8-F1-S3; ADR-005 Decision 12): statement timeout and the backlog the gauges read ----------
+
+    @Test
+    void theRelaysBucketAndBacklogTransactionsRunUnderTheFiveSecondStatementTimeout() {
+        context.bind(TENANT_A);
+        try {
+            String inBucket = transactions.execute(status -> {
+                access.lockKeyBucket(0);
+                return JdbcClient.create(appPool).sql("show statement_timeout").query(String.class).single();
+            });
+            String inBacklog = transactions.execute(status -> {
+                access.backlog(java.time.Instant.now());
+                return JdbcClient.create(appPool).sql("show statement_timeout").query(String.class).single();
+            });
+
+            assertThat(inBucket).as("ADR-005 D12: database statement timeout 5 s on the relay's bucket work")
+                    .isEqualTo("5s");
+            assertThat(inBacklog).as("and on the backlog read").isEqualTo("5s");
+        } finally {
+            context.unbind();
+        }
+    }
+
+    @Test
+    void theBacklogCountsOnlyTheBoundTenantsDueUnpublishedRowsAndTheOldestDueTime() {
+        seed(TENANT_A, 1, "key-a1");
+        seed(TENANT_A, 2, "key-a2");
+        seed(TENANT_B, 1, "key-b1");
+        java.time.Instant now = java.time.Instant.now();
+
+        context.bind(TENANT_A);
+        OutboxBacklog backlog;
+        try {
+            backlog = transactions.execute(status -> access.backlog(now));
+        } finally {
+            context.unbind();
+        }
+
+        assertThat(backlog.unpublishedRows()).as("tenant A's two due rows - never tenant B's (RLS)").isEqualTo(2);
+        assertThat(backlog.oldestDueAt()).as("seeded due 5 s ago")
+                .isBetween(now.minusSeconds(60), now.minusSeconds(4));
+    }
+
     // ---------- wiring and helpers ----------
 
-    private PostgresOutboxRelay relay(InMemoryPublishPort port, int batchSize) {
+    private PostgresOutboxRelay relay(io.integrationplatform.ingest.port.PublishPort port, int batchSize) {
         return new PostgresOutboxRelay(() -> List.of(TENANT_A), access, context, transactions, port,
                 Duration.ofSeconds(5), batchSize);
     }
@@ -280,5 +382,76 @@ class PostgresOutboxRelayPostgresTest {
 
     private static UUID id(String name) {
         return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Records every publish in one shared log ordered by publish time; the FIRST publish call of a test holds
+     * until a publish from ANOTHER thread is logged or the window elapses. Either way the moment the two
+     * relay instances' claims overlap is reproduced deliberately: with the lock the second instance waits
+     * (nothing of it is published while the holder's transaction is open); without it the second instance's
+     * SKIP LOCKED claim publishes later rows first and the order log shows the reordering at once.
+     */
+    private static final class OrderRecordingPublishPort implements io.integrationplatform.ingest.port.PublishPort {
+
+        private final java.time.Duration window;
+        private final java.util.concurrent.ConcurrentLinkedQueue<Long> order =
+                new java.util.concurrent.ConcurrentLinkedQueue<>();
+        private final java.util.Map<Long, Integer> perThreadPublishes = new java.util.concurrent.ConcurrentHashMap<>();
+        private final java.util.concurrent.atomic.AtomicReference<Long> firstPublisher =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        private final java.util.concurrent.atomic.AtomicInteger publishesAtRelease =
+                new java.util.concurrent.atomic.AtomicInteger(-1);
+
+        OrderRecordingPublishPort(java.time.Duration window) {
+            this.window = window;
+        }
+
+        @Override
+        public PublishReceipt publish(OutboundRecord record) {
+            order.add(record.outboxId());
+            long thread = Thread.currentThread().threadId();
+            perThreadPublishes.merge(thread, 1, Integer::sum);
+            if (firstPublisher.compareAndSet(null, thread)) {
+                waitUntilAnotherThreadHasPublishedOrTheWindowElapsed();
+            }
+            return new RowReceipt(record.outboxId());
+        }
+
+        @Override
+        public boolean acknowledge(PublishReceipt receipt, Duration timeout) {
+            return true;
+        }
+
+        private void waitUntilAnotherThreadHasPublishedOrTheWindowElapsed() {
+            long holder = Thread.currentThread().threadId();
+            long deadline = System.nanoTime() + window.toNanos();
+            while (System.nanoTime() < deadline) {
+                boolean anotherThreadPublished = perThreadPublishes.keySet().stream()
+                        .anyMatch(thread -> thread != holder && perThreadPublishes.get(thread) > 0);
+                if (anotherThreadPublished) {
+                    break;
+                }
+                try {
+                    Thread.sleep(5);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            publishesAtRelease.set(order.size());
+        }
+
+        /** The publications in publish order. */
+        List<Long> order() {
+            return List.copyOf(order);
+        }
+
+        /** How many publications (of all threads) had happened when the first publish's wait released. */
+        int publishesAtHolderRelease() {
+            return publishesAtRelease.get();
+        }
+
+        private record RowReceipt(long outboxId) implements PublishReceipt {
+        }
     }
 }

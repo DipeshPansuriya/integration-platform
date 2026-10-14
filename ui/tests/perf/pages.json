@@ -5,6 +5,7 @@
     { "name": "flow-definition", "path": "/#/flows", "wait": "[data-field=\"source-system\"]" },
     { "name": "versions", "path": "/#/versions", "wait": "[data-flow-row]" },
     { "name": "systems", "path": "/#/systems", "wait": "[data-page=\"systems\"][data-systems-loaded=\"true\"]" },
-    { "name": "contracts", "path": "/#/contracts", "wait": "[data-page=\"contracts\"][data-contracts-loaded=\"true\"]" }
+    { "name": "contracts", "path": "/#/contracts", "wait": "[data-page=\"contracts\"][data-contracts-loaded=\"true\"]" },
+    { "name": "mapping-designer", "path": "/#/mappings", "wait": "[data-page=\"mapping-designer\"][data-mapping-loaded=\"true\"]" }
   ]
 }

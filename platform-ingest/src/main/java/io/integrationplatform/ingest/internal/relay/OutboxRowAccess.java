@@ -14,6 +14,15 @@ import java.util.List;
 public interface OutboxRowAccess {
 
     /**
+     * Takes the key-bucket advisory lock for {@code keyBucket} inside the caller's transaction, held to commit
+     * (T-179, ADR fix m-817272 B3): two relay instances never work one bucket's rows at the same time, so the
+     * second instance's claim waits here instead of {@code SKIP LOCKED}-ing later rows ahead of an unpublished
+     * one - the same-key publication order is the outbox-id order, end to end. Called before the claim, inside
+     * the tenant-bound transaction (R11); the lock is scoped to the bucket of the bound tenant.
+     */
+    void lockKeyBucket(int keyBucket);
+
+    /**
      * Locks up to {@code limit} unpublished rows of {@code keyBucket} whose {@code available_at <= now} in
      * outbox-id order ({@code FOR UPDATE SKIP LOCKED}), leaving rows another transaction holds to it.
      */
@@ -25,4 +34,14 @@ public interface OutboxRowAccess {
      * @return {@code false} when 0 rows changed (already marked or gone) - no effect, never an exception
      */
     boolean markPublished(long outboxId);
+
+    /**
+     * The bound tenant's due unpublished rows: their count and the oldest {@code available_at} (T-191, the backlog
+     * gauges and the outbox-age alert). Runs inside the caller's tenant-bound transaction like the other methods.
+     * The default answers {@link OutboxBacklog#NONE} for accesses that cannot count (test doubles); the real
+     * {@link JdbcOutboxAccess} counts.
+     */
+    default OutboxBacklog backlog(Instant now) {
+        return OutboxBacklog.NONE;
+    }
 }

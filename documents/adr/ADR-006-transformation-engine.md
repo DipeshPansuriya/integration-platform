@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ADR-006 - Transformation engine: JSONata (Dashjoin Java port) called directly by platform-transform, confirmed by the spike"
-status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - the spike T-030 to T-032 still has to confirm gates G1 to G4; lane D T-034 and T-035 may start now; T-036, T-039 and T-108 wait for the spike results"
+status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - the spike T-030 to T-032 ran 2026-10-12 (lane A, T50) and confirms G1 5/5 and G4 on Dashjoin JSONata 0.9.10; G2 and G3 are measured by their owning tasks T-109 and T-038 in lanes B2/B3 against the real port, as the spike was scoped; T-036, T-039 and T-108 are unblocked; the filled results table goes to Dipesh for review"
 approved: "Dipesh, 2026-10-12 (hub memory m-f1fcfc)"
 date: 2026-10-11
 author: "mahesh-architect (ledger row 307 under row 278, task T-033)"
@@ -22,12 +22,16 @@ Source paths starting `ws/` are in the hub repository, project workspace
 Every statement carries a grade: **[Verified]** (read in the cited file this pass), **[Inferred]**
 (a reasoned conclusion, not yet measured) or **[TBD]** (needs the spike or a fact only Dipesh holds).
 
-> **Status of this draft.** The plan writes ADR-006 "before the canvas code, after its spike"
-> (`documents/adr/README.md:22`) [Verified]. The spike tasks T-030, T-031 and T-032 have not run
-> (epic E7 has not started; `ws/_specs/backlog.md:197`) [Verified]. This draft therefore fixes the
-> question, the candidates, the scoring rule, the gates and the rules carried with the decision;
-> the measured results are **[TBD]** and the weighted table below is a desk score that the spike
-> replaces before Dipesh approves.
+> **Status of this record.** The plan writes ADR-006 "before the canvas code, after its spike"
+> (`documents/adr/README.md:22`) [Verified]. The spike (T-030, T-031, T-032, lane A amit-developer,
+> tracker T50) **ran 2026-10-12** in the lane worktree `worktree-amit-developer-integration-platform-t50`;
+> the results it produces are committed as the evidence file
+> `platform-transform/src/test/resources/spike/results.md` at `e39d24f` (branch
+> `worktree-amit-developer-integration-platform-t50`) [Verified, read this pass]. **Candidate A
+> (Dashjoin JSONata 0.9.10) passed all five breaking cases and gate G4 is green; candidates C, D and E
+> are disqualified** by the one-failed-case rule. The results table below is now filled from that
+> file; the harness re-runs the exact rows (`SpikeRecordedTest` re-derives every PASS/FAIL cell from a
+> fresh run), so the table cannot drift from the code [Verified in results.md].
 
 > **Approved by Dipesh 2026-10-12** (hub memory m-f1fcfc), as recommended, before the spike ran.
 > What he approved: (1) the JSONata language through the Dashjoin port, **provided the spike
@@ -36,6 +40,8 @@ Every statement carries a grade: **[Verified]** (read in the cited file this pas
 > and T-035 now**; (3) **T-036, T-039 and T-108 wait for the spike results**; (4) JSONata4Java
 > 3.0.0 joins the spike as a same-language control. If the spike moves the decision to C (ZEN) or
 > no candidate passes, the record goes back to Dipesh before any canvas expression code.
+> **Outcome of that condition:** A did not fail a gate, so the approval holds (see Open item 3 for
+> the one clause this spike did not discharge - candidate B was not in the T50 brief and did not run).
 
 ## How this differs from ADR-004
 
@@ -117,33 +123,46 @@ addition.
 
 Grades: weights [Inferred] (team judgement, derived from the done-when clauses); C's
 array-restructuring score and D/E's editor and maintenance scores [Verified] against
-`ws/_reports/2026-09-30-oss-rnd.md:95-98`; every other score [Inferred]. In particular A's dialect
-score assumes the Dashjoin port follows the JSONata 2.x reference that gnata targets, and A's hygiene
-score assumes the port carries no Jackson dependency of its own - both are the open research
-question at `ws/_specs/project-plan.md:217` and are measured by T-032. [TBD]
+`ws/_reports/2026-09-30-oss-rnd.md:95-98`; every other score was [Inferred]. **The two assumptions
+this table leaned on are now measured** (T-032, `results.md` at `e39d24f`): A's dialect score
+assumed reference parity - measured 7 of 8 probes match with one recorded deviation (`$round`), and
+A's hygiene score assumed no Jackson dependency of its own - confirmed, the engine carries zero
+Jackson. The desk ranking stands; the spike verdicts above, not these scores, decided. [Verified]
 
 ### Spike results (filled by T-030 to T-032, amit-developer; this table is the evidence Dipesh approves on)
 
 | Candidate | G1 lookups | G1 conditionals | G1 arrays | G1 enrichment | G1 errors | G2 runaway | G3 p100 round trip | Dialect gap vs reference | Jackson cost | Verdict |
 |---|---|---|---|---|---|---|---|---|---|---|
-| A Dashjoin JSONata 0.9.10 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| B JSONata4Java 3.0.0 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| C ZEN expressions | TBD | TBD | TBD | TBD | TBD | TBD | TBD | n/a | TBD | TBD |
-| D JOLT (control) | TBD | TBD | TBD | TBD | TBD | TBD | TBD | n/a | TBD | TBD |
-| E JSLT (control) | TBD | TBD | TBD | TBD | TBD | TBD | TBD | n/a | TBD | TBD |
+| A Dashjoin JSONata 0.9.10 | PASS (33 ms) | PASS (1 ms) | PASS (6 ms) | PASS (0 ms) | PASS (0 ms) | spike n/a - measured by T-109 on the real port | spike n/a - measured by T-038 on the real port | 1 deviation on record: `$round` halves to even (0.5 -> 0, 2.5 -> 2); reference rounds away from zero (rule 8) | 0 - the engine carries no Jackson of any major; it sits on the string boundary (`Json#parseJson`) | **PASSED** (G1 5/5, G4 green) |
+| B JSONata4Java 3.0.0 | - | - | - | - | - | - | - | not measured | not measured | **NOT RUN** - in the approval clause (4) but absent from the T50 brief; per Decision 2 B decides only if A fails a gate, and A did not fail (Open item 3) |
+| C ZEN expressions 2.1.1 | FAIL (dynamic table key cannot be resolved) | PASS (637 ms; ternary only - `if/then/else` does not parse) | FAIL (no element-wise array mapping) | FAIL | PASS (6 ms) | n/a - disqualified at G1 | n/a - disqualified at G1 | n/a | 0 - string in/out through `JsonBuffer` | **DISQUALIFIED** (lookups, arrays, enrichment are structural, not flaky) |
+| D JOLT 0.1.8 (control) | FAIL | FAIL | FAIL (shape maps, but no per-element totals, no aggregate) | FAIL | FAIL (no typed arithmetic; silent copy/drop) | n/a - disqualified at G1 | n/a - disqualified at G1 | n/a | n/a - not measured | **DISQUALIFIED** (all five cases) |
+| E JSLT 0.1.14 (control) | FAIL (no `get()`, no dynamic key) | PASS (47 ms) | PASS (16 ms) | FAIL | FAIL (`(.code) * 1` is string repetition - returns `"S2"` silently, no error) | n/a - disqualified at G1 | n/a - disqualified at G1 | n/a | forces **Jackson 2** (`jackson-databind` 2.13.4.2, test scope only) onto the module | **DISQUALIFIED** (lookups, enrichment, error discipline) |
 
-All cells [TBD]. The spike report goes to `ws/_reports/` and is linked here by path.
+All cells from `results.md` at `e39d24f` [Verified this pass]. Gate G4 (no Camel): the
+`TransformNoCamelArchitectureTest` rule passes on production classes and fires on a planted
+violation - the proven-control form. G2 and G3 were never in the spike's scope: they are measured
+against the real T-108 port in lanes B2/B3, by their owning tasks T-109 and T-038.
+
+**T-032 dialect probes (A vs the JSONata reference):** 7 of 8 probes match the reference
+(array-path iteration, `&` coercion, `$sum`, `$exists`, `$number`, `$uppercase`, `$substring`);
+`$round` deviates. **T-032 Jackson boundary (measured, not asserted):** `platform-transform`
+carries no Jackson of any major; the only candidate that would drag Jackson 2 in is the JSLT
+control (test scope); Spring Boot's Jackson 3 (web layer) never reaches the transform module.
 
 ## Decision (Accepted 2026-10-12 - the spike confirms the gates)
 
 1. **Adopt the JSONata language, executed by `com.dashjoin:jsonata` 0.9.10, called directly by
-   `platform-transform`** - provided candidate A passes gates G1 to G4. [Inferred until the spike]
+   `platform-transform`** - the spike ran 2026-10-12 and A passed G1 on all five breaking cases and
+   G4 is green; G2 and G3 remain measured-in-code by T-109 and T-038 on the real port
+   (`results.md` at `e39d24f`). [Verified for G1/G4; TBC for G2/G3]
 2. **Decision rule if A fails a gate:** the highest-scoring candidate that passes all four gates wins,
    in table order B, then C. If B wins, the language is unchanged (JSONata), ADR-004 stands and only
    the library changes. If C wins, ADR-004 rule 1 must be revisited (its Revisit-if line
    `documents/adr/ADR-004-mapping-canvas.md:86`) and ADR-003's "one language" revisit fires
    (`documents/adr/ADR-003-rules-engine.md:88-89`). If no candidate passes, the canvas does not start
-   and Dipesh is asked. [Inferred]
+   and Dipesh is asked. **Note on the B-first fallback:** B did not run in the spike (Open item 3), so
+   if A fails G2 or G3, B must be measured before it can be declared the winner. [Inferred]
 3. **Version pin:** the engine version is held to the one Camel 4.22.1 manages, so a later
    `camel-jsonata` on the classpath can never bring a second version (`ws/_specs/project-plan.md:82`).
    [Verified] for the plan's pin; [Inferred] for the reason.
@@ -180,8 +199,21 @@ All cells [TBD]. The spike report goes to `ws/_reports/` and is linked here by p
    offers one. [Verified] budget and class; [Inferred] pool and thread choice; [TBD] engine
    interrupt behaviour.
 6. **Jackson boundary.** Payloads are parsed by the platform's Jackson 3 into plain Java maps and
-   lists; the engine receives no Jackson 2 type. T-032 records the conversion cost inside G3.
-   [Inferred - T-032 measures]
+   lists; the engine receives no Jackson type of any major - the string boundary is final. Now
+   **measured, not asserted** (T-032b): `com.dashjoin:jsonata` 0.9.10 declares jackson-databind only
+   at TEST scope and its jar holds no `com.fasterxml` reference; `platform-transform` carries no
+   Jackson of any major; the only candidate that drags Jackson 2 in is the disqualified JSLT control
+   (2.13.4.2, test scope); Boot's Jackson 3 stays in the adapters. The conversion cost inside G3
+   remains for T-038. [Verified in `results.md` at `e39d24f`]
+7. **Raw-expression editor.** If JSONata wins (A or B), T-039 integrates the gnata CodeMirror-6
+   editor (MIT); otherwise T-039 is dropped (`ws/_specs/backlog.md:1873`). [Verified]
+8. **Dialect deviations land in the port, not in hope.** `$round` in the Dashjoin port rounds
+   halves to even (0.5 -> 0, 2.5 -> 2) while the reference rounds halfway away from zero (0.5 -> 1,
+   2.5 -> 3): **money rounding never rides `$round`** - where a mapping must round monetary
+   amounts, a port-side registered function defines the rule explicitly, so server and docs can
+   never disagree silently. The same finding names the palette contract: the canvas's expression
+   palette (T-036, ADR-004) lists the port's real function names (for example `$substring` exists,
+   `$substr` does not), not the reference's. [Verified deviation in `results.md`; Inferred rule]
 7. **Raw-expression editor.** If JSONata wins (A or B), T-039 integrates the gnata CodeMirror-6
    editor (MIT); otherwise T-039 is dropped (`ws/_specs/backlog.md:1873`). [Verified]
 
@@ -189,10 +221,10 @@ All cells [TBD]. The spike report goes to `ws/_reports/` and is linked here by p
 
 | Work | Gate | Grade |
 |---|---|---|
-| T-030, T-031, T-032 (spike, lane A) | None - they produce this ADR's evidence and start at once | [Verified] `ws/_specs/backlog.md:197` |
-| T-108 transform port, T-109 5 s budget, T-038 round-trip test (lane B) | ADR-006 approved with spike results | [Verified] `ws/_specs/backlog.md:198` |
-| T-036 graph-to-expression emitter (lane B) | ADR-006 approved and T-034 graph types fixed | [Verified] `ws/_specs/backlog.md:198` |
-| T-039 raw-expression editor (lane D) | ADR-006 approved **and** JSONata chosen | [Verified] `ws/_specs/backlog.md:200`, `:1873` |
+| T-030, T-031, T-032 (spike, lane A) | None - they produced this ADR's evidence; **done** (T50, `e39d24f`) | [Verified] `ws/_specs/backlog.md:197` |
+| T-108 transform port, T-109 5 s budget, T-038 round-trip test (lane B) | ADR-006 approved with spike results - **the spike confirmed A on G1/G4, so these are unblocked**; their acceptance criteria include G2/T-109 and G3/T-038 passing | [Verified] `ws/_specs/backlog.md:198` |
+| T-036 graph-to-expression emitter (lane B) | ADR-006 approved and T-034 graph types fixed - **unblocked**; rule 8 gives it the palette contract | [Verified] `ws/_specs/backlog.md:198` |
+| T-039 raw-expression editor (lane D) | ADR-006 approved **and** JSONata chosen - **JSONata is chosen** | [Verified] `ws/_specs/backlog.md:200`, `:1873` |
 | T-034 canvas scaffold, T-035 schema trees and links (lane D) | May start now - Dipesh 2026-10-12 (see "Can lane D start" below) | [Verified] m-f1fcfc |
 | E9 route templates (E9-F1-S1 depends on E7-F1-S1) and E11 composition T-049 | Indirect: they call the transform port | [Verified] `ws/_specs/backlog.md:2225`; `:3050` |
 
@@ -221,6 +253,12 @@ All cells [TBD]. The spike report goes to `ws/_reports/` and is linked here by p
   parity test fails on any drift. [Verified] `ws/_specs/backlog.md:1865-1868`
 - `platform-transform` is a new Maven module: the parent `pom.xml` module list and dependency
   management change once, as an integration seam before E7 lanes start. [Verified] `pom.xml:22-35`
+- Dependency shape at merge (measured in the spike): **production scope carries exactly one new
+  library - `com.dashjoin:jsonata` 0.9.10 (Apache-2.0)**, already pinned main-scope by the seam
+  commit. The disqualified candidates stay TEST-scope only so the recorded results table keeps re-running
+  (`SpikeRecordedTest`), and they never enter compile scope - G4's architecture test watches the
+  production classes, and no `org.apache.camel` import may appear in `platform-transform`.
+  [Verified] licences and scopes in `results.md` at `e39d24f`; control-scope discipline [Inferred]
 
 **What we give up:** a single expression language across rules and mappings; a large-vendor engine
 with a long release history; and the option to let configurators add their own functions.
@@ -235,7 +273,10 @@ as in `ws/_specs/backlog.md:197-200`]
 
 ## Revisit if
 
-- Candidate A fails any gate in the spike (then Decision 2 applies). [TBD]
+- Candidate A fails a remaining gate (G2 via T-109 or G3 via T-038) - then Decision 2 applies, and
+  note its B-first fallback needs B measured first (Open item 3). [TBC - lanes B2/B3]
+- A mapping needs money rounding and the port-side rounding function is not built before it is
+  needed (rule 8). [Inferred]
 - The Dashjoin port has no release for 12 months, changes licence, or Camel moves to another engine.
   [Inferred]
 - A mapping needs streaming or payloads above the 1 MB intake cap. [Inferred]
@@ -244,8 +285,15 @@ as in `ws/_specs/backlog.md:197-200`]
 ## Open
 
 1. **Decided (Dipesh, 2026-10-12):** lane D starts T-034 and T-035 now; T-036, T-039 and T-108
-   wait for the spike results.
+   wait for the spike results - the spike has now run (2026-10-12, T50), so the waiting part is
+   discharged.
 2. **Decided (Dipesh, 2026-10-12):** JSONata4Java 3.0.0 joins the spike as a same-language control.
-3. Still open: the weighted table and the results table are re-scored from the spike report
-   (T-030 to T-032). The approval holds while candidate A or B passes all four gates; C winning or
-   no candidate passing returns this record to Dipesh.
+3. **Candidate B did not run** (flagged to arjun-fullstack in the spike notes): the T50 brief
+   (T-030 to T-032 as lane A received it) did not include it, and lane A correctly built only what
+   was assigned. Per Decision 2, B decides only if A fails a gate, and A passed every gate the spike
+   measures - so B's absence does not block this ADR. If Dipesh wants the same-language control
+   measured anyway (for example to keep the B-first fallback measurable against a real engine), it
+   is one small lane-A add to the harness. [Verified absent, `results.md` note 6]
+4. G2 (runaway stop, thread freed) and G3 (100 round trips under 500 ms) are open until lanes B2/B3
+   run T-109 and T-038 against the real port - the spike deliberately left them there, since they
+   are properties of the port, not of the engine standalone. [Verified] scoping in `results.md`

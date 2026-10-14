@@ -89,7 +89,9 @@ class ConfigAdminDeclaredResponsesContainerTest {
             Map.entry("put /api/v1/admin/flows/{flowId}/versions/{versionId}", Set.of("403", "404", "409")),
             Map.entry("post /api/v1/admin/flows/{flowId}/submit", Set.of("200", "400", "403", "404", "409")),
             Map.entry("post /api/v1/admin/flows/{flowId}/approve", Set.of("200", "403", "404", "409")),
-            Map.entry("post /api/v1/admin/flows/{flowId}/publish", Set.of("200", "403", "404", "409")));
+            Map.entry("post /api/v1/admin/flows/{flowId}/publish", Set.of("200", "403", "404", "409")),
+            Map.entry("get /api/v1/admin/routes/{routeId}/mapping", Set.of("200", "403", "404")),
+            Map.entry("put /api/v1/admin/routes/{routeId}/mapping", Set.of("200", "400", "403", "404", "409")));
 
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestImages.POSTGRES);

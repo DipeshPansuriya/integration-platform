@@ -1,16 +1,23 @@
 package io.integrationplatform.tenancy;
 
+import static io.integrationplatform.tenancy.RolePolicy.Operation.ACKNOWLEDGE_JOB_ALERT;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.APPROVE_VERSION;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.EDIT_CONFIGURATION;
+import static io.integrationplatform.tenancy.RolePolicy.Operation.INSPECT_JOB;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.ISSUE_SOURCE_CREDENTIAL;
+import static io.integrationplatform.tenancy.RolePolicy.Operation.LIST_JOBS;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.MANAGE_TARGET_CREDENTIAL;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.MANAGE_USERS_AND_ROLES;
+import static io.integrationplatform.tenancy.RolePolicy.Operation.PAUSE_JOB;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.PUBLISH_VERSION;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.READ_CONFIGURATION;
+import static io.integrationplatform.tenancy.RolePolicy.Operation.READ_JOB_ALERTS;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.READ_MESSAGE_TIMELINE;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.READ_OWN_IDENTITY;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.REPLAY_DEAD_LETTER;
+import static io.integrationplatform.tenancy.RolePolicy.Operation.RESUME_JOB;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.REVOKE_SOURCE_CREDENTIAL;
+import static io.integrationplatform.tenancy.RolePolicy.Operation.RUN_JOB_NOW;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.SUBMIT_FOR_APPROVAL;
 import static io.integrationplatform.tenancy.RolePolicy.Operation.SUBMIT_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -85,7 +92,15 @@ class RolePolicyTest {
                 Map.entry(READ_MESSAGE_TIMELINE, EnumSet.of(Role.TENANT_ADMIN, Role.SUPPORT, Role.READ_ONLY)),
                 Map.entry(REPLAY_DEAD_LETTER, EnumSet.of(Role.TENANT_ADMIN, Role.SUPPORT)),
                 Map.entry(READ_OWN_IDENTITY, EnumSet.noneOf(Role.class)),
-                Map.entry(SUBMIT_MESSAGE, EnumSet.noneOf(Role.class)));
+                Map.entry(SUBMIT_MESSAGE, EnumSet.noneOf(Role.class)),
+                // E14 (ADR-012 Decision 5): the agent operations are caller-kind gated, never role gated
+                Map.entry(LIST_JOBS, EnumSet.noneOf(Role.class)),
+                Map.entry(INSPECT_JOB, EnumSet.noneOf(Role.class)),
+                Map.entry(RUN_JOB_NOW, EnumSet.noneOf(Role.class)),
+                Map.entry(PAUSE_JOB, EnumSet.noneOf(Role.class)),
+                Map.entry(RESUME_JOB, EnumSet.noneOf(Role.class)),
+                Map.entry(READ_JOB_ALERTS, EnumSet.noneOf(Role.class)),
+                Map.entry(ACKNOWLEDGE_JOB_ALERT, EnumSet.noneOf(Role.class)));
 
         assertThat(EnumSet.allOf(Operation.class)).as("every operation has a row").isEqualTo(expected.keySet());
         expected.forEach((operation, roles) -> assertThat(RolePolicy.allowedRoles(operation))
@@ -118,5 +133,24 @@ class RolePolicyTest {
         assertThat(SUBMIT_MESSAGE.caller()).isEqualTo(RolePolicy.Caller.SOURCE_SYSTEM);
         assertThat(RolePolicy.allows(SUBMIT_MESSAGE, EnumSet.allOf(Role.class)))
                 .as("no human role reaches the source-system API").isFalse();
+    }
+
+    @Test
+    @DisplayName("E14 (ADR-012 Decision 5): only the operator agent reaches the job-admin and alert operations")
+    void operatorAgentOperations() {
+        Set<Operation> agentOps = Set.of(LIST_JOBS, INSPECT_JOB, RUN_JOB_NOW, PAUSE_JOB, RESUME_JOB,
+                READ_JOB_ALERTS, ACKNOWLEDGE_JOB_ALERT);
+        agentOps.forEach(op -> assertThat(op.caller()).isEqualTo(RolePolicy.Caller.OPERATOR_AGENT));
+        // no human role reaches them, not even tenant admin (Release 1 - ADR-012 Decision 5, Dipesh 2026-10-12)
+        agentOps.forEach(op -> assertThat(RolePolicy.allows(op, EnumSet.allOf(Role.class)))
+                .as("no human role: %s", op).isFalse());
+        // every existing operation refuses the agent kind by default: nothing outside the seven carries
+        // Caller.OPERATOR_AGENT, and the interceptor's kind switch turns the agent away from those
+        for (Operation operation : Operation.values()) {
+            if (!agentOps.contains(operation)) {
+                assertThat(operation.caller()).as("refused for the agent: %s", operation)
+                        .isNotEqualTo(RolePolicy.Caller.OPERATOR_AGENT);
+            }
+        }
     }
 }
