@@ -41,6 +41,21 @@ function docker(args, env = {}, timeout = 120000) {
   return result.stdout.trim();
 }
 
+/**
+ * The `docker cp` pairs a harness container gets before it starts: the realm import (a directory
+ * copy creates the import folder; a single-file copy would need it to exist) and the realm's
+ * login theme `platform` where Keycloak loads themes - the same two places compose/compose.yaml
+ * mounts. The themes folder rides along inside the import copy as it does in compose; the
+ * importer reads only the realm JSON.
+ */
+export function containerCopies(repo) {
+  const keycloak = path.join(repo, 'compose', 'keycloak');
+  return [
+    [keycloak, '/opt/keycloak/data/import'],
+    [path.join(keycloak, 'themes', 'platform'), '/opt/keycloak/themes/platform']
+  ];
+}
+
 function hostPort(container, port) {
   return Number(docker(['port', container, String(port)]).split('\n')[0].split(':').pop());
 }
@@ -79,8 +94,7 @@ export async function startKeycloak({ repo, audience, consoleRedirectUri, postLo
     }
   };
   try {
-    // A directory copy creates the import folder (a single-file copy would need it to exist).
-    docker(['cp', path.join(repo, 'compose', 'keycloak'), `${name}:/opt/keycloak/data/import`]);
+    for (const [from, to] of containerCopies(repo)) docker(['cp', from, `${name}:${to}`]);
     docker(['start', name]);
     const http = hostPort(name, 8080);
     const management = hostPort(name, 9000);

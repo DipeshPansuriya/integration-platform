@@ -17,12 +17,14 @@
   --color-ink: #0f172a;               /* primary text 17.9:1 */
   --color-ink-muted: #475569;         /* secondary text 7.6:1 */
   --color-ink-faint: #64748b;         /* helper/meta, 12.5px floor 4.76:1 */
-  --color-border: #e2e8f0;            /* hairlines */
-  --color-border-strong: #94a3b8;     /* input hover, weighted dividers */
+  --color-border: #e2e8f0;            /* hairlines (dividers only - 1.18:1, not a control boundary) */
+  --color-border-strong: #94a3b8;     /* weighted dividers, table header rule */
+  --color-border-control: #7f8ea3;    /* input/select/textarea boundary, WCAG 1.4.11: 3.19:1 canvas, 3.33:1 surface (row 310 T90) */
 
   /* Accent (one blue family) */
   --color-accent: #2563eb;            /* primary buttons, links, active nav (white text 5.17:1) */
   --color-accent-hover: #1d4ed8;      /* hover bg (white text 6.7:1) */
+  --color-link: #2563eb;              /* link text = accent: 4.94 canvas / 5.17:1 surface (row 310 T90b) */
   --color-accent-faint: #dbeafe;      /* active nav tint, selected row tint (ink 12.9:1) */
   --color-accent-faint-ink: #1e40af;  /* info badge text on the tint (7.15:1) */
   --color-accent-soft: rgba(37, 99, 235, 0.08);  /* active nav fill (00-§2) */
@@ -72,12 +74,14 @@
   --color-surface-raised: #253043;    /* ~10.6:1 */
   --color-ink: #e2e8f0;               /* 11.9:1 */
   --color-ink-muted: #94a3b8;         /* 5.71:1 */
-  --color-ink-faint: #7d8da5;         /* ~4.6:1 */
+  --color-ink-faint: #8a9ab2;         /* 6.24 canvas / 5.12 surface / 4.64:1 raised (row 310 T90: #8292aa was 4.20:1 on raised menus); ink-muted stays brighter */
   --color-border: #334155;
   --color-border-strong: #475569;
+  --color-border-control: #6b7a90;    /* control boundary 4.09 canvas / 3.35 surface / 3.04:1 raised (row 310 T90) */
 
-  --color-accent: #3b82f6;            /* white text 5.17:1; as link text 5.75:1 */
+  --color-accent: #3b82f6;            /* NOT a white-text fill (3.68:1) - dark primary fills use accent-hover (row 310 T90); not link text either (3.98:1 surface) - use --color-link */
   --color-accent-hover: #2563eb;
+  --color-link: #60a5fa;              /* link text 7.02 canvas / 5.75 surface / 5.22:1 raised (row 310 T90b) */
   --color-accent-faint: #1e3a8a;
   --color-accent-faint-ink: #bfdbfe;  /* 7.29:1 on tint */
   --color-accent-soft: rgba(59, 130, 246, 0.16);
