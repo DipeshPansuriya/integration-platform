@@ -1,12 +1,15 @@
 package io.integrationplatform.routing.publish;
 
 import io.integrationplatform.ingest.port.PublishPort;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -55,7 +58,8 @@ class KafkaPublishPortConfiguration {
     }
 
     @Bean
-    PublishPort kafkaPublishPort(Producer<String, String> producer) {
-        return new KafkaPublishPort(producer);
+    PublishPort kafkaPublishPort(Producer<String, String> producer, ObjectProvider<MeterRegistry> meters) {
+        // E8 tail: the publish metrics go to the application's registry; a composition without one keeps a local one.
+        return new KafkaPublishPort(producer, meters.getIfAvailable(SimpleMeterRegistry::new));
     }
 }
