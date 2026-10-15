@@ -125,21 +125,35 @@ final class EndpointMatrix {
      * @param expectedStatus the status the scenario's legitimate call answers with (200 unless the API is designed
      *                       to answer otherwise: a create is 201, the immutable-version refusal is 409)
      * @param write          the row-state probe of a lifecycle endpoint, null when the endpoint writes nothing
+     * @param extraHeaders   the entry's request headers beyond identity, forgery and content type (row 278 T104,
+     *                       arjun-approved: an endpoint whose API contract demands a header - intake's
+     *                       {@code X-Source-Contract-Version} and {@code Idempotency-Key} - supplies them here;
+     *                       the function runs per request, so a per-call nonce is generated inside it)
      */
     record Entry(String method, String pattern, boolean acceptsBody, Function<Seed, String> pathForA,
             Function<Seed, String> foreignIdPath, Function<Seed, String> bodyForA,
-            Function<Seed, List<String>> tenantAData, int expectedStatus, WriteProbe write) {
+            Function<Seed, List<String>> tenantAData, int expectedStatus, WriteProbe write,
+            Function<Seed, Map<String, String>> extraHeaders) {
 
         Entry(String method, String pattern, boolean acceptsBody, Function<Seed, String> pathForA,
                 Function<Seed, String> foreignIdPath, Function<Seed, String> bodyForA,
                 Function<Seed, List<String>> tenantAData) {
-            this(method, pattern, acceptsBody, pathForA, foreignIdPath, bodyForA, tenantAData, 200, null);
+            this(method, pattern, acceptsBody, pathForA, foreignIdPath, bodyForA, tenantAData, 200, null,
+                    s -> Map.of());
         }
 
         Entry(String method, String pattern, boolean acceptsBody, Function<Seed, String> pathForA,
                 Function<Seed, String> foreignIdPath, Function<Seed, String> bodyForA,
                 Function<Seed, List<String>> tenantAData, int expectedStatus) {
-            this(method, pattern, acceptsBody, pathForA, foreignIdPath, bodyForA, tenantAData, expectedStatus, null);
+            this(method, pattern, acceptsBody, pathForA, foreignIdPath, bodyForA, tenantAData, expectedStatus, null,
+                    s -> Map.of());
+        }
+
+        Entry(String method, String pattern, boolean acceptsBody, Function<Seed, String> pathForA,
+                Function<Seed, String> foreignIdPath, Function<Seed, String> bodyForA,
+                Function<Seed, List<String>> tenantAData, int expectedStatus, WriteProbe write) {
+            this(method, pattern, acceptsBody, pathForA, foreignIdPath, bodyForA, tenantAData, expectedStatus, write,
+                    s -> Map.of());
         }
 
         String key() {

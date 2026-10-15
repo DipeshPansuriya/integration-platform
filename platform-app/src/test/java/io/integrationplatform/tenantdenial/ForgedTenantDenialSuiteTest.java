@@ -438,6 +438,11 @@ class ForgedTenantDenialSuiteTest {
         if (body != null) {
             request.header("Content-Type", "application/json");
         }
+        // Row 278 T104 (arjun-approved): the entry's own required headers (intake's contract-version pin and
+        // idempotency key); the function runs per request, so a per-call nonce is fresh on every send.
+        if (entry.extraHeaders() != null) {
+            entry.extraHeaders().apply(view).forEach(request::header);
+        }
         request.method(entry.method(), body == null
                 ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
