@@ -119,11 +119,13 @@ class SchedulerIncidentAlertsContainerTest {
         // the raw scheduler must own the same task table as the app context (scheduler.scheduled_tasks,
         // V2_2_1400): Scheduler.create defaults to the unqualified db-scheduler table, whose polls then fail
         // on every run (window-1 evidence, row278: relation "scheduled_tasks" does not exist).
-        // startTasks is the spring starter's own startup-reconcile registration (db-scheduler 16.12.0
-        // SchedulerBuilder: only startTasks run OnStartup, create's knownTasks alone never seed the
-        // register's first executions - red 3, row278 g3): without it this hand-built scheduler matched
-        // neither the deployment nor the assertions.
-        scheduler = Scheduler.create(dataSource, List.copyOf(tasks))
+        // The tasks reach the scheduler ONLY through startTasks: db-scheduler 16.12.0 SchedulerBuilder.java:96-97
+        // adds every startTask to knownTasks (the pollable set TaskResolver resolves) AND to the OnStartup list
+        // that start() replays (Scheduler.java:163, 187-194) - so this matches the deployment, whose spring
+        // starter registers the same way. Passing the same tasks to create(dataSource, ...) as well puts each
+        // one into knownTasks twice (SchedulerBuilder.java:87 + 96) and TaskResolver.java:45's
+        // Collectors.toMap(Task::getName, identity()) then throws "Duplicate key DELIVERY_RETRY" (row278 g4).
+        scheduler = Scheduler.create(dataSource)
                 .startTasks(tasks)
                 .tableName("scheduler.scheduled_tasks")
                 .pollingInterval(Duration.ofSeconds(1))
