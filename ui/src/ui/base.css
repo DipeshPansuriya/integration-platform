@@ -452,6 +452,11 @@ summary:focus-visible {
   opacity: 0.45;
   cursor: not-allowed;
 }
+/* row 310 B9: a control followed by a bare button keeps an 8px gap (Versions action row,
+   Contracts change-note + submit). Class-less only, so a .btn row in a flex/grid gap never doubles. */
+:where(main.content) :where(button, input:not([type="hidden"]), select, textarea) + :where(button:not([class])):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  margin-inline-start: var(--space-2);
+}
 /* type=submit is the one primary marker the pages already carry. */
 :where(main.content) :where(button[type="submit"]):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
   border-color: transparent;
