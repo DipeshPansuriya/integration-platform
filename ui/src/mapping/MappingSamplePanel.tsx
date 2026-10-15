@@ -23,30 +23,29 @@ export function MappingSamplePanel({ mappingId, dirty }: { mappingId: string | n
   }
 
   return (
-    <section data-sample-panel>
+    <section data-sample-panel className="mapping-card mapping-sample">
       <h3>Run a sample</h3>
-      <p>Runs the saved mapping on one sample message - save the drawing first.</p>
+      <p className="mapping-muted">Runs the saved mapping on one sample message - save the drawing first.</p>
       <label>
         Sample message (JSON)
         <textarea
           data-sample-input
           rows={6}
-          style={{ display: 'block', width: '100%', boxSizing: 'border-box' }}
           value={input}
           onChange={(e) => setInput(e.target.value)}
         />
       </label>
-      <button type="button" data-sample-run disabled={running} onClick={() => void run()}>
+      <button type="button" className="btn" data-sample-run disabled={running} onClick={() => void run()}>
         Run sample
       </button>
       <div data-sample-result data-state={result?.state ?? 'idle'} aria-live="polite">
         {result?.status && <p data-sample-status>Status: {result.status}</p>}
         {result?.state === 'ok' ? (
-          <pre data-sample-output style={{ maxHeight: 280, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+          <pre data-sample-output className="mapping-sample-output">
             {result.text}
           </pre>
         ) : (
-          result && <p role="alert">{result.text}</p>
+          result && <p role="alert" className="mapping-alert mapping-alert-danger">{result.text}</p>
         )}
       </div>
     </section>
