@@ -37,17 +37,13 @@ class OnTimeFiringContainerTest {
 
     private static ConfigurableApplicationContext instance;
 
-    /** A bootstrap phase that runs the migrations and grants the login its role, then stops. */
-    private static ConfigurableApplicationContext bootstrap;
-
     @BeforeAll
     static void startContainerBootstrapThenInstance() throws Exception {
         POSTGRES.start();
         Map<String, Object> wiring = SchedulerProofSupport.wiringProperties(POSTGRES);
-        bootstrap = instanceOf(wiring, "e14.scheduler-proof", "true", "db-scheduler.enabled", "false");
+        SchedulerProofSupport.migrateAsOwner(POSTGRES);
         PlatformTestWiring.grantApplicationRole(POSTGRES, login(wiring));
         SchedulerProofSupport.seedJobDefinition(POSTGRES, SchedulerProofTasks.PROOF_ON_TIME, 1);
-        bootstrap.close();
         instance = instanceOf(wiring,
                 "e14.scheduler-proof", "true",
                 "db-scheduler.table-name", SchedulerProofSupport.SCHEDULED_TASKS,
@@ -103,13 +99,16 @@ class OnTimeFiringContainerTest {
                 .isEqualTo(0);
     }
 
-    private static ConfigurableApplicationContext instanceOf(Map<String, Object> properties, String... more) {
+    private static ConfigurableApplicationContext instanceOf(Map<String, Object> properties, String... overrides) {
+        String[] arguments = new String[overrides.length / 2];
+        for (int i = 0; i < overrides.length; i += 2) {
+            arguments[i / 2] = "--" + overrides[i] + "=" + overrides[i + 1];
+        }
         return new SpringApplicationBuilder(IntegrationPlatformApplication.class)
                 .sources(IntegrationPlatformApplication.class, SchedulerProofTasks.class)
                 .properties(properties)
-                .properties(more)
                 .properties("server.port=0", "spring.main.banner-mode=off")
-                .run();
+                .run(arguments);
     }
 
     private static PlatformTestWiring.RestrictedLogin login(Map<String, Object> properties) {

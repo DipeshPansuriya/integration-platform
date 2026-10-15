@@ -21,14 +21,16 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Scenario "A restart loses nothing" (E14-F2-S1, T-057): given a job due while all instances were down, when an
- * instance starts, then the missed run fires once and is recorded as late. The downtime is real: a first application
- * context with the scheduler disabled runs only the migrations and grants the restricted login its role; while nothing
- * can claim work, the due execution row is written into scheduler.scheduled_tasks exactly the way a previous
+ * instance starts, then the missed run fires once and is recorded as late. The downtime is real: the migrations run
+ * as the owner user directly (no context - the app's beans require the SchedulerClient the db-scheduler starter
+ * registers, so a scheduler-disabled context cannot start), the restricted login is granted its role, and while
+ * nothing can claim work, the due execution row is written into scheduler.scheduled_tasks exactly the way a previous
  * instance's schedule would have left it (picked=false, due in the past). The restarting instance then claims the
  * stale row through db-scheduler's database-guaranteed claiming and runs it exactly once. "Recorded as late" is
- * proven on the recording surface the production run wrapper (lane B's T-056) will own: the proof writes one
- * scheduler.job_run row through the restricted application login with scheduled_for = the missed due instant and
- * is_late computed against it, then reads it back the way the run search does. Container group (R03): ./mvnw
+ * proven on the recording surface the production wrapper (lane B's T-056) owns: its listener writes the one
+ * scheduler.job_run row through the restricted application login, with scheduled_for = the missed due instant, the
+ * instance = the claiming scheduler's name and is_late computed against the row's threshold; the suite then reads
+ * it back the way the run search does. Container group (R03): ./mvnw
  * -Pcontainer, one Docker suite at a time.
  */
 @Tag("container")
@@ -39,7 +41,6 @@ class RestartCatchUpContainerTest {
     static final String INSTANCE_ID = "missed-run-1";
     static final String SCHEDULER_NAME = "instance-b";
 
-    private static ConfigurableApplicationContext downtime;
     private static ConfigurableApplicationContext restartingInstance;
     private static Instant missedRunDue;
 
@@ -48,15 +49,13 @@ class RestartCatchUpContainerTest {
         POSTGRES.start();
         Map<String, Object> wiring = SchedulerProofSupport.wiringProperties(POSTGRES);
 
-        // all instances down: migrations run, the login is granted, and nothing can claim work
-        downtime = instanceOf(wiring, "e14.scheduler-proof", "true", "db-scheduler.enabled", "false");
+        // all instances down: the owner migrations run, the login is granted, and nothing can claim work
+        SchedulerProofSupport.migrateAsOwner(POSTGRES);
         PlatformTestWiring.grantApplicationRole(POSTGRES, login(wiring));
         SchedulerProofSupport.seedJobDefinition(POSTGRES, SchedulerProofTasks.PROOF_RESTART, 1);
 
         // the job fell due while no instance was up: its row is already in the scheduler's table
         missedRunDue = Instant.now().minusSeconds(5).truncatedTo(ChronoUnit.MICROS);
-        SchedulerProofTasks.MISSED_RUN_DUE.set(missedRunDue);         // handler reads it at execution time
-        SchedulerProofTasks.INSTANCE_NAME.set(SCHEDULER_NAME);
         try (PreparedStatement insert = SchedulerProofSupport.ownerConnection(POSTGRES).prepareStatement(
                 "INSERT INTO " + SchedulerProofSupport.SCHEDULED_TASKS
                         + " (task_name, task_instance, task_data, execution_time, picked, version)"
@@ -66,7 +65,6 @@ class RestartCatchUpContainerTest {
             insert.setTimestamp(3, Timestamp.from(missedRunDue));
             insert.executeUpdate();
         }
-        downtime.close(); // the restart is a real later start of a fresh instance
 
         restartingInstance = instanceOf(wiring,
                 "e14.scheduler-proof", "true",
@@ -122,13 +120,16 @@ class RestartCatchUpContainerTest {
                 .isEqualTo(0);
     }
 
-    private static ConfigurableApplicationContext instanceOf(Map<String, Object> properties, String... more) {
+    private static ConfigurableApplicationContext instanceOf(Map<String, Object> properties, String... overrides) {
+        String[] arguments = new String[overrides.length / 2];
+        for (int i = 0; i < overrides.length; i += 2) {
+            arguments[i / 2] = "--" + overrides[i] + "=" + overrides[i + 1];
+        }
         return new SpringApplicationBuilder(IntegrationPlatformApplication.class)
                 .sources(IntegrationPlatformApplication.class, SchedulerProofTasks.class)
                 .properties(properties)
-                .properties(more)
                 .properties("server.port=0", "spring.main.banner-mode=off")
-                .run();
+                .run(arguments);
     }
 
     private static PlatformTestWiring.RestrictedLogin login(Map<String, Object> properties) {

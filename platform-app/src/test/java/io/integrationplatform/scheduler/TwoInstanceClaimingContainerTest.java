@@ -46,7 +46,6 @@ class TwoInstanceClaimingContainerTest {
     static final String EXPECTED_COLUMNS = "task_name,task_instance,task_data,execution_time,picked,picked_by,"
             + "last_success,last_failure,consecutive_failures,last_heartbeat,version,priority";
 
-    private static ConfigurableApplicationContext bootstrap;
     private static ConfigurableApplicationContext instanceA;
     private static ConfigurableApplicationContext instanceB;
 
@@ -54,10 +53,9 @@ class TwoInstanceClaimingContainerTest {
     static void startTwoInstances() throws Exception {
         POSTGRES.start();
         Map<String, Object> wiring = SchedulerProofSupport.wiringProperties(POSTGRES);
-        bootstrap = instanceOf(wiring, "e14.scheduler-proof", "true", "db-scheduler.enabled", "false");
+        SchedulerProofSupport.migrateAsOwner(POSTGRES);
         PlatformTestWiring.grantApplicationRole(POSTGRES, login(wiring));
         SchedulerProofSupport.seedJobDefinition(POSTGRES, SchedulerProofTasks.PROOF_CLAIM, 1);
-        bootstrap.close();
 
         instanceA = instanceOf(wiring,
                 "e14.scheduler-proof", "true",
@@ -102,7 +100,9 @@ class TwoInstanceClaimingContainerTest {
         Set<String> claimedWithHeartbeat = ConcurrentHashMap.newKeySet();
         SchedulerProofSupport.pollUntil(() -> {
             sampleClaimedRows(claimers, claimedWithHeartbeat);
-            return SchedulerProofTasks.totalRunsOf(SchedulerProofTasks.PROOF_CLAIM) == DUE_JOBS;
+            // exactly-once is only proven once the last in-flight handler (each sleeps 3s) has returned and the
+            // scheduler deleted its row: poll until both hold, else the residue count races the executions
+            return SchedulerProofTasks.totalRunsOf(SchedulerProofTasks.PROOF_CLAIM) == DUE_JOBS && noResidueRows();
         }, Duration.ofSeconds(60));
 
         // "then each job runs exactly once"
@@ -136,6 +136,16 @@ class TwoInstanceClaimingContainerTest {
                 .isEqualTo(0);
     }
 
+    private static boolean noResidueRows() {
+        try {
+            return SchedulerProofSupport.countRows(POSTGRES,
+                    "SELECT count(*) FROM " + SchedulerProofSupport.SCHEDULED_TASKS
+                            + " WHERE task_name = ?", SchedulerProofTasks.PROOF_CLAIM) == 0L;
+        } catch (java.sql.SQLException residueCheckFailed) {
+            throw new IllegalStateException(residueCheckFailed);
+        }
+    }
+
     private static void sampleClaimedRows(Set<String> claimers, Set<String> claimedWithHeartbeat) {
         try (Connection connection = SchedulerProofSupport.ownerConnection(POSTGRES);
                 PreparedStatement rows = connection.prepareStatement(
@@ -158,13 +168,16 @@ class TwoInstanceClaimingContainerTest {
         }
     }
 
-    private static ConfigurableApplicationContext instanceOf(Map<String, Object> properties, String... more) {
+    private static ConfigurableApplicationContext instanceOf(Map<String, Object> properties, String... overrides) {
+        String[] arguments = new String[overrides.length / 2];
+        for (int i = 0; i < overrides.length; i += 2) {
+            arguments[i / 2] = "--" + overrides[i] + "=" + overrides[i + 1];
+        }
         return new SpringApplicationBuilder(IntegrationPlatformApplication.class)
                 .sources(IntegrationPlatformApplication.class, SchedulerProofTasks.class)
                 .properties(properties)
-                .properties(more)
                 .properties("server.port=0", "spring.main.banner-mode=off")
-                .run();
+                .run(arguments);
     }
 
     private static PlatformTestWiring.RestrictedLogin login(Map<String, Object> properties) {

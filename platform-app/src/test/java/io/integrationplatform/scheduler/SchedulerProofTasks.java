@@ -2,16 +2,12 @@ package io.integrationplatform.scheduler;
 
 import com.github.kagkarlsson.scheduler.task.Task;
 import com.github.kagkarlsson.scheduler.task.helper.Tasks;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
-import javax.sql.DataSource;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Bean;
@@ -27,7 +23,10 @@ import org.springframework.context.annotation.Bean;
  * platform-app ever gains these beans.
  *
  * <p>Runs are recorded in a static map because a suite's application instances are two Spring contexts in this same
- * JVM (db-scheduler's claiming is guaranteed in the database; the proof reads the record from either context).
+ * JVM (db-scheduler's claiming is guaranteed in the database; the proof reads the record from either context). The
+ * {@code scheduler.job_run} row is written by the production recording listener only (T-056's
+ * {@code RunRecordingSchedulerListener} records every registered task's completion, so a proof handler that wrote
+ * its own row would duplicate it - measured on the restart suite's first green attempt).
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(value = "e14.scheduler-proof", havingValue = "true")
@@ -41,18 +40,6 @@ public class SchedulerProofTasks {
     /** Fires per task-instance id across every context of this JVM; one entry per execution. */
     static final Map<String, List<Instant>> FIRED = new ConcurrentHashMap<>();
 
-    /** The due instant of the missed run, seeded by RestartCatchUpContainerTest before its instance starts. */
-    public static final AtomicReference<Instant> MISSED_RUN_DUE = new AtomicReference<>(Instant.EPOCH);
-
-    /** The scheduler-name property the instance runs under (written into the run row as the instance). */
-    public static final AtomicReference<String> INSTANCE_NAME = new AtomicReference<>("");
-
-    private final DataSource dataSource;
-
-    public SchedulerProofTasks(DataSource dataSource) {
-        this.dataSource = dataSource;
-    }
-
     @Bean
     Task<Void> proofOnTimeTask() {
         return Tasks.oneTime(PROOF_ON_TIME).execute((taskInstance, executionContext) ->
@@ -61,14 +48,10 @@ public class SchedulerProofTasks {
 
     @Bean
     Task<Void> proofRestartTask() {
-        return Tasks.oneTime(PROOF_RESTART).execute((taskInstance, executionContext) -> {
-            Instant started = Instant.now();
-            fired(PROOF_RESTART, taskInstance.getId(), started);
-            // The run row is the recording surface the production wrapper (lane B's T-056) will own; the proof
-            // exercises that it works for the restricted application login and records the late flag.
-            writeRunRow(PROOF_RESTART, MISSED_RUN_DUE.get(), started, INSTANCE_NAME.get(),
-                    Duration.between(MISSED_RUN_DUE.get(), started).getSeconds() >= 1);
-        });
+        // fired() only: the run row (scheduled_for = the missed due, instance = the claiming scheduler-name,
+        // is_late against the seeded threshold) is written by the production listener over the restricted login
+        return Tasks.oneTime(PROOF_RESTART).execute((taskInstance, executionContext) ->
+                fired(PROOF_RESTART, taskInstance.getId(), Instant.now()));
     }
 
     @Bean
@@ -101,22 +84,5 @@ public class SchedulerProofTasks {
     public static Instant firstFireOf(String taskName, String instanceId) {
         List<Instant> runs = FIRED.get(taskName + "/" + instanceId);
         return runs == null || runs.isEmpty() ? null : runs.get(0);
-    }
-
-    void writeRunRow(String jobType, Instant scheduledFor, Instant started, String instance, boolean isLate) {
-        try (java.sql.Connection connection = dataSource.getConnection();
-                java.sql.PreparedStatement insert = connection.prepareStatement(
-                        "INSERT INTO scheduler.job_run (job_type, scheduled_for, started, finished, instance, outcome,"
-                                + " is_late) VALUES (?, ?, ?, ?, ?, 'SUCCEEDED', ?)")) {
-            insert.setString(1, jobType);
-            insert.setObject(2, scheduledFor);
-            insert.setObject(3, started);
-            insert.setObject(4, Instant.now());
-            insert.setString(5, instance);
-            insert.setBoolean(6, isLate);
-            insert.executeUpdate();
-        } catch (java.sql.SQLException e) {
-            throw new IllegalStateException("the proof run row could not be written", e);
-        }
     }
 }

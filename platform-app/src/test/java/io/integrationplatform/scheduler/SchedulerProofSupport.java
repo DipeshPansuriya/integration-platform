@@ -11,7 +11,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
+import java.nio.file.Path;
 import io.integrationplatform.PlatformTestWiring;
+import org.flywaydb.core.Flyway;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
@@ -40,6 +43,29 @@ public final class SchedulerProofSupport {
         DynamicPropertyRegistry registry = (name, supplier) -> properties.put(name, supplier.get());
         PlatformTestWiring.register(registry, postgres);
         return properties;
+    }
+
+    /**
+     * The migration window every suite runs before its first instance: the real Flyway as the container's owner
+     * user over every module's migration directory, exactly the way SchedulerIncidentAlertsContainerTest deploys,
+     * so ipaas_app and the scheduler schema (V2_2_1400) exist before the restricted login is granted. It is not a
+     * Spring context: platform-app's beans require the SchedulerClient the db-scheduler starter registers, so a
+     * context with the scheduler disabled cannot start at all (SchedulerWiringOrderBridge documents the cascade) -
+     * the suites' "all instances down" window is simply no context running.
+     */
+    public static void migrateAsOwner(PostgreSQLContainer postgres) {
+        Path basedir = Path.of(System.getProperty("basedir", ".")).toAbsolutePath().normalize();
+        String[] locations = Stream.of("platform-tenancy", "platform-config", "platform-delivery",
+                        "platform-ingest", "platform-routing")
+                .map(module -> basedir.getParent().resolve(module + "/src/main/resources/db/migration")
+                        .normalize().toString().replace('\\', '/'))
+                .map(path -> "filesystem:" + path)
+                .toArray(String[]::new);
+        Flyway.configure()
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .locations(locations)
+                .load()
+                .migrate();
     }
 
     /** Polls until the condition holds or the timeout passes (no new dependency; db-scheduler polls every 1s here). */
