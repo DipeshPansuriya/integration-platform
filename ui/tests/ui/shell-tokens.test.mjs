@@ -684,3 +684,35 @@ for (const theme of ['light', 'dark']) {
     assert.deepEqual(measured.filter((p) => p.r < 4.5).map((p) => `${p.name} = ${p.r}:1`), []);
   });
 }
+
+// row 310 B9 (sanjay-developer, fix-forward of T89b): adjacent controls in the content column
+// touched (Versions action row, Contracts change-note + submit). A control followed by a bare
+// button gets an inline gap - same zero-specificity :where(main.content) default + exclusion.
+// Only class-less buttons, so a redesigned row (.btn in a flex/grid gap) never doubles up.
+const SIBLING_BUTTON = `${SCOPE} :where(button, input:not([type="hidden"]), select, textarea) + :where(button:not([class]))${NOT_3P}`;
+
+/** Specificity is zero when nothing but combinators is left once every :where(...) is removed. */
+function zeroSpecificity(selector) {
+  let out = selector;
+  for (;;) {
+    const at = out.indexOf(':where(');
+    if (at < 0) break;
+    let depth = 0;
+    let end = at + ':where'.length;
+    for (; end < out.length; end++) {
+      if (out[end] === '(') depth++;
+      else if (out[end] === ')' && --depth === 0) break;
+    }
+    out = out.slice(0, at) + out.slice(end + 1);
+  }
+  return out.replace(/:not\(\s*\*?\s*\)/g, '').replace(/[\s+>~]/g, '') === '';
+}
+
+test('B9 a control followed by a bare button gets an inline gap (zero specificity, 3P excluded)', () => {
+  const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
+  assert.ok(SIBLING_BUTTON.includes(' + :where(button'), 'adjacent-sibling combinator onto a button');
+  assert.ok(SIBLING_BUTTON.endsWith(NOT_3P), 'third-party subtrees excluded');
+  assert.ok(zeroSpecificity(SIBLING_BUTTON), 'selector must carry zero specificity');
+  const decls = ruleDecls(base, SIBLING_BUTTON);
+  assert.equal(decls.get('margin-inline-start'), 'var(--space-2)', 'sibling gap is the 8px space token');
+});
