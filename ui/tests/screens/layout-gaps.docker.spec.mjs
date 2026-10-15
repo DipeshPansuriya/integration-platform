@@ -128,6 +128,8 @@ test('Rules pages: a bare button after a field or button gets no added margin', 
   const flowId = must(await inBrowser(page, 'POST', '/api/v1/admin/flows', DRAFT), 'draft flow').id;
   await page.goto(`${consoleUrl()}/#/rules`);
   await expect(page.locator('[data-page="rules-home"]')).toBeVisible();
+  // T102: Create sits in the inline card that "New rule set" opens.
+  await page.locator('[data-action="new-rule-set"]').click();
   expect(await marginStart(page.locator('[data-action="create-rule-set"]')), 'Rules home: Create').toBe('0px');
 
   const ruleSet = must(await inBrowser(page, 'POST', `/api/v1/admin/flows/${flowId}/rule-sets`, {
