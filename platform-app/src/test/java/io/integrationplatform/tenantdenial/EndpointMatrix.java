@@ -280,7 +280,9 @@ final class EndpointMatrix {
                     200,
                     new WriteProbe(s -> "SELECT count(*) || '|@' || coalesce(string_agg(version_label, ','"
                             + " ORDER BY version_label), '-') FROM public.contract_version WHERE tenant_id = '"
-                            + s.a().id() + "'", "2|@1.0,1.0", "3|@1.0,1.0,1.1")),
+                            // row 278 T104 (arjun-approved rebase): E11IntakeMatrix pins one extra APPROVED
+                            // contract_version ("1.0") per tenant.
+                            + s.a().id() + "'", "3|@1.0,1.0,1.0", "4|@1.0,1.0,1.0,1.1")),
             new Entry("GET", CONTRACT_VERSIONS + "/{versionId}", false,
                     s -> CONTRACT_VERSIONS + "/" + s.a().config().sourceContractVersionId(),
                     s -> CONTRACT_VERSIONS + "/" + s.b().config().sourceContractVersionId(),
@@ -304,7 +306,8 @@ final class EndpointMatrix {
                     s -> flowBody(s),
                     s -> List.of(),
                     201,
-                    new WriteProbe(tenantState("interface", "interface_version"), "6|6", "7|7")));
+                    // row 278 T104 (arjun-approved rebase): E11IntakeMatrix seeds one interface + version per tenant.
+                    new WriteProbe(tenantState("interface", "interface_version"), "7|7", "8|8")));
 
     /**
      * E5 seam (arjun-fullstack, F13): each epic lane's part of the matrix, in its own file ({@link LaneMatrix}). A new
@@ -312,7 +315,10 @@ final class EndpointMatrix {
      */
     static final List<LaneMatrix> LANES = List.of(new E5ContractMatrix(), new E5SystemMatrix(), new E5SecretMatrix(),
             new E6RuleMatrix(), new E7MappingMatrix(), new E7LookupMatrix(), new E7MappingTestMatrix(),
-            new B9FlowRoutesMatrix(), new F10QueueSummaryMatrix());
+            // row 278 T104: before F10 - the intake acceptance family (message/payload/outbox/timing) has no FKs, so
+            // E11's children are reachable by their own ids only while its parent message row still stands, and
+            // F10's clear removes the tenant's whole message set.
+            new B9FlowRoutesMatrix(), new E11IntakeMatrix(), new F10QueueSummaryMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),
