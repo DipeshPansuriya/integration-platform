@@ -1,0 +1,88 @@
+/* Row 310 lane C (T101): the shared right-side drawer (02 drawer recipe, 10-screens §5/§6).
+   Tokens only (tokens.css). 480px wide, full height, over the list with a scrim; slides in 280ms
+   on the motion curve, no motion under prefers-reduced-motion. */
+
+.drawer-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40; /* above the sticky top bar (base.css .topbar z-index 20) */
+}
+
+.drawer-scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--color-ink) 28%, transparent); /* derived from the ink token, both themes */
+}
+
+.drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(480px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border-left: 1px solid var(--color-border);
+  border-radius: var(--r-3) 0 0 var(--r-3);
+  box-shadow: var(--shadow-card);
+  animation: drawer-in 280ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.drawer:focus {
+  outline: none; /* the panel itself only takes focus when it holds no field; its title reads out */
+}
+.drawer :focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+.drawer .drawer-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.drawer-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+/* the forms in the body: one column, fields full width */
+.drawer-body form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.drawer-body form input:not([type="checkbox"], [type="radio"]),
+.drawer-body form select,
+.drawer-body form textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+.drawer-body form button[type="submit"] {
+  align-self: flex-start;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(105%);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: none;
+  }
+}

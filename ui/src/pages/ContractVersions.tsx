@@ -3,6 +3,8 @@
 // stored), the versions listed and compared side by side, submit with a change note, and approve.
 // The author approving their own version sees the API's AUTHOR_IS_APPROVER refusal on screen,
 // never hidden; another approver succeeds. The route and the menu entry live in App.tsx.
+// Row 310 lane C (T101, 10-screens §6): grouped list (one card per system/role), compare panes in
+// a two-column grid, and "Import a contract version" as the single primary opening the shared Drawer.
 
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -12,9 +14,12 @@ import {
   type Contract
 } from '../api/contracts';
 import { hasHarnessLogin, loadHarnessConfig } from '../api/harness-config';
-import { ContractList } from './contracts/ContractList';
+import { Drawer } from '../ui/Drawer';
+import { ContractList, type CardRefusal } from './contracts/ContractList';
+import { contractKey } from './contracts/contracts-view';
 import { ImportContractForm } from './contracts/ImportContractForm';
 import { SideBySide, type Compared } from './contracts/SideBySide';
+import './contracts/contracts.css';
 
 /** Two panes side by side; a third compared version replaces the oldest. */
 const MAX_COMPARED = 2;
@@ -24,8 +29,9 @@ export function ContractVersions() {
   const [loaded, setLoaded] = useState(false);
   const [listRefusal, setListRefusal] = useState<number | null>(null);
   const [compared, setCompared] = useState<Compared[]>([]);
-  const [refusal, setRefusal] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<CardRefusal | null>(null);
   const [harnessApprover, setHarnessApprover] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const refresh = useCallback(async () => {
     const result = await listContracts();
@@ -43,6 +49,10 @@ export function ContractVersions() {
     void refresh();
   }, [refresh]);
 
+  /** The card (system/role) a version belongs to - where its refusal is worded. */
+  const cardOf = (versionId: string) =>
+    contractKey(contracts.find((contract) => (contract.versions ?? []).some((version) => version.id === versionId)) ?? {});
+
   const onCompare = (id: string, key: string, checked: boolean) => {
     setCompared((current) => {
       const rest = current.filter((entry) => entry.id !== id);
@@ -54,7 +64,7 @@ export function ContractVersions() {
     setRefusal(null);
     const result = await submitContractVersion(versionId, changeNote.trim());
     if (!result.ok) {
-      setRefusal(result.error ?? `submit-refused-${result.status}`);
+      setRefusal({ contractKey: cardOf(versionId), code: result.error ?? `submit-refused-${result.status}` });
       return;
     }
     await refresh();
@@ -64,9 +74,13 @@ export function ContractVersions() {
     setRefusal(null);
     const result = await approveContractVersion(versionId, asLogin);
     if (!result.ok) {
-      if (result.refusal === 'AUTHOR_IS_APPROVER') setRefusal('author-cannot-approve');
-      else if (result.refusal === 'NOT_PENDING_APPROVAL') setRefusal('not-pending-approval');
-      else setRefusal(result.error ?? `approve-refused-${result.status}`);
+      const code =
+        result.refusal === 'AUTHOR_IS_APPROVER'
+          ? 'author-cannot-approve'
+          : result.refusal === 'NOT_PENDING_APPROVAL'
+            ? 'not-pending-approval'
+            : (result.error ?? `approve-refused-${result.status}`);
+      setRefusal({ contractKey: cardOf(versionId), code });
       return;
     }
     await refresh();
@@ -76,40 +90,39 @@ export function ContractVersions() {
 
   return (
     <main data-page="contracts" data-contracts-loaded={String(loaded)}>
-      <h2>Contract versions</h2>
-      {listRefusal !== null && (
-        <p role="alert" data-refusal={`list-refused-${listRefusal}`}>
-          The API refused the contracts list (HTTP {listRefusal}).
-        </p>
-      )}
-      {refusal === 'author-cannot-approve' && (
-        <p role="alert" data-refusal="author-cannot-approve">
-          Refused: the author cannot approve their own version (AUTHOR_IS_APPROVER).
-        </p>
-      )}
-      {refusal === 'not-pending-approval' && (
-        <p role="alert" data-refusal="not-pending-approval">
-          Refused: only a submitted version can be approved (NOT_PENDING_APPROVAL).
-        </p>
-      )}
-      {refusal !== null && !['author-cannot-approve', 'not-pending-approval'].includes(refusal) && (
-        <p role="alert" data-refusal="action-refused">
-          The API refused this action: {refusal}
-        </p>
-      )}
-      {loaded && contracts.length === 0 && listRefusal === null && <p data-contracts-empty>No contracts yet.</p>}
-      <ContractList
-        contracts={contracts}
-        actions={{
-          compared: comparedIds,
-          onCompare,
-          onSubmit: (id, note) => void onSubmit(id, note),
-          onApprove: (id, asLogin) => void onApprove(id, asLogin),
-          harnessApprover
-        }}
-      />
-      <SideBySide compared={compared} />
-      <ImportContractForm onImported={refresh} />
+      <div className="contracts-page">
+        <div className="contracts-head">
+          <h2>Contract versions</h2>
+          <button type="button" className="btn btn-primary" data-action="open-import" onClick={() => setImporting(true)}>
+            Import a contract version
+          </button>
+        </div>
+        {listRefusal !== null && (
+          <p role="alert" className="contracts-alert contracts-alert-danger" data-refusal={`list-refused-${listRefusal}`}>
+            The API refused the contracts list (HTTP {listRefusal}).
+          </p>
+        )}
+        {loaded && contracts.length === 0 && listRefusal === null && (
+          <p className="contracts-empty" data-contracts-empty>
+            No contracts yet.
+          </p>
+        )}
+        <ContractList
+          contracts={contracts}
+          refusal={refusal}
+          actions={{
+            compared: comparedIds,
+            onCompare,
+            onSubmit: (id, note) => void onSubmit(id, note),
+            onApprove: (id, asLogin) => void onApprove(id, asLogin),
+            harnessApprover
+          }}
+        />
+        <SideBySide compared={compared} />
+        <Drawer open={importing} title="Import a contract version" onClose={() => setImporting(false)} id="import-contract">
+          <ImportContractForm onImported={refresh} />
+        </Drawer>
+      </div>
     </main>
   );
 }

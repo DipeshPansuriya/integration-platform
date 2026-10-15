@@ -1,7 +1,7 @@
 // Row 310 lane C (rohit-developer, T101): Systems worklist + the shared 480px Drawer + the
 // test-connection result in its row cell; Contracts grouped list, side-by-side compare panes and
 // the import form inside the same Drawer (10-screens §5/§6, 20-build-plan s3 row C + s5).
-// Pure helpers (ui/drawer.ts, systems/systems-view.ts, contracts/contracts-view.ts) are exercised
+// Pure helpers (ui/drawer-keys.ts, systems/systems-view.ts, contracts/contracts-view.ts) are exercised
 // directly; the page contracts the screens specs key off (data-* hooks, verbatim refusals,
 // aria-labels, drawer semantics) are read from source.
 // Run: node --test tests/ui/systems-contracts.test.mjs   (helpers are imported with their .ts extension)
@@ -16,7 +16,7 @@ const src = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
 const read = (path) => (existsSync(join(src, path)) ? readFileSync(join(src, path), 'utf8') : '');
 const load = async (path) => (existsSync(join(src, path)) ? import(`../../src/${path}`) : {});
 
-const drawer = await load('ui/drawer.ts');
+const drawer = await load('ui/drawer-keys.ts');
 const systemsView = await load('pages/systems/systems-view.ts');
 const contractsView = await load('pages/contracts/contracts-view.ts');
 
