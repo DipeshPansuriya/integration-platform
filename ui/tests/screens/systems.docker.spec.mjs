@@ -39,7 +39,9 @@ async function openSystems(page) {
 
 /** Fills the register form: code, name, OUTBOUND, the type and each setting by its API name. */
 async function fillRegister(page, { code, name, type, settings }) {
-  const form = page.locator('[data-form="register-system"]');
+  // Row 310 lane C (T101): the register form lives in the shared drawer, closed until opened
+  await page.click('[data-action="open-register"]');
+  const form = page.getByRole('dialog', { name: 'Register a system' }).locator('[data-form="register-system"]');
   await form.locator('[data-field="system-code"]').fill(code);
   await form.locator('[data-field="system-name"]').fill(name);
   await form.locator('[data-field="system-direction"]').selectOption('OUTBOUND');
@@ -91,7 +93,7 @@ test('edits the type-specific settings; the new value is stored and shown after 
 
   await openSystems(page);
   await page.locator(`[data-system-row="${code}"] [data-action="open-system"]`).click();
-  const editor = page.locator('[data-form="edit-system"]');
+  const editor = page.getByRole('dialog', { name: `Edit system ${code}` }).locator('[data-form="edit-system"]'); // T101: edit opens the drawer
   await expect(editor.locator('[data-setting="host"]')).toHaveValue('db-old.partner.test');
   await editor.locator('[data-setting="host"]').fill('db-new.partner.test');
   await editor.locator('[data-setting="port"]').fill('6432');
@@ -173,8 +175,9 @@ test('the row Test connection button tests an API system and shows the endpoint 
   const row = page.locator(`[data-system-row="${code}"]`);
   await row.locator('[data-action="test-connection"]').click();
 
-  const answer = page.locator('[data-test-connection-result]');
+  const answer = row.locator('[data-test-connection-result]'); // T101: the answer sits in its row cell
   await expect(answer).toBeVisible();
+  await expect(answer).toHaveAttribute('role', 'status');
   await expect(answer).toHaveAttribute('data-test-connection-result', 'REFUSED');
   await expect(answer).toContainText(code);
 });
@@ -196,9 +199,10 @@ test('over the per-user rate limit the connection test is refused 429 and the re
   for (let i = 0; i < 14; i++) {
     await testButton.click();
   }
-  const refusal = page.locator('[data-refusal="test-connection-refused-429"]');
+  const refusal = page.locator(`[data-system-row="${code}"] [data-refusal="test-connection-refused-429"]`); // T101: in the row cell
   await expect(refusal).toBeVisible();
   await expect(refusal).toContainText('TEST_CONNECTION_RATE_LIMITED');
+  await expect(refusal).toContainText('Too many connection tests, wait a moment');
 });
 
 // @negative @tenant: systems are tenant-scoped.
@@ -219,4 +223,42 @@ test('tenant B lists none of tenant A\'s systems and opening tenant A\'s id show
   await page.goto(`${consoleUrl()}/#/systems/${seeded.data.id}`);
   await expect(page.locator('[data-refusal="system-not-found"]')).toBeVisible();
   await expect(page.locator('[data-form="edit-system"]')).toHaveCount(0);
+});
+
+// Row 310 lane C (T101): the shared drawer - register closed by default, a 480px modal dialog,
+// Esc closes it and focus returns to the opener; row buttons carry the system's code in their name.
+test('the register drawer is closed by default, is a modal dialog, closes on Esc and gives focus back', async ({ page }) => {
+  await openSystems(page);
+  await expect(page.locator('[data-form="register-system"]')).toHaveCount(0);
+  const opener = page.locator('[data-action="open-register"]');
+  await opener.click();
+  const dialog = page.getByRole('dialog', { name: 'Register a system' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute('aria-modal', 'true');
+  const width = await dialog.evaluate((el) => el.getBoundingClientRect().width);
+  expect(Math.round(width)).toBe(480);
+  await expect(dialog.locator(':focus')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBe(0);
+});
+
+test('closing the edit drawer returns to the list address and focus to the row Open button', async ({ page }) => {
+  await page.goto(consoleUrl());
+  const code = `sys-drawer-${RUN}`;
+  const seeded = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
+    code, name: 'Drawer', direction: 'OUTBOUND', type: 'FILE', settings: { rootPath: '/data/d' }
+  });
+  expect(seeded.status).toBe(201);
+  await openSystems(page);
+  const open = page.locator(`[data-system-row="${code}"] [data-action="open-system"]`);
+  await expect(page.getByRole('button', { name: `Test connection for ${code}` })).toBeVisible();
+  await open.click();
+  await expect(page.getByRole('dialog', { name: `Edit system ${code}` })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/systems$/);
+  await expect(open).toBeFocused();
 });

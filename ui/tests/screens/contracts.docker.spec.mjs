@@ -80,6 +80,14 @@ async function openContracts(page) {
 
 const versionRow = (page, system, label) => page.locator(`[data-version-key="${system}/${ROLE}/${label}"]`);
 
+/** Row 310 lane C (T101): the import form lives in the shared drawer, closed until its primary action opens it. */
+async function openImport(page) {
+  await page.click('[data-action="open-import"]');
+  const dialog = page.getByRole('dialog', { name: 'Import a contract version' });
+  await expect(dialog).toBeVisible();
+  return dialog.locator('[data-form="import-contract"]');
+}
+
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async ({ browser }) => {
@@ -102,7 +110,7 @@ test.beforeAll(async ({ browser }) => {
 // Scenario: Two contract versions side by side.
 test('imports Target B v2.0 from OpenAPI and shows it side by side with Target A v1.0', async ({ page }) => {
   await openContracts(page);
-  const form = page.locator('[data-form="import-contract"]');
+  const form = await openImport(page);
   await form.locator('[data-field="contract-system"]').selectOption(TARGET_B);
   await form.locator('[data-field="contract-role"]').selectOption(ROLE);
   await form.locator('[data-field="version-label"]').fill('2.0');
@@ -138,7 +146,7 @@ for (const bad of [
 ]) {
   test(`a ${bad.format} document that does not parse is refused with the parser's errors and nothing is stored`, async ({ page }) => {
     await openContracts(page);
-    const form = page.locator('[data-form="import-contract"]');
+    const form = await openImport(page);
     await form.locator('[data-field="contract-system"]').selectOption(TARGET_B);
     await form.locator('[data-field="contract-role"]').selectOption(ROLE);
     await form.locator('[data-field="version-label"]').fill(bad.label);
@@ -163,6 +171,8 @@ test('submits a draft version with a change note; it is pending approval and the
   await openContracts(page);
   const row = versionRow(page, TARGET_A, '1.1');
   await expect(row).toHaveAttribute('data-version-status', 'DRAFT');
+  await expect(row.locator('[data-field="change-note"]')).toHaveCount(0); // T101: no empty note field per row
+  await row.locator('[data-action="compose-submit"]').click();
   await row.locator('[data-field="change-note"]').fill('adds nothing - a resubmission for the screen test');
   await row.locator('[data-action="submit-version"]').click();
   await expect(row).toHaveAttribute('data-version-status', 'PENDING_APPROVAL');
@@ -186,7 +196,8 @@ test('the author approving their own version sees AUTHOR_IS_APPROVER; another ap
   const row = versionRow(page, TARGET_A, '1.2');
   await expect(row).toHaveAttribute('data-version-status', 'PENDING_APPROVAL');
   await row.locator('[data-action="approve-version"]').click();
-  await expect(page.locator('[data-refusal="author-cannot-approve"]')).toBeVisible();
+  // T101: the refusal is worded at the top of the affected contract's card
+  await expect(page.locator(`[data-contract="${TARGET_A}/${ROLE}"] [data-refusal="author-cannot-approve"]`)).toBeVisible();
   await expect(row).toHaveAttribute('data-version-status', 'PENDING_APPROVAL');
 
   await row.locator('[data-action="approve-as-approver"]').click();
@@ -195,4 +206,37 @@ test('the author approving their own version sees AUTHOR_IS_APPROVER; another ap
   expect(stored.data.status).toBe('APPROVED');
   expect(stored.data.approverId).toBeTruthy();
   expect(stored.data.approverId).not.toBe(stored.data.authorId);
+});
+
+// Row 310 lane C (T101): the shared drawer - closed by default, a modal dialog, Esc closes it and
+// focus returns to the action that opened it; compare panes sit in a two-column grid.
+test('the import drawer is closed by default, is a modal dialog, closes on Esc and gives focus back', async ({ page }) => {
+  await openContracts(page);
+  await expect(page.locator('[data-form="import-contract"]')).toHaveCount(0);
+  const opener = page.locator('[data-action="open-import"]');
+  await opener.click();
+  const dialog = page.getByRole('dialog', { name: 'Import a contract version' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute('aria-modal', 'true');
+  const width = await dialog.evaluate((el) => el.getBoundingClientRect().width);
+  expect(Math.round(width)).toBe(480);
+  await expect(dialog.locator(':focus')).toHaveCount(1); // focus moved into the drawer
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(opener).toBeFocused();
+});
+
+test('two compared versions sit side by side; a field that differs is marked with a word', async ({ page }) => {
+  await openContracts(page);
+  await versionRow(page, TARGET_A, '1.0').locator('[data-action="compare"]').check();
+  await versionRow(page, TARGET_B, '2.0').locator('[data-action="compare"]').check();
+  const panes = page.locator('[data-compare-pane]');
+  await expect(panes).toHaveCount(2);
+  const [first, second] = await Promise.all([panes.nth(0).boundingBox(), panes.nth(1).boundingBox()]);
+  expect(Math.round(first.y)).toBe(Math.round(second.y)); // one row, two columns
+  expect(second.x).toBeGreaterThan(first.x);
+  const marked = page.locator('[data-field-diff]');
+  if (await marked.count()) await expect(marked.first()).toContainText(/changed|only here/);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBe(0);
 });
