@@ -241,7 +241,7 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
     );
 
   return (
-    <main data-page="flow-definition" className="flows-page">
+    <div data-page="flow-definition" className="flows-page">
       <div className="flows-head">
         <h2 ref={heading} tabIndex={-1}>
           Flow definition
@@ -388,6 +388,6 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
           </div>
         </form>
       )}
-    </main>
+    </div>
   );
 }
