@@ -240,7 +240,7 @@ export function App() {
           </button>
           {me && (
             <details className="account">
-              <summary className="chip account-summary" data-action="account">{me.userId ?? 'Account'}</summary>
+              <summary className="chip account-summary" data-action="account">Account</summary>
               <div className="menu">
                 <button type="button" data-action="logout" onClick={() => void logout()}>
                   Sign out
@@ -287,7 +287,7 @@ export function App() {
           )}
           {route.page === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
           {route.page === 'home' &&
-            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard user={me?.userId} />)}
+            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard />)}
         </main>
       </div>
     </div>
