@@ -91,7 +91,11 @@ export async function publishFlow(flowId: string): Promise<ApiAnswer<unknown>> {
 export function validationFieldOf(error: string | undefined): string | null {
   if (!error) return null;
   if (error.includes('businessKeyRule')) return 'business-key-rule';
-  if (error.includes('sourceSystem')) return 'source-system';
+  // B13 rework: an unregistered system is refused in its sentence, not the camelCase attribute -
+  // 'unknown source system X' (FlowAdminService.java:60,85; ContractAdminService.java:238) and
+  // 'unknown system X' (ContractAdminService.java:206, the draft-save's contract seam, which this
+  // screen calls with form.sourceSystem) all fail the source-system field.
+  if (error.includes('sourceSystem') || error.includes('unknown source system') || error.includes('unknown system')) return 'source-system';
   if (error.includes('sourceSchema')) return 'source-schema';
   if (error.includes('destinations')) return 'destinations';
   return 'request';
