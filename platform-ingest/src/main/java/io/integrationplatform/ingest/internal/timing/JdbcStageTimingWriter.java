@@ -45,7 +45,7 @@ public class JdbcStageTimingWriter extends TenantScopedRepository implements Sta
         params.put("stage", stage.name());
         params.put("started_at", Timestamp.from(startedAt));
         params.put("finished_at", finishedAt == null ? null : Timestamp.from(finishedAt));
-        List<Long> ids = query(RECORD, null, params, (rs, rowNum) -> rs.getLong("id"));
+        List<UUID> ids = query(RECORD, null, params, (rs, rowNum) -> rs.getObject("id", UUID.class));
         if (ids.size() != 1) {
             throw new IllegalStateException("the stage timing row stored " + ids.size() + " rows for the bound"
                     + " tenant - the message is missing or the stamp disagreed (never expected); nothing recorded");
