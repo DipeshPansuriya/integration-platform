@@ -57,7 +57,18 @@ function sleep(ms) {
 
 // --- the one-docker-suite-at-a-time lock (R06, plan:98) -------------------------------
 
-async function acquireSuiteLock() {
+/**
+ * Writes the lock's owner note: the holder line, then when it was refreshed. Rewriting it moves the
+ * note's mtime to now - the age every lock taker (this module, check-container-exclusion.sh) reads
+ * as "stale after 60 minutes" - so a holder that stays up (T94's trial) keeps it fresh. Never
+ * re-creates a lock directory that is gone (the write throws ENOENT instead).
+ */
+export function writeLockNote(lockDir, holder) {
+  fs.writeFileSync(path.join(lockDir, 'owner'), `${holder} refreshed=${new Date().toISOString()}
+`, { flag: 'w' });
+}
+
+async function acquireSuiteLock(holder = `vijay-developer ui-harness ${new Date().toISOString()}`) {
   const start = Date.now();
   for (;;) {
     try {
@@ -79,7 +90,7 @@ async function acquireSuiteLock() {
       await sleep(20000);
       continue;
     }
-    fs.writeFileSync(path.join(LOCK_PATH, 'owner'), `vijay-developer ui-harness ${new Date().toISOString()}`);
+    writeLockNote(LOCK_PATH, holder);
     return () => fs.rmSync(LOCK_PATH, { recursive: true, force: true });
   }
 }
@@ -193,11 +204,17 @@ export async function fetchOpenApiDocument(boot) {
   return response.json();
 }
 
-export default async function bootBackend({ loginSeed = false } = {}) {
-  const releaseLock = await acquireSuiteLock();
-  const javaExe = javaCommand(); // resolves before any container starts - a missing JVM fails the boot immediately
+/**
+ * `extraUsers` (T94, the trial): more realm users bound in the default tenant, each
+ * `{ key, username, password, role }` - the password is the caller's (never generated or printed
+ * here) and no harness session is opened for them. `lockHolder` names the holder in the lock note.
+ */
+export default async function bootBackend({ loginSeed = false, extraUsers = [], lockHolder } = {}) {
+  const releaseLock = await acquireSuiteLock(lockHolder);
   let container, app, keycloak;
   try {
+    // Inside the try (m-910e28): a boot that throws before the teardown path would leak the lock.
+    const javaExe = javaCommand(); // resolves before any container starts - a missing JVM fails the boot immediately
     const pgName = `ipass-ui-t41-pg-${crypto.randomBytes(4).toString('hex')}`;
     const pgPassword = crypto.randomBytes(18).toString('base64url'); // memory-only (R07)
     const loginName = `console_login_${crypto.randomBytes(5).toString('hex')}`;
@@ -307,6 +324,16 @@ export default async function bootBackend({ loginSeed = false } = {}) {
       psql(pgName,
         `INSERT INTO public.role_grant (tenant_id, user_id, role) SELECT tenant_id, id, '${roles[login]}' FROM public.app_user WHERE issuer='${keycloak.issuer}' AND subject='${user.subject}'`);
     }
+    const extra = {};
+    for (const { key, username, password, role } of extraUsers) {
+      if (!/^[A-Z_]+$/.test(role)) throw new Error(`boot-backend: extra user ${key} has an invalid role`);
+      const user = await keycloak.createUser(username, password);
+      extra[key] = { username: user.username, subject: user.subject, role };
+      psql(pgName,
+        `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${keycloak.issuer}', '${user.subject}', 'ACTIVE' FROM public.tenant WHERE code='${tenantCode}'`);
+      psql(pgName,
+        `INSERT INTO public.role_grant (tenant_id, user_id, role) SELECT tenant_id, id, '${role}' FROM public.app_user WHERE issuer='${keycloak.issuer}' AND subject='${user.subject}'`);
+    }
 
     // The harness's server-side sessions, each through the realm's real login form. The console
     // proxy swaps one in for the X-Harness-Login marker; the browser never holds any of them.
@@ -366,6 +393,13 @@ export default async function bootBackend({ loginSeed = false } = {}) {
       seededVia: 'directory rows (tenant + app_user) as the migration owner for realm users; systems and flows through the real API with console sessions',
       /** The realm users (passwords in memory only) - the browser logs in with `users.default`. */
       users,
+      /** The `extraUsers` bound in the default tenant, by key: username, subject, role (no password). */
+      extraUsers: extra,
+      /** The docker-suite lock this boot holds; refreshLock() rewrites its owner note (mtime now). */
+      lockPath: LOCK_PATH,
+      refreshLock() {
+        writeLockNote(LOCK_PATH, lockHolder ?? 'ui-harness');
+      },
       /** The harness's server-side console sessions per login (cookie + CSRF token, never a token). */
       sessions,
       call,
