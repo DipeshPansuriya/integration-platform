@@ -296,6 +296,44 @@ test('a link changed to a field Target A does not have is refused on the canvas,
   await expect(targetInputOf(page, 'amount', 'total_amount')).toHaveValue('total_amount');
 });
 
+// Row 310 T103 (wave 4 lane E, 10-screens s8 a11y): the canvas is decoration - its only tab stops are the
+// node buttons (aria-pressed twin); every drawn link is an edge whose label is mono ink, in both themes;
+// the links table stays below it as the accessible, editable truth.
+test('T103: the canvas is non-focusable decoration; edges carry mono ink labels; the links table is the truth', async ({ page }) => {
+  await openCanvas(page, ROUTE_A);
+  await expect(linkRows(page)).toHaveCount(3, { timeout: 10_000 });
+  await expect(page.locator('table:has(caption:text("Drawn links"))')).toBeVisible();
+
+  const canvas = page.locator('[data-canvas="mapping"]');
+  await expect(canvas.locator('[data-node]').first()).toBeVisible();
+  const stops = await canvas.evaluate((root) => [...root.querySelectorAll('*')]
+    .filter((el) => el.tabIndex >= 0 && !el.disabled && !(el instanceof HTMLButtonElement && el.hasAttribute('data-node')))
+    .map((el) => el.className || el.tagName));
+  expect(stops, 'tab stops in the canvas other than the node buttons').toEqual([]);
+  expect(await canvas.evaluate((root) => root.tabIndex)).toBeLessThan(0);
+
+  const labels = canvas.locator('.react-flow__edge-text');
+  await expect(labels).toHaveCount(3);
+  await expect(labels.first()).toContainText('→');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+    const look = await labels.first().evaluate((el) => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--color-ink)';
+      probe.style.fontFamily = 'var(--font-mono)';
+      el.closest('[data-canvas]').appendChild(probe);
+      const want = getComputedStyle(probe);
+      const got = getComputedStyle(el);
+      const answer = { fill: got.fill, ink: want.color, font: got.fontFamily, mono: want.fontFamily, size: parseFloat(got.fontSize) };
+      probe.remove();
+      return answer;
+    });
+    expect(look.fill, `${theme}: edge label fill is the ink token`).toBe(look.ink);
+    expect(look.font, `${theme}: edge label is the mono token`).toBe(look.mono);
+    expect(look.size, `${theme}: 12.5px floor`).toBeGreaterThanOrEqual(12.5);
+  }
+});
+
 /** Every POST to the mapping test endpoint this page makes (the "no call" proof of the refusals). */
 function sampleCalls(page) {
   const calls = [];
@@ -325,6 +363,24 @@ test("T93: the Mappings menu lists the run's flows, a flow's routes, and opens t
   await expect(page).toHaveURL(new RegExp(`#/mappings/${ROUTE_B}$`));
   await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
   await expect(page.locator('[data-field="target-version"]')).toHaveValue(TARGET_B_VERSION_ID, { timeout: 10_000 });
+});
+
+// Row 310 T103 (wave 4 lane E): the #/mappings landing is a worklist - Route, Interface, Target system,
+// Mapping (a worded badge, never colour alone), Open - clicks only, unchanged hash URLs.
+test('T103: the Mappings landing is a worklist with worded mapping badges', async ({ page }) => {
+  await page.goto(`${consoleUrl()}/#/mappings`);
+  await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
+  await page.locator(`[data-mapping-flow="${FLOW_ID}"]`).click();
+  await expect(page.locator(`[data-mapping-flow="${FLOW_ID}"]`)).toHaveAttribute('aria-pressed', 'true');
+  const routeA = page.locator(`[data-mapping-route="${ROUTE_A}"]`);
+  await expect(routeA).toBeVisible();
+  const headers = await page.locator('[data-mapping-routes] thead th').allInnerTexts();
+  expect(headers.map((h) => h.trim())).toEqual(['Route', 'Interface', 'Target system', 'Mapping', 'Open']);
+  await expect(routeA.locator('.badge')).toHaveText(/^(Saved|Not saved)$/);
+  await expect(routeA).toContainText('orders');
+  // the content column holds the 1280px floor with zero horizontal overflow
+  await page.setViewportSize({ width: 1280, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
 // T92 (row 278 close-E7, T-162 gap 1): Dipesh's example on the Target B route - draw, save, run a sample.
