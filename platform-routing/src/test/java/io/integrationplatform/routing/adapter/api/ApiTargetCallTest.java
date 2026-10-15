@@ -246,44 +246,45 @@ class ApiTargetCallTest {
         Response give() throws IOException;
     }
 
-    private static RecordingHttpSend answering(Answer answer) {
-        return new RecordingHttpSend(answer.give());
+    private RecordingHttpSend answering(Answer answer) {
+        try {
+            return new RecordingHttpSend(sent, answer.give());
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
-    private static RecordingHttpSend failing(java.util.function.Supplier<? extends IOException> failure) {
-        return new RecordingHttpSend(failure);
+    private RecordingHttpSend failing(java.util.function.Supplier<? extends IOException> failure) {
+        return new RecordingHttpSend(sent, failure);
     }
 
-    private static RecordingHttpSend neverExpected() {
-        return new RecordingHttpSend();
+    private RecordingHttpSend neverExpected() {
+        return new RecordingHttpSend(sent);
     }
 
     /** The seam stub: records the call, answers or throws on demand; a call reaching it un-stubbed fails the leg. */
     private static final class RecordingHttpSend implements HttpSend {
 
+        private final List<Call> sink;
         private final Answer onDemand;
         private final Response canned;
         private final java.util.function.Supplier<? extends IOException> fault;
 
-        RecordingHttpSend() {
-            this.onDemand = null;
-            this.canned = null;
-            this.fault = send -> {
-                throw new AssertionError("the adapter must never reach the socket without a destination refused"
-                        + " or configured - the leg stumps neither");
-            };
+        RecordingHttpSend(List<Call> sink) {
+            this(sink, null, null, null);
         }
 
-        RecordingHttpSend(Response canned) {
-            this(() -> canned, null, null);
+        RecordingHttpSend(List<Call> sink, Response canned) {
+            this(sink, null, canned, null);
         }
 
-        RecordingHttpSend(java.util.function.Supplier<? extends IOException> fault) {
-            this(null, null, fault);
+        RecordingHttpSend(List<Call> sink, java.util.function.Supplier<? extends IOException> fault) {
+            this(sink, null, null, fault);
         }
 
-        private RecordingHttpSend(Answer onDemand, Response canned,
+        private RecordingHttpSend(List<Call> sink, Answer onDemand, Response canned,
                 java.util.function.Supplier<? extends IOException> fault) {
+            this.sink = sink;
             this.onDemand = onDemand;
             this.canned = canned;
             this.fault = fault;
@@ -292,7 +293,11 @@ class ApiTargetCallTest {
         @Override
         public Response send(CheckedDestination destination, String method, Map<String, String> headers,
                 byte[] body, int timeoutMs) throws IOException {
-            ApiTargetCallTest.this.sent.add(new Call(destination, method, headers, body, timeoutMs));
+            if (onDemand == null && canned == null && fault == null) {
+                throw new AssertionError("the adapter must never reach the socket without a destination refused"
+                        + " or configured - the leg stubs neither");
+            }
+            sink.add(new Call(destination, method, headers, body, timeoutMs));
             if (fault != null) {
                 throw fault.get();
             }

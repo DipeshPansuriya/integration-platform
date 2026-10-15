@@ -47,6 +47,13 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-ingest</artifactId>
     </dependency>
+    <!-- E10 narrow (T-050): the API target adapter's reads go through TenantScopedRepository (R08) - the
+         tenancy base is where its SQL must run, so the edge is named here the same way the ingest edge is.
+         No cycle: platform-tenancy imports no routing class. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-tenancy</artifactId>
+    </dependency>
     <!-- E8 seam (F6, arjun): the Kafka Testcontainers the E8 lanes test with (T-044's harness builds on
          these); versions come from the spring-boot BOM's testcontainers-bom, as in platform-config/app.
          spring-boot-starter-test is contributed by the parent for every module. -->
