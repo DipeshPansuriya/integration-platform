@@ -1,0 +1,196 @@
+/* Row 310 lane D (T102): Rules home (header + table, kind badges) and the rules editor (two columns:
+   tables in cards, sticky "Test this rule set" card), 10-screens s7, 01-tokens s4.1. Tokens only
+   (tokens.css); base.css owns .btn / .badge / .table. Every rule is scoped under .rules-home or
+   .rules-editor - nothing here reaches another page. jdm-editor internals are never restyled by
+   selector: the editor is themed only through its own --grl-* variables below. */
+
+/* --- 01-tokens s4.1: @gorules/jdm-editor 1.52.0 over the app tokens ---
+   jdm writes its --grl-* values on :root (JdmConfigProvider's <style>); redefining them on the
+   .rules-editor wrapper wins for everything rendered inside it, in both themes (the app tokens flip
+   under data-theme, so no dark block is needed). The last group maps the variables jdm hard-codes
+   per mode (border/bg fades, output column, selected row, status backgrounds) - the fallback ladder
+   of 01 s4.1, done through jdm's own variables instead of selectors. */
+[data-theme] .rules-editor {
+  --grl-color-primary: var(--color-accent);
+  --grl-color-primary-hover: var(--color-accent-hover);
+  --grl-color-bg-container: var(--color-surface);
+  --grl-color-bg-layout: var(--color-canvas);
+  --grl-color-bg-elevated: var(--color-surface-raised);
+  --grl-color-text: var(--color-ink);
+  --grl-color-text-secondary: var(--color-ink-muted);
+  --grl-color-text-placeholder: var(--color-ink-faint);
+  --grl-color-border: var(--color-border);
+  --grl-color-border-hover: var(--color-border-strong);
+  --grl-color-error: var(--color-danger);
+  --grl-color-success: var(--color-success);
+  --grl-color-warning: var(--color-warn-text);
+  --grl-font-family: var(--font-body);
+  --grl-border-radius: 4px;
+
+  --grl-color-border-fade: var(--color-border);
+  --grl-color-primary-bg: var(--color-accent-faint);
+  --grl-color-primary-bg-fade: var(--color-canvas);
+  --grl-color-success-bg: var(--color-success-bg);
+  --grl-color-error-bg: var(--color-danger-bg);
+  --grl-color-warning-bg: var(--color-warn-bg);
+  --grl-decision-table-output: var(--color-neutral-bg);
+  --grl-decision-table-selected-row: var(--color-accent-faint);
+}
+
+/* --- shared: header row, cards, muted text, alerts (worded, never colour alone) --- */
+:is(.rules-home, .rules-editor) .rules-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-4);
+}
+:is(.rules-home, .rules-editor) .rules-head h2 {
+  margin: 0;
+}
+:is(.rules-home, .rules-editor) .rules-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-3);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-3) var(--space-4);
+  margin: 0 0 var(--space-4);
+  min-width: 0;
+}
+:is(.rules-home, .rules-editor) .rules-card h3 {
+  margin: 0 0 var(--space-2);
+  font-size: 15px;
+  font-weight: 600;
+}
+:is(.rules-home, .rules-editor) .rules-muted {
+  color: var(--color-ink-muted);
+  font-size: 13px;
+  margin: var(--space-1) 0 var(--space-3);
+}
+:is(.rules-home, .rules-editor) .rules-alert {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger-text);
+  border-radius: var(--r-2);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  font-size: 13px;
+  margin: 0 0 var(--space-3);
+}
+
+/* --- Rules home: two-part filter header (flow + kind) over the recipe table --- */
+.rules-home .rules-filter {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: end;
+  margin: 0 0 var(--space-4);
+}
+.rules-home .rules-filter label,
+.rules-home .rules-create label {
+  min-width: 220px;
+}
+.rules-home .rules-create-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: end;
+}
+.rules-home .rules-empty {
+  color: var(--color-ink-muted);
+  padding: var(--space-4) 0;
+}
+
+/* --- Rules editor: settings row + table cards on the left, the test panel on the right --- */
+.rules-editor.rules-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+  gap: var(--space-4);
+  align-items: start;
+}
+.rules-editor .rules-settings {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: end;
+}
+.rules-editor .rules-settings label {
+  flex: 1 1 260px;
+}
+.rules-editor .rules-saved {
+  color: var(--color-success-text);
+  font-size: 13px;
+  align-self: center;
+}
+.rules-editor .rules-jump {
+  margin-left: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.rules-editor .rules-jump:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.rules-editor .rules-table-card [data-decision-table] > h3 {
+  position: sticky; /* per-table header stays in view while its rows scroll by */
+  top: var(--topbar-h);
+  z-index: 1;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) 0;
+  background: var(--color-surface);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* --- Test this rule set: always visible, held in view, never behind a toggle --- */
+.rules-editor .rules-test-panel {
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--space-3));
+  align-self: start;
+  max-height: calc(100vh - var(--topbar-h) - var(--space-5));
+  overflow: auto;
+  margin: 0;
+}
+.rules-editor .rules-test-panel h3 {
+  font-size: 16px;
+}
+.rules-editor .rules-test-panel [data-test-panel-input] {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.rules-editor .rules-test-panel [data-test-panel-run] {
+  margin: var(--space-2) 0 var(--space-3);
+}
+.rules-editor .rules-test-panel [data-test-panel-verdict] {
+  min-height: 3em; /* the panel never jumps when a verdict arrives */
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-2);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.rules-editor .rules-test-panel [data-test-panel-verdict][data-state="done"] {
+  background: var(--color-success-bg);
+  border-color: var(--color-success-text);
+  color: var(--color-success-text);
+}
+.rules-editor .rules-test-panel [data-test-panel-verdict][data-state="error"] {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-text);
+  color: var(--color-danger-text);
+}
