@@ -38,7 +38,7 @@ export function QueueDashboard() {
   }, [load]);
 
   return (
-    <main data-page="queue-dashboard" data-queue-loaded={loaded ? 'true' : 'false'}>
+    <div data-page="queue-dashboard" data-queue-loaded={loaded ? 'true' : 'false'}>
       <h1>Queue</h1>
       <p>Live counts per flow and day, read from the message and delivery state registers.</p>
       {refusal !== null && <p data-refusal="queue-summary-refused">{refusal}</p>}
@@ -76,6 +76,6 @@ export function QueueDashboard() {
       <p>
         <button type="button" data-action="reload-queue" onClick={load} hidden={!loaded}>Reload</button>
       </p>
-    </main>
+    </div>
   );
 }

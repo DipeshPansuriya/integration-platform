@@ -75,7 +75,7 @@ export function ContractVersions() {
   const comparedIds = new Set(compared.map((entry) => entry.id));
 
   return (
-    <main data-page="contracts" data-contracts-loaded={String(loaded)}>
+    <div data-page="contracts" data-contracts-loaded={String(loaded)}>
       <h2>Contract versions</h2>
       {listRefusal !== null && (
         <p role="alert" data-refusal={`list-refused-${listRefusal}`}>
@@ -110,6 +110,6 @@ export function ContractVersions() {
       />
       <SideBySide compared={compared} />
       <ImportContractForm onImported={refresh} />
-    </main>
+    </div>
   );
 }

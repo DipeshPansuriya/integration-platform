@@ -189,7 +189,7 @@ export function Versions() {
   const selected = flows.find((flow) => flow.id === selectedId) ?? null;
 
   return (
-    <main data-page="versions" className="versions-page">
+    <div data-page="versions" className="versions-page">
       <h2>Versions and approval</h2>
       {load === 'loading' && <p className="flows-muted" aria-live="polite">Loading flows...</p>}
       {load === 'error' && (
@@ -347,6 +347,6 @@ export function Versions() {
           )}
         </div>
       )}
-    </main>
+    </div>
   );
 }

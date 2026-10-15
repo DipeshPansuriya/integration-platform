@@ -2,7 +2,7 @@
 //
 //   cd ui && node scripts/trial-up.mjs        (Windows PowerShell: the same two commands)
 //
-// Needs JAVA_HOME pointing at the JDK 25 install (AGENTS.md); docker running. Boots the real stack
+// Needs a JDK 25 (AGENTS.md: JAVA_HOME, java on PATH, or else the newest one under ~/.jdks); docker running. Boots the real stack
 // through boot-backend.mjs (its own PostgreSQL, the real Keycloak with realm `platform`, the
 // platform-app jar - built with mvnw when missing), seeds the trial tenant through the real API,
 // builds the console from the current source (`vite build`, every start - a ui/dist left by an
