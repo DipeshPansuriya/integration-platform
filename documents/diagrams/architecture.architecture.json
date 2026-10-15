@@ -18,7 +18,8 @@
           "keycloak",
           "config",
           "rules",
-          "tenancy"
+          "tenancy",
+          "transform"
         ],
         "note": "People log in and configure; config is written only here (architecture.md section 2)."
       },
@@ -397,7 +398,7 @@
       "variant": "security",
       "fromSide": "bottom",
       "toSide": "top",
-      "labelDy": 24
+      "labelDy": 53
     },
     {
       "id": "tenant-directory",
@@ -517,15 +518,6 @@
       "variant": "dashed"
     },
     {
-      "id": "tenancy-telemetry",
-      "from": "tenancy",
-      "to": "observability",
-      "label": "metrics, spans",
-      "variant": "dashed",
-      "fromSide": "right",
-      "toSide": "top"
-    },
-    {
       "id": "arch-scan",
       "from": "arch-test",
       "to": "config",
@@ -635,6 +627,14 @@
         1266,
         460
       ]
+    },
+    {
+      "id": "map-test",
+      "from": "config",
+      "to": "transform",
+      "label": "mapping test (TransformPort, 5 s)",
+      "fromSide": "bottom",
+      "toSide": "top"
     }
   ],
   "cards": [
@@ -644,7 +644,8 @@
       "items": [
         "Modules are Maven modules inside platform-app (ADR-001)",
         "Camel only in platform-routing; ArchUnit fails the build otherwise (ADR-010)",
-        "Config written by the control plane, read as published versions only"
+        "Config written by the control plane, read as published versions only",
+        "Every module emits metrics and spans to Grafana, Prometheus, Tempo (R13)"
       ]
     },
     {

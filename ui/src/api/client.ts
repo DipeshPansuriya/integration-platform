@@ -9,14 +9,18 @@
 // cookie - never an access token. Every call sends it (credentials 'include', so a cross-origin
 // deployment behaves like the same-origin console); a state-changing call carries the CSRF
 // header from the readable XSRF-TOKEN cookie; and a 401 (the JSON no-session answer, never a
-// redirect) sends the browser to the backend's login entry point, which starts the
-// Authorization Code + PKCE flow with Keycloak.
+// redirect) sends the browser to the console's own sign-in card (#/login, row 310 lane A,
+// 10-screens §2 / 00-portal-ia §4), whose one action - Continue with SSO - goes to the backend's
+// login entry point, which starts the Authorization Code + PKCE flow with Keycloak.
 
 import createClient from 'openapi-fetch';
 import type { paths } from './openapi.d';
 
 /** The backend's login entry point (Spring Security's authorization endpoint, registration `keycloak`). */
 export const LOGIN_ENTRY = '/oauth2/authorization/keycloak';
+
+/** The console's in-app sign-in state (lane A's card); every no-session answer lands here first. */
+export const LOGIN_ROUTE = '#/login';
 
 const CSRF_COOKIE = 'XSRF-TOKEN';
 const CSRF_HEADER = 'X-XSRF-TOKEN';
@@ -28,7 +32,7 @@ export function readCookie(name: string): string | null {
   return hit ? decodeURIComponent(hit.slice(name.length + 1)) : null;
 }
 
-/** The console's one fetch: session cookie, CSRF header on writes, 401 -> the Keycloak login. */
+/** The console's one fetch: session cookie, CSRF header on writes, 401 -> the #/login sign-in card. */
 export async function consoleFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   // openapi-fetch (v0.13) calls fetch(request, requestInitExt): the method and headers live on the
   // Request object and `init` is undefined - an earlier draft read them off `init` only, which (with
@@ -43,8 +47,9 @@ export async function consoleFetch(input: RequestInfo | URL, init?: RequestInit)
   }
   const response = await fetch(input, { ...init, headers, credentials: 'include' });
   if (response.status === 401 && typeof window !== 'undefined') {
-    // The backend answered the JSON 401 (no session) - the browser's data is the login form.
-    window.location.assign(LOGIN_ENTRY);
+    // The backend answered the JSON 401 (no session): show the in-app sign-in card. A hash change,
+    // not a page load - and none at all when the card already shows (its own /me check 401s too).
+    if (window.location.hash !== LOGIN_ROUTE) window.location.hash = LOGIN_ROUTE;
   }
   return response;
 }
@@ -53,7 +58,8 @@ export function createConsoleClient(baseUrl: string) {
   return createClient<paths>({ baseUrl, fetch: consoleFetch });
 }
 
-/** The console's client; the base URL arrives as a runtime variable name, no value in source. */
-export const api = createConsoleClient((import.meta.env.VITE_API_URL as string | undefined) ?? '');
+/** The console's client; the base URL arrives as a runtime variable name, no value in source.
+ * (`env?.` lets node --test load this module; Vite replaces the env object at build time.) */
+export const api = createConsoleClient((import.meta.env?.VITE_API_URL as string | undefined) ?? '');
 
 export type ConsoleClient = typeof api;

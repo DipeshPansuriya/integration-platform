@@ -310,6 +310,16 @@ class RoleMatrixContainerTest {
                 "{\"fieldMappings\":[],\"compiledExpression\":\"$\",\"sourceContractVersionId\":\""
                         + sourceVersion + "\",\"targetContractVersionId\":\"" + targetVersion + "\"}");
         assertThat(bound.statusCode()).as("the mapping binds: %s", bound.body()).isEqualTo(200);
+        // T-037: publish is gated on a passing sample run of the pinned mapping content - run it before re-capture.
+        String mappingId;
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
+            mappingId = ownerScalar(owner, "SELECT id::text FROM public.mapping WHERE route_id = ?::uuid", routeId);
+        }
+        HttpResponse<String> sampleRun = call("TENANT_ADMIN", "POST", "/api/v1/admin/mappings/" + mappingId + "/test",
+                "{\"sample\":{\"customerId\":\"c-1\"}}");
+        assertThat(sampleRun.statusCode()).as("the sample run answers: %s", sampleRun.body()).isEqualTo(200);
+        assertThat(JSON.readTree(sampleRun.body()).path("status").asString())
+                .as("the sample run passes: %s", sampleRun.body()).isEqualTo("OK");
         HttpResponse<String> redraft = call("TENANT_ADMIN", "PUT", FLOWS + "/" + flowId, flowBody());
         assertThat(redraft.statusCode()).as("the bound bundle is re-captured: %s", redraft.body()).isEqualTo(200);
     }

@@ -258,6 +258,9 @@ class T190MappingPinContainerTest {
         UUID pinned = sourceVersionOf(draft.sourceSystem(), "1.1");
         bind(route, pinned, targetVersion(systemId(draft.destination1()), "match-a-" + draft.flowId()));
         bind(otherRoute, pinned, targetVersion(systemId(draft.destination2()), "match-b-" + draft.flowId()));
+        // T-037: publish is gated on a passing sample run of the pinned content - the author runs it.
+        LaneCLifecycle.passSampleRun(base, actor.author(), route);
+        LaneCLifecycle.passSampleRun(base, actor.author(), otherRoute);
 
         LaneCLifecycle.saveFlowDraft(base, actor.author(), draft.flowId(), draft.sourceSystem(),
                 draft.destinations());

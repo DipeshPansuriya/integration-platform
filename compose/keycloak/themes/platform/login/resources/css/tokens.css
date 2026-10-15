@@ -1,0 +1,139 @@
+/* Realm login theme tokens - lane K (T79).
+ *
+ * Every value below is copied VERBATIM from the wave-1 token spec
+ * (_specs/ui-modernization/01-tokens.md §1, the authority for all lanes);
+ * the comment on each line names the §1 token it traces to. Radii, shadows,
+ * halo and motion are the executed v3 values the spec §3 revision points to
+ * (_specs/ui-modernization/02-style-guide.html).
+ *
+ * Dark works exactly like the console's first-paint boot (00-portal-ia.md §2):
+ * OS/browser preference via prefers-color-scheme, resolved by the engine
+ * before first paint - no script, no flash.
+ */
+
+:root {
+  /* 01 §1 --color-canvas (light #f8fafc) */
+  --platform-canvas: #f8fafc;
+  /* 01 §1 --color-surface */
+  --platform-surface: #ffffff;
+  /* 01 §1 --color-surface-raised */
+  --platform-raised: #ffffff;
+  /* 01 §1 --color-ink */
+  --platform-ink: #0f172a;
+  /* 01 §1 --color-ink-muted */
+  --platform-ink-muted: #475569;
+  /* 01 §1 --color-ink-faint (helper/meta text, only at >= 12.5px) */
+  --platform-ink-faint: #64748b;
+  /* 01 §1 --color-border (hairlines only - 1.18:1, not a control boundary) */
+  --platform-border: #e2e8f0;
+  /* 01 §1 --color-border-strong */
+  --platform-border-strong: #94a3b8;
+  /* row310 T90 --color-border-control: input boundary, WCAG 1.4.11
+     (3.19:1 canvas, 3.33:1 surface) */
+  --platform-border-control: #7f8ea3;
+  /* 01 §1 --color-accent */
+  --platform-accent: #2563eb;
+  /* 01 §1 --color-accent-hover */
+  --platform-accent-hover: #1d4ed8;
+  /* row310 T90b --color-link: link text (= accent in light, 5.17:1 on the card) */
+  --platform-link: #2563eb;
+  /* 01 §1 --color-accent-faint */
+  --platform-accent-faint: #dbeafe;
+  /* 01 §1 --color-accent-faint-ink (light info-tint text per the §1 status
+     mapping: #1e40af on #dbeafe = 7.15:1) */
+  --platform-accent-faint-ink: #1e40af;
+  /* 01 §1 white-on-accent (primary buttons; 5.17:1 on light --color-accent;
+       in dark it sits on accent-hover, see styles.css - row310 T90) */
+  --platform-text-on-accent: #ffffff;
+  /* 01 §1 --color-success (icon fill only - never as text) */
+  --platform-success: #16a34a;
+  /* 01 §1 --color-success-text */
+  --platform-success-text: #15803d;
+  /* 01 §1 --color-success-bg */
+  --platform-success-bg: #dcfce7;
+  /* 01 §1 --color-warn-text */
+  --platform-warn-text: #92400e;
+  /* 01 §1 --color-warn-bg */
+  --platform-warn-bg: #fef3c7;
+  /* 01 §1 --color-danger */
+  --platform-danger: #dc2626;
+  /* 01 §1 --color-danger-text */
+  --platform-danger-text: #b91c1c;
+  /* 01 §1 --color-danger-bg */
+  --platform-danger-bg: #fee2e2;
+  /* 01 §1 --color-focus */
+  --platform-focus: #2563eb;
+  /* 01 §1 --shadow-1 / --shadow-2 as executed in v3 (02-style-guide.html:
+       layered but quiet, 1px gradient edge on the card) - light only */
+  --platform-shadow-1: 0 1px 2px rgba(15, 23, 42, .05), 0 8px 24px -8px rgba(15, 23, 42, .10);
+  --platform-shadow-2: 0 2px 4px rgba(15, 23, 42, .06), 0 16px 40px -12px rgba(15, 23, 42, .18);
+  /* 02-style-guide focus halo (soft glow beside the 2px ring) */
+  --platform-halo: rgba(37, 99, 235, .22);
+  /* v3 radius pair (01 §3 execution revision): r-1 8px small elements,
+     r-2 12px cards/inputs/buttons, r-3 14px large panels */
+  --platform-r-1: 8px;
+  --platform-r-2: 12px;
+  --platform-r-3: 14px;
+  /* v3 motion curve (01 §3 execution revision) */
+  --platform-motion: 150ms cubic-bezier(.2, .8, .3, 1);
+  /* 01 §2 --font-body: the console ships no webfont - system stack */
+  --platform-font: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* 01 §2 --font-mono */
+  --platform-mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  /* native form controls (checkbox, autofill) follow the same world */
+  color-scheme: light;
+}
+
+/* The coherent dark pair from 01 §1 - selected by the same signal the console
+   boot uses (OS/browser preference), so login page and console stay one world. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --platform-canvas: #0f172a;
+    --platform-surface: #1e293b;
+    --platform-raised: #253043;
+    --platform-ink: #e2e8f0;
+    --platform-ink-muted: #94a3b8;
+    /* row310 T90 (was #7d8da5, 4.34:1 on surface): 6.24 canvas / 5.12 surface /
+       4.64:1 raised, same as the console */
+    --platform-ink-faint: #8a9ab2;
+    --platform-border: #334155;
+    --platform-border-strong: #475569;
+    /* row310 T90 control boundary: 4.09 canvas / 3.35 surface / 3.04:1 raised */
+    --platform-border-control: #6b7a90;
+    --platform-accent: #3b82f6;
+    --platform-accent-hover: #2563eb;
+    /* row310 T90b: dark accent #3b82f6 is 3.98:1 on the card as text; links use
+       #60a5fa (7.02 canvas / 5.75 surface / 5.22:1 raised), same as the console */
+    --platform-link: #60a5fa;
+    --platform-accent-faint: #1e3a8a;
+    --platform-accent-faint-ink: #bfdbfe;
+    /* row310 T90: white on the dark accent #3b82f6 is only 3.68:1, so the dark
+       primary button fills with accent-hover #2563eb (5.17:1) - styles.css */
+    --platform-text-on-accent: #ffffff;
+    --platform-success: #4ade80;
+    --platform-success-text: #4ade80;
+    --platform-success-bg: #052e16;
+    --platform-warn-text: #fbbf24;
+    --platform-warn-bg: #422006;
+    --platform-danger: #f87171;
+    --platform-danger-text: #f87171;
+    --platform-danger-bg: #450a0a;
+    /* 01 §1 --color-focus-dark */
+    --platform-focus: #93c5fd;
+    /* dark replaces shadow with a lighter surface / stronger border (01 §1) */
+    --platform-shadow-1: none;
+    --platform-shadow-2: 0 0 0 1px var(--platform-border-strong);
+    --platform-halo: rgba(59, 130, 246, .28);
+    color-scheme: dark;
+  }
+}
+
+/* v3: no motion for users who ask for none */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

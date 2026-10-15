@@ -1,12 +1,15 @@
 package io.integrationplatform.routing.publish;
 
 import io.integrationplatform.ingest.port.PublishPort;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -30,16 +33,33 @@ class KafkaPublishPortConfiguration {
     Producer<String, String> kafkaPublishProducer(
             @Value("${platform.routing.kafka.bootstrap-servers}") String bootstrapServers,
             @Value("${platform.routing.kafka.client-id}") String clientId) {
+        return new KafkaProducer<>(producerConfig(bootstrapServers, clientId));
+    }
+
+    /**
+     * The relay producer's settings. T-191 (E8-F1-S3; ADR-005 Decisions 7 and 12): every blocking client call
+     * is bounded - {@code request.timeout.ms} 10 s, {@code delivery.timeout.ms} 30 s, a bounded {@code
+     * max.block.ms} so a missing broker never blocks the relay thread for the client's 60 s default - and the
+     * idempotent producer ({@code acks=all}, at most 5 in flight) retries transient broker failures itself.
+     */
+    static Map<String, Object> producerConfig(String bootstrapServers, String clientId) {
         Map<String, Object> config = new HashMap<>();
         config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         config.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
         config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        return new KafkaProducer<>(config);
+        config.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
+        config.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 30_000);
+        config.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, 10_000);
+        config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        config.put(ProducerConfig.ACKS_CONFIG, "all");
+        config.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
+        return config;
     }
 
     @Bean
-    PublishPort kafkaPublishPort(Producer<String, String> producer) {
-        return new KafkaPublishPort(producer);
+    PublishPort kafkaPublishPort(Producer<String, String> producer, ObjectProvider<MeterRegistry> meters) {
+        // E8 tail: the publish metrics go to the application's registry; a composition without one keeps a local one.
+        return new KafkaPublishPort(producer, meters.getIfAvailable(SimpleMeterRegistry::new));
     }
 }

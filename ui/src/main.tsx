@@ -1,6 +1,9 @@
-// T-158 (E3 lane D): the console's entry point. No visual design yet - design.md (T-095,
-// mahesh-architect) is the agreed look; nothing is invented here beyond the scaffold.
+// T-158 (E3 lane D): the console's entry point. T78 lane F: the token layer and the
+// base primitives load here, before the app renders; the theme itself is resolved
+// inline in index.html before first paint (no flash of wrong theme).
 
+import './tokens.css';
+import './ui/base.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';

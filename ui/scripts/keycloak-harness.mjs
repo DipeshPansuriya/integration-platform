@@ -41,6 +41,21 @@ function docker(args, env = {}, timeout = 120000) {
   return result.stdout.trim();
 }
 
+/**
+ * The `docker cp` pairs a harness container gets before it starts: the realm import (a directory
+ * copy creates the import folder; a single-file copy would need it to exist) and the realm's
+ * login theme `platform` where Keycloak loads themes - the same two places compose/compose.yaml
+ * mounts. The themes folder rides along inside the import copy as it does in compose; the
+ * importer reads only the realm JSON.
+ */
+export function containerCopies(repo) {
+  const keycloak = path.join(repo, 'compose', 'keycloak');
+  return [
+    [keycloak, '/opt/keycloak/data/import'],
+    [path.join(keycloak, 'themes', 'platform'), '/opt/keycloak/themes/platform']
+  ];
+}
+
 function hostPort(container, port) {
   return Number(docker(['port', container, String(port)]).split('\n')[0].split(':').pop());
 }
@@ -79,8 +94,7 @@ export async function startKeycloak({ repo, audience, consoleRedirectUri, postLo
     }
   };
   try {
-    // A directory copy creates the import folder (a single-file copy would need it to exist).
-    docker(['cp', path.join(repo, 'compose', 'keycloak'), `${name}:/opt/keycloak/data/import`]);
+    for (const [from, to] of containerCopies(repo)) docker(['cp', from, `${name}:${to}`]);
     docker(['start', name]);
     const http = hostPort(name, 8080);
     const management = hostPort(name, 9000);
@@ -114,9 +128,11 @@ export async function startKeycloak({ repo, audience, consoleRedirectUri, postLo
       return (await response.json()).access_token;
     }
 
-    /** An enabled realm user with a random password (memory only); `subject` is its token `sub`. */
-    async function createUser(username) {
-      const password = random(18);
+    /**
+     * An enabled realm user; `subject` is its token `sub`. The password is random (memory only)
+     * unless the caller hands one in (T94: the trial login's password from the OS secret store).
+     */
+    async function createUser(username, password = random(18)) {
       const response = await fetch(`${base}/admin/realms/${REALM}/users`, {
         method: 'POST',
         headers: { authorization: `Bearer ${await adminToken()}`, 'content-type': 'application/json' },

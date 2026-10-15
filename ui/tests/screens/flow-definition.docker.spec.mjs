@@ -20,12 +20,14 @@ test.beforeEach(async ({ page }) => {
 
 test('the console has a flow-definition screen the navigable menu reaches', async ({ page }) => {
   await page.click('[data-nav="flows"]');
+  // row 310 T88: #/flows is the list landing (10-screens §3); the editor opens from it.
+  await expect(page.locator('[data-page="flows-list"]')).toBeVisible();
+  await page.click('[data-action="define-flow"]');
   await expect(page.locator('[data-page="flow-definition"]')).toBeVisible();
 });
 
 test('Save draft sends the business-key rule, the ordering setting (PER_KEY default) and the sourceSchema, and the REAL API answers 200', async ({ page }) => {
-  await page.click('[data-nav="flows"]');
-  await page.click('[data-page="flow-definition"]');
+  await openEditor(page);
 
   await page.fill('[data-field="source-system"]', 'S');
   await page.fill('[data-field="destination-1"]', 'T1');
@@ -41,8 +43,7 @@ test('Save draft sends the business-key rule, the ordering setting (PER_KEY defa
 });
 
 test('an interface without its mandatory business-key rule is refused by the real API and the screen shows the clear validation error', async ({ page }) => {
-  await page.click('[data-nav="flows"]');
-  await page.click('[data-page="flow-definition"]');
+  await openEditor(page);
 
   await page.fill('[data-field="source-system"]', 'S');
   await page.fill('[data-field="destination-1"]', 'T1');
@@ -54,8 +55,7 @@ test('an interface without its mandatory business-key rule is refused by the rea
 });
 
 test('the ordering setting defaults to PER_KEY (ADR-011) and persists on save', async ({ page }) => {
-  await page.click('[data-nav="flows"]');
-  await page.click('[data-page="flow-definition"]');
+  await openEditor(page);
 
   const setting = page.locator('[data-field="ordering-setting"]');
   await expect(setting).toHaveValue('PER_KEY');
@@ -70,8 +70,7 @@ test('the ordering setting defaults to PER_KEY (ADR-011) and persists on save', 
 // flow - the flow is born with that name, not the generated flow-<uuid> code. The answer is the
 // real API's collection read back through the browser's own session (no mock anywhere).
 test('the created flow is born with the interface name the configurator typed', async ({ page }) => {
-  await page.click('[data-nav="flows"]');
-  await page.click('[data-page="flow-definition"]');
+  await openEditor(page);
 
   await page.fill('[data-field="source-system"]', 'S');
   await page.fill('[data-field="destination-1"]', 'T1');
@@ -127,3 +126,10 @@ test('another tenant opening the flow by id is refused 404 through the screen', 
   await page.goto(`${consoleUrl()}/#/flow/${list}`);
   await expect(page.locator('[data-refusal="flow-not-found"]')).toBeVisible();
 });
+
+/** Row 310 T88: the menu reaches the Flows list landing; "Define a flow" opens the editor in create mode. */
+async function openEditor(page) {
+  await page.click('[data-nav="flows"]');
+  await page.click('[data-action="define-flow"]');
+  await expect(page.locator('[data-page="flow-definition"]')).toBeVisible();
+}

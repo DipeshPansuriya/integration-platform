@@ -102,6 +102,28 @@ class TenantFilterRuleTest {
                 .anyMatch(line -> line.contains("PlantedRouteRepository") && line.contains("JdbcDaoSupport"));
     }
 
+    /**
+     * E14 T-056/T-060/T-062 (ADR-012 section 4): the closed register's tables are platform-wide - no row of
+     * {@code scheduler.job_definition}, {@code scheduler.scheduled_tasks} or {@code scheduler.job_run} is tenant data -
+     * so the scheduler's JDBC runs through the reviewed tenancy crossing ({@code SchedulerRegistry}, reason
+     * "ADR-012 section 4"), never through a second JDBC call site. Red first: the E14 lane-B work (1e5c932) ran its
+     * own JdbcTemplate and this scan named all three access classes.
+     */
+    @Test
+    void theSchedulerAccessIsTheReviewedCrossingNotASecondJdbcCallSite() {
+        JavaClasses production = TenantFilterRule.importProductionClasses();
+
+        EvaluationResult result = TenantFilterRule.NO_QUERY_WITHOUT_TENANT_FILTER.evaluate(production);
+
+        assertThat(result.getFailureReport().getDetails())
+                .as("scheduler access outside the reviewed crossing")
+                .noneMatch(line -> line.startsWith("Method <io.integrationplatform.config.scheduler.JdbcJobDefinitionRepository")
+                        || line.startsWith("Method <io.integrationplatform.app.scheduler.JobOverdueDetector")
+                        || line.startsWith("Method <io.integrationplatform.app.scheduler.JobIncidentJdbcSink"));
+        assertThat(TenantFilterRule.REVIEWED_CROSSINGS)
+                .as("the crossing's reviewed reason").contains("ADR-012 section 4");
+    }
+
     @Test
     void reviewedBoundaryCrossingsInTenancyInternalPass() {
         // The compliant class keeps the rule's that() clause non-empty: both crossings are exempt from it.

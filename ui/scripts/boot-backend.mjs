@@ -57,7 +57,18 @@ function sleep(ms) {
 
 // --- the one-docker-suite-at-a-time lock (R06, plan:98) -------------------------------
 
-async function acquireSuiteLock() {
+/**
+ * Writes the lock's owner note: the holder line, then when it was refreshed. Rewriting it moves the
+ * note's mtime to now - the age every lock taker (this module, check-container-exclusion.sh) reads
+ * as "stale after 60 minutes" - so a holder that stays up (T94's trial) keeps it fresh. Never
+ * re-creates a lock directory that is gone (the write throws ENOENT instead).
+ */
+export function writeLockNote(lockDir, holder) {
+  fs.writeFileSync(path.join(lockDir, 'owner'), `${holder} refreshed=${new Date().toISOString()}
+`, { flag: 'w' });
+}
+
+async function acquireSuiteLock(holder = `vijay-developer ui-harness ${new Date().toISOString()}`) {
   const start = Date.now();
   for (;;) {
     try {
@@ -79,7 +90,7 @@ async function acquireSuiteLock() {
       await sleep(20000);
       continue;
     }
-    fs.writeFileSync(path.join(LOCK_PATH, 'owner'), `vijay-developer ui-harness ${new Date().toISOString()}`);
+    writeLockNote(LOCK_PATH, holder);
     return () => fs.rmSync(LOCK_PATH, { recursive: true, force: true });
   }
 }
@@ -193,11 +204,17 @@ export async function fetchOpenApiDocument(boot) {
   return response.json();
 }
 
-export default async function bootBackend({ loginSeed = false } = {}) {
-  const releaseLock = await acquireSuiteLock();
-  const javaExe = javaCommand(); // resolves before any container starts - a missing JVM fails the boot immediately
+/**
+ * `extraUsers` (T94, the trial): more realm users bound in the default tenant, each
+ * `{ key, username, password, role }` - the password is the caller's (never generated or printed
+ * here) and no harness session is opened for them. `lockHolder` names the holder in the lock note.
+ */
+export default async function bootBackend({ loginSeed = false, extraUsers = [], lockHolder } = {}) {
+  const releaseLock = await acquireSuiteLock(lockHolder);
   let container, app, keycloak;
   try {
+    // Inside the try (m-910e28): a boot that throws before the teardown path would leak the lock.
+    const javaExe = javaCommand(); // resolves before any container starts - a missing JVM fails the boot immediately
     const pgName = `ipass-ui-t41-pg-${crypto.randomBytes(4).toString('hex')}`;
     const pgPassword = crypto.randomBytes(18).toString('base64url'); // memory-only (R07)
     const loginName = `console_login_${crypto.randomBytes(5).toString('hex')}`;
@@ -281,25 +298,41 @@ export default async function bootBackend({ loginSeed = false } = {}) {
     // psql; the app login only reads the directory through ipaas_login_bootstrap, ADR-009) to the
     // (issuer, subject) of their Keycloak account. The configurator and the approver (T-022: never
     // the author) are users of tenant A; one configurator belongs to ANOTHER tenant (E3-F1-S1
-    // @negative @tenant, E4-F1-S1 own tenant only).
+    // @negative @tenant, E4-F1-S1 own tenant only). A third, EMPTY tenant C holds one tenant admin
+    // and never any message/delivery rows, so a spec that must see "no work at all" (F10 queue
+    // dashboard) is isolated from the specs that seed tenant A's state tables (row 310).
     const tenantCode = `lane-d-${crypto.randomBytes(3).toString('hex')}`;
     const otherTenantCode = `${tenantCode}-b`;
+    const emptyTenantCode = `${tenantCode}-c`;
     psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${tenantCode}', 'ACTIVE')`);
     psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${otherTenantCode}', 'ACTIVE')`);
+    psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${emptyTenantCode}', 'ACTIVE')`);
     const users = {
       default: await keycloak.createUser('lane-d-configurator'),
       approver: await keycloak.createUser('lane-d-approver'),
-      'other-tenant': await keycloak.createUser('lane-d-other-tenant')
+      'other-tenant': await keycloak.createUser('lane-d-other-tenant'),
+      'empty-tenant': await keycloak.createUser('lane-d-empty-tenant')
     };
     // E4 T-099 seeding: roles are role_grant rows (ADR-007 Decision 5). The default login authors AND is refused
     // its own approval on screen, so it must pass the role check: tenant admin (admins may also approve).
-    const roles = { default: 'TENANT_ADMIN', approver: 'APPROVER', 'other-tenant': 'CONFIGURATOR' };
+    const roles = { default: 'TENANT_ADMIN', approver: 'APPROVER', 'other-tenant': 'CONFIGURATOR', 'empty-tenant': 'TENANT_ADMIN' };
+    const tenantOf = { 'other-tenant': otherTenantCode, 'empty-tenant': emptyTenantCode };
     for (const [login, user] of Object.entries(users)) {
-      const code = login === 'other-tenant' ? otherTenantCode : tenantCode;
+      const code = tenantOf[login] ?? tenantCode;
       psql(pgName,
         `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${keycloak.issuer}', '${user.subject}', 'ACTIVE' FROM public.tenant WHERE code='${code}'`);
       psql(pgName,
         `INSERT INTO public.role_grant (tenant_id, user_id, role) SELECT tenant_id, id, '${roles[login]}' FROM public.app_user WHERE issuer='${keycloak.issuer}' AND subject='${user.subject}'`);
+    }
+    const extra = {};
+    for (const { key, username, password, role } of extraUsers) {
+      if (!/^[A-Z_]+$/.test(role)) throw new Error(`boot-backend: extra user ${key} has an invalid role`);
+      const user = await keycloak.createUser(username, password);
+      extra[key] = { username: user.username, subject: user.subject, role };
+      psql(pgName,
+        `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${keycloak.issuer}', '${user.subject}', 'ACTIVE' FROM public.tenant WHERE code='${tenantCode}'`);
+      psql(pgName,
+        `INSERT INTO public.role_grant (tenant_id, user_id, role) SELECT tenant_id, id, '${role}' FROM public.app_user WHERE issuer='${keycloak.issuer}' AND subject='${user.subject}'`);
     }
 
     // The harness's server-side sessions, each through the realm's real login form. The console
@@ -323,8 +356,9 @@ export default async function bootBackend({ loginSeed = false } = {}) {
 
     // E3-F1-S1's onboarding premise, through the REAL systems seam (T-015): the source system S
     // the flow-definition and lifecycle screens name is registered for the seeded tenant - and for
-    // the other tenant, whose one flow must never appear on tenant A's screens (E4-F1-S1).
-    for (const login of ['default', 'other-tenant']) {
+    // the other tenant, whose one flow must never appear on tenant A's screens (E4-F1-S1), and for
+    // the empty tenant C (a system row only - no flow, message or delivery is seeded there).
+    for (const login of ['default', 'other-tenant', 'empty-tenant']) {
       const systemSeed = await call(login, 'POST', '/api/v1/admin/systems', { code: 'S', name: 'orders source', direction: 'INBOUND' });
       if (systemSeed.status !== 201 && systemSeed.status !== 409) {
         throw new Error(`boot-backend: seeding the source system (${login}) answered ${systemSeed.status} (expected 201/409)`);
@@ -355,9 +389,17 @@ export default async function bootBackend({ loginSeed = false } = {}) {
       ownTenantFlowId: ownFlow?.data?.id,
       otherTenantCode,
       otherTenantFlowId: otherFlow.data.id,
+      emptyTenantCode,
       seededVia: 'directory rows (tenant + app_user) as the migration owner for realm users; systems and flows through the real API with console sessions',
       /** The realm users (passwords in memory only) - the browser logs in with `users.default`. */
       users,
+      /** The `extraUsers` bound in the default tenant, by key: username, subject, role (no password). */
+      extraUsers: extra,
+      /** The docker-suite lock this boot holds; refreshLock() rewrites its owner note (mtime now). */
+      lockPath: LOCK_PATH,
+      refreshLock() {
+        writeLockNote(LOCK_PATH, lockHolder ?? 'ui-harness');
+      },
       /** The harness's server-side console sessions per login (cookie + CSRF token, never a token). */
       sessions,
       call,

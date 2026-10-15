@@ -1,13 +1,20 @@
 package io.integrationplatform.delivery.internal;
 
 import io.integrationplatform.delivery.DeliveryEventType;
+import io.integrationplatform.delivery.port.Stage1Delivery;
+import io.integrationplatform.delivery.ordering.OrderingKey;
 import io.integrationplatform.domain.delivery.DeliveryState;
 import io.integrationplatform.domain.delivery.OutcomeClass;
+import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.TenantScopedRepository;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +34,14 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * same transaction ("each transition is stored with its time", E2-F2-S1). Appends of attempts and events are
  * INSERT ... SELECT under the same tenant predicate (the ledger may only be extended, R15: the base grants the
  * application role UPDATE and DELETE on nothing here).
+ *
+ * <p>E9 additions (T-117, T-178, T-165, T-197): the ordering helpers the {@code OrderedStateChange} port calls
+ * (the tenant stamp of the helper's own transaction, the advisory key lock, the message and delivery row locks);
+ * the stage-1 fan-out with the UNIQUE triple {@code (message_id, route_id, created_at)} (ADR-014 section 2) and
+ * the acceptance of the {@code ACCEPTED -> ROUTED} guard; and the FINAL-state release - a delivered or
+ * dead-lettered delivery releases its held same-scope successors IN THE SAME TRANSACTION, each release writing
+ * its own {@code platform.delivery.due} outbox record (the in-repository due-record writer mirrors the
+ * transactional-outbox pattern of the T-090 re-drive).
  */
 public final class JdbcDeliveryRepository extends TenantScopedRepository {
 
@@ -126,23 +141,21 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
 
     /** {@code SENDING -> DELIVERED}, conditional on the claim token (the classifier's success outcome). */
     public boolean markDelivered(UUID id, UUID claimToken, Instant at) {
-        return transition(
+        return finalOutcome(id, DeliveryEventType.DELIVER, null,
                 "update public.delivery set state = 'DELIVERED', updated_at = :at, claim_token = null,"
                         + " claimed_at = null",
                 "id = :id::uuid and state = 'SENDING' and claim_token = :claim_token::uuid",
-                params("at", at, "claim_token", claimToken.toString(), "id", id.toString()),
-                id, DeliveryEventType.DELIVER, null, at);
+                params("at", at, "claim_token", claimToken.toString(), "id", id.toString()), at);
     }
 
     /** {@code SENDING -> DEAD_LETTERED} with the reason class, conditional on the claim token. */
     public boolean deadLetter(UUID id, UUID claimToken, OutcomeClass reasonClass, Instant at) {
-        return transition(
+        return finalOutcome(id, DeliveryEventType.DEAD_LETTER, reasonClass.name(),
                 "update public.delivery set state = 'DEAD_LETTERED', updated_at = :at,"
                         + " dead_letter_class = :dead_letter_class, claim_token = null, claimed_at = null",
                 "id = :id::uuid and state = 'SENDING' and claim_token = :claim_token::uuid",
                 params("at", at, "dead_letter_class", reasonClass.name(),
-                        "claim_token", claimToken.toString(), "id", id.toString()),
-                id, DeliveryEventType.DEAD_LETTER, reasonClass.name(), at);
+                        "claim_token", claimToken.toString(), "id", id.toString()), at);
     }
 
     /**
@@ -150,13 +163,12 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
      * ({@code PERMANENT: target credential unreadable}), conditional on the claim token.
      */
     public boolean deadLetter(UUID id, UUID claimToken, OutcomeClass reasonClass, String reason, Instant at) {
-        return transition(
+        return finalOutcome(id, DeliveryEventType.DEAD_LETTER, reasonClass.name() + ": " + reason,
                 "update public.delivery set state = 'DEAD_LETTERED', updated_at = :at,"
                         + " dead_letter_class = :dead_letter_class, claim_token = null, claimed_at = null",
                 "id = :id::uuid and state = 'SENDING' and claim_token = :claim_token::uuid",
                 params("at", at, "dead_letter_class", reasonClass.name(),
-                        "claim_token", claimToken.toString(), "id", id.toString()),
-                id, DeliveryEventType.DEAD_LETTER, reasonClass.name() + ": " + reason, at);
+                        "claim_token", claimToken.toString(), "id", id.toString()), at);
     }
 
     /**
@@ -235,20 +247,6 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
 
     // ------------------------------------------------------------------ the claim primitives (T-193)
 
-    /**
-     * The transaction-level advisory lock on the delivery's ordering key (ADR-010 section 7 step 1, ADR-011
-     * Decision 6 "one lock, one order"); held to commit. Skipped by the caller when the interface's ordering
-     * is {@code NONE}.
-     */
-    public void lockOrderingKey(String orderingKey) {
-        query("select pg_advisory_xact_lock(hashtextextended(:ordering_key, 0))"
-                        + " from (values (:own_tenant::uuid)) as scoped (tenant_id)",
-                null,
-                params("ordering_key", orderingKey, "own_tenant", tenantContext.requireTenantId().toString()),
-                (rs, n) -> Boolean.TRUE).forEach(unused -> {
-                });
-    }
-
     /** A delivery row readable by the claim, locked {@code FOR UPDATE} in the caller's transaction. */
     public Optional<Claimable> readForClaim(UUID id) {
         return first(query(
@@ -287,6 +285,250 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
 
     /** The claim's input row: the ordering scope of a delivery locked FOR UPDATE. */
     public record Claimable(UUID id, UUID interfaceId, String businessKey, Long keySeq, UUID targetId) {
+    }
+
+    // ------------------------------------------------------------------ E9: the one lock order (T-197)
+
+    /**
+     * Stamps the RLS tenant of the helper's own transaction ({@code set_config local}, R11) - the caller's
+     * stamp runs once per caller transaction and the helper opened this one, so the stamp is ours to set.
+     */
+    public void stampTenant() {
+        query("select set_config('app.tenant_id', :own_tenant, true) as stamped, scoped.tenant_id"
+                        + " from (values (:own_tenant::uuid)) as scoped (tenant_id)",
+                null,
+                params("own_tenant", tenantContext.requireTenantId().toString()),
+                (rs, n) -> Boolean.TRUE).forEach(unused -> {
+                });
+    }
+
+    /**
+     * The FIRST lock of the one order (ADR-010 section 7; ADR-011 Decision 6 "one lock, one order"): the
+     * transaction-level advisory lock on the ordering scope's record key, held to commit.
+     */
+    public void lockOrderingKey(String orderingKey) {
+        query("select pg_advisory_xact_lock(hashtextextended(:ordering_key, 0))"
+                        + " from (values (:own_tenant::uuid)) as scoped (tenant_id)",
+                null,
+                params("ordering_key", orderingKey, "own_tenant", tenantContext.requireTenantId().toString()),
+                (rs, n) -> Boolean.TRUE).forEach(unused -> {
+                });
+    }
+
+    /** {@code true} while the message table of E8 lane A's wave-1 migration ({@code V2_1_810+}) is deployed. */
+    private boolean messageTablePresent() {
+        return query("select to_regclass('public.message') is not null as present, scoped.tenant_id"
+                        + " from (values (:own_tenant::uuid)) as scoped (tenant_id)",
+                null,
+                params("own_tenant", tenantContext.requireTenantId().toString()),
+                (rs, n) -> rs.getBoolean(1)).stream().findFirst().orElse(false);
+    }
+
+    /**
+     * The SECOND lock of the one order: the message row, {@code FOR UPDATE}. On a wave-0 database there is no
+     * message table yet (the stage-1 migration of E8 lane A is the wave-1 gate) - the lock is a no-op there and
+     * the same call becomes real the day the table lands. A row of another tenant matches nothing (locked or
+     * not - the base's tenant predicate is on the read).
+     */
+    public void lockMessageRow(UUID messageId) {
+        if (!messageTablePresent()) {
+            return; // wave-0: nothing to lock (the stage-1 message table is E8 lane A's wave-1 gate)
+        }
+        query("select scoped.id, scoped.tenant_id from ("
+                        + " select m.id, m.tenant_id from public.message m"
+                        + " where m.id = :message_id::uuid for update) scoped",
+                null, params("message_id", messageId.toString()),
+                (rs, n) -> rs.getString(1)).forEach(unused -> {
+                });
+    }
+
+    /**
+     * The THIRD lock of the one order: the affected deliveries, each {@code FOR UPDATE}, in the caller's
+     * ascending id order - one row lock per statement, ids already sorted by the helper's support.
+     */
+    public void lockDeliveryRows(List<UUID> idsAscending) {
+        for (UUID id : idsAscending) {
+            query("select scoped.id, scoped.tenant_id from ("
+                            + " select d.id, d.tenant_id from public.delivery d"
+                            + " where d.id = :delivery_id::uuid for update) scoped",
+                    null, params("delivery_id", id.toString()),
+                    (rs, n) -> rs.getString(1)).forEach(unused -> {
+                    });
+        }
+    }
+
+    /** The ordering scope of a delivery row (read without a lock; null when no such row for the bound tenant). */
+    public Scope readScope(UUID id) {
+        return first(query(
+                "select scoped.id, scoped.interface_id, scoped.business_key, scoped.key_seq, scoped.target_id,"
+                        + " scoped.message_id, scoped.tenant_id from ("
+                        + " select d.id, d.interface_id, d.business_key, d.key_seq, d.target_id,"
+                        + " d.message_id, d.tenant_id from public.delivery d where d.id = :id::uuid) scoped",
+                null, params("id", id.toString()),
+                (rs, n) -> new Scope(uuid(rs, 1), uuid(rs, 2), rs.getString(3), rs.getObject(4, Long.class),
+                        uuid(rs, 5), uuid(rs, 6)))).orElse(null);
+    }
+
+    /** The scope a final state releases: the ordering fields plus the message pin of the stage-1 fan-out. */
+    public record Scope(UUID deliveryId, UUID interfaceId, String businessKey, Long keySeq, UUID targetId,
+            UUID messageId) {
+    }
+
+    /**
+     * The one lock order for a FINAL state (T-165): the ordering-key advisory lock derived from the row's own
+     * scope (the same {@link OrderingKey} derivation every lane calls), then the message row. The delivery row
+     * itself is locked by the conditional update that follows.
+     */
+    private void lockForFinalState(Scope scope) {
+        if (scope.interfaceId() != null && scope.businessKey() != null) {
+            lockOrderingKey(OrderingKey.recordKeyFor(tenantContext.requireTenantId(), scope.interfaceId(),
+                    scope.businessKey()));
+        }
+        if (scope.messageId() != null) { // no stage-1 pin (E2 insert, pre-V2_3_930 rows): no message row to lock
+            lockMessageRow(scope.messageId()); // as the one-order helper does (JdbcOrderedStateChange)
+        }
+    }
+
+    // ------------------------------------------------------------------ E9: the stage-1 write (T-117 + T-178)
+
+    /**
+     * The stage-1 fan-out (ADR-014 section 2): one PENDING delivery per named route, {@code created_at =
+     * accepted_at} (the message's accepted day - ADR-014 Decision 1, never a fresh instant), idempotent by
+     * {@code ON CONFLICT (message_id, route_id, created_at) DO NOTHING} against the UNIQUE triple index. Each
+     * NEWLY inserted delivery gets exactly one {@code platform.delivery.due} outbox record in the same
+     * transaction. The wave-0 insert writes the pin columns only; interface_id/business_key/key_seq join the
+     * message row when the stage-1 consumer reads it (the wave-1 gate).
+     */
+    public int stage1InsertPerRoute(Collection<Stage1Delivery> deliveries) {
+        int inserted = 0;
+        for (Stage1Delivery delivery : deliveries) {
+            List<UUID> ids = query(
+                    "with ins as ("
+                            + " insert into public.delivery"
+                            + "   (tenant_id, state, created_at, updated_at, target_id, message_id, route_id,"
+                            + "    mapping_version_id)"
+                            + " values (:tenant_id::uuid, 'PENDING', :accepted_at, :accepted_at,"
+                            + "   :target_endpoint_id::uuid, :message_id::uuid, :route_id::uuid,"
+                            + "   :mapping_version_id::uuid)"
+                            + " on conflict (message_id, route_id, created_at) do nothing"
+                            + " returning id, tenant_id)"
+                            + " select ins.id, ins.tenant_id from ins",
+                    null,
+                    params("accepted_at", delivery.acceptedAt(),
+                            "target_endpoint_id",
+                            delivery.targetEndpointId() == null ? null : delivery.targetEndpointId().toString(),
+                            "message_id", delivery.messageId().toString(),
+                            "route_id", delivery.routeId().toString(),
+                            "mapping_version_id",
+                            delivery.mappingVersionId() == null ? null : delivery.mappingVersionId().toString()),
+                    (rs, n) -> uuid(rs, 1));
+            if (ids.size() > 1) {
+                throw new IllegalStateException("stage-1 insert matched " + ids.size() + " rows (never expected)");
+            }
+            if (!ids.isEmpty()) {
+                appendDeliveryDue(ids.get(0));
+                inserted++;
+            }
+        }
+        return inserted;
+    }
+
+    /** The {@code ACCEPTED -> ROUTED} guard in the caller's transaction (ADR-014 section 1). */
+    public boolean markMessageRouted(UUID messageId) {
+        if (!messageTablePresent()) {
+            throw new IllegalStateException("the message table is E8 lane A's wave-1 migration (V2_1_810+) -"
+                    + " the ACCEPTED -> ROUTED guard waits for that merge (ADR-014 section 1, fail-closed)");
+        }
+        return update(
+                "update public.message set state = 'ROUTED', routed_at = now(), updated_at = :at",
+                "id = :message_id::uuid and state = 'ACCEPTED'",
+                params("at", Instant.now(), "message_id", messageId.toString())) == 1;
+    }
+
+    /**
+     * ONE due record for a newly-due delivery: topic {@code platform.delivery.due}, record key
+     * {@code delivery:<id>} (the T-090 re-drive convention, mirrored by the retry trigger), the ADR-005 Decision
+     * 11 key bucket, {@code published_at} left unset until the relay marks it. Runs in the caller's transaction.
+     */
+    private void appendDeliveryDue(UUID deliveryId) {
+        int rows = query(
+                "with src as ("
+                        + " select d.id, d.tenant_id from public.delivery d where d.id = :delivery_id::uuid"
+                        + "), ins as ("
+                        + " insert into public.outbox (tenant_id, topic, aggregate_id, record_key, key_bucket)"
+                        + " select src.tenant_id, :topic, src.id, :record_key, :key_bucket from src"
+                        + " returning id, tenant_id)"
+                        + " select ins.id, ins.tenant_id from ins",
+                null,
+                params("delivery_id", deliveryId.toString(), "topic", OutboxTopic.DELIVERY_DUE.topicName(),
+                        "record_key", "delivery:" + deliveryId, "key_bucket", keyBucket("delivery:" + deliveryId)),
+                (rs, n) -> rs.getString(1)).size();
+        requireSingle(rows, "append due record for delivery " + deliveryId);
+    }
+
+    /** ponytail: mirror of platform-ingest KeyBuckets (package-private there) - ADR-005 Decision 11. */
+    private static int keyBucket(String recordKey) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(recordKey.getBytes(StandardCharsets.UTF_8))[0] & 63;
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is required by ADR-005 Decision 11", impossible);
+        }
+    }
+
+    // ------------------------------------------------------------------ E9: the final state releases (T-165)
+
+    /**
+     * A FINAL state (delivered or dead-lettered, T-165): the row's scope is locked first (the one order), then
+     * the conditional transition runs, and when it MATCHED the held same-scope successors are released in the
+     * same transaction - each release writes its {@code RELEASE} event and its due record, so the release rolls
+     * back together with the final state. {@code false} (no effect, never an exception) when the row does not
+     * exist or the transition matched nothing (a stale or foreign claim token - E2-F2-S4).
+     */
+    private boolean finalOutcome(UUID id, DeliveryEventType event, String eventDetail, String updateFragment,
+            String condition, Map<String, Object> parameters, Instant at) {
+        Scope scope = readScope(id);
+        if (scope == null) {
+            return false; // no such delivery for the bound tenant: nothing changed
+        }
+        lockForFinalState(scope);
+        if (!transition(updateFragment, condition, parameters, id, event, eventDetail, at)) {
+            return false; // 0 rows: the state was not SENDING behind this token - only the transition is a no-op
+        }
+        releaseHeldInScope(scope, at);
+        return true;
+    }
+
+    /** Releases the held same-scope successors the final state unblocked, in key-sequence order. */
+    private void releaseHeldInScope(Scope scope, Instant at) {
+        for (UUID held : heldSiblingsNoLongerBlocked(scope)) {
+            if (release(held, at)) { // HELD -> DUE with the RELEASE event
+                appendDeliveryDue(held); // the due record that re-drives it - same transaction (ADR-011 D6)
+            }
+        }
+    }
+
+    /**
+     * The HELD deliveries of the final row's (interface, business key, target) scope that no longer have an
+     * earlier non-final delivery of that scope - ADR-011 Decision 6's hold, evaluated after the final state.
+     */
+    private List<UUID> heldSiblingsNoLongerBlocked(Scope scope) {
+        if (scope.interfaceId() == null || scope.businessKey() == null || scope.targetId() == null) {
+            return List.of();
+        }
+        return query("select held.id, held.tenant_id from ("
+                        + " select h.id, h.tenant_id from public.delivery h"
+                        + " where h.state = 'HELD' and h.interface_id = :interface_id::uuid"
+                        + " and h.business_key = :business_key and h.target_id = :target_id::uuid"
+                        + " and h.key_seq is not null and not exists ("
+                        + "   select 1 from public.delivery b"
+                        + "   where b.tenant_id = h.tenant_id and b.interface_id = h.interface_id"
+                        + "   and b.business_key = h.business_key and b.target_id = h.target_id"
+                        + "   and b.key_seq < h.key_seq and b.state not in ('DELIVERED', 'DEAD_LETTERED'))"
+                        + " order by h.key_seq, h.id) held",
+                null,
+                params("interface_id", scope.interfaceId().toString(), "business_key", scope.businessKey(),
+                        "target_id", scope.targetId().toString()),
+                (rs, n) -> uuid(rs, 1));
     }
 
     // ------------------------------------------------------------------ helpers
