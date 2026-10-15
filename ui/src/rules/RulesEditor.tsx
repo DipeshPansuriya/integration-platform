@@ -62,7 +62,7 @@ function RulesHome() {
   }
 
   return (
-    <main data-page="rules-home">
+    <div data-page="rules-home">
       <div className="rules-home">
         <div className="rules-head">
           <h2>Rules</h2>
@@ -159,7 +159,7 @@ function RulesHome() {
           </table>
         )}
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -204,11 +204,11 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
 
   if (load.state !== 'loaded') {
     return (
-      <main data-page="rules-editor" data-rule-set-id={ruleSetId}>
+      <div data-page="rules-editor" data-rule-set-id={ruleSetId}>
         {load.state === 'loading' && <p>Loading the rule set...</p>}
         {load.state === 'not-found' && <p data-refusal="rule-set-not-found">Rule set not found.</p>}
         {load.state === 'failed' && <p data-refusal="rule-set-unreadable">The rule set could not be read (status {load.status}).</p>}
-      </main>
+      </div>
     );
   }
 
@@ -217,7 +217,7 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
   const refusedNode = refusal && refusal.status === 400 && refusal.reason !== undefined ? (refusal.cell?.node ?? null) : null;
   const anchored = refusal !== null && refusedNode !== null && tables.some((t) => t.nodeId === refusedNode);
   return (
-    <main
+    <div
       data-page="rules-editor"
       data-rule-set-id={ruleSetId}
     >
@@ -267,7 +267,7 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
         </div>
         <RuleTestPanel ruleSetId={ruleSetId} sample={sampleInput(kind)} />
       </div>
-    </main>
+    </div>
   );
 }
 
