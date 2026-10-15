@@ -3,7 +3,7 @@ package io.integrationplatform.app.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.kagkarlsson.scheduler.Scheduler;
-import com.github.kagkarlsson.scheduler.task.Task;
+import com.github.kagkarlsson.scheduler.task.helper.RecurringTask;
 import io.integrationplatform.config.scheduler.JdbcJobDefinitionRepository;
 import io.integrationplatform.config.scheduler.JobScheduleSync;
 import io.integrationplatform.domain.scheduler.JobHandler;
@@ -54,7 +54,7 @@ class SchedulerIncidentAlertsContainerTest {
     static JdbcJobDefinitionRepository repository;
     static JobIncidentJdbcSink sink;
     static Scheduler scheduler;
-    static List<Task<?>> tasks;
+    static List<RecurringTask<Void>> tasks;
 
     /** Throws on its first run (the FAILED incident), succeeds afterwards (the loop keeps rescheduling). */
     static final class ThrowingOnceJobHandler implements JobHandler {
@@ -119,7 +119,12 @@ class SchedulerIncidentAlertsContainerTest {
         // the raw scheduler must own the same task table as the app context (scheduler.scheduled_tasks,
         // V2_2_1400): Scheduler.create defaults to the unqualified db-scheduler table, whose polls then fail
         // on every run (window-1 evidence, row278: relation "scheduled_tasks" does not exist).
-        scheduler = Scheduler.create(dataSource, tasks)
+        // startTasks is the spring starter's own startup-reconcile registration (db-scheduler 16.12.0
+        // SchedulerBuilder: only startTasks run OnStartup, create's knownTasks alone never seed the
+        // register's first executions - red 3, row278 g3): without it this hand-built scheduler matched
+        // neither the deployment nor the assertions.
+        scheduler = Scheduler.create(dataSource, List.copyOf(tasks))
+                .startTasks(tasks)
                 .tableName("scheduler.scheduled_tasks")
                 .pollingInterval(Duration.ofSeconds(1))
                 .addSchedulerListener(listener)
@@ -203,19 +208,19 @@ class SchedulerIncidentAlertsContainerTest {
 
         // the operator changes the pattern; the next sync reconciles the task against the changed row
         updateJobDefinition("DAILY_REPORT", "CRON", "0 6 0 * * *");
-        new JobScheduleSync(tasks, scheduler, Instant::now).sync();
+        new JobScheduleSync(List.copyOf(tasks), scheduler, Instant::now).sync();
         Instant afterChange = pendingExecutionTime("DAILY_REPORT");
         assertThat(afterChange).isNotEqualTo(beforeChange);
         assertThat(afterChange).isEqualTo(nextCron(afterChange, "0 6 0 * * *"));
 
         // pause the row: the next sync cancels the pending execution; the job never fires while paused
         pauseJobDefinition("DAILY_REPORT", true);
-        new JobScheduleSync(tasks, scheduler, Instant::now).sync();
+        new JobScheduleSync(List.copyOf(tasks), scheduler, Instant::now).sync();
         assertThat(pendingRowCount("DAILY_REPORT")).isEqualTo(0);
 
         // resume: the next sync schedules it again at the row's (changed) pattern
         pauseJobDefinition("DAILY_REPORT", false);
-        new JobScheduleSync(tasks, scheduler, Instant::now).sync();
+        new JobScheduleSync(List.copyOf(tasks), scheduler, Instant::now).sync();
         assertThat(pendingExecutionTime("DAILY_REPORT")).isEqualTo(nextCron(Instant.now(), "0 6 0 * * *"));
     }
 
