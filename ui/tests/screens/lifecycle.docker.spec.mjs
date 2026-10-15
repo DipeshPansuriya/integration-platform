@@ -16,8 +16,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('submit for approval sends the changeNote body through the real API and lists the submitted version', async ({ page }) => {
-  await page.click('[data-nav="versions"]');
-  await page.click('[data-page="versions"]');
+  await openFreshDraft(page);
 
   await page.fill('[data-field="change-note"]', 'first version of the orders flow');
   await page.click('[data-action="submit-for-approval"]');
@@ -26,7 +25,7 @@ test('submit for approval sends the changeNote body through the real API and lis
 });
 
 test('the author cannot approve: the refusal is shown on the screen, never hidden', async ({ page }) => {
-  await page.click('[data-nav="versions"]');
+  await openFreshDraft(page);
   await page.click('[data-action="submit-for-approval"]'); // the current user is the author
   await page.click('[data-action="approve"]');
 
@@ -34,7 +33,7 @@ test('the author cannot approve: the refusal is shown on the screen, never hidde
 });
 
 test('another user approves and the publish screen offers the approved version', async ({ page }) => {
-  await page.click('[data-nav="versions"]');
+  await openFreshDraft(page);
   await page.click('[data-action="submit-for-approval"]');
   // the second seeded user (an approver who is not the author) approves through the API; the
   // console's approve screen is where the approver acts on their own login - the harness's
@@ -64,12 +63,15 @@ test('the published bundle equals the snapshot taken at submit, byte for byte, o
   await expect(page.locator('[data-bundle-equals-snapshot="true"]')).toBeVisible(); // byte-for-byte compare rendered by the screen
 });
 
-test('a submitted version cannot be edited: the refused Save draft is shown, a new draft is the only way', async ({ page }) => {
-  await page.click('[data-nav="versions"]');
+// Row 310 T88 (10-screens §4): the lifecycle panel offers only the actions valid for the status, so a
+// submitted version shows no Save draft at all; the immutability is stated and New draft is the way.
+test('a submitted version cannot be edited: Save draft is not offered, a new draft is the only way', async ({ page }) => {
+  const flowId = await openFreshDraft(page);
   await page.click('[data-action="submit-for-approval"]');
-  await page.click('[data-action="save-draft"]');
+  await expect(page.locator(`[data-flow-row="${flowId}"] [data-version-status="SUBMITTED"]`)).toBeVisible();
 
-  await expect(page.locator('[data-refusal="submitted-version-immutable"]')).toBeVisible();
+  await expect(page.locator('[data-action="save-draft"]')).toHaveCount(0);
+  await expect(page.locator('[data-notice="submitted-version-immutable"]')).toBeVisible();
   await expect(page.locator('[data-action="new-draft"]')).toBeVisible();
 });
 
@@ -231,3 +233,16 @@ test('a publish the server refuses shows the refusal on the screen and the versi
   await expect(page.locator('[data-published="true"]')).toHaveCount(0);
   await expect(page.locator(`[data-flow-row="${flowId}"] [data-version-status="APPROVED"]`)).toBeVisible();
 });
+
+/**
+ * Row 310 T88 (10-screens §4): the Versions screen no longer creates a flow by itself, so each walk
+ * seeds its own draft through the browser's signed-in session (the body the old auto-create used)
+ * and selects that row - the walk never depends on which draft another spec left first.
+ */
+async function openFreshDraft(page) {
+  const flowId = must(await inBrowser(page, 'POST', '/api/v1/admin/flows', { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' }), 'draft flow').id;
+  await page.click('[data-nav="versions"]');
+  await page.click(`[data-flow-row="${flowId}"]`);
+  await expect(page.locator(`[data-flow-row="${flowId}"] [data-version-status="DRAFT"]`)).toBeVisible();
+  return flowId;
+}

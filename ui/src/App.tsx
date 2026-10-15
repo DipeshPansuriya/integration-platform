@@ -17,6 +17,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { api, LOGIN_ROUTE, readCookie } from './api/client';
 import { FlowDefinition } from './pages/FlowDefinition';
+import { FlowsList } from './pages/FlowsList'; // row 310 lane B (T88): #/flows list landing
 import { Versions } from './pages/Versions';
 // E5 seam (arjun-fullstack, F13): route + menu stubs for E5 lane D's screens (T-159 systems registry, T-160
 // contract versions); lane D fills the two page files and never edits this shell.
@@ -275,7 +276,7 @@ export function App() {
           ))}
         </nav>
         <main className="content">
-          {route.page === 'flows' && <FlowDefinition openFlowId={route.flowId} />}
+          {route.page === 'flows' && (route.flowId ? <FlowDefinition openFlowId={route.flowId} /> : <FlowsList />)}
           {route.page === 'versions' && <Versions />}
           {route.page === 'systems' && <Systems />}
           {route.page === 'queue' && <QueueDashboard />}
