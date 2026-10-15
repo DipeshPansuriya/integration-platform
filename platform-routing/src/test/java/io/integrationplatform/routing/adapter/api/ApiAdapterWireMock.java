@@ -132,11 +132,13 @@ public final class ApiAdapterWireMock {
 
     /** The request bodies WireMock received, newest last (the adapter sends the transform result verbatim). */
     public List<String> requestBodies() {
-        String answer = admin("GET", "/__admin/requests", "");
+        // the journal is JSON (newest first) with each response's body beside its request's: read it as JSON,
+        // never by pattern - an escaped quote inside a body ends a pattern match early
+        tools.jackson.databind.JsonNode journal = tools.jackson.databind.json.JsonMapper.builder().build()
+                .readTree(admin("GET", "/__admin/requests", ""));
         List<String> found = new CopyOnWriteArrayList<>();
-        Matcher matcher = Pattern.compile("\"body\"\\s*:\\s*\"([^\"]*)\"").matcher(answer);
-        while (matcher.find()) {
-            found.add(matcher.group(1));
+        for (tools.jackson.databind.JsonNode served : journal.path("requests")) {
+            found.add(0, served.path("request").path("body").asString());
         }
         return found;
     }
