@@ -6,9 +6,12 @@
 // through boot-backend.mjs (its own PostgreSQL, the real Keycloak with realm `platform`, the
 // platform-app jar - built with mvnw when missing), seeds the trial tenant through the real API,
 // serves the BUILT console on http://127.0.0.1:4173 (runs `vite build` first when ui/dist is
-// missing), prints the sign-in lines and STAYS UP until Ctrl+C (or SIGTERM / SIGBREAK / closing
-// the window, or typing `stop` + Enter). Then everything is torn down - console, app, postgres
-// container, Keycloak - and the docker-suite lock is released. A failed boot or seed tears down too.
+// missing), prints the sign-in lines and STAYS UP until Ctrl+C or Ctrl+Break in its terminal (or
+// typing `stop` + Enter, closing the window, or SIGTERM on Linux/macOS). Then everything is torn
+// down - console, app, postgres container, Keycloak - and the docker-suite lock is released. A
+// failed boot or seed tears down too. On Windows `kill <pid>` / `taskkill /F` end the process
+// WITHOUT the teardown (Windows has no catchable SIGTERM): containers stay and the lock note goes
+// stale after 60 minutes - stop it from its own terminal instead.
 //
 // Seeded in the default tenant: source system "Customer A" (code customer-a) with SOURCE_REQUEST
 // contract v1.0 {customerId, orderId, amount}; target system "Target B" (code target-b) with
@@ -70,7 +73,7 @@ export function signInBanner({ consoleUrl, username, credential }) {
       ? `  password:   ${credential.password}   (generated for this run only; ${TRIAL_PASSWORD_ENV} was not set - it is not saved anywhere)`
       : `  password: from ${TRIAL_PASSWORD_ENV} (your OS secret store)`,
     `  seeded:     ${SOURCE.name} contract v1.0, ${TARGET.name} contract v2.0 APPROVED, flow "orders" -> ${TARGET.name} (mapping empty)`,
-    '  stop:       Ctrl+C (or type stop + Enter) - tears everything down and releases the docker-suite lock',
+    '  stop:       Ctrl+C or Ctrl+Break here (or type stop + Enter) - tears everything down and releases the docker-suite lock',
     ''
   ];
 }
