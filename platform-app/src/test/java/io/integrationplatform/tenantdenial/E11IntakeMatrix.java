@@ -117,7 +117,9 @@ final class E11IntakeMatrix implements LaneMatrix {
                         + " AND message_id IN (SELECT id FROM public.message WHERE tenant_id = ?::uuid"
                         + " AND business_key = ?)",
                 tenant.id().toString(), tenant.id().toString(), ORDER_ID);
-        update(owner, "DELETE FROM public.outbox WHERE aggregate_id IN"
+        // outbox carries its own tenant_id (V2_0_1__outbox.sql:11), so this delete follows the payload/stage
+        // double-scope: outer tenant_id = ?::uuid, subquery tenant_id = ?::uuid - three binds, three values.
+        update(owner, "DELETE FROM public.outbox WHERE tenant_id = ?::uuid AND aggregate_id IN"
                         + " (SELECT id FROM public.message WHERE tenant_id = ?::uuid AND business_key = ?)",
                 tenant.id().toString(), tenant.id().toString(), ORDER_ID);
         update(owner, "DELETE FROM public.message WHERE tenant_id = ?::uuid AND business_key = ?",
