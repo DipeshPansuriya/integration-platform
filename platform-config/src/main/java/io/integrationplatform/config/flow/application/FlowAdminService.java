@@ -2,6 +2,7 @@ package io.integrationplatform.config.flow.application;
 
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.contract.application.ContractAdminService;
+import io.integrationplatform.config.flow.api.InterfacePublished;
 import io.integrationplatform.config.flow.application.FlowBundle.Parsed;
 import io.integrationplatform.config.flow.application.FlowBundle.SnapshotMapping;
 import io.integrationplatform.config.flow.application.FlowBundle.SnapshotRoute;
@@ -12,6 +13,7 @@ import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.Map
 import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.RouteRow;
 import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.VersionInfo;
 import io.integrationplatform.config.system.application.SystemAdminService;
+import io.integrationplatform.tenancy.TenantContext;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -19,6 +21,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
@@ -39,13 +42,23 @@ public class FlowAdminService {
     private final SystemAdminService systems;
     private final ContractAdminService contracts;
     private final io.integrationplatform.config.mapping.application.MappingPublishPinCheck mappingPins;
+    private final ApplicationEventPublisher events;
+    private final TenantContext tenants;
 
+    /**
+     * @param events  T-116: where a successful publish announces {@link InterfacePublished} (the routing module
+     *                instantiates the interface's route instances from it)
+     * @param tenants the bound tenant the announcement carries (fails closed when none is bound)
+     */
     public FlowAdminService(JdbcFlowRepository flows, SystemAdminService systems, ContractAdminService contracts,
-            io.integrationplatform.config.mapping.application.MappingPublishPinCheck mappingPins) {
+            io.integrationplatform.config.mapping.application.MappingPublishPinCheck mappingPins,
+            ApplicationEventPublisher events, TenantContext tenants) {
         this.flows = Objects.requireNonNull(flows, "flows");
         this.systems = Objects.requireNonNull(systems, "systems");
         this.contracts = Objects.requireNonNull(contracts, "contracts");
         this.mappingPins = Objects.requireNonNull(mappingPins, "mappingPins");
+        this.events = Objects.requireNonNull(events, "events");
+        this.tenants = Objects.requireNonNull(tenants, "tenants");
     }
 
     // ------------------------------------------------------------------ T-015: create and read
@@ -229,6 +242,10 @@ public class FlowAdminService {
             throw ConfigApiException.conflict("the approved version changed under the publish");
         }
         flows.updateInterfaceAfterPublish(interfaceRow.id(), approved.version());
+        // T-116: the routing module builds the interface's route instances from these rows before the commit -
+        // a route it refuses rolls this publish back.
+        events.publishEvent(new InterfacePublished(tenants.requireTenantId(), UUID.fromString(interfaceRow.id()),
+                approved.version()));
         return ConfigApiException.body("id", interfaceRow.id(), "version", approved.version());
     }
 

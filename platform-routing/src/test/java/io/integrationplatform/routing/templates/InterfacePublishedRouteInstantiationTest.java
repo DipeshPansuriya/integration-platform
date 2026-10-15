@@ -52,7 +52,7 @@ class InterfacePublishedRouteInstantiationTest {
             @Override
             public void notify(CamelEvent event) {
                 switch (event.getType()) {
-                    case CamelContextStarting, CamelContextStopping, CamelContextRoutesStarting -> contextStartsOrStops
+                    case CamelContextStarting, CamelContextStopping, CamelContextReloading -> contextStartsOrStops
                             .incrementAndGet();
                     default -> { }
                 }

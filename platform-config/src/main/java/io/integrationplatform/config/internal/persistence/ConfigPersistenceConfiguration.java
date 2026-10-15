@@ -8,6 +8,7 @@ import io.integrationplatform.config.system.application.SystemAdminService;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.port.LoginBootstrap;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -35,8 +36,11 @@ class ConfigPersistenceConfiguration {
 
     @Bean
     FlowAdminService flowAdminService(JdbcFlowRepository flows, SystemAdminService systems,
-            ContractAdminService contracts, MappingPublishPinCheck mappingPins) {
-        return new FlowAdminService(flows, systems, contracts, mappingPins);
+            ContractAdminService contracts, MappingPublishPinCheck mappingPins, ApplicationEventPublisher events,
+            ObjectProvider<TenantContext> tenantContexts) {
+        // T-116: publish announces InterfacePublished; the tenant falls back fail-closed like the repositories'
+        return new FlowAdminService(flows, systems, contracts, mappingPins, events,
+                tenantContexts.getIfAvailable(() -> java.util.Optional::empty));
     }
 
     @Bean
