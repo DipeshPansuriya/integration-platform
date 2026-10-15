@@ -53,7 +53,7 @@ function RulesHome() {
   }
 
   return (
-    <main data-page="rules-home">
+    <div data-page="rules-home">
       <h1>Rules</h1>
       <label>
         Flow
@@ -91,7 +91,7 @@ function RulesHome() {
         Create
       </button>
       {refusal && <p data-refusal="rule-set-create">{refusal}</p>}
-    </main>
+    </div>
   );
 }
 
@@ -136,17 +136,17 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
 
   if (load.state !== 'loaded') {
     return (
-      <main data-page="rules-editor" data-rule-set-id={ruleSetId}>
+      <div data-page="rules-editor" data-rule-set-id={ruleSetId}>
         {load.state === 'loading' && <p>Loading the rule set...</p>}
         {load.state === 'not-found' && <p data-refusal="rule-set-not-found">Rule set not found.</p>}
         {load.state === 'failed' && <p data-refusal="rule-set-unreadable">The rule set could not be read (status {load.status}).</p>}
-      </main>
+      </div>
     );
   }
 
   const kind = load.ruleSet.kind;
   return (
-    <main
+    <div
       data-page="rules-editor"
       data-rule-set-id={ruleSetId}
       style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 380px)', gap: 16, alignItems: 'start' }}
@@ -174,7 +174,7 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
         ))}
       </div>
       <RuleTestPanel ruleSetId={ruleSetId} sample={sampleInput(kind)} />
-    </main>
+    </div>
   );
 }
 

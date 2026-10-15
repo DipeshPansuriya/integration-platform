@@ -251,7 +251,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
   const targetOptions = versions.filter((v) => v.role === 'TARGET_REQUEST' && v.status === 'APPROVED');
 
   return (
-    <main data-page="mapping-designer" data-mapping-loaded={loaded ? 'true' : undefined}>
+    <div data-page="mapping-designer" data-mapping-loaded={loaded ? 'true' : undefined}>
       <h2>Mapping designer</h2>
       {missing && <p data-mapping-missing="true">No mapping for this route.</p>}
       {routeId ? (
@@ -354,6 +354,6 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
       ) : (
         <MappingRoutes />
       )}
-    </main>
+    </div>
   );
 }
