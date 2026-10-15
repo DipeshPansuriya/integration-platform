@@ -219,16 +219,20 @@ export function Versions() {
                   const shown = isSelected ? status : flow.status;
                   const badge = statusBadge(shown);
                   return (
+                    // B14: aria-selected is valid only in grid/listbox roles; aria-current names the selected
+                    // row on a plain table, the hidden text is what AT reads, bold + bar are the non-colour cue.
                     <tr
                       key={flow.id}
                       data-flow-row={flow.id}
-                      aria-selected={isSelected}
+                      aria-current={isSelected ? 'true' : undefined}
                       tabIndex={0}
-                      className={isSelected ? 'flows-row-selected' : undefined}
                       onClick={() => selectFlow(flow)}
                       onKeyDown={(event) => onRowKey(event, flow)}
                     >
-                      <td>{flow.name || flow.code}</td>
+                      <td>
+                        {flow.name || flow.code}
+                        {isSelected && <span className="flows-sr-only"> (selected)</span>}
+                      </td>
                       <td>
                         <span className={`badge badge-${badge.tone}`} data-version-status={shown}>
                           {badge.word}

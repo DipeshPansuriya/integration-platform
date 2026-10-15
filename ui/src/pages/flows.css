@@ -9,6 +9,10 @@
   justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
+  padding-bottom: var(--space-4); /* B15: the title's space below moves here, so the head centres on the title */
+}
+:is(.flows-page, .versions-page) .flows-head h2 {
+  margin: 0;
 }
 
 :is(.flows-page, .versions-page) .flows-muted {
@@ -93,8 +97,13 @@
 .versions-page tr[data-flow-row]:hover {
   background: var(--color-neutral-bg);
 }
-.versions-page tr[aria-selected='true'] {
+/* B14: selected = aria-current (AT) + tint + bold name + inset bar - never colour alone */
+.versions-page tr[aria-current='true'] {
   background: var(--color-accent-faint);
+}
+.versions-page tr[aria-current='true'] > td:first-child {
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 .versions-page tr[data-flow-row]:focus-visible {
   outline: 2px solid var(--color-focus);
@@ -106,6 +115,9 @@
   gap: var(--space-2);
   align-items: center;
   margin: var(--space-3) 0;
+}
+.flows-page .flows-filter label {
+  margin: 0; /* B15: base.css label margin pushed Clear 8px below the input */
 }
 .flows-page .flows-filter input {
   min-width: 16rem;
@@ -140,6 +152,13 @@
   gap: var(--space-1);
   margin: var(--space-2) 0;
 }
+/* B15: a hint belongs to the field above it - 4px to it, 12px before the next field */
+.flows-page .flows-field:has(+ .flows-muted) {
+  margin-bottom: 0;
+}
+.flows-page .flows-field + .flows-muted {
+  margin: var(--space-1) 0 var(--space-3);
+}
 .flows-page .flows-field textarea {
   font-family: var(--font-mono);
 }
@@ -148,13 +167,16 @@
   font-size: 13px;
   margin: 0 0 var(--space-2);
 }
+/* B15: the row owns the vertical margin, so flex-end lines Remove up with the input bottom (0px) */
 .flows-page .flow-destination {
   display: flex;
   align-items: flex-end;
   gap: var(--space-2);
+  margin: var(--space-2) 0;
 }
 .flows-page .flow-destination .flows-field {
   flex: 1;
+  margin: 0;
 }
 
 .flows-page .flow-actions {

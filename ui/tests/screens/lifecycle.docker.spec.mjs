@@ -246,3 +246,58 @@ async function openFreshDraft(page) {
   await expect(page.locator(`[data-flow-row="${flowId}"] [data-version-status="DRAFT"]`)).toBeVisible();
   return flowId;
 }
+
+// Row 310 B14 (Kavita's follow-up on T88): the selected version row was shown by colour alone, and
+// aria-selected on a plain <tr> is not valid outside grid/listbox roles - assistive tech heard
+// nothing. The selected row now carries aria-current="true", a "(selected)" text in its name cell
+// (visually hidden, read by AT) and a non-colour cue (bold name + an inset bar). Click and keyboard
+// (Enter, Space) both move the selection; exactly one row is ever the selected one.
+test('the selected version row is perceivable without colour and to assistive tech, by click and by keyboard', async ({ page }) => {
+  const draft = { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' };
+  const firstId = must(await inBrowser(page, 'POST', '/api/v1/admin/flows', draft), 'draft flow 1').id;
+  const secondId = must(await inBrowser(page, 'POST', '/api/v1/admin/flows', draft), 'draft flow 2').id;
+  await page.click('[data-nav="versions"]');
+  const first = page.locator(`[data-flow-row="${firstId}"]`);
+  const second = page.locator(`[data-flow-row="${secondId}"]`);
+
+  await second.click();
+  await expectSelectedRow(second);
+  await expectUnselectedRow(first);
+
+  await first.focus();
+  await page.keyboard.press('Enter');
+  await expectSelectedRow(first);
+  await expectUnselectedRow(second);
+
+  await second.focus();
+  await page.keyboard.press(' ');
+  await expectSelectedRow(second);
+  await expectUnselectedRow(first);
+
+  // exactly one row is the selected one, and no row claims the grid-only aria-selected
+  await expect(page.locator('[data-flow-row][aria-current="true"]')).toHaveCount(1);
+  await expect(page.locator('[data-flow-row][aria-selected]')).toHaveCount(0);
+});
+
+/** The name cell's look: font weight and the inset bar - the non-colour cues. */
+const nameCellCue = (row) =>
+  row.locator('td').first().evaluate((cell) => {
+    const style = getComputedStyle(cell);
+    return { weight: Number(style.fontWeight), bar: style.boxShadow };
+  });
+
+async function expectSelectedRow(row) {
+  await expect(row).toHaveAttribute('aria-current', 'true');
+  await expect(row.locator('td').first()).toContainText('(selected)'); // the text AT reads
+  const cue = await nameCellCue(row);
+  expect(cue.weight, 'the selected name is bold - a cue that is not colour').toBeGreaterThanOrEqual(600);
+  expect(cue.bar, 'the selected row shows an inset bar - a cue that is not a fill colour').not.toBe('none');
+}
+
+async function expectUnselectedRow(row) {
+  await expect(row).not.toHaveAttribute('aria-current', 'true');
+  await expect(row.locator('td').first()).not.toContainText('(selected)');
+  const cue = await nameCellCue(row);
+  expect(cue.weight).toBeLessThan(600);
+  expect(cue.bar).toBe('none');
+}
