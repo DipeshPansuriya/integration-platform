@@ -99,7 +99,7 @@ test('§3 editor keeps every data-field hook and the verbatim tenant 404 refusal
   const editor = source('FlowDefinition.tsx');
   for (const hook of ['data-field="source-system"', 'data-field={`destination-${', 'data-field="interface-name"',
     'data-field="business-key-rule"', 'data-field="ordering-setting"', 'data-field="source-schema"',
-    'data-action="save-draft"', 'data-saved="true"', 'data-validation-error="business-key-rule"',
+    'data-action="save-draft"', 'data-saved="true"', "errorText('business-key-rule')", 'data-validation-error={field}',
     'data-refusal="flow-not-found"', 'This flow does not exist for your tenant.']) {
     assert.ok(editor.includes(hook), `FlowDefinition.tsx keeps ${hook}`);
   }

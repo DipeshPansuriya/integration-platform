@@ -69,3 +69,38 @@ export type FlowForm = {
 export function isDirty(baseline: FlowForm, current: FlowForm): boolean {
   return JSON.stringify(baseline) !== JSON.stringify(current);
 }
+
+/** B12: what the open flow editor tells the shell - unsaved edits, and whether Leave was already chosen. */
+export type EditorGuardState = { dirty: boolean; released: boolean };
+
+export type HashMove = { kind: 'route' } | { kind: 'confirm'; restore: string; leaveTo: string };
+
+/**
+ * B12: the shell's decision for an address change (Back, Forward, a typed #/ address). A dirty editor
+ * that the user has not released keeps the screen: the address goes back to `restore` (the editor's own
+ * URL) and the in-page confirm offers `leaveTo`. Anything else routes.
+ */
+export function hashMove(oldUrl: string, newUrl: string, editor: EditorGuardState | null): HashMove {
+  if (!editor || !editor.dirty || editor.released) return { kind: 'route' };
+  return { kind: 'confirm', restore: oldUrl, leaveTo: new URL(newUrl).hash || '#/' };
+}
+
+// B13: the visible text per designed 400 field (validationFieldOf in api/flows.ts). 'request' is a
+// refusal the console has no field for - it shows the server's own words.
+const VALIDATION_TEXT: Record<string, string> = {
+  'source-system': 'sourceSystem is required',
+  'business-key-rule': 'The mandatory business-key rule is missing: businessKeyRule',
+  'source-schema': 'sourceSchema must be a JSON Schema object',
+  destinations: 'destinations must name at least one registered system'
+};
+
+export function validationText(field: string, serverError?: string | null): string {
+  return VALIDATION_TEXT[field] ?? (serverError?.trim() || 'The request was refused');
+}
+
+export const validationErrorId = (field: string) => `flow-error-${field}`;
+
+/** B13: the failing field is aria-invalid and described by its visible error text; other fields get nothing. */
+export function fieldA11y(validationField: string | null, field: string): { 'aria-invalid'?: true; 'aria-describedby'?: string } {
+  return validationField === field ? { 'aria-invalid': true, 'aria-describedby': validationErrorId(field) } : {};
+}
