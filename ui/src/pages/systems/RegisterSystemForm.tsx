@@ -46,18 +46,18 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
 
   return (
     <form data-form="register-system" onSubmit={onSubmit}>
-      <h3>Register a system</h3>
       <label>
         Code
-        <input data-field="system-code" value={code} onChange={(e) => setCode(e.target.value)} />
+        <input id="sys-field-code" data-field="system-code" value={code} onChange={(e) => setCode(e.target.value)} />
       </label>
       <label>
         Name
-        <input data-field="system-name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input id="sys-field-name" data-field="system-name" value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <label>
         Direction
         <select
+          id="sys-field-direction"
           data-field="system-direction"
           value={direction}
           onChange={(e) => setDirection(e.target.value as 'INBOUND' | 'OUTBOUND')}
@@ -71,7 +71,7 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
       <button type="submit" data-action="register-system" disabled={busy}>
         Register system
       </button>
-      {saved && <p data-saved="true">System registered.</p>}
+      {saved && <p role="status" className="systems-alert systems-alert-success" data-saved="true">System registered.</p>}
       <ValidationErrors errors={errors} />
     </form>
   );

@@ -117,6 +117,8 @@ test('Contracts: 8px between a draft version\'s change note and its Submit butto
   await expect(page.locator('[data-page="contracts"][data-contracts-loaded="true"]')).toBeVisible();
 
   const row = page.locator(`[data-version-key="${system}/TARGET_REQUEST/1.0"]`);
+  // T101: the change note shows once "Submit for approval" opens the composer on a draft row.
+  await row.locator('[data-action="compose-submit"]').click();
   const note = await box(row.locator('[data-field="change-note"]'));
   const submit = await box(row.locator('[data-action="submit-version"]'));
   expect(Math.abs(submit.left - note.right - 8), 'change note -> Submit gap').toBeLessThanOrEqual(TOLERANCE);
@@ -126,6 +128,8 @@ test('Rules pages: a bare button after a field or button gets no added margin', 
   const flowId = must(await inBrowser(page, 'POST', '/api/v1/admin/flows', DRAFT), 'draft flow').id;
   await page.goto(`${consoleUrl()}/#/rules`);
   await expect(page.locator('[data-page="rules-home"]')).toBeVisible();
+  // T102: Create sits in the inline card that "New rule set" opens.
+  await page.locator('[data-action="new-rule-set"]').click();
   expect(await marginStart(page.locator('[data-action="create-rule-set"]')), 'Rules home: Create').toBe('0px');
 
   const ruleSet = must(await inBrowser(page, 'POST', `/api/v1/admin/flows/${flowId}/rule-sets`, {
