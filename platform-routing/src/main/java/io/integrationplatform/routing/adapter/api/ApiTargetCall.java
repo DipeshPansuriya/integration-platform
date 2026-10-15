@@ -77,7 +77,7 @@ public class ApiTargetCall implements TargetCall {
         try {
             response = sender.send(destination, view.httpMethod(), headers, body.bytes(), view.timeoutMs());
         } catch (SocketTimeoutException slow) {
-            throw new TargetFaultException(OutcomeClassifier.ofTimeout(view.idempotentReceive()),
+            throw fault(OutcomeClassifier.ofTimeout(view.idempotentReceive()),
                     "the send cut its connection at the endpoint's " + view.timeoutMs() + " ms timeout - the"
                     + " request may have been processed");
         } catch (SSLException tls) {
@@ -91,8 +91,15 @@ public class ApiTargetCall implements TargetCall {
         OutcomeClass outcome = OutcomeClassifier.ofHttpStatus(response.status(), view.idempotentReceive(),
                 view.errorDictionary());
         if (outcome != OutcomeClass.SUCCESS) {
-            throw new TargetFaultException(outcome, "the target answered HTTP " + response.status() + " for"
+            throw fault(outcome, "the target answered HTTP " + response.status() + " for"
                     + " delivery " + send.deliveryId() + ": class " + outcome);
         }
+    }
+
+    /** A classified failure as the layer-1 route redelivers it: TRANSIENT must leave as the redelivering subtype. */
+    private static TargetFaultException fault(OutcomeClass outcome, String message) {
+        return outcome == OutcomeClass.TRANSIENT
+                ? new TargetFaultException.TransientFaultException(message)
+                : new TargetFaultException(outcome, message);
     }
 }
