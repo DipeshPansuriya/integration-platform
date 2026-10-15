@@ -5,8 +5,9 @@
 // Needs JAVA_HOME pointing at the JDK 25 install (AGENTS.md); docker running. Boots the real stack
 // through boot-backend.mjs (its own PostgreSQL, the real Keycloak with realm `platform`, the
 // platform-app jar - built with mvnw when missing), seeds the trial tenant through the real API,
-// serves the BUILT console on http://127.0.0.1:4173 (runs `vite build` first when ui/dist is
-// missing), prints the sign-in lines and STAYS UP until Ctrl+C or Ctrl+Break in its terminal (or
+// builds the console from the current source (`vite build`, every start - a ui/dist left by an
+// older build is never served as-is) and serves it on http://127.0.0.1:4173, prints the sign-in
+// lines and STAYS UP until Ctrl+C or Ctrl+Break in its terminal (or
 // typing `stop` + Enter, closing the window, or SIGTERM on Linux/macOS). Then everything is torn
 // down - console, app, postgres container, Keycloak - and the docker-suite lock is released. A
 // failed boot or seed tears down too. On Windows `kill <pid>` / `taskkill /F` end the process
@@ -32,7 +33,6 @@
 // `trial-up pid=<pid> started=<iso>` so no other run ever reads it as stale (60 minutes).
 
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -107,10 +107,15 @@ async function seed(call) {
   return { flowId: flow.id, routeId: routes[0].id, mappingId: routes[0].mappingId };
 }
 
-async function ensureBuiltConsole(print) {
-  if (fs.existsSync(path.join(UI, 'dist', 'index.html'))) return;
-  print('trial-up: ui/dist is missing - building the console (vite build)');
-  const { build } = await import('vite');
+const viteBuild = async (options) => (await import('vite')).build(options);
+
+/**
+ * Builds the console from the current source on every start, so the trial never serves a stale
+ * ui/dist. A plain `vite build` is enough to serve: the type check and licence check of
+ * `npm run build` are CI gates, not needed to produce dist/. `build` is injectable for tests.
+ */
+export async function ensureBuiltConsole({ build = viteBuild, print = (line) => console.log(line) } = {}) {
+  print('trial-up: building the console from the current source (vite build)');
   await build({ root: UI, logLevel: 'warn' });
 }
 
@@ -120,7 +125,7 @@ async function ensureBuiltConsole(print) {
  */
 export async function startTrial({ env = process.env, print = (line) => console.log(line) } = {}) {
   process.chdir(UI); // the console's vite preview reads ui/'s config from the working directory
-  await ensureBuiltConsole(print);
+  await ensureBuiltConsole({ print });
   const credential = trialPassword(env);
   const holder = `trial-up pid=${process.pid} started=${new Date().toISOString()}`;
   print('trial-up: booting PostgreSQL, Keycloak and the backend (takes a few minutes; waits if another docker suite holds the lock)');
