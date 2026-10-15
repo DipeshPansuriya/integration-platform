@@ -90,7 +90,7 @@ export function Systems() {
   };
 
   return (
-    <main data-page="systems" data-systems-loaded={String(loaded)}>
+    <div data-page="systems" data-systems-loaded={String(loaded)}>
       <h2>Systems</h2>
       {listRefusal !== null && (
         <p role="alert" data-refusal={`list-refused-${listRefusal}`}>
@@ -160,6 +160,6 @@ export function Systems() {
       {open && <EditSystemForm key={open.id} system={open} onSaved={onSaved} />}
 
       <RegisterSystemForm onRegistered={refresh} />
-    </main>
+    </div>
   );
 }

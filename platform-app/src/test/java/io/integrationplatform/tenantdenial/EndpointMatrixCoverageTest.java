@@ -3,6 +3,8 @@ package io.integrationplatform.tenantdenial;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import io.integrationplatform.app.queue.QueueSummaryController;
+import io.integrationplatform.app.queue.QueueSummaryService;
 import io.integrationplatform.config.adapter.in.ConfigActors;
 import io.integrationplatform.config.credential.adapter.in.SourceCredentialAdminController;
 import io.integrationplatform.config.credential.adapter.in.TargetCredentialAdminController;
@@ -12,6 +14,7 @@ import io.integrationplatform.config.contract.adapter.in.ContractVersionAdminCon
 import io.integrationplatform.config.contract.application.ContractAdminService;
 import io.integrationplatform.config.flow.adapter.in.FlowAdminController;
 import io.integrationplatform.config.flow.application.FlowAdminService;
+import io.integrationplatform.config.flow.application.FlowRoutesQuery;
 import io.integrationplatform.config.mapping.adapter.in.MappingAdminController;
 import io.integrationplatform.config.mapping.adapter.in.MappingTestController;
 import io.integrationplatform.config.mapping.application.MappingAdminService;
@@ -171,7 +174,8 @@ class EndpointMatrixCoverageTest {
      */
     private static Object[] allHandlers() {
         return new Object[] {probeController(), new MeContract(),
-                new FlowAdminController(mock(FlowAdminService.class), mock(ConfigActors.class)),
+                new FlowAdminController(mock(FlowAdminService.class), mock(ConfigActors.class),
+                        mock(FlowRoutesQuery.class)),
                 new ContractVersionAdminController(mock(ContractAdminService.class), mock(ConfigActors.class)),
                 new SystemAdminController(mock(SystemAdminService.class), mock(ConfigActors.class)),
                 new RuleSetAdminController(mock(RuleSetAdminService.class), mock(ConfigActors.class)),
@@ -184,7 +188,9 @@ class EndpointMatrixCoverageTest {
                 // E7 lane C (T-190): the mapping endpoints, covered by E7MappingMatrix
                 new MappingAdminController(mock(MappingAdminService.class), mock(ConfigActors.class)),
                 // E7 lane B2 (T-108/T-109): the mapping test endpoint, covered by E7MappingTestMatrix
-                new MappingTestController(mock(MappingTestService.class), mock(ConfigActors.class))};
+                new MappingTestController(mock(MappingTestService.class), mock(ConfigActors.class)),
+                // row 310 F10-narrow / row 278 T84: the queue dashboard read, covered by F10QueueSummaryMatrix
+                new QueueSummaryController(mock(QueueSummaryService.class), mock(ConfigActors.class))};
     }
 
     private static Object[] withPlanted(Object planted) {

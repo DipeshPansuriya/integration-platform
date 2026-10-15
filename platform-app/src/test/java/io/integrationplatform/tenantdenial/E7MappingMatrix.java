@@ -16,7 +16,8 @@ import java.util.UUID;
  * and target contract versions) and its {@code mapping_version} rows. Each tenant gets one live route + mapping
  * on its main flow (bound to the source contract version the core seeds and an approved TARGET_REQUEST contract
  * version of the tenant's destination system) plus one deduplicated version row behind it; the publish flow's
- * pinned version row is the same row, referenced by the snapshot the core seeds. Entries target tenant A's route
+ * pinned version row is the same row, referenced by the snapshot the core seeds, with one passing sample run of its
+ * content (the T-037 publish gate). Entries target tenant A's route
  * (or the other tenant's, the forged id). Only that lane edits this file; see {@link LaneMatrix} for the rules.
  */
 final class E7MappingMatrix implements LaneMatrix {
@@ -47,6 +48,16 @@ final class E7MappingMatrix implements LaneMatrix {
 
   static UUID mappingVersionIdOf(SeededTenant tenant) {
     return LaneMatrix.laneId(tenant, "matrix-mapping-version");
+  }
+
+  /**
+   * Row 278 T84: the publish flow's own pinned mapping_version row. The publish pin check now refuses a pinned
+   * version that belongs to another mapping than the snapshot names, so the publishable flow's live route and
+   * mapping (the snapshot's pubRouteId / pubMappingId) exist before publish - the way a real draft save leaves
+   * them - and pin a version row of exactly that mapping.
+   */
+  static UUID publishMappingVersionIdOf(SeededTenant tenant) {
+    return LaneMatrix.laneId(tenant, "publish-mapping-version");
   }
 
   /**
@@ -138,6 +149,43 @@ final class E7MappingMatrix implements LaneMatrix {
         mappingVersionIdOf(tenant).toString(), tenant.id().toString(), mappingIdOf(tenant).toString(),
         source, target,
         MappingContent.contentSha256Hex(MappingContent.ENGINE, source, target, "[]", "$"),
+        tenant.userId().toString());
+    // T-037: the author's passing sample run of exactly that content - the publish gate keys on the version row's
+    // own mapping and content hash, so the matrix's publish entries reach their tenant assertions.
+    update(owner,
+        "INSERT INTO public.mapping_sample_run (tenant_id, mapping_id, content_sha256, sample_sha256, passed,"
+            + " actor_id) VALUES (?::uuid, ?::uuid, decode(?, 'hex'), decode(?, 'hex'), true, ?::uuid)",
+        tenant.id().toString(), mappingIdOf(tenant).toString(),
+        MappingContent.contentSha256Hex(MappingContent.ENGINE, source, target, "[]", "$"),
+        MappingContent.contentSha256Hex(MappingContent.ENGINE, source, target, "[]", "matrix-sample"),
+        tenant.userId().toString());
+    // Row 278 T84: the publish flow's live route + mapping + its own pinned version + passing sample run (see
+    // publishMappingVersionIdOf) - the same content as the APPROVED snapshot, so the pin check answers 200.
+    String hash = MappingContent.contentSha256Hex(MappingContent.ENGINE, source, target, "[]", "$");
+    update(owner,
+        "INSERT INTO public.route (id, tenant_id, interface_id, target_endpoint_id, sequence, status,"
+            + " is_primary) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 1, 'ACTIVE', false)",
+        tenant.config().pubRouteId().toString(), tenant.id().toString(),
+        tenant.config().flowPublishId().toString(), tenant.config().dstEndpointId().toString());
+    update(owner,
+        "INSERT INTO public.mapping (id, tenant_id, route_id, field_mappings, compiled_expression,"
+            + " source_contract_version_id, target_contract_version_id)"
+            + " VALUES (?::uuid, ?::uuid, ?::uuid, '[]'::jsonb, '$', ?::uuid, ?::uuid)",
+        tenant.config().pubMappingId().toString(), tenant.id().toString(),
+        tenant.config().pubRouteId().toString(), source, target);
+    update(owner,
+        "INSERT INTO public.mapping_version (id, tenant_id, mapping_id, version,"
+            + " source_contract_version_id, target_contract_version_id, engine, field_mappings,"
+            + " compiled_expression, content_sha256, author_id)"
+            + " VALUES (?::uuid, ?::uuid, ?::uuid, 1, ?::uuid, ?::uuid, '" + MappingContent.ENGINE
+            + "', '[]'::jsonb, '$', decode(?, 'hex'), ?::uuid)",
+        publishMappingVersionIdOf(tenant).toString(), tenant.id().toString(),
+        tenant.config().pubMappingId().toString(), source, target, hash, tenant.userId().toString());
+    update(owner,
+        "INSERT INTO public.mapping_sample_run (tenant_id, mapping_id, content_sha256, sample_sha256, passed,"
+            + " actor_id) VALUES (?::uuid, ?::uuid, decode(?, 'hex'), decode(?, 'hex'), true, ?::uuid)",
+        tenant.id().toString(), tenant.config().pubMappingId().toString(), hash,
+        MappingContent.contentSha256Hex(MappingContent.ENGINE, source, target, "[]", "matrix-sample"),
         tenant.userId().toString());
   }
 

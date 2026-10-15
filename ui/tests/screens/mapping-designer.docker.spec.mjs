@@ -10,6 +10,13 @@
 //   A link targeting a field the target contract does not have is refused - on the canvas, naming
 //                                            the field; nothing is saved.
 //
+// Row 278 close-E7 (T-162 gaps, FAILING FIRST) - the screens a human uses in the 30-minute trial:
+//   T93 open a mapping from the screens    - Mappings menu -> the run's "orders" flow -> its Target B
+//                                            route -> "Open mapping": clicks only, no typed address.
+//   T92 run a sample on the saved mapping  - Dipesh's example on Target B; the output is shown.
+//   T92 the refusals are shown              - not JSON / unsaved drawing: refused, no call; a server
+//                                            refusal shows the server's message.
+//
 // Seeding through the real API from a signed-in page inside this file (the contracts spec's
 // pattern): source + two target systems, their contract versions (Target A/B approved through the
 // harness's second binding, the approver - never the author), one flow "orders" with the two
@@ -100,6 +107,7 @@ function targetInputOf(page, source, target) {
 
 test.describe.configure({ mode: 'serial' });
 
+let FLOW_ID;
 let ROUTE_A;
 let ROUTE_B;
 let SOURCE_VERSION_ID;
@@ -145,6 +153,7 @@ test.beforeAll(async ({ browser }) => {
       code: `orders-${RUN}`, name: 'orders', sourceSystem: SOURCE_SYSTEM,
       destinations: [TARGET_A, TARGET_B], businessKeyRule: 'orderId'
     }), 'flow orders');
+    FLOW_ID = flow.id;
     [ROUTE_A, ROUTE_B] = routeIdsOfInterface(flow.id);
   } finally {
     await context.close();
@@ -188,19 +197,21 @@ test('maps Customer A to Target A v1.0 by drawing the links on the pair', async 
 // Scenario: Add, change and delete elements (backlog.md:1831-1834).
 test('an element added, a link changed and a link deleted all reach the stored mapping', async ({ page }) => {
   await openCanvas(page, ROUTE_A);
+  // Target A has exactly three fields, all drawn: the delete comes first so the change has a free
+  // target - a saved drawing never draws one target twice (T57: such a save is refused).
 
-  // an element is added: orderId -> total_amount
+  // an element deleted: amount -> total_amount (total_amount is free now)
+  await page.locator(`[data-link-row="amount->total_amount"] [data-action="delete-link"]`).click();
+  await expect(linkRows(page)).toHaveCount(2);
+
+  // a link changed: orderId now feeds total_amount (order_number is free now)
+  await targetInputOf(page, 'orderId', 'order_number').fill('total_amount');
+  await expect(page.locator('[data-link-row="orderId->total_amount"]')).toHaveCount(1);
+
+  // an element is added: orderId -> order_number
   await sourceNode(page, 'orderId').click();
-  await targetNode(page, 'total_amount').click();
+  await targetNode(page, 'order_number').click();
   await page.click('[data-action="add-link"]');
-  await expect(linkRows(page)).toHaveCount(4);
-
-  // a link changed: amount now feeds order_number
-  await targetInputOf(page, 'amount', 'total_amount').fill('order_number');
-  await expect(page.locator('[data-link-row="amount->order_number"]')).toHaveCount(1);
-
-  // an element deleted: the just-added orderId -> total_amount link
-  await page.locator(`[data-link-row="orderId->total_amount"] [data-action="delete-link"]`).click();
   await expect(linkRows(page)).toHaveCount(3);
 
   await page.click('[data-action="save"]');
@@ -209,9 +220,29 @@ test('an element added, a link changed and a link deleted all reach the stored m
   await page.reload();
   await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
   await expect(linkRows(page)).toHaveCount(3, { timeout: 10_000 });
-  await expect(targetInputOf(page, 'amount', 'order_number')).toHaveValue('order_number');
-  await expect(page.locator('[data-link-row="orderId->total_amount"]')).toHaveCount(0);
-  await expect(page.locator('[data-link-row="orderId->order_number"]')).toHaveCount(1);
+  await expect(targetInputOf(page, 'customerId', 'customer_code')).toHaveValue('customer_code');
+  await expect(targetInputOf(page, 'orderId', 'total_amount')).toHaveValue('total_amount');
+  await expect(targetInputOf(page, 'orderId', 'order_number')).toHaveValue('order_number');
+  await expect(page.locator('[data-link-row="amount->total_amount"]')).toHaveCount(0);
+
+  // T57: one target drawn twice (amount -> total_amount beside orderId -> total_amount) - the save is
+  // refused with the emitter's refusal, nothing is saved and the stored mapping is unchanged.
+  await sourceNode(page, 'amount').click();
+  await targetNode(page, 'total_amount').click();
+  await page.click('[data-action="add-link"]');
+  await expect(linkRows(page)).toHaveCount(4);
+  await page.click('[data-action="save"]');
+  await expect(page.locator('[data-refusal]')).toContainText('drawn twice');
+  await expect(page.locator('[data-saved="true"]')).toHaveCount(0);
+  const stored = await inBrowser(page, 'GET', `/api/v1/admin/routes/${ROUTE_A}/mapping`);
+  expect(stored.data.fieldMappings.map((l) => [l.source, l.target]))
+    .toEqual([['customerId', 'customer_code'], ['orderId', 'total_amount'], ['orderId', 'order_number']]);
+
+  // back to Target A as first drawn for the next scenarios: orderId -> total_amount deleted, saved
+  await page.locator(`[data-link-row="orderId->total_amount"] [data-action="delete-link"]`).click();
+  await expect(linkRows(page)).toHaveCount(3);
+  await page.click('[data-action="save"]');
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
 });
 
 // Scenario: Two targets never share one mapping - the UI leg (backlog.md:1836-1839).
@@ -223,7 +254,12 @@ test('Target A\'s mapping edits leave Target B\'s mapping untouched, and the oth
 
   // Target A's mapping is changed again and saved
   await openCanvas(page, ROUTE_A);
-  await targetInputOf(page, 'amount', 'order_number').fill('total_amount');
+  // (deleted and drawn again: Target A's three fields are all drawn, so no target is free to change to)
+  await page.locator(`[data-link-row="amount->total_amount"] [data-action="delete-link"]`).click();
+  await sourceNode(page, 'amount').click();
+  await targetNode(page, 'total_amount').click();
+  await page.click('[data-action="add-link"]');
+  await expect(linkRows(page)).toHaveCount(3);
   await page.click('[data-action="save"]');
   await expect(page.locator('[data-saved="true"]')).toBeVisible();
 
@@ -258,4 +294,99 @@ test('a link changed to a field Target A does not have is refused on the canvas,
   await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
   await expect(linkRows(page)).toHaveCount(3, { timeout: 10_000 });
   await expect(targetInputOf(page, 'amount', 'total_amount')).toHaveValue('total_amount');
+});
+
+/** Every POST to the mapping test endpoint this page makes (the "no call" proof of the refusals). */
+function sampleCalls(page) {
+  const calls = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && /\/api\/v1\/admin\/mappings\/[^/]+\/test$/.test(new URL(request.url()).pathname)) {
+      calls.push(request.url());
+    }
+  });
+  return calls;
+}
+
+// T93 (row 278 close-E7, T-162 gap 2): a mapping is opened from the screens - clicks only.
+test("T93: the Mappings menu lists the run's flows, a flow's routes, and opens the Target B route's mapping", async ({ page }) => {
+  await page.goto(consoleUrl());
+  await page.click('[data-nav="mappings"]');
+  const flows = page.locator('[data-mapping-flows]');
+  await expect(flows).toBeVisible();
+  const flow = page.locator(`[data-mapping-flow="${FLOW_ID}"]`);
+  await expect(flow).toContainText('orders');
+  await flow.click();
+
+  const routeB = page.locator(`[data-mapping-route="${ROUTE_B}"]`);
+  await expect(routeB).toContainText(TARGET_B);
+  await expect(page.locator(`[data-mapping-route="${ROUTE_A}"]`)).toContainText(TARGET_A);
+  await routeB.locator('a[data-action="open-mapping"]').click();
+
+  await expect(page).toHaveURL(new RegExp(`#/mappings/${ROUTE_B}$`));
+  await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
+  await expect(page.locator('[data-field="target-version"]')).toHaveValue(TARGET_B_VERSION_ID, { timeout: 10_000 });
+});
+
+// T92 (row 278 close-E7, T-162 gap 1): Dipesh's example on the Target B route - draw, save, run a sample.
+test('T92: Customer A v1.0 -> Target B v2.0 drawn and saved, "Run sample" shows the mapped output', async ({ page }) => {
+  await openCanvas(page, ROUTE_B);
+  await page.locator('[data-field="source-version"]').selectOption(SOURCE_VERSION_ID);
+  await page.locator('[data-field="target-version"]').selectOption(TARGET_B_VERSION_ID);
+  await expect(targetNode(page, 'invoiceValue')).toBeVisible();
+  // a clean drawing: the earlier scenario left customerId -> clientId on this pair
+  while (await linkRows(page).count() > 0) {
+    await linkRows(page).first().locator('[data-action="delete-link"]').click();
+  }
+  for (const [from, to] of [['customerId', 'clientId'], ['orderId', 'referenceNo'], ['amount', 'invoiceValue']]) {
+    await sourceNode(page, from).click();
+    await targetNode(page, to).click();
+    await page.click('[data-action="add-link"]');
+  }
+  await expect(linkRows(page)).toHaveCount(3);
+  await page.click('[data-action="save"]');
+  await expect(page.locator('[data-saved="true"]')).toHaveText('Mapping saved.');
+
+  const panel = page.locator('[data-sample-panel]');
+  await expect(panel).toBeVisible();
+  const result = page.locator('[data-sample-result]');
+  await expect(result).toHaveAttribute('data-state', 'idle');
+  await page.locator('[data-sample-input]').fill('{"customerId":"C-0001","orderId":"O-777","amount":42.5}');
+  await expect(page.locator('[data-sample-run]')).toHaveText('Run sample');
+  await page.click('[data-sample-run]');
+
+  await expect(result).toHaveAttribute('data-state', 'ok');
+  await expect(result).toContainText('OK');
+  const output = JSON.parse(await result.locator('[data-sample-output]').textContent());
+  expect(output).toEqual({ clientId: 'C-0001', referenceNo: 'O-777', invoiceValue: 42.5 });
+});
+
+// T92: every refusal is on screen - not JSON and an unsaved drawing make no call; a server refusal is shown.
+test('T92: a sample that is not JSON or an unsaved drawing is refused with no call; a server refusal is shown', async ({ page }) => {
+  const calls = sampleCalls(page);
+  await openCanvas(page, ROUTE_B);
+  const result = page.locator('[data-sample-result]');
+  await expect(result).toHaveAttribute('data-state', 'idle');
+
+  await page.locator('[data-sample-input]').fill('{"customerId":');
+  await page.click('[data-sample-run]');
+  await expect(result).toHaveAttribute('data-state', 'refused');
+  await expect(result).toContainText('not valid JSON');
+
+  // an unsaved edit on the drawing: the sample would run the saved mapping, not this drawing
+  await page.locator('[data-link-row="amount->invoiceValue"] [data-action="delete-link"]').click();
+  await page.locator('[data-sample-input]').fill('{"customerId":"C-0001"}');
+  await page.click('[data-sample-run]');
+  await expect(result).toHaveAttribute('data-state', 'refused');
+  await expect(result).toContainText('Save the mapping first - the sample runs the saved mapping');
+  expect(calls).toEqual([]);
+
+  // a server refusal: the reload drops the unsaved edit; a null sample is the server's own 400
+  await page.reload();
+  await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
+  await expect(linkRows(page)).toHaveCount(3, { timeout: 10_000 });
+  await page.locator('[data-sample-input]').fill('null');
+  await page.click('[data-sample-run]');
+  await expect(result).toHaveAttribute('data-state', 'refused');
+  await expect(result).toContainText('the mandatory sample is missing');
+  expect(calls).toHaveLength(1);
 });

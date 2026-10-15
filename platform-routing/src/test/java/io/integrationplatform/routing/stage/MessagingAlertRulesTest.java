@@ -41,4 +41,19 @@ class MessagingAlertRulesTest {
         assertThat(rules()).contains("alert: PoisonArrival")
                 .contains("increase(platform_stage_poison_arrivals_total[5m]) > 0");
     }
+
+    @Test
+    void aPublishFailureRateAboveFivePercentPerTopicFiresTheAlert() throws IOException {
+        assertThat(rules()).contains("alert: PublishFailureRateHigh")
+                .contains("sum by (topic) (rate(platform_publish_records_total{outcome=\"failure\"}[5m]))"
+                        + " / sum by (topic) (rate(platform_publish_records_total[5m])) > 0.05");
+    }
+
+    @Test
+    void publishFailuresWithNoSuccessForTenMinutesFireTheSustainedAlert() throws IOException {
+        assertThat(rules()).contains("alert: PublishFailuresSustained")
+                .contains("sum by (topic) (increase(platform_publish_records_total{outcome=\"failure\"}[10m])) > 0")
+                .contains("unless sum by (topic) (increase(platform_publish_records_total{outcome=\"success\"}[10m]))"
+                        + " > 0");
+    }
 }

@@ -4,6 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Integration Platform Console</title>
+    <script>
+      /* T78 lane F — theme boot before first paint (00-§2): stored choice wins,
+         otherwise the OS preference; the token layer flips only data-theme. */
+      (function () {
+        var theme = 'light';
+        try {
+          var stored = localStorage.getItem('ip.theme');
+          theme = stored === 'dark' || stored === 'light'
+            ? stored
+            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        } catch (e) {
+          /* storage unavailable (hardened browsers) — OS default below */
+          try {
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          } catch (e2) { /* keep light */ }
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+    <style>
+      /* pre-paint canvas so a dark boot never flashes white while CSS loads */
+      html { background: #f8fafc; }
+      html[data-theme="dark"] { background: #0f172a; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

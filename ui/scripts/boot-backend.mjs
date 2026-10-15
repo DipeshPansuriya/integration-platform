@@ -18,6 +18,7 @@
 
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
@@ -57,7 +58,18 @@ function sleep(ms) {
 
 // --- the one-docker-suite-at-a-time lock (R06, plan:98) -------------------------------
 
-async function acquireSuiteLock() {
+/**
+ * Writes the lock's owner note: the holder line, then when it was refreshed. Rewriting it moves the
+ * note's mtime to now - the age every lock taker (this module, check-container-exclusion.sh) reads
+ * as "stale after 60 minutes" - so a holder that stays up (T94's trial) keeps it fresh. Never
+ * re-creates a lock directory that is gone (the write throws ENOENT instead).
+ */
+export function writeLockNote(lockDir, holder) {
+  fs.writeFileSync(path.join(lockDir, 'owner'), `${holder} refreshed=${new Date().toISOString()}
+`, { flag: 'w' });
+}
+
+async function acquireSuiteLock(holder = `vijay-developer ui-harness ${new Date().toISOString()}`) {
   const start = Date.now();
   for (;;) {
     try {
@@ -79,7 +91,7 @@ async function acquireSuiteLock() {
       await sleep(20000);
       continue;
     }
-    fs.writeFileSync(path.join(LOCK_PATH, 'owner'), `vijay-developer ui-harness ${new Date().toISOString()}`);
+    writeLockNote(LOCK_PATH, holder);
     return () => fs.rmSync(LOCK_PATH, { recursive: true, force: true });
   }
 }
@@ -109,7 +121,7 @@ function jarPath() {
   return chosen ? path.join(target, chosen) : null;
 }
 
-function buildJar() {
+function buildJar(jdk) {
   console.log('boot-backend: building platform-app (mvnw -pl platform-app -am package -DskipTests)');
   // Win11 26300 with NoDefaultCurrentDirectoryInExePath: cmd.exe (spawned via shell:true) does
   // NOT resolve a bare name against the cwd - 'mvnw.cmd' dies "is not recognized". The Maven
@@ -121,7 +133,7 @@ function buildJar() {
     {
       cwd: REPO,
       env: {
-        ...process.env,
+        ...jdkEnv(process.env, jdk),
         JAVA_TOOL_OPTIONS: `${process.env.JAVA_TOOL_OPTIONS ?? ''} -Duser.timezone=Etc/UTC`.trim(), // R04
         MAVEN_OPTS: `${process.env.MAVEN_OPTS ?? '-Xmx384m -Xms64m'}`.trim()
       },
@@ -135,24 +147,70 @@ function buildJar() {
   }
 }
 
-/** The JVM to spawn: JAVA_HOME's bin first (the shell's PATH may not carry it through npm),
- *  then the bare name. Fails the boot with what the harness saw if neither resolves. */
-function javaCommand() {
-  const home = process.env.JAVA_HOME ?? '';
-  if (home) {
-    for (const name of ['java.exe', 'java']) {
-      const candidate = path.join(home, 'bin', name);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return candidate;
-      } catch {}
-    }
+// --- the JDK (mvnw and java) ------------------------------------------------------------
+
+function javaIn(home) {
+  for (const name of ['java.exe', 'java']) {
+    const candidate = path.join(home, 'bin', name);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {}
   }
+  return null;
+}
+
+function probeJavaOnPath() {
   const probe = spawnSync('java', ['-version'], { encoding: 'utf8', windowsHide: true });
-  if (probe.error || probe.status !== 0) {
-    throw new Error(`boot-backend: no JVM found (JAVA_HOME=${home || '<unset>'}, spawn java: ${probe.error?.message ?? 'exit ' + probe.status})`);
+  return !probe.error && probe.status === 0;
+}
+
+const versionParts = (name) => (name.match(/\d+/g) ?? []).map(Number);
+function newerFirst(a, b) {
+  const [x, y] = [versionParts(a), versionParts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] ?? -1) !== (y[i] ?? -1)) return (y[i] ?? -1) - (x[i] ?? -1);
   }
-  return 'java';
+  return 0;
+}
+
+/**
+ * The JDK for mvnw and the app (JDK 25, AGENTS.md): JAVA_HOME's bin/java first (the shell's PATH
+ * may not carry it through npm), then java on PATH, then the newest JDK 25 folder under
+ * <homeDir>/.jdks (where the IDE downloads it - a PC can have no JAVA_HOME and no java on PATH).
+ * Returns { javaHome, java }; javaHome is null when java comes from PATH. Never changes any
+ * environment - the caller hands the result to its children through jdkEnv(). Throws naming all
+ * three places it looked.
+ */
+export function resolveJdk({ env = process.env, homeDir = os.homedir(), javaOnPath = probeJavaOnPath } = {}) {
+  const home = env.JAVA_HOME ?? '';
+  const fromHome = home ? javaIn(home) : null;
+  if (fromHome) return { javaHome: home, java: fromHome };
+  if (javaOnPath()) return { javaHome: null, java: 'java' };
+  const jdks = path.join(homeDir, '.jdks');
+  let names = [];
+  try {
+    names = fs.readdirSync(jdks).filter((name) => /^(?:[A-Za-z]+-)?25(?:[.+-]|$)/.test(name));
+  } catch {}
+  for (const name of names.sort(newerFirst)) {
+    const java = javaIn(path.join(jdks, name));
+    if (java) return { javaHome: path.join(jdks, name), java };
+  }
+  throw new Error(`boot-backend: no JVM found (JAVA_HOME=${home || '<unset>'}${home ? ' has no bin/java' : ''}, `
+    + `PATH: no java, ${jdks}: no JDK 25 folder with bin/java)`);
+}
+
+/** A child env for mvnw / java: the resolved JDK's JAVA_HOME and its bin first on PATH (the
+ *  existing PATH key kept - Windows' "Path" never gets a second "PATH" beside it). */
+export function jdkEnv(baseEnv, jdk) {
+  if (!jdk.javaHome) return { ...baseEnv };
+  const pathKey = Object.keys(baseEnv).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
+  const bin = path.join(jdk.javaHome, 'bin');
+  return {
+    ...baseEnv,
+    JAVA_HOME: jdk.javaHome,
+    [pathKey]: baseEnv[pathKey] ? `${bin}${path.delimiter}${baseEnv[pathKey]}` : bin
+  };
 }
 
 async function healthy(appPort) {
@@ -193,11 +251,17 @@ export async function fetchOpenApiDocument(boot) {
   return response.json();
 }
 
-export default async function bootBackend({ loginSeed = false } = {}) {
-  const releaseLock = await acquireSuiteLock();
-  const javaExe = javaCommand(); // resolves before any container starts - a missing JVM fails the boot immediately
+/**
+ * `extraUsers` (T94, the trial): more realm users bound in the default tenant, each
+ * `{ key, username, password, role }` - the password is the caller's (never generated or printed
+ * here) and no harness session is opened for them. `lockHolder` names the holder in the lock note.
+ */
+export default async function bootBackend({ loginSeed = false, extraUsers = [], lockHolder } = {}) {
+  const releaseLock = await acquireSuiteLock(lockHolder);
   let container, app, keycloak;
   try {
+    // Inside the try (m-910e28): a boot that throws before the teardown path would leak the lock.
+    const jdk = resolveJdk(); // resolves before any container starts - a missing JVM fails the boot immediately
     const pgName = `ipass-ui-t41-pg-${crypto.randomBytes(4).toString('hex')}`;
     const pgPassword = crypto.randomBytes(18).toString('base64url'); // memory-only (R07)
     const loginName = `console_login_${crypto.randomBytes(5).toString('hex')}`;
@@ -205,7 +269,7 @@ export default async function bootBackend({ loginSeed = false } = {}) {
 
     let jar = jarPath();
     if (!jar) {
-      buildJar();
+      buildJar(jdk);
       jar = jarPath();
     }
     if (!jar) throw new Error('platform-app jar not found after the maven build');
@@ -232,11 +296,11 @@ export default async function bootBackend({ loginSeed = false } = {}) {
     psql(pgName, `CREATE ROLE ${loginName} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${loginPassword}'`);
 
     app = spawn(
-      javaExe,
+      jdk.java,
       ['-XX:+UseSerialGC', '-Xmx256m', `-Dserver.port=${appPort}`, '-jar', jar],
       {
         env: {
-          ...process.env,
+          ...jdkEnv(process.env, jdk),
           JAVA_TOOL_OPTIONS: `${process.env.JAVA_TOOL_OPTIONS ?? ''} -Duser.timezone=Etc/UTC`.trim(),
           DB_URL: `jdbc:postgresql://127.0.0.1:${pgPort}/platform`,
           DB_USERNAME: loginName,
@@ -281,25 +345,41 @@ export default async function bootBackend({ loginSeed = false } = {}) {
     // psql; the app login only reads the directory through ipaas_login_bootstrap, ADR-009) to the
     // (issuer, subject) of their Keycloak account. The configurator and the approver (T-022: never
     // the author) are users of tenant A; one configurator belongs to ANOTHER tenant (E3-F1-S1
-    // @negative @tenant, E4-F1-S1 own tenant only).
+    // @negative @tenant, E4-F1-S1 own tenant only). A third, EMPTY tenant C holds one tenant admin
+    // and never any message/delivery rows, so a spec that must see "no work at all" (F10 queue
+    // dashboard) is isolated from the specs that seed tenant A's state tables (row 310).
     const tenantCode = `lane-d-${crypto.randomBytes(3).toString('hex')}`;
     const otherTenantCode = `${tenantCode}-b`;
+    const emptyTenantCode = `${tenantCode}-c`;
     psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${tenantCode}', 'ACTIVE')`);
     psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${otherTenantCode}', 'ACTIVE')`);
+    psql(pgName, `INSERT INTO public.tenant (code, status) VALUES ('${emptyTenantCode}', 'ACTIVE')`);
     const users = {
       default: await keycloak.createUser('lane-d-configurator'),
       approver: await keycloak.createUser('lane-d-approver'),
-      'other-tenant': await keycloak.createUser('lane-d-other-tenant')
+      'other-tenant': await keycloak.createUser('lane-d-other-tenant'),
+      'empty-tenant': await keycloak.createUser('lane-d-empty-tenant')
     };
     // E4 T-099 seeding: roles are role_grant rows (ADR-007 Decision 5). The default login authors AND is refused
     // its own approval on screen, so it must pass the role check: tenant admin (admins may also approve).
-    const roles = { default: 'TENANT_ADMIN', approver: 'APPROVER', 'other-tenant': 'CONFIGURATOR' };
+    const roles = { default: 'TENANT_ADMIN', approver: 'APPROVER', 'other-tenant': 'CONFIGURATOR', 'empty-tenant': 'TENANT_ADMIN' };
+    const tenantOf = { 'other-tenant': otherTenantCode, 'empty-tenant': emptyTenantCode };
     for (const [login, user] of Object.entries(users)) {
-      const code = login === 'other-tenant' ? otherTenantCode : tenantCode;
+      const code = tenantOf[login] ?? tenantCode;
       psql(pgName,
         `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${keycloak.issuer}', '${user.subject}', 'ACTIVE' FROM public.tenant WHERE code='${code}'`);
       psql(pgName,
         `INSERT INTO public.role_grant (tenant_id, user_id, role) SELECT tenant_id, id, '${roles[login]}' FROM public.app_user WHERE issuer='${keycloak.issuer}' AND subject='${user.subject}'`);
+    }
+    const extra = {};
+    for (const { key, username, password, role } of extraUsers) {
+      if (!/^[A-Z_]+$/.test(role)) throw new Error(`boot-backend: extra user ${key} has an invalid role`);
+      const user = await keycloak.createUser(username, password);
+      extra[key] = { username: user.username, subject: user.subject, role };
+      psql(pgName,
+        `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${keycloak.issuer}', '${user.subject}', 'ACTIVE' FROM public.tenant WHERE code='${tenantCode}'`);
+      psql(pgName,
+        `INSERT INTO public.role_grant (tenant_id, user_id, role) SELECT tenant_id, id, '${role}' FROM public.app_user WHERE issuer='${keycloak.issuer}' AND subject='${user.subject}'`);
     }
 
     // The harness's server-side sessions, each through the realm's real login form. The console
@@ -323,8 +403,9 @@ export default async function bootBackend({ loginSeed = false } = {}) {
 
     // E3-F1-S1's onboarding premise, through the REAL systems seam (T-015): the source system S
     // the flow-definition and lifecycle screens name is registered for the seeded tenant - and for
-    // the other tenant, whose one flow must never appear on tenant A's screens (E4-F1-S1).
-    for (const login of ['default', 'other-tenant']) {
+    // the other tenant, whose one flow must never appear on tenant A's screens (E4-F1-S1), and for
+    // the empty tenant C (a system row only - no flow, message or delivery is seeded there).
+    for (const login of ['default', 'other-tenant', 'empty-tenant']) {
       const systemSeed = await call(login, 'POST', '/api/v1/admin/systems', { code: 'S', name: 'orders source', direction: 'INBOUND' });
       if (systemSeed.status !== 201 && systemSeed.status !== 409) {
         throw new Error(`boot-backend: seeding the source system (${login}) answered ${systemSeed.status} (expected 201/409)`);
@@ -355,9 +436,17 @@ export default async function bootBackend({ loginSeed = false } = {}) {
       ownTenantFlowId: ownFlow?.data?.id,
       otherTenantCode,
       otherTenantFlowId: otherFlow.data.id,
+      emptyTenantCode,
       seededVia: 'directory rows (tenant + app_user) as the migration owner for realm users; systems and flows through the real API with console sessions',
       /** The realm users (passwords in memory only) - the browser logs in with `users.default`. */
       users,
+      /** The `extraUsers` bound in the default tenant, by key: username, subject, role (no password). */
+      extraUsers: extra,
+      /** The docker-suite lock this boot holds; refreshLock() rewrites its owner note (mtime now). */
+      lockPath: LOCK_PATH,
+      refreshLock() {
+        writeLockNote(LOCK_PATH, lockHolder ?? 'ui-harness');
+      },
       /** The harness's server-side console sessions per login (cookie + CSRF token, never a token). */
       sessions,
       call,
