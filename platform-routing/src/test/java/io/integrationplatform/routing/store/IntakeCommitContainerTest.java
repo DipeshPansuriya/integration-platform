@@ -277,10 +277,13 @@ class IntakeCommitContainerTest {
         }
     }
 
-    /** A second interface of the same tenant that was never published (the 404 leg). */
+    /**
+     * A second interface of the same tenant that was never published (the 404 leg). Its draft version reuses the
+     * tenant's approved source contract version seeded by {@link #seedPublishedOrders}: the composite FK
+     * (tenant_id, source_contract_version_id) -> contract_version(tenant_id, id) refuses a dangling reference.
+     */
     private void seedDraftInterface(UUID tenant) throws SQLException {
         UUID actor = UUID.fromString("cccccccc-0000-0000-0000-00000000000a");
-        UUID sourceVersionId = UUID.randomUUID();
         try (Connection sql = owner.getConnection()) {
             sql.setAutoCommit(false);
             insert(sql, "insert into public.interface (id, tenant_id, code, name, mode, ordering, current_version,"
@@ -288,9 +291,11 @@ class IntakeCommitContainerTest {
                     UUID.randomUUID(), tenant, DRAFT_CODE);
             insert(sql, "insert into public.interface_version (id, tenant_id, interface_id, version, status,"
                     + " business_key_rule, snapshot, source_contract_version_id, author_id)"
-                    + " select id, tenant_id, id, 1, 'DRAFT', 'customer_code', '{}', ?, ? from public.interface"
-                    + " where tenant_id = ? and code = ?",
-                    sourceVersionId, actor, tenant, DRAFT_CODE);
+                    + " select i.id, i.tenant_id, i.id, 1, 'DRAFT', 'customer_code', '{}', cv.id, ?"
+                    + " from public.interface i join public.contract_version cv"
+                    + " on cv.tenant_id = i.tenant_id and cv.version_label = ?"
+                    + " where i.tenant_id = ? and i.code = ?",
+                    actor, PINNED_LABEL, tenant, DRAFT_CODE);
             sql.commit();
         }
     }
@@ -300,7 +305,11 @@ class IntakeCommitContainerTest {
             for (int i = 0; i < parameters.length; i++) {
                 insert.setObject(i + 1, parameters[i]);
             }
-            insert.executeUpdate();
+            int rows = insert.executeUpdate();
+            if (rows != 1) {
+                // An insert-select that matched nothing would leave the 404 leg passing for the wrong reason.
+                throw new IllegalStateException("seed insert wrote " + rows + " rows, expected 1: " + statement);
+            }
         }
     }
 
