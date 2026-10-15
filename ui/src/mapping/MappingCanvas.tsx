@@ -26,20 +26,13 @@ type FieldNodeFlow = FlowNode<FieldNodeData, 'field'>;
 /** One field of a bound contract version's schema tree, as a canvas node. Clicking selects it for
  * the next drawn link (the accessible list of links lives in the page). */
 function FieldNode({ data }: NodeProps<FieldNodeFlow>) {
+  // Token classes (mapping.css): one accent family - source and target differ by column and name.
   return (
-    <div
-      data-tree={data.side}
-      style={{
-        border: data.selected ? '2px solid #0b5cab' : '1px solid #8a939e',
-        borderRadius: 4,
-        background: data.side === 'source' ? '#f4f7fb' : '#f8fbf4',
-        padding: '4px 8px'
-      }}
-    >
+    <div data-tree={data.side} className={data.selected ? 'mapping-node mapping-node-selected' : 'mapping-node'}>
       {/* The left handle accepts links, the right (source) handle draws them: an edge always runs
           source tree -> target tree, so a link can never be drawn backwards. */}
       <Handle type="target" position={Position.Left} id="l" isConnectable={false} />
-      <button type="button" data-node={data.path} aria-pressed={data.selected}>
+      <button type="button" data-node={data.path} aria-pressed={data.selected} aria-label={`${data.side === 'source' ? 'Source' : 'Target'} field ${data.path}`}>
         {data.path}
       </button>
       <Handle type="source" position={Position.Right} id="r" isConnectable={false} />
@@ -54,11 +47,13 @@ const TARGET_COLUMN_X = 340;
 export default function MappingCanvas({
   graph,
   selected,
-  onNodeSelect
+  onNodeSelect,
+  height = 480
 }: {
   graph: MappingGraph;
   selected: CanvasSelected;
   onNodeSelect: (side: 'source' | 'target', path: string) => void;
+  height?: number;
 }) {
   const nodes = useMemo<FieldNodeFlow[]>(() => {
     const column = (side: 'source' | 'target', fields: string[]): FieldNodeFlow[] =>
@@ -79,8 +74,9 @@ export default function MappingCanvas({
     () =>
       graph.links.map((link) => ({
         id: link.id,
-        source: `src:${link.source}`,
-        target: `tgt:${link.target}`,
+        // the node ids (`${side}:${path}`) - an edge end that names no node is never drawn
+        source: `source:${link.source}`,
+        target: `target:${link.target}`,
         sourceHandle: 'r',
         targetHandle: 'l',
         label: `${link.source} → ${link.target}`,
@@ -90,11 +86,16 @@ export default function MappingCanvas({
   );
 
   return (
-    <div data-canvas="mapping" style={{ height: 480, minWidth: 560 }}>
+    // Decoration, never a tab stop: the node buttons (aria-pressed) and the page's links table are the
+    // keyboard twin, so xyflow's own node/edge focus and keyboard layer are off.
+    <div data-canvas="mapping" className="mapping-canvas" style={{ height, minWidth: 560 }}>
       <ReactFlow
         nodes={nodes}
         nodeTypes={NODE_TYPES}
         edges={edges}
+        nodesFocusable={false}
+        edgesFocusable={false}
+        disableKeyboardA11y
         fitView
         proOptions={{ hideAttribution: true }}
         onNodeClick={(_, node) => onNodeSelect(node.data.side, node.data.path)}

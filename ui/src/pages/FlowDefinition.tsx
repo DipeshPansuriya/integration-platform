@@ -232,11 +232,13 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
   };
 
   const a11y = (field: string) => fieldA11y(validationField, field);
-  // B13: the visible error text a failing field's aria-describedby points at.
+  // B13: the visible error text a failing field's aria-describedby points at. B13 rework: it carries the
+  // refusal's own sentence when the server gave one (an unknown system must not read 'sourceSystem is
+  // required'); validationText's fixed sentence remains the fallback for a client-side refusal.
   const errorText = (field: string) =>
     validationField === field && (
       <p className="flows-error" id={validationErrorId(field)} data-validation-error={field}>
-        {validationText(field, validationServerText)}
+        {validationServerText ?? validationText(field, validationServerText)}
       </p>
     );
 
