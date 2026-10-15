@@ -16,7 +16,8 @@
 
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { api, LOGIN_ROUTE, readCookie } from './api/client';
-import { FlowDefinition } from './pages/FlowDefinition';
+import { FlowDefinition, type EditorGuard } from './pages/FlowDefinition';
+import { hashMove } from './pages/flow-lifecycle'; // row 310 B12: Back / typed address vs unsaved edits
 import { FlowsList } from './pages/FlowsList'; // row 310 lane B (T88): #/flows list landing
 import { Versions } from './pages/Versions';
 // E5 seam (arjun-fullstack, F13): route + menu stubs for E5 lane D's screens (T-159 systems registry, T-160
@@ -109,6 +110,11 @@ function parseHash(): Route {
 
 export function App() {
   const [route, setRoute] = useState<Route>(parseHash());
+  // Row 310 B11: one count per routed address change - the editor is keyed by it, so #/flow/A -> #/flow/new
+  // (or a saved create-mode editor -> #/flow/new again) remounts it empty instead of keeping A's state.
+  const [routeSeq, setRouteSeq] = useState(0);
+  // Row 310 B12: the open flow editor's guard - asked before an address change unmounts it.
+  const editorGuard = useRef<EditorGuard | null>(null);
   // The bound tenant of the browser's console session; a 401 sends the browser to the #/login
   // sign-in card in client.ts, so `me` stays null exactly while there is no session.
   const [me, setMe] = useState<Me | null>(null);
@@ -128,7 +134,18 @@ export function App() {
   });
 
   useEffect(() => {
-    const onHashChange = () => setRoute(parseHash());
+    const onHashChange = (event: HashChangeEvent) => {
+      const editor = editorGuard.current;
+      const move = hashMove(event.oldURL, event.newURL, editor ? editor.state() : null);
+      if (move.kind === 'confirm' && editor) {
+        // Keep the editor and put the address back on the flow (no new entry, no second hashchange).
+        window.history.replaceState(null, '', move.restore);
+        editor.confirm(move.leaveTo);
+        return;
+      }
+      setRoute(parseHash());
+      setRouteSeq((seq) => seq + 1);
+    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
@@ -276,7 +293,12 @@ export function App() {
           ))}
         </nav>
         <main className="content">
-          {route.page === 'flows' && (route.flowId ? <FlowDefinition openFlowId={route.flowId} /> : <FlowsList />)}
+          {route.page === 'flows' &&
+            (route.flowId ? (
+              <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} />
+            ) : (
+              <FlowsList />
+            ))}
           {route.page === 'versions' && <Versions />}
           {route.page === 'systems' && <Systems />}
           {route.page === 'queue' && <QueueDashboard />}

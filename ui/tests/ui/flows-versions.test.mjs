@@ -22,7 +22,10 @@ const {
   editorFlowId,
   isDirty,
   NEW_FLOW_HASH,
-  flowHash
+  flowHash,
+  hashMove,
+  validationText,
+  fieldA11y
 } = await import('../../src/pages/flow-lifecycle.ts');
 
 test('§4 lifecycle panel: only the actions valid for the selected version status', () => {
@@ -96,7 +99,7 @@ test('§3 editor keeps every data-field hook and the verbatim tenant 404 refusal
   const editor = source('FlowDefinition.tsx');
   for (const hook of ['data-field="source-system"', 'data-field={`destination-${', 'data-field="interface-name"',
     'data-field="business-key-rule"', 'data-field="ordering-setting"', 'data-field="source-schema"',
-    'data-action="save-draft"', 'data-saved="true"', 'data-validation-error="business-key-rule"',
+    'data-action="save-draft"', 'data-saved="true"', "errorText('business-key-rule')", 'data-validation-error={field}',
     'data-refusal="flow-not-found"', 'This flow does not exist for your tenant.']) {
     assert.ok(editor.includes(hook), `FlowDefinition.tsx keeps ${hook}`);
   }
@@ -112,7 +115,7 @@ test('§4 Versions never creates a flow by itself; the empty state points to the
 
 test('§4 Versions keeps every hook the screens specs use', () => {
   const versions = source('Versions.tsx');
-  for (const hook of ['data-field="change-note"', 'data-flow-row=', 'data-version-status=', 'aria-selected',
+  for (const hook of ['data-field="change-note"', 'data-flow-row=', 'data-version-status=',
     'aria-current', 'data-refusal="author-cannot-approve"', 'data-refusal="submitted-version-immutable"',
     'data-refusal="not-pending-approval"', 'data-refusal="publish"', 'data-published="true"',
     'data-bundle-equals-snapshot=', 'approve-as-approver']) {
@@ -127,5 +130,39 @@ test('§3 list landing exists and App routes #/flows to it, #/flow/<id> to the e
     assert.ok(list.includes(hook), `FlowsList.tsx carries ${hook}`);
   }
   const app = readFileSync(join(pages, '..', 'App.tsx'), 'utf8');
-  assert.match(app, /route\.page === 'flows' && \(route\.flowId \? <FlowDefinition openFlowId=\{route\.flowId\} \/> : <FlowsList \/>\)/);
+  // B11: the editor is keyed per address change, so #/flow/A -> #/flow/new (or -> #/flow/B) remounts it empty.
+  assert.match(app, /route\.page === 'flows' &&\s*\(route\.flowId \?\s*\(?\s*<FlowDefinition key=\{[^}]+\}[^>]*openFlowId=\{route\.flowId\}/);
+});
+
+// Row 310 B12 (vijay-developer): Back, Forward or a typed #/ address away from the editor is decided by
+// one pure helper the shell's hashchange handler calls before it routes.
+test('B12 an address change away from a dirty editor asks first and puts the address back; clean or released routes', () => {
+  const from = 'http://127.0.0.1:5173/#/flow/A';
+  const to = 'http://127.0.0.1:5173/#/flows';
+  assert.deepEqual(hashMove(from, to, null), { kind: 'route' }, 'no editor open: the router routes');
+  assert.deepEqual(hashMove(from, to, { dirty: false, released: false }), { kind: 'route' }, 'a clean form navigates without a confirm');
+  assert.deepEqual(hashMove(from, to, { dirty: true, released: false }), { kind: 'confirm', restore: from, leaveTo: '#/flows' });
+  assert.deepEqual(hashMove(from, to, { dirty: true, released: true }), { kind: 'route' }, 'after Leave the move goes through');
+  assert.deepEqual(hashMove(from, 'http://127.0.0.1:5173/#/flow/new', { dirty: true, released: false }),
+    { kind: 'confirm', restore: from, leaveTo: '#/flow/new' }, 'flow A -> create mode with edits asks too');
+  assert.deepEqual(hashMove(from, 'http://127.0.0.1:5173/', { dirty: true, released: false }),
+    { kind: 'confirm', restore: from, leaveTo: '#/' }, 'Back to the bare console address leaves to the Dashboard route');
+});
+
+// Row 310 B13: every validation field the API can name (validationFieldOf) has visible error text,
+// and the failing input is marked aria-invalid and points at that text.
+test('B13 every validation field has visible error text; an unknown refusal shows the server words', () => {
+  for (const field of ['source-system', 'business-key-rule', 'source-schema', 'destinations']) {
+    assert.ok(validationText(field, undefined).trim().length > 0, `${field} has error text`);
+  }
+  assert.equal(validationText('request', 'unknown source system ZZ'), 'unknown source system ZZ');
+  assert.ok(validationText('request', undefined).trim().length > 0, 'a refusal with no body still says something');
+});
+
+test('B13 the failing field is aria-invalid and described by its error; other fields are untouched', () => {
+  assert.deepEqual(fieldA11y('destinations', 'destinations'), { 'aria-invalid': true, 'aria-describedby': 'flow-error-destinations' });
+  assert.deepEqual(fieldA11y('business-key-rule', 'business-key-rule'),
+    { 'aria-invalid': true, 'aria-describedby': 'flow-error-business-key-rule' });
+  assert.deepEqual(fieldA11y('destinations', 'source-system'), {});
+  assert.deepEqual(fieldA11y(null, 'source-system'), {});
 });

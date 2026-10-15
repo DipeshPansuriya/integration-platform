@@ -690,11 +690,15 @@ for (const theme of ['light', 'dark']) {
 // touched (Versions action row, Contracts change-note + submit). A control followed by a bare
 // button gets an inline gap - same zero-specificity :where(main.content) default + exclusion.
 // Only class-less buttons, so a redesigned row (.btn in a flex/grid gap) never doubles up.
-const SIBLING_BUTTON = `${SCOPE} :where(button, input:not([type="hidden"]), select, textarea) + :where(button:not([class]))${NOT_3P}`;
+// row 310 B15: scoped to the Contracts page - on Mappings/Systems the buttons are already spaced by
+// text and the margin doubled the gap (measured in tests/screens/layout-gaps.docker.spec.mjs).
+const SIBLING_BUTTON = `:where(main.content [data-page="contracts"]) :where(button, input:not([type="hidden"]), select, textarea) + :where(button:not([class]))${NOT_3P}`;
 
-test('B9 a control followed by a bare button gets an inline gap (zero specificity, 3P excluded)', () => {
+test('B9 a control followed by a bare button gets an inline gap on Contracts only (zero specificity, 3P excluded)', () => {
   const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
   assert.ok(SIBLING_BUTTON.includes(' + :where(button'), 'adjacent-sibling combinator onto a button');
+  assert.ok(!base.includes(`${SCOPE} :where(button, input:not([type="hidden"]), select, textarea) + :where(button`),
+    'B15: the sibling gap is not applied to every page in the content column');
   assert.ok(SIBLING_BUTTON.endsWith(NOT_3P), 'third-party subtrees excluded');
   assert.equal(specificResidue(SIBLING_BUTTON), '', 'selector must carry zero specificity');
   const decls = ruleDecls(base, SIBLING_BUTTON);
