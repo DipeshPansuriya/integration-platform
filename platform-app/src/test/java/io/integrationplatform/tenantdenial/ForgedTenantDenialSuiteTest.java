@@ -291,6 +291,11 @@ class ForgedTenantDenialSuiteTest {
 
         if (caller.kind == Caller.Kind.SOURCE && !sourceReaches(entry)) {
             assertRoleRefusal(view, entry, response);
+        } else if (caller.kind == Caller.Kind.USER && !humanReaches(entry)) {
+            // Row 278 T104 (arjun-approved): a human session on a source-only endpoint (intake's SUBMIT_MESSAGE is
+            // the first such entry) is refused by the role interceptor before the handler - the mirror of the
+            // machine leg above.
+            assertRoleRefusal(view, entry, response);
         } else {
             assertThat(response.statusCode()).as(caller + " on " + entry + " status, body: " + response.body())
                     .isEqualTo(entry.expectedStatus());
@@ -309,6 +314,19 @@ class ForgedTenantDenialSuiteTest {
         Seed view = caller.view();
         HttpResponse<String> response = send(view, entry, forgery, null, caller);
 
+        if (caller.kind == Caller.Kind.USER && !humanReaches(entry)) {
+            // Row 278 T104 (arjun-approved): the interceptor refuses the human before the handler runs, so the
+            // path-id 404 never fires - and only that 404 advice records PATH_ID, so this leg records no attempt.
+            // A tenant-field forgery is still recorded, because the forgery filter runs before the interceptor.
+            assertRoleRefusal(view, entry, response);
+            assertOtherTenantUnchanged(view);
+            if (forgery == Forgery.PATH_ID) {
+                verify(recorder, never()).record(any());
+            } else {
+                assertTheOneRecordedAttempt(forgery.channel(), view.a().id(), entry, response);
+            }
+            return;
+        }
         if (forgery == Forgery.PATH_ID) {
             assertThat(response.statusCode()).as(entry + " with the other tenant's id, body: " + response.body())
                     .isEqualTo(404);
@@ -466,19 +484,38 @@ class ForgedTenantDenialSuiteTest {
                 .orElse(true);
     }
 
+    /**
+     * Whether a human session reaches the handler: an endpoint without a role rule or one addressed to humans; a
+     * source-only or operator-agent operation refuses every human principal by caller kind before the handler runs
+     * (RolePolicy.Caller; intake's SUBMIT_MESSAGE is the first matrix entry this covers, row 278 T104).
+     */
+    private boolean humanReaches(Entry entry) {
+        return ruleSets.stream()
+                .flatMap(rules -> rules.rules().stream())
+                .filter(rule -> rule.key().equals(entry.key()))
+                .findFirst()
+                .map(rule -> switch (rule.operation().caller()) {
+                    case SOURCE_SYSTEM, OPERATOR_AGENT -> false;
+                    case ROLE, ANY_HUMAN -> true;
+                })
+                .orElse(true);
+    }
+
     // --- assertions ---------------------------------------------------------------------------------------------
 
     /**
-     * A human-only endpoint refuses a machine principal: 403 with no data of either tenant, no tenant read, nothing
-     * written. Which layer answers is not this suite's subject (the role interceptor's ROLE_NOT_GRANTED body, or the
-     * handler's own empty 403 as GET /api/v1/me answers today), so the body is checked for data, not for its shape.
+     * An endpoint refuses a principal its operation does not address: 403 with no data of either tenant, no tenant
+     * read, nothing written. Which layer answers is not this suite's subject (the role interceptor's ROLE_NOT_GRANTED
+     * body, or the handler's own empty 403 as GET /api/v1/me answers today), so the body is checked for data, not for
+     * its shape. T104: the same assertion covers a human on a source-only endpoint, not only a machine on a
+     * human-only one.
      */
     private void assertRoleRefusal(Seed view, Entry entry, HttpResponse<String> response) throws Exception {
-        assertThat(response.statusCode()).as(entry + " for a source, body: " + response.body()).isEqualTo(403);
+        assertThat(response.statusCode()).as(entry + " refused by role, body: " + response.body()).isEqualTo(403);
         assertNoMarkerOf(view.a(), response);
         assertNoMarkerOf(view.b(), response);
         assertThat(probe.reads()).as("tenant data reads").isZero();
-        assertRowState(view, entry, "a refused source wrote nothing", true);
+        assertRowState(view, entry, "a refused caller wrote nothing", true);
     }
 
     private static void assertOnlyCallerData(Seed view, Entry entry, HttpResponse<String> response) {
