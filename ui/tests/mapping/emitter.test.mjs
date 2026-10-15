@@ -88,6 +88,22 @@ test('a planted wrong hand-write is caught by the same comparison', () => {
     'a drifted hand-write must fail drawn-equals-typed');
 });
 
+// Scenario: A difference shows the difference - the failure message of the 10-of-10 check
+// names each drifted mapping with its drawn AND its typed expression, not the name alone.
+test('a drift report shows the drawn and the typed expression', () => {
+  const [first, second] = REFERENCE_MAPPINGS;
+  const rows = [
+    { name: first.name, drawn: emitJsonata(drawn(first.links).links).expression,
+      typed: first.hand.replace('customer_code', 'customer_cod') },
+    { name: second.name, drawn: emitJsonata(drawn(second.links).links).expression, typed: second.hand }
+  ];
+  assert.equal(driftReport(rows),
+    '1 of 2 reference mappings drifted from the hand-written reference:\n'
+    + 'flat three fields\n'
+    + "  drawn: {'customer_code': customerId, 'order_number': orderId, 'total_amount': amount}\n"
+    + "  typed: {'customer_cod': customerId, 'order_number': orderId, 'total_amount': amount}");
+});
+
 // The engine's identity: nothing drawn emits `$` (the empty graph's default expression).
 test('a graph with nothing drawn emits the identity expression', () => {
   assert.equal(emitJsonata([]).expression, '$');

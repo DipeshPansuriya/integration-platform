@@ -125,6 +125,20 @@ class EmitterParityTest {
         assertNotEquals(good, bad, "a drifted expression must not pass the parity leg");
     }
 
+    // Scenario: A difference shows the difference - the failure message of the 10-of-10 check
+    // names each drifted mapping with its drawn AND its typed expression, not the name alone.
+    @Test
+    void aDriftReportShowsTheDrawnAndTheTypedExpression() {
+        ReferenceMapping first = REFERENCE_MAPPINGS.get(0);
+        String typed = first.typed().replace("'customer_code'", "'customer_cod'");
+        ReferenceMapping drifted = new ReferenceMapping(first.name(), typed, first.emitted(), first.sampleJson());
+        assertEquals("1 of 2 reference mappings drifted from the hand-written reference:\n"
+                + "flat three fields\n"
+                + "  drawn: {'customer_code': customerId, 'order_number': orderId, 'total_amount': amount}\n"
+                + "  typed: {'customer_cod': customerId, 'order_number': orderId, 'total_amount': amount}",
+                driftReport(List.of(drifted, REFERENCE_MAPPINGS.get(1))));
+    }
+
     /**
      * Engine-result equality: maps compare key-sorted (the engine materialises its own list/map
      * types), lists element-wise in order (order is honest), scalars by their string.
