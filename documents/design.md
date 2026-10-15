@@ -91,23 +91,23 @@ Read at `row278-integration` 762061c on 2026-10-07.
 | Shell | every route | A navigation bar with two buttons, **Flows** and **Versions**; hash routing so every screen loads directly by URL | [Verified] | `ui/src/App.tsx:1-2`, `:11-19`, `:33-40` |
 | Home | `#/` | The text "Integration Platform Console" only | [Verified] | `ui/src/App.tsx:43` |
 | Flow definition (T-017, E3-F1-S1) | `#/flows`, `#/flow/{id}` | Heading "Flow definition"; a form with Source system, Destination 1 and 2, Interface name, Business-key rule (mandatory), Ordering (`PER_KEY` default or `NONE`), Source schema (JSON Schema, a text area); a **Save draft** button | [Verified] | `ui/src/pages/FlowDefinition.tsx:25`, `:32`, `:117-175` |
-| Versions and approval (T-022, E3-F2-S1) | `#/versions` | Heading "Versions and approval"; a list of flows, each with its version status; a Change note field; buttons **Submit for approval**, **Approve**, **Save draft**, **Publish** (enabled only when the version is `APPROVED`); **New draft** appears only after the immutable-version refusal | [Verified] | `ui/src/pages/Versions.tsx:176-224`, `:209` |
-| Versions - test-harness only | `#/versions` | "Approve as the harness approver" renders only while the screen-test harness exposes its second login; it is not a product control | [Verified] | `ui/src/pages/Versions.tsx:6-7`, `:201-205` |
+| Versions and approval (T-022, E3-F2-S1; T88 redesign) | `#/versions` | Heading "Versions and approval"; a table of flows with each version status (the selected row is marked for assistive tech with `aria-current` plus a hidden "(selected)" text, and shown bold with an accent bar); a lifecycle panel that offers only the actions valid for the selected status - `DRAFT`: **Save draft**, **Submit for approval**; `SUBMITTED`: **Approve**, **New draft**; `APPROVED`: **Publish**, **New draft**; `PUBLISHED`: **New draft**. A submitted version shows no **Save draft** at all | [Verified] | `ui/src/pages/flow-lifecycle.ts:8-13`; `ui/src/pages/Versions.tsx:188`, `:217-241`, `:266-291` |
+| Versions - test-harness only | `#/versions` | "Approve as the harness approver" renders only while the screen-test harness exposes its second login; it is not a product control | [Verified] | `ui/src/pages/Versions.tsx:6-7`, `:338-342` |
 
 ### 3.2 Messages each screen can show
 
 | Situation | Text shown | Grade | Source |
 |---|---|---|---|
-| Business-key rule missing (API 400) | "The mandatory business-key rule is missing: businessKeyRule" | [Verified] | `ui/src/pages/FlowDefinition.tsx:149-153` |
-| Source schema not a JSON object | "sourceSchema must be a JSON Schema object" | [Verified] | `ui/src/pages/FlowDefinition.tsx:165-167` |
-| Source system missing | "sourceSystem is required" | [Verified] | `ui/src/pages/FlowDefinition.tsx:168-170` |
-| Draft saved | "Draft saved." | [Verified] | `ui/src/pages/FlowDefinition.tsx:174` |
-| Flow of another tenant, or absent (API 404) | "This flow does not exist for your tenant." - no hint of whose row it is | [Verified] | `ui/src/pages/FlowDefinition.tsx:43-44`, `:119-121` |
-| Author tries to approve own version (API 403) | "Refused: the author cannot approve their own version (AUTHOR_IS_APPROVER)." | [Verified] | `ui/src/pages/Versions.tsx:212-214` |
-| Edit of a submitted version | "The submitted version cannot be edited: a new draft version is the only way." plus **New draft** | [Verified] | `ui/src/pages/Versions.tsx:215-224` |
-| Nothing pending approval (API 409) | "No version is pending approval." | [Verified] | `ui/src/pages/Versions.tsx:225` |
-| Any other refusal | "The API refused this action (...)." | [Verified] | `ui/src/pages/Versions.tsx:226-228` |
-| Published | "Published." and whether the published bundle equals the snapshot taken at submit | [Verified] | `ui/src/pages/Versions.tsx:229-234` |
+| Business-key rule missing (API 400) | "The mandatory business-key rule is missing: businessKeyRule" - shown under the field, which is `aria-invalid` and described by it | [Verified] | `ui/src/pages/flow-lifecycle.ts:92`, `:103-105`; `ui/src/pages/FlowDefinition.tsx:349` |
+| Source schema not a JSON object | "sourceSchema must be a JSON Schema object" - under the field, as above | [Verified] | `ui/src/pages/flow-lifecycle.ts:93`; `ui/src/pages/FlowDefinition.tsx:373` |
+| Source system missing | "sourceSystem is required" - under the field, as above | [Verified] | `ui/src/pages/flow-lifecycle.ts:91`; `ui/src/pages/FlowDefinition.tsx:303` |
+| Draft saved | "Draft saved." with a link to submit it for approval | [Verified] | `ui/src/pages/FlowDefinition.tsx:381` |
+| Flow of another tenant, or absent (API 404) | "This flow does not exist for your tenant." - no hint of whose row it is | [Verified] | `ui/src/pages/FlowDefinition.tsx:83`, `:202`, `:276` |
+| Author tries to approve own version (API 403) | "Refused: the author of a version cannot approve it themselves. Ask the listed approver to approve this version." with `AUTHOR_IS_APPROVER` under Details | [Verified] | `ui/src/pages/Versions.tsx:132`, `:302-310` |
+| A submitted (or approved) version is selected | **Save draft** is not offered; the notice "A submitted version is immutable. A new draft is the only way to change it." and **New draft**. If the API still refuses an edit, the alert "The submitted version cannot be edited: a new draft version is the only way." replaces the notice (accepted behaviour, Dipesh 2026-10-15, row 310) | [Verified] | `ui/src/pages/flow-lifecycle.ts:8-13`; `ui/src/pages/Versions.tsx:294-298`, `:311-315` |
+| Nothing pending approval (API 409) | "No version is pending approval." | [Verified] | `ui/src/pages/Versions.tsx:133`, `:316-320` |
+| Any other refusal | "The API refused this action (...)." | [Verified] | `ui/src/pages/Versions.tsx:326-330` |
+| Published | "Published." and whether the published bundle equals the snapshot taken at submit | [Verified] | `ui/src/pages/Versions.tsx:331-336` |
 
 ### 3.3 What a restyle must keep
 

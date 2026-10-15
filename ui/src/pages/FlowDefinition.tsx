@@ -6,8 +6,11 @@
 // Row 310 lane B (T88, 10-screens §3): a 2-pane form with a sticky action bar. Opening the editor
 // never creates a flow and never hydrates from browser storage - the list landing (#/flows) picks the
 // flow; #/flow/new is create mode. Leaving with unsaved edits asks first.
+// Row 310 B11-B13 (vijay-developer, lane D): the shell remounts this editor per address change (App.tsx key);
+// Back and a typed #/ address ask through the shell's guard (EditorGuard); the leave dialog is modal,
+// closes on Escape and returns focus; every failing field shows its error text and is aria-invalid.
 
-import { useEffect, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type MutableRefObject, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   createFlow,
   readFlow,
@@ -16,12 +19,26 @@ import {
   validationFieldOf,
   type FlowDraftBody
 } from '../api/flows';
-import { editorFlowId, flowHash, isDirty, type FlowForm } from './flow-lifecycle';
+import {
+  editorFlowId,
+  fieldA11y,
+  flowHash,
+  isDirty,
+  validationErrorId,
+  validationText,
+  type EditorGuardState,
+  type FlowForm
+} from './flow-lifecycle';
 import './flows.css';
+
+/** B12: what the shell asks the open editor before an address change unmounts it. */
+export type EditorGuard = { state: () => EditorGuardState; confirm: (to: string) => void };
 
 export type FlowDefinitionProps = {
   /** Deep link (E3-F1-S1 @negative @tenant): open one flow by id - the real API answers 404 for another tenant's row. */
   openFlowId?: string | null;
+  /** B12: the shell's slot for this editor's guard (Back, Forward, a typed #/ address). */
+  guard?: MutableRefObject<EditorGuard | null>;
 };
 
 const MIN_DESTINATIONS = 2; // E3-F1-S1: source S with destinations T1/T2 as configuration rows.
@@ -35,19 +52,25 @@ const EMPTY: FlowForm = {
   sourceSchema: ''
 };
 
-const errorId = (field: string) => `flow-error-${field}`;
-
-export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
+export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps) {
   const [form, setForm] = useState<FlowForm>(EMPTY);
   const [baseline, setBaseline] = useState<FlowForm>(EMPTY);
   const [flowId, setFlowId] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [validationField, setValidationField] = useState<string | null>(null);
+  const [validationServerText, setValidationServerText] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [leaveTo, setLeaveTo] = useState<string | null>(null);
+  // B13: where focus goes back when the dialog closes - the link that opened it, else the heading.
+  const opener = useRef<HTMLElement | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  // B12: true once the user chose Leave - the shell then lets the address change through.
+  const released = useRef(false);
 
   const dirty = isDirty(baseline, form);
+  const dirtyNow = useRef(dirty);
+  dirtyNow.current = dirty;
   const set = (patch: Partial<FlowForm>) => {
     setSaved(false); // an edit after a save is unsaved again
     setForm((current) => ({ ...current, ...patch }));
@@ -89,6 +112,7 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
       if (!link || link.closest('[data-page="flow-definition"]')) return;
       event.preventDefault();
       event.stopPropagation();
+      opener.current = link;
       setLeaveTo(link.getAttribute('href'));
     };
     const onUnload = (event: BeforeUnloadEvent) => event.preventDefault();
@@ -100,17 +124,50 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
     };
   }, [dirty]);
 
-  const onBack = (event: ReactMouseEvent) => {
+  // B12: Back, Forward and a typed #/ address reach the shell's hashchange first - it asks this guard.
+  useEffect(() => {
+    if (!guard) return;
+    const mine: EditorGuard = {
+      state: () => ({ dirty: dirtyNow.current, released: released.current }),
+      confirm: (to) => {
+        opener.current = null; // no element opened it: focus goes back to the heading
+        setLeaveTo(to);
+      }
+    };
+    guard.current = mine;
+    return () => {
+      if (guard.current === mine) guard.current = null;
+    };
+  }, [guard]);
+
+  const onBack = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     if (!dirty) return;
     event.preventDefault();
+    opener.current = event.currentTarget;
     setLeaveTo('#/flows');
   };
+
+  const stay = () => {
+    setLeaveTo(null);
+    (opener.current ?? heading.current)?.focus();
+  };
+
+  // B13: Escape is Stay while the dialog shows.
+  useEffect(() => {
+    if (leaveTo === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') stay();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [leaveTo]);
 
   const leave = () => {
     const to = leaveTo;
     setLeaveTo(null);
     setBaseline(form); // the user chose to drop the edits
-    if (to) window.location.hash = to;
+    released.current = true;
+    if (to !== null) window.location.hash = to;
   };
 
   const onDestination = (index: number, value: string) =>
@@ -130,6 +187,7 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
     setBusy(true);
     setSaved(false);
     setValidationField(null);
+    setValidationServerText(null);
     setRefusal(null);
     try {
       const draft = body();
@@ -137,7 +195,10 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
         ? await saveFlowDraft(flowId, { ...draft, ordering: form.ordering })
         : await createFlow({ ...draft, ordering: form.ordering });
       if (!result.ok) {
-        if (result.status === 400) setValidationField(validationFieldOf(result.error));
+        if (result.status === 400) {
+          setValidationField(validationFieldOf(result.error));
+          setValidationServerText(result.error ?? null);
+        }
         else if (result.status === 404) setRefusal('flow-not-found');
         return;
       }
@@ -159,6 +220,7 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
         const stored = await saveSourceSchema(form.sourceSystem, form.interfaceName || 'interface', schema);
         if (!stored.ok && stored.status === 400) {
           setValidationField(validationFieldOf(stored.error));
+          setValidationServerText(stored.error ?? null);
           return;
         }
       }
@@ -169,22 +231,37 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
     }
   };
 
-  const describedBy = (field: string) => (validationField === field ? errorId(field) : undefined);
+  const a11y = (field: string) => fieldA11y(validationField, field);
+  // B13: the visible error text a failing field's aria-describedby points at.
+  const errorText = (field: string) =>
+    validationField === field && (
+      <p className="flows-error" id={validationErrorId(field)} data-validation-error={field}>
+        {validationText(field, validationServerText)}
+      </p>
+    );
 
   return (
     <main data-page="flow-definition" className="flows-page">
       <div className="flows-head">
-        <h2>Flow definition</h2>
+        <h2 ref={heading} tabIndex={-1}>
+          Flow definition
+        </h2>
         <a href="#/flows" data-action="back-to-flows" onClick={onBack}>
           All flows
         </a>
       </div>
 
       {leaveTo !== null && (
-        <div role="alertdialog" aria-labelledby="flow-leave-title" className="flows-alert flows-alert-warn" data-confirm="unsaved-changes">
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="flow-leave-title"
+          className="flows-alert flows-alert-warn"
+          data-confirm="unsaved-changes"
+        >
           <p id="flow-leave-title">You have unsaved changes. Leave without saving?</p>
           <div className="flows-alert-actions">
-            <button type="button" className="btn" data-action="stay" onClick={() => setLeaveTo(null)} autoFocus>
+            <button type="button" className="btn" data-action="stay" onClick={stay} autoFocus>
               Stay
             </button>
             <button type="button" className="btn btn-primary" data-action="leave-without-saving" onClick={leave}>
@@ -201,6 +278,11 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
         </div>
       ) : (
         <form className="flow-form" onSubmit={(event) => void onSaveDraft(event)}>
+          {validationField === 'request' && (
+            <p className="flows-error" role="alert" id={validationErrorId('request')} data-validation-error="request">
+              {validationText('request', validationServerText)}
+            </p>
+          )}
           <div className="flow-form-grid">
             <div className="flow-form-col">
               <fieldset className="flows-card">
@@ -214,13 +296,11 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
                   <input
                     data-field="source-system"
                     value={form.sourceSystem}
-                    aria-describedby={describedBy('source-system')}
+                    {...a11y('source-system')}
                     onChange={(e) => set({ sourceSystem: e.target.value })}
                   />
                 </label>
-                {validationField === 'source-system' && (
-                  <p className="flows-error" id={errorId('source-system')} data-validation-error="source-system">sourceSystem is required</p>
-                )}
+                {errorText('source-system')}
               </fieldset>
               <fieldset className="flows-card">
                 <legend>Destinations</legend>
@@ -228,7 +308,12 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
                   <div className="flow-destination" key={index}>
                     <label className="flows-field">
                       Destination {index + 1}
-                      <input data-field={`destination-${index + 1}`} value={row} onChange={(e) => onDestination(index, e.target.value)} />
+                      <input
+                        data-field={`destination-${index + 1}`}
+                        value={row}
+                        {...a11y('destinations')}
+                        onChange={(e) => onDestination(index, e.target.value)}
+                      />
                     </label>
                     {form.destinations.length > 1 && (
                       <button
@@ -243,6 +328,7 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
                     )}
                   </div>
                 ))}
+                {errorText('destinations')}
                 <button type="button" className="btn" data-action="add-destination" onClick={addDestination}>
                   Add destination
                 </button>
@@ -256,15 +342,11 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
                   <input
                     data-field="business-key-rule"
                     value={form.businessKeyRule}
-                    aria-describedby={describedBy('business-key-rule')}
+                    {...a11y('business-key-rule')}
                     onChange={(e) => set({ businessKeyRule: e.target.value })}
                   />
                 </label>
-                {validationField === 'business-key-rule' && (
-                  <p className="flows-error" id={errorId('business-key-rule')} data-validation-error="business-key-rule">
-                    The mandatory business-key rule is missing: businessKeyRule
-                  </p>
-                )}
+                {errorText('business-key-rule')}
                 <label className="flows-field">
                   Ordering
                   <select
@@ -284,15 +366,11 @@ export function FlowDefinition({ openFlowId = null }: FlowDefinitionProps) {
                     data-field="source-schema"
                     rows={8}
                     value={form.sourceSchema}
-                    aria-describedby={describedBy('source-schema')}
+                    {...a11y('source-schema')}
                     onChange={(e) => set({ sourceSchema: e.target.value })}
                   />
                 </label>
-                {validationField === 'source-schema' && (
-                  <p className="flows-error" id={errorId('source-schema')} data-validation-error="source-schema">
-                    sourceSchema must be a JSON Schema object
-                  </p>
-                )}
+                {errorText('source-schema')}
               </fieldset>
             </div>
           </div>
