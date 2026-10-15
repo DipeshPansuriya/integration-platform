@@ -102,7 +102,8 @@ test('edits the type-specific settings; the new value is stored and shown after 
 
   await page.reload();
   await expect(page.locator(`${PAGE}[data-systems-loaded="true"]`)).toBeVisible();
-  await page.locator(`[data-system-row="${code}"] [data-action="open-system"]`).click();
+  // T101: the address is still #/systems/<id>, so the reload reopens the edit drawer by itself (modal - no Open click)
+  await expect(page.getByRole('dialog', { name: `Edit system ${code}` })).toBeVisible();
   await expect(page.locator('[data-form="edit-system"] [data-setting="host"]')).toHaveValue('db-new.partner.test');
   await expect(page.locator('[data-form="edit-system"] [data-setting="port"]')).toHaveValue('6432');
 });

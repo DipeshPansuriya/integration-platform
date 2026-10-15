@@ -11,7 +11,10 @@
 .drawer-scrim {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--color-ink) 28%, transparent); /* derived from the ink token, both themes */
+  background: color-mix(in srgb, var(--color-ink) 28%, transparent); /* light: dims with the (dark) ink token */
+}
+[data-theme="dark"] .drawer-scrim {
+  background: color-mix(in srgb, var(--color-canvas) 64%, transparent); /* dark: ink is light, so dim with the canvas token */
 }
 
 .drawer {
