@@ -68,7 +68,9 @@ export function emitJsonata(links: readonly Pick<MappingLink, 'source' | 'target
       path = path ? `${path}.${segments[i]}` : segments[i];
       node = level.get(segments[i]);
       if (!node) node = newNode();
-      if (i === segments.length - 1 && node.source !== null) {
+      // B18: a field already drawn as a leaf cannot also be a parent on the way down, and a leaf
+      // cannot land on a node that already has children - either order is refused, nothing dropped.
+      if (node.source !== null || (i === segments.length - 1 && node.children.size > 0)) {
         return {
           expression: '',
           refusal: `the target field ${path} is drawn twice (both as a field and as a parent)`
@@ -77,12 +79,6 @@ export function emitJsonata(links: readonly Pick<MappingLink, 'source' | 'target
       if (i === segments.length - 1) node.source = source;
       level.set(segments[i], node);
       level = node.children;
-    }
-    if (node!.source === null) {
-      return {
-        expression: '',
-        refusal: `the target field ${target} is drawn twice (both as a field and as a parent)`
-      };
     }
   }
 
