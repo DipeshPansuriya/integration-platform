@@ -107,26 +107,6 @@
   --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px -2px rgba(37, 99, 235, 0.35);
 }
 
-/* 01 §4.1 — @gorules/jdm-editor 1.52.0: app tokens over the editor's --grl-* theme.
-   Build wraps each decision table in .rules-editor (10-screens.md §6). */
-[data-theme] .rules-editor {
-  --grl-color-primary: var(--color-accent);
-  --grl-color-primary-hover: var(--color-accent-hover);
-  --grl-color-bg-container: var(--color-surface);
-  --grl-color-bg-layout: var(--color-canvas);
-  --grl-color-bg-elevated: var(--color-surface-raised);
-  --grl-color-text: var(--color-ink);
-  --grl-color-text-secondary: var(--color-ink-muted);
-  --grl-color-text-placeholder: var(--color-ink-faint);
-  --grl-color-border: var(--color-border);
-  --grl-color-border-hover: var(--color-border-strong);
-  --grl-color-error: var(--color-danger);
-  --grl-color-success: var(--color-success);
-  --grl-color-warning: var(--color-warn-text);
-  --grl-font-family: var(--font-body);
-  --grl-border-radius: 4px;
-}
-
 /* 01 §4.2 — @xyflow/react 12.12.0: mapping canvas over --xy-* (canvas keeps its
    height parameterised; node differences stay in position/aria-label, not colour). */
 [data-theme] .mapping-canvas {
