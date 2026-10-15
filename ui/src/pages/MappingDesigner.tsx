@@ -14,6 +14,9 @@ import {
   emptyGraph, parseSavedMapping, schemaPaths, targetRefusal, toSaveRequest
 } from '../mapping/graph';
 import { applyExpressionEdit as applyRawEdit } from '../mapping/expression/raw';
+import { emitJsonata } from '../mapping/emit/emit';
+import { MappingRoutes } from '../mapping/MappingRoutes';
+import { MappingSamplePanel } from '../mapping/MappingSamplePanel';
 import type { FieldSchema, MappingGraph, SavedMappingAnswer } from '../mapping/graph';
 import type { CanvasSelected } from '../mapping/MappingCanvas';
 
@@ -43,6 +46,16 @@ const refusalOf = (error: unknown): string => {
   return body?.message ?? JSON.stringify(body ?? 'the mapping could not be saved');
 };
 
+/** The drawn links ARE the mapping (emit.ts, ADR-004 rule 3): a link edit re-emits the expression the
+ * save stores, so "Run sample" runs what was drawn. A refused emission (one target drawn twice) keeps
+ * the previous expression and names the refusal. */
+const withEmitted = (next: MappingGraph): { graph: MappingGraph; refusal: string | null } => {
+  const emitted = emitJsonata(next.links);
+  return emitted.refusal
+    ? { graph: next, refusal: emitted.refusal }
+    : { graph: { ...next, expression: emitted.expression }, refusal: null };
+};
+
 const loadVersion = async (versionId: string) => {
   const { data } = await api.GET('/api/v1/admin/contracts/versions/{versionId}', {
     params: { path: { versionId } }
@@ -59,6 +72,9 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
   const [selected, setSelected] = useState<CanvasSelected>({ source: null, target: null });
   const [refusal, setRefusal] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // T92: the sample runs the SAVED mapping - its id, and whether the drawing has unsaved edits.
+  const [mappingId, setMappingId] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +83,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
       return;
     }
     setLoaded(false);
+    setDirty(false);
     Promise.all([
       api.GET('/api/v1/admin/routes/{routeId}/mapping', { params: { path: { routeId } } }),
       api.GET('/api/v1/admin/contracts')
@@ -78,6 +95,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
         return;
       }
       const savedAnswer = (mapping.data ?? {}) as SavedMappingAnswer;
+      setMappingId(savedAnswer.mappingId ?? null);
       setGraph(parseSavedMapping(savedAnswer));
       // Re-render exactly as left: the two trees come from exactly the bound contract versions.
       if (savedAnswer.sourceContractVersionId || savedAnswer.targetContractVersionId) {
@@ -119,6 +137,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
    * other side's tree, and already drawn links stay (the save guard refuses stale ones). */
   const bindSide = async (side: 'sourceContractVersionId' | 'targetContractVersionId', versionId: string) => {
     setSaved(false);
+    setDirty(true);
     const schema = versionId ? (await loadVersion(versionId))?.jsonSchema ?? null : null;
     setTargetSchema((current) => (side === 'targetContractVersionId' ? schema : current));
     setGraph((current) => ({
@@ -141,28 +160,47 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
   const drawLink = () => {
     if (!selected.source || !selected.target) return;
     setSaved(false);
+    setDirty(true);
     const { graph: next, refusal: refused } = addLinkToGraph(graph, selected.source, selected.target);
-    setGraph(next);
-    setRefusal(refused); // named field (the target contract does not have it) or null
+    if (refused) {
+      setRefusal(refused); // named field (the target contract does not have it)
+      return;
+    }
+    const emitted = withEmitted(next);
+    setGraph(emitted.graph);
+    setRefusal(emitted.refusal);
   };
 
   const changeTarget = (id: string, target: string) => {
     setSaved(false);
+    setDirty(true);
     const { graph: next, refusal: refused } = changeLinkOnGraph(graph, id, { target });
-    setGraph(next);
-    setRefusal(refused);
+    if (refused) {
+      setGraph(next);
+      setRefusal(refused);
+      return;
+    }
+    const emitted = withEmitted(next);
+    setGraph(emitted.graph);
+    setRefusal(emitted.refusal);
   };
 
   const removeLink = (id: string) => {
     setSaved(false);
-    setGraph(deleteLinkFromGraph(graph, id));
-    setRefusal(null);
+    setDirty(true);
+    const emitted = withEmitted(deleteLinkFromGraph(graph, id));
+    setGraph(emitted.graph);
+    setRefusal(emitted.refusal);
   };
 
   // T-039: a raw-expression edit lands back through applyExpressionEdit - a $round edit (ADR-006
   // rule 8: money rounding never via $round) is refused here and shown with the rule named.
   const editExpression = (text: string) => {
+    // The editor echoes every programmatic sync (load, save, re-emit) through onEdit with the same
+    // text - only a real edit marks the drawing unsaved.
+    if (text === graph.expression) return;
     setSaved(false);
+    setDirty(true);
     const { graph: next, refusal: refused } = applyRawEdit(graph, text);
     setGraph(next);
     setRefusal(refused);
@@ -194,6 +232,8 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
         sourceFields: graph.sourceFields,
         targetFields: graph.targetFields
       });
+      setMappingId((data as SavedMappingAnswer).mappingId ?? mappingId);
+      setDirty(false);
       setSaved(true); // stored for this pair only; re-renders exactly as it was left
     } else {
       setRefusal(refusalOf(error));
@@ -295,6 +335,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
                 ))}
               </tbody>
             </table>
+            <MappingSamplePanel mappingId={mappingId} dirty={dirty} />
             <p>
               <label>Raw expression (JSONata - typed, ADR-006)</label>
             </p>
@@ -304,7 +345,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
           </>
         )
       ) : (
-        <p>Open a mapping from its route.</p>
+        <MappingRoutes />
       )}
     </main>
   );

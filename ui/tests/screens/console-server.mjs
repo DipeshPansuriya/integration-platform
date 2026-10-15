@@ -32,11 +32,20 @@ export async function startConsole(baseUrlOfBackend, sessions = {}) {
           console.error(`CONSOLE-PROXY ${req.method} ${req.url} -> ${proxyRes.statusCode}${setc ? ` set-cookie=${setc}` : ''}`);
         });
       }
-      proxy.on('proxyReq', (proxyReq, req) => {
+      proxy.on('proxyReq', (proxyReq, req, res) => {
         const marker = req.headers[LOGIN_MARKER];
         if (typeof marker !== 'string') return;
-        const session = sessions[marker];
-        if (!session) throw new Error(`console-server: no harness login for marker "${marker}"`);
+        const session = Object.hasOwn(sessions, marker) ? sessions[marker] : null;
+        if (!session) {
+          // T94: this listener runs on the proxy's socket event, so a throw here is an uncaught
+          // exception that kills the console (and the trial). Refuse the request instead; it never
+          // reaches the backend and never borrows any other session.
+          console.error(`console-server: no harness login for marker "${marker}" - refused`);
+          proxyReq.destroy();
+          if (!res.headersSent) res.writeHead(403, { 'content-type': 'text/plain' });
+          res.end(`no harness login for marker "${marker}"`);
+          return;
+        }
         proxyReq.setHeader('cookie', session.cookie);
         if (req.headers['x-xsrf-token'] !== undefined) proxyReq.setHeader('x-xsrf-token', session.xsrf);
         proxyReq.removeHeader(LOGIN_MARKER);

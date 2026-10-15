@@ -128,9 +128,11 @@ export async function startKeycloak({ repo, audience, consoleRedirectUri, postLo
       return (await response.json()).access_token;
     }
 
-    /** An enabled realm user with a random password (memory only); `subject` is its token `sub`. */
-    async function createUser(username) {
-      const password = random(18);
+    /**
+     * An enabled realm user; `subject` is its token `sub`. The password is random (memory only)
+     * unless the caller hands one in (T94: the trial login's password from the OS secret store).
+     */
+    async function createUser(username, password = random(18)) {
       const response = await fetch(`${base}/admin/realms/${REALM}/users`, {
         method: 'POST',
         headers: { authorization: `Bearer ${await adminToken()}`, 'content-type': 'application/json' },
