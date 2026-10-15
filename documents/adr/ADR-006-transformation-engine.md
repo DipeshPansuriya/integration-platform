@@ -3,6 +3,7 @@ type: ADR
 title: "ADR-006 - Transformation engine: JSONata (Dashjoin Java port) called directly by platform-transform, confirmed by the spike"
 status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - the spike T-030 to T-032 ran 2026-10-12 (lane A, T50) and confirms G1 5/5 and G4 on Dashjoin JSONata 0.9.10; G2 and G3 are measured by their owning tasks T-109 and T-038 in lanes B2/B3 against the real port, as the spike was scoped; T-036, T-039 and T-108 are unblocked; the filled results table goes to Dipesh for review"
 approved: "Dipesh, 2026-10-12 (hub memory m-f1fcfc)"
+amended: "2026-10-15 (Dipesh, option 1; ledger row 278) - Decision 7 raw-expression editor is plain CodeMirror 6 for wave 2, gnata an open follow-up; spike evidence repointed to the hub backup"
 date: 2026-10-11
 author: "mahesh-architect (ledger row 307 under row 278, task T-033)"
 project: ipass/integration-platform
@@ -25,13 +26,29 @@ Every statement carries a grade: **[Verified]** (read in the cited file this pas
 > **Status of this record.** The plan writes ADR-006 "before the canvas code, after its spike"
 > (`documents/adr/README.md:22`) [Verified]. The spike (T-030, T-031, T-032, lane A amit-developer,
 > tracker T50) **ran 2026-10-12** in the lane worktree `worktree-amit-developer-integration-platform-t50`;
-> the results it produces are committed as the evidence file
-> `platform-transform/src/test/resources/spike/results.md` at `e39d24f` (branch
-> `worktree-amit-developer-integration-platform-t50`) [Verified, read this pass]. **Candidate A
-> (Dashjoin JSONata 0.9.10) passed all five breaking cases and gate G4 is green; candidates C, D and E
-> are disqualified** by the one-failed-case rule. The results table below is now filled from that
-> file; the harness re-runs the exact rows (`SpikeRecordedTest` re-derives every PASS/FAIL cell from a
-> fresh run), so the table cannot drift from the code [Verified in results.md].
+> its evidence file was `platform-transform/src/test/resources/spike/results.md`, committed at
+> `e39d24f` on that branch. **Candidate A (Dashjoin JSONata 0.9.10) passed all five breaking cases and
+> gate G4 is green; candidates C, D and E are disqualified** by the one-failed-case rule. The results
+> table below is filled from that file.
+
+> **Evidence location - amended 2026-10-15.** The branch `worktree-amit-developer-integration-platform-t50`
+> was retired in the row-278 branch tidy (2026-10-14) and `e39d24f` is reachable from no branch of this
+> repository. The durable copy of the evidence is in the hub:
+> `ws/_reports/row278-retired-branches-20261014/t50/0002-feat-row278-E7-ADR-006-spike-green-engine-x-case-tab.patch`
+> - commit `e39d24f` as a format-patch; `results.md` is its last hunk (patch lines 838-962 hold
+> `results.md` lines 1-125). `0001-red-row278-E7-spike-failing-first-ADR-006-G1-G4-guar.patch` beside it
+> is the failing-first commit, and `TIP.txt` records tip `e39d24f` on base `95e2513` (an ancestor of
+> `main`). Every later "`results.md` at `e39d24f`" in this record means that hub file. [Verified,
+> read 2026-10-15]
+>
+> **Correction (2026-10-15).** An earlier version of this block said the harness re-runs the exact
+> rows (`SpikeRecordedTest` re-derives every PASS/FAIL cell from a fresh run), so the table cannot
+> drift from the code. That is not true on `main`: the spike harness
+> (`platform-transform/src/test/java/io/integrationplatform/transform/spike/`, including
+> `SpikeRecordedTest`) and `results.md` were never merged, so nothing on `main` re-derives this table.
+> The table is a recorded snapshot of the 2026-10-12 run; reproducing it means applying the two backup
+> patches onto `95e2513` in a throwaway worktree. [Verified: no `spike` path in `git ls-tree -r main`
+> at `89e961c`]
 
 > **Approved by Dipesh 2026-10-12** (hub memory m-f1fcfc), as recommended, before the spike ran.
 > What he approved: (1) the JSONata language through the Dashjoin port, **provided the spike
@@ -205,8 +222,18 @@ control (test scope); Spring Boot's Jackson 3 (web layer) never reaches the tran
    Jackson of any major; the only candidate that drags Jackson 2 in is the disqualified JSLT control
    (2.13.4.2, test scope); Boot's Jackson 3 stays in the adapters. The conversion cost inside G3
    remains for T-038. [Verified in `results.md` at `e39d24f`]
-7. **Raw-expression editor.** If JSONata wins (A or B), T-039 integrates the gnata CodeMirror-6
-   editor (MIT); otherwise T-039 is dropped (`ws/_specs/backlog.md:1873`). [Verified]
+7. **Raw-expression editor - amended 2026-10-15 (Dipesh, option 1; ledger row 278).** Wave 2 ships
+   plain CodeMirror 6 as the raw-expression editor: `codemirror` 6.0.2 (MIT, `ui/package.json:25`)
+   with `minimalSetup` (`ui/src/mapping/expression/RawExpressionEditor.tsx:13`, `:42`), behind the
+   pure editor contract `ui/src/mapping/expression/raw.ts`. [Verified at `89e961c`] **What this gives
+   up:** JSONata-aware editing - no JSONata syntax highlighting, function completion or inline
+   parse-error marks in the raw surface; a malformed expression is caught only when it is evaluated.
+   **Open follow-up (not scheduled, no date committed):** integrate the gnata CodeMirror-6 JSONata
+   editor (MIT) behind the same `raw.ts` contract, so the swap does not touch the graph, the emitter
+   or the save request. [TBD - follow-up owner and wave to be set when it is planned]
+   *Superseded wording (2026-10-11), kept for the record:* ~~If JSONata wins (A or B), T-039
+   integrates the gnata CodeMirror-6 editor (MIT); otherwise T-039 is dropped
+   (`ws/_specs/backlog.md:1873`). [Verified]~~
 8. **Dialect deviations land in the port, not in hope.** `$round` in the Dashjoin port rounds
    halves to even (0.5 -> 0, 2.5 -> 2) while the reference rounds halfway away from zero (0.5 -> 1,
    2.5 -> 3): **money rounding never rides `$round`** - where a mapping must round monetary
@@ -214,8 +241,6 @@ control (test scope); Spring Boot's Jackson 3 (web layer) never reaches the tran
    never disagree silently. The same finding names the palette contract: the canvas's expression
    palette (T-036, ADR-004) lists the port's real function names (for example `$substring` exists,
    `$substr` does not), not the reference's. [Verified deviation in `results.md`; Inferred rule]
-7. **Raw-expression editor.** If JSONata wins (A or B), T-039 integrates the gnata CodeMirror-6
-   editor (MIT); otherwise T-039 is dropped (`ws/_specs/backlog.md:1873`). [Verified]
 
 ## What this ADR gates
 
@@ -297,3 +322,6 @@ as in `ws/_specs/backlog.md:197-200`]
 4. G2 (runaway stop, thread freed) and G3 (100 round trips under 500 ms) are open until lanes B2/B3
    run T-109 and T-038 against the real port - the spike deliberately left them there, since they
    are properties of the port, not of the engine standalone. [Verified] scoping in `results.md`
+5. **Follow-up (Dipesh, option 1, 2026-10-15):** the gnata CodeMirror-6 JSONata editor replaces or
+   extends the wave-2 plain CodeMirror 6 raw-expression editor behind the `raw.ts` contract
+   (Decision 7). Not scheduled; no date is committed. [TBD]
