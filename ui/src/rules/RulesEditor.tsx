@@ -2,7 +2,7 @@
 // creates one from a flow (POST /api/v1/admin/flows/{flowId}/rule-sets, starting from the kind's starter
 // table); #/rules/<ruleSetId> authors it as decision tables in jdm-editor behind the ONE editor seam
 // (DecisionTableEditorAdapter -> ZEN JSON, ADR-003) and saves it with PUT, beside the always-visible
-// test panel. Functional and unstyled like every E3 screen (design.md section 4; the look is E19's).
+// test panel. Styled by row 310 T102 (rules-editor.css, tokens only).
 // Refusals stay visible: a malformed table names the cell and the engine's reason; another tenant's id
 // is the plain not-found state, with no hint that the row exists.
 // SELECTOR CONTRACT (lane C's e2e relies on it): [data-page="rules-editor"][data-rule-set-id],
