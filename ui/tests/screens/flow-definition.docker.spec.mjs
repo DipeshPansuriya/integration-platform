@@ -347,6 +347,39 @@ test('B13 a failing field is aria-invalid and described by a visible error text'
   await expect(page.locator('[data-field="destination-1"]'), 'a fixed field is no longer invalid').not.toHaveAttribute('aria-invalid', 'true');
 });
 
+// B13 rework (judge 2026-10-15T15:18Z: the screens covered only destinations and business-key-rule):
+// the two remaining validatable fields of the four, behaviourally, with the error-text assertions.
+
+test('B13 rework a server refusal for an unknown source system lands on the source-system field', async ({ page }) => {
+  await openEditor(page);
+
+  // Blank source system: the real API refuses "sourceSystem is required" (SystemAdminService.java:154).
+  await page.fill('[data-field="destination-1"]', 'T1');
+  await page.fill('[data-field="business-key-rule"]', 'customer_id');
+  await page.click('[data-action="save-draft"]');
+  await expectFieldError(page, '[data-field="source-system"]', 'source-system');
+
+  // An unregistered system: the real API refuses "unknown source system ZZ" (FlowAdminService.java:60,85) -
+  // the field shows the refusal's own sentence, never the generic request alert.
+  await page.fill('[data-field="source-system"]', `ZZ-${stamp()}`);
+  await page.click('[data-action="save-draft"]');
+  await expectFieldError(page, '[data-field="source-system"]', 'source-system');
+  await expect(page.locator('[data-validation-error="source-system"]'), 'the field carries the server sentence').toContainText('unknown source system');
+  await expect(page.locator('[data-validation-error="request"]'), 'nothing lands on the generic bucket').toBeHidden();
+});
+
+test('B13 rework a source schema that is not valid JSON fails on its own field with visible text', async ({ page }) => {
+  await openEditor(page);
+
+  await page.fill('[data-field="source-system"]', 'S');
+  await page.fill('[data-field="destination-1"]', 'T1');
+  await page.fill('[data-field="business-key-rule"]', 'customer_id');
+  await page.fill('[data-field="source-schema"]', '{"type":"object", broken');
+  await page.click('[data-action="save-draft"]');
+  await expectFieldError(page, '[data-field="source-schema"]', 'source-schema');
+  await expect(page.locator('[data-validation-error="source-schema"]')).toContainText('JSON Schema');
+});
+
 async function expectFieldError(page, selector, field) {
   const input = page.locator(selector);
   await expect(page.locator(`[data-validation-error="${field}"]`)).toBeVisible();
