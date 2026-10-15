@@ -121,9 +121,10 @@ class IntakeCommitContainerTest {
         IntakeTransaction failing = wiringFor(app, tenantA, entry -> {
             throw new IllegalStateException("the database fails during the intake transaction");
         });
-        assertThatThrownBy(() -> stampedTransaction(app).execute(status -> failing.accept(request(
-                        CODE, PINNED_LABEL, "{\"customer_code\":\"CUST-2\"}"))))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> stamped(tenantA, failing).accept(request(
+                        CODE, PINNED_LABEL, "{\"customer_code\":\"CUST-2\"}")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("the database fails during the intake transaction");
         try (Connection read = owner.getConnection()) {
             assertThat(count(read, "select count(*) from public.message where business_key = 'CUST-2'", null))
                     .as("nothing persisted").isEqualTo(BigDecimal.ZERO);
@@ -134,8 +135,8 @@ class IntakeCommitContainerTest {
     @DisplayName("the path cannot reach another tenant's interface: 404, nothing persisted")
     void otherTenantInterfaceRefused() throws SQLException {
         // Tenant B exists but has no "orders" interface; the resolution is tenant-scoped.
-        assertThatThrownBy(() -> stampedTransaction(app).execute(status -> wiringFor(app, tenantB, null)
-                .accept(request(CODE, PINNED_LABEL, "{\"customer_code\":\"CUST-3\"}"))))
+        assertThatThrownBy(() -> stamped(tenantB, wiringFor(app, tenantB, null))
+                .accept(request(CODE, PINNED_LABEL, "{\"customer_code\":\"CUST-3\"}")))
                 .isInstanceOfSatisfying(IntakeRefusedException.class, refused ->
                         assertThat(refused.reason()).isEqualTo(
                                 IntakeRefusedException.Reason.INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED));
@@ -207,13 +208,23 @@ class IntakeCommitContainerTest {
 
     // ---------------------------------------------------------------- the transaction under proof
 
-    private TransactionTemplate stampedTransaction(DataSource dataSource) {
-        return new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+    /**
+     * The caller's transaction the port requires (R11): every accept runs in one ipaas_app transaction whose
+     * connection is tenant-stamped first, transaction-local ({@code set_config(..., true)}) as in production.
+     */
+    private IntakeTransaction stamped(TenantContext tenant, IntakeTransaction port) {
+        TransactionTemplate transaction = new TransactionTemplate(new DataSourceTransactionManager(app));
+        JdbcClient jdbc = JdbcClient.create(app);
+        return request -> transaction.execute(status -> {
+            jdbc.sql("select set_config('app.tenant_id', :tenant, true)")
+                    .param("tenant", tenant.requireTenantId().toString()).query().singleValue();
+            return port.accept(request);
+        });
     }
 
     /** The intake wiring the production run uses: the real outbox writer and stage timing writer under the port. */
     private IntakeTransaction asAppRole(TenantContext tenant) {
-        return wiringFor(app, tenant, null);
+        return stamped(tenant, wiringFor(app, tenant, null));
     }
 
     private IntakeTransaction wiringFor(DataSource dataSource, TenantContext tenant, OutboxWriter failing) {
