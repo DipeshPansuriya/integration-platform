@@ -17,6 +17,7 @@ import { applyExpressionEdit as applyRawEdit } from '../mapping/expression/raw';
 import { emitJsonata } from '../mapping/emit/emit';
 import { MappingRoutes } from '../mapping/MappingRoutes';
 import { MappingSamplePanel } from '../mapping/MappingSamplePanel';
+import { saveRefusal } from '../mapping/saveRefusal';
 import type { FieldSchema, MappingGraph, SavedMappingAnswer } from '../mapping/graph';
 import type { CanvasSelected } from '../mapping/MappingCanvas';
 
@@ -220,6 +221,12 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
         setRefusal(refused);
         return;
       }
+    }
+    // T57: while the emitter refuses the drawn links the expression is the previous one - never PUT it.
+    const drawnRefusal = saveRefusal(graph);
+    if (drawnRefusal) {
+      setRefusal(drawnRefusal);
+      return;
     }
     setRefusal(null);
     const { data, error } = await api.PUT('/api/v1/admin/routes/{routeId}/mapping', {

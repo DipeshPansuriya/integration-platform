@@ -18,6 +18,7 @@
 
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
@@ -120,7 +121,7 @@ function jarPath() {
   return chosen ? path.join(target, chosen) : null;
 }
 
-function buildJar() {
+function buildJar(jdk) {
   console.log('boot-backend: building platform-app (mvnw -pl platform-app -am package -DskipTests)');
   // Win11 26300 with NoDefaultCurrentDirectoryInExePath: cmd.exe (spawned via shell:true) does
   // NOT resolve a bare name against the cwd - 'mvnw.cmd' dies "is not recognized". The Maven
@@ -132,7 +133,7 @@ function buildJar() {
     {
       cwd: REPO,
       env: {
-        ...process.env,
+        ...jdkEnv(process.env, jdk),
         JAVA_TOOL_OPTIONS: `${process.env.JAVA_TOOL_OPTIONS ?? ''} -Duser.timezone=Etc/UTC`.trim(), // R04
         MAVEN_OPTS: `${process.env.MAVEN_OPTS ?? '-Xmx384m -Xms64m'}`.trim()
       },
@@ -146,24 +147,70 @@ function buildJar() {
   }
 }
 
-/** The JVM to spawn: JAVA_HOME's bin first (the shell's PATH may not carry it through npm),
- *  then the bare name. Fails the boot with what the harness saw if neither resolves. */
-function javaCommand() {
-  const home = process.env.JAVA_HOME ?? '';
-  if (home) {
-    for (const name of ['java.exe', 'java']) {
-      const candidate = path.join(home, 'bin', name);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return candidate;
-      } catch {}
-    }
+// --- the JDK (mvnw and java) ------------------------------------------------------------
+
+function javaIn(home) {
+  for (const name of ['java.exe', 'java']) {
+    const candidate = path.join(home, 'bin', name);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {}
   }
+  return null;
+}
+
+function probeJavaOnPath() {
   const probe = spawnSync('java', ['-version'], { encoding: 'utf8', windowsHide: true });
-  if (probe.error || probe.status !== 0) {
-    throw new Error(`boot-backend: no JVM found (JAVA_HOME=${home || '<unset>'}, spawn java: ${probe.error?.message ?? 'exit ' + probe.status})`);
+  return !probe.error && probe.status === 0;
+}
+
+const versionParts = (name) => (name.match(/\d+/g) ?? []).map(Number);
+function newerFirst(a, b) {
+  const [x, y] = [versionParts(a), versionParts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] ?? -1) !== (y[i] ?? -1)) return (y[i] ?? -1) - (x[i] ?? -1);
   }
-  return 'java';
+  return 0;
+}
+
+/**
+ * The JDK for mvnw and the app (JDK 25, AGENTS.md): JAVA_HOME's bin/java first (the shell's PATH
+ * may not carry it through npm), then java on PATH, then the newest JDK 25 folder under
+ * <homeDir>/.jdks (where the IDE downloads it - a PC can have no JAVA_HOME and no java on PATH).
+ * Returns { javaHome, java }; javaHome is null when java comes from PATH. Never changes any
+ * environment - the caller hands the result to its children through jdkEnv(). Throws naming all
+ * three places it looked.
+ */
+export function resolveJdk({ env = process.env, homeDir = os.homedir(), javaOnPath = probeJavaOnPath } = {}) {
+  const home = env.JAVA_HOME ?? '';
+  const fromHome = home ? javaIn(home) : null;
+  if (fromHome) return { javaHome: home, java: fromHome };
+  if (javaOnPath()) return { javaHome: null, java: 'java' };
+  const jdks = path.join(homeDir, '.jdks');
+  let names = [];
+  try {
+    names = fs.readdirSync(jdks).filter((name) => /^(?:[A-Za-z]+-)?25(?:[.+-]|$)/.test(name));
+  } catch {}
+  for (const name of names.sort(newerFirst)) {
+    const java = javaIn(path.join(jdks, name));
+    if (java) return { javaHome: path.join(jdks, name), java };
+  }
+  throw new Error(`boot-backend: no JVM found (JAVA_HOME=${home || '<unset>'}${home ? ' has no bin/java' : ''}, `
+    + `PATH: no java, ${jdks}: no JDK 25 folder with bin/java)`);
+}
+
+/** A child env for mvnw / java: the resolved JDK's JAVA_HOME and its bin first on PATH (the
+ *  existing PATH key kept - Windows' "Path" never gets a second "PATH" beside it). */
+export function jdkEnv(baseEnv, jdk) {
+  if (!jdk.javaHome) return { ...baseEnv };
+  const pathKey = Object.keys(baseEnv).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
+  const bin = path.join(jdk.javaHome, 'bin');
+  return {
+    ...baseEnv,
+    JAVA_HOME: jdk.javaHome,
+    [pathKey]: baseEnv[pathKey] ? `${bin}${path.delimiter}${baseEnv[pathKey]}` : bin
+  };
 }
 
 async function healthy(appPort) {
@@ -214,7 +261,7 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
   let container, app, keycloak;
   try {
     // Inside the try (m-910e28): a boot that throws before the teardown path would leak the lock.
-    const javaExe = javaCommand(); // resolves before any container starts - a missing JVM fails the boot immediately
+    const jdk = resolveJdk(); // resolves before any container starts - a missing JVM fails the boot immediately
     const pgName = `ipass-ui-t41-pg-${crypto.randomBytes(4).toString('hex')}`;
     const pgPassword = crypto.randomBytes(18).toString('base64url'); // memory-only (R07)
     const loginName = `console_login_${crypto.randomBytes(5).toString('hex')}`;
@@ -222,7 +269,7 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
 
     let jar = jarPath();
     if (!jar) {
-      buildJar();
+      buildJar(jdk);
       jar = jarPath();
     }
     if (!jar) throw new Error('platform-app jar not found after the maven build');
@@ -249,11 +296,11 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
     psql(pgName, `CREATE ROLE ${loginName} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${loginPassword}'`);
 
     app = spawn(
-      javaExe,
+      jdk.java,
       ['-XX:+UseSerialGC', '-Xmx256m', `-Dserver.port=${appPort}`, '-jar', jar],
       {
         env: {
-          ...process.env,
+          ...jdkEnv(process.env, jdk),
           JAVA_TOOL_OPTIONS: `${process.env.JAVA_TOOL_OPTIONS ?? ''} -Duser.timezone=Etc/UTC`.trim(),
           DB_URL: `jdbc:postgresql://127.0.0.1:${pgPort}/platform`,
           DB_USERNAME: loginName,
