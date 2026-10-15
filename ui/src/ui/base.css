@@ -452,9 +452,12 @@ summary:focus-visible {
   opacity: 0.45;
   cursor: not-allowed;
 }
-/* row 310 B9: a control followed by a bare button keeps an 8px gap (Versions action row,
-   Contracts change-note + submit). Class-less only, so a .btn row in a flex/grid gap never doubles. */
-:where(main.content) :where(button, input:not([type="hidden"]), select, textarea) + :where(button:not([class])):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+/* row 310 B9: a control followed by a bare button keeps an 8px gap on Contracts (change note +
+   Submit, Approve + harness approve). The Versions action row gets its 8px from the flex gap of
+   .versions-actions (flows.css), not from here. B15: scoped to the Contracts page - elsewhere
+   (Mappings "Link" + "Save", Systems "Open" + "Test") the buttons are already spaced by text and
+   the margin added a second gap. Class-less only, so a .btn row in a flex/grid gap never doubles. */
+:where(main.content [data-page="contracts"]) :where(button, input:not([type="hidden"]), select, textarea) + :where(button:not([class])):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
   margin-inline-start: var(--space-2);
 }
 /* type=submit is the one primary marker the pages already carry. */
