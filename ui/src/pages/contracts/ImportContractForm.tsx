@@ -1,6 +1,8 @@
 // T-160 (E5 lane D, E5-F2-S1): import a contract version from an OpenAPI document or a JSON
 // Schema. The document goes to the API as typed; a document that does not parse is refused with
 // the parser's own errors, all listed, and nothing is stored.
+// Row 310 lane C (T101): rendered inside the shared Drawer (its title names the form); the parser
+// errors stay one danger alert listing every line verbatim, and the drawer stays open with values kept.
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { CONTRACT_ROLES, importContractVersion, type ContractFormat, type ContractRole } from '../../api/contracts';
@@ -52,7 +54,6 @@ export function ImportContractForm({ onImported }: { onImported: () => Promise<v
 
   return (
     <form data-form="import-contract" onSubmit={onSubmit}>
-      <h3>Import a contract version</h3>
       <label>
         System
         <select data-field="contract-system" value={system} onChange={(e) => setSystem(e.target.value)}>
@@ -98,9 +99,9 @@ export function ImportContractForm({ onImported }: { onImported: () => Promise<v
       <button type="submit" data-action="import-contract" disabled={busy}>
         Import version
       </button>
-      {imported && <p data-imported="true">Imported {imported}.</p>}
+      {imported && <p role="status" className="contracts-alert contracts-alert-success" data-imported="true">Imported {imported}.</p>}
       {refusal && (
-        <div role="alert" data-refusal="import-refused">
+        <div role="alert" className="contracts-alert contracts-alert-danger" data-refusal="import-refused">
           <p>Refused: {refusal.error} Nothing was stored.</p>
           {refusal.parserErrors.length > 0 && (
             <ul>
