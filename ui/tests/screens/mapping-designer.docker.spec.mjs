@@ -197,19 +197,21 @@ test('maps Customer A to Target A v1.0 by drawing the links on the pair', async 
 // Scenario: Add, change and delete elements (backlog.md:1831-1834).
 test('an element added, a link changed and a link deleted all reach the stored mapping', async ({ page }) => {
   await openCanvas(page, ROUTE_A);
+  // Target A has exactly three fields, all drawn: the delete comes first so the change has a free
+  // target - a saved drawing never draws one target twice (T57: such a save is refused).
 
-  // an element is added: orderId -> total_amount
+  // an element deleted: amount -> total_amount (total_amount is free now)
+  await page.locator(`[data-link-row="amount->total_amount"] [data-action="delete-link"]`).click();
+  await expect(linkRows(page)).toHaveCount(2);
+
+  // a link changed: orderId now feeds total_amount (order_number is free now)
+  await targetInputOf(page, 'orderId', 'order_number').fill('total_amount');
+  await expect(page.locator('[data-link-row="orderId->total_amount"]')).toHaveCount(1);
+
+  // an element is added: orderId -> order_number
   await sourceNode(page, 'orderId').click();
-  await targetNode(page, 'total_amount').click();
+  await targetNode(page, 'order_number').click();
   await page.click('[data-action="add-link"]');
-  await expect(linkRows(page)).toHaveCount(4);
-
-  // a link changed: amount now feeds order_number
-  await targetInputOf(page, 'amount', 'total_amount').fill('order_number');
-  await expect(page.locator('[data-link-row="amount->order_number"]')).toHaveCount(1);
-
-  // an element deleted: the just-added orderId -> total_amount link
-  await page.locator(`[data-link-row="orderId->total_amount"] [data-action="delete-link"]`).click();
   await expect(linkRows(page)).toHaveCount(3);
 
   await page.click('[data-action="save"]');
@@ -218,9 +220,29 @@ test('an element added, a link changed and a link deleted all reach the stored m
   await page.reload();
   await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible();
   await expect(linkRows(page)).toHaveCount(3, { timeout: 10_000 });
-  await expect(targetInputOf(page, 'amount', 'order_number')).toHaveValue('order_number');
-  await expect(page.locator('[data-link-row="orderId->total_amount"]')).toHaveCount(0);
-  await expect(page.locator('[data-link-row="orderId->order_number"]')).toHaveCount(1);
+  await expect(targetInputOf(page, 'customerId', 'customer_code')).toHaveValue('customer_code');
+  await expect(targetInputOf(page, 'orderId', 'total_amount')).toHaveValue('total_amount');
+  await expect(targetInputOf(page, 'orderId', 'order_number')).toHaveValue('order_number');
+  await expect(page.locator('[data-link-row="amount->total_amount"]')).toHaveCount(0);
+
+  // T57: one target drawn twice (amount -> total_amount beside orderId -> total_amount) - the save is
+  // refused with the emitter's refusal, nothing is saved and the stored mapping is unchanged.
+  await sourceNode(page, 'amount').click();
+  await targetNode(page, 'total_amount').click();
+  await page.click('[data-action="add-link"]');
+  await expect(linkRows(page)).toHaveCount(4);
+  await page.click('[data-action="save"]');
+  await expect(page.locator('[data-refusal]')).toContainText('drawn twice');
+  await expect(page.locator('[data-saved="true"]')).toHaveCount(0);
+  const stored = await inBrowser(page, 'GET', `/api/v1/admin/routes/${ROUTE_A}/mapping`);
+  expect(stored.data.fieldMappings.map((l) => [l.source, l.target]))
+    .toEqual([['customerId', 'customer_code'], ['orderId', 'total_amount'], ['orderId', 'order_number']]);
+
+  // back to Target A as first drawn for the next scenarios: orderId -> total_amount deleted, saved
+  await page.locator(`[data-link-row="orderId->total_amount"] [data-action="delete-link"]`).click();
+  await expect(linkRows(page)).toHaveCount(3);
+  await page.click('[data-action="save"]');
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
 });
 
 // Scenario: Two targets never share one mapping - the UI leg (backlog.md:1836-1839).
@@ -232,7 +254,12 @@ test('Target A\'s mapping edits leave Target B\'s mapping untouched, and the oth
 
   // Target A's mapping is changed again and saved
   await openCanvas(page, ROUTE_A);
-  await targetInputOf(page, 'amount', 'order_number').fill('total_amount');
+  // (deleted and drawn again: Target A's three fields are all drawn, so no target is free to change to)
+  await page.locator(`[data-link-row="amount->total_amount"] [data-action="delete-link"]`).click();
+  await sourceNode(page, 'amount').click();
+  await targetNode(page, 'total_amount').click();
+  await page.click('[data-action="add-link"]');
+  await expect(linkRows(page)).toHaveCount(3);
   await page.click('[data-action="save"]');
   await expect(page.locator('[data-saved="true"]')).toBeVisible();
 

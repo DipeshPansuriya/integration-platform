@@ -89,7 +89,7 @@ export function ContractVersions() {
   const comparedIds = new Set(compared.map((entry) => entry.id));
 
   return (
-    <main data-page="contracts" data-contracts-loaded={String(loaded)}>
+    <div data-page="contracts" data-contracts-loaded={String(loaded)}>
       <div className="contracts-page">
         <div className="contracts-head">
           <h2>Contract versions</h2>
@@ -123,6 +123,6 @@ export function ContractVersions() {
           <ImportContractForm onImported={refresh} />
         </Drawer>
       </div>
-    </main>
+    </div>
   );
 }

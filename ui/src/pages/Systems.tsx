@@ -104,7 +104,7 @@ export function Systems() {
   const shown = filterSystems(systems, filter);
 
   return (
-    <main data-page="systems" data-systems-loaded={String(loaded)}>
+    <div data-page="systems" data-systems-loaded={String(loaded)}>
       <div className="systems-page">
         <div className="systems-head">
           <h2>Systems</h2>
@@ -244,6 +244,6 @@ export function Systems() {
           {mode === 'register' && <RegisterSystemForm onRegistered={refresh} />}
         </Drawer>
       </div>
-    </main>
+    </div>
   );
 }

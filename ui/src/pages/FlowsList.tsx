@@ -34,7 +34,7 @@ export function FlowsList() {
   };
 
   return (
-    <main data-page="flows-list" data-flows-loaded={load === 'ready'} className="flows-page">
+    <div data-page="flows-list" data-flows-loaded={load === 'ready'} className="flows-page">
       <div className="flows-head">
         <h2>Flows</h2>
         <a className="btn btn-primary" href={NEW_FLOW_HASH} data-action="define-flow">
@@ -109,6 +109,6 @@ export function FlowsList() {
           </div>
         </>
       )}
-    </main>
+    </div>
   );
 }
