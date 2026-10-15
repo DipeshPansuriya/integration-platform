@@ -1,0 +1,144 @@
+/* Row 310 lane C (T101): Systems worklist (10-screens §5, 02 worklist recipe). Tokens only
+   (tokens.css); base.css owns .btn / .badge / .table. Every rule is scoped under .systems-page or
+   the shared drawer body (the register/edit forms render there). */
+
+.systems-page .systems-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-4);
+}
+.systems-page .systems-head h2 {
+  margin: 0;
+}
+
+.systems-page .systems-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+:is(.systems-page, .drawer-body) .systems-muted {
+  color: var(--color-ink-muted);
+  font-size: 13px;
+  margin: var(--space-1) 0;
+}
+
+.systems-page .systems-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.systems-page .systems-filter input {
+  width: 22rem;
+  max-width: 100%;
+}
+
+.systems-page .systems-grid {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-3);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+.systems-page .systems-grid .table {
+  border-radius: var(--r-3);
+}
+.systems-page .systems-row:hover td {
+  background: var(--color-accent-soft);
+}
+
+.systems-page .systems-mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+/* the settings summary can grow long: one line, ellipsis, the whole string as the tooltip */
+.systems-page .systems-settings {
+  max-width: 18rem;
+}
+.systems-page .systems-settings span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink-muted);
+}
+
+/* the test result sits next to its trigger: badge word + the endpoint's message */
+.systems-page .systems-test {
+  min-width: 10rem;
+  max-width: 16rem;
+}
+.systems-page .systems-test > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+.systems-page .systems-test .badge {
+  white-space: normal;
+}
+.systems-page .systems-test-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--color-ink-muted);
+}
+
+.systems-page .systems-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.systems-page .systems-actions .btn + .btn {
+  margin-inline-start: var(--space-2);
+}
+
+.systems-page .systems-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--r-3);
+  background: var(--color-surface);
+}
+
+/* alerts: worded, never colour alone */
+:is(.systems-page, .drawer-body) .systems-alert {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid;
+  border-radius: var(--r-2);
+  margin: var(--space-3) 0;
+}
+:is(.systems-page, .drawer-body) .systems-alert p,
+:is(.systems-page, .drawer-body) .systems-alert ul {
+  margin: 0;
+}
+:is(.systems-page, .drawer-body) .systems-alert ul {
+  padding-inline-start: var(--space-5);
+}
+:is(.systems-page, .drawer-body) .systems-alert-danger {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-text);
+  color: var(--color-danger-text);
+}
+:is(.systems-page, .drawer-body) .systems-alert-danger a {
+  color: inherit;
+  text-decoration: underline;
+}
+:is(.systems-page, .drawer-body) .systems-alert-success {
+  background: var(--color-success-bg);
+  border-color: var(--color-success-text);
+  color: var(--color-success-text);
+}
+
+:is(.systems-page, .drawer-body) :focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}

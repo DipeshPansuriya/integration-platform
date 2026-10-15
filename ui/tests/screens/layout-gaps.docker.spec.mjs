@@ -117,6 +117,8 @@ test('Contracts: 8px between a draft version\'s change note and its Submit butto
   await expect(page.locator('[data-page="contracts"][data-contracts-loaded="true"]')).toBeVisible();
 
   const row = page.locator(`[data-version-key="${system}/TARGET_REQUEST/1.0"]`);
+  // T101: the change note shows once "Submit for approval" opens the composer on a draft row.
+  await row.locator('[data-action="compose-submit"]').click();
   const note = await box(row.locator('[data-field="change-note"]'));
   const submit = await box(row.locator('[data-action="submit-version"]'));
   expect(Math.abs(submit.left - note.right - 8), 'change note -> Submit gap').toBeLessThanOrEqual(TOLERANCE);
