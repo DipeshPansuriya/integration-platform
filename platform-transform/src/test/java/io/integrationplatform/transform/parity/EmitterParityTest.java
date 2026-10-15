@@ -21,7 +21,8 @@ import org.junit.jupiter.api.Test;
  * <p>Provenance of the two columns: the emitted column is the output of the node emitter at lane
  * branch {@code worktree-sanjay-developer-integration-platform-t74}, commit 82dd290 - its
  * {@code ui/tests/mapping/emitter.test.mjs} proves hand = emitted textually, 10 of 10. If the
- * emitter changes its wording, {@link #drawnEqualsTypedTextuallyTenOfTen()} fails first -
+ * emitter changes its wording, {@link #drawnEqualsTypedTextuallyTenOfTen()} fails first and its
+ * message ({@link #driftReport(List)}) shows each drifted mapping's drawn and typed expression -
  * regenerate both columns from the emitter and re-verify the node suite before editing here.</p>
  *
  * <p>The engine takes the parsed sample (a {@code Map}), not a JSON string - the samples are
@@ -98,9 +99,22 @@ class EmitterParityTest {
     @Test
     void drawnEqualsTypedTextuallyTenOfTen() {
         long equal = REFERENCE_MAPPINGS.stream().filter(m -> m.emitted().equals(m.typed())).count();
-        assertEquals(10, equal, () -> REFERENCE_MAPPINGS.stream()
-                .filter(m -> !m.emitted().equals(m.typed())).map(ReferenceMapping::name).toList()
-                + " drifted from the hand-written reference");
+        assertEquals(10, equal, () -> driftReport(REFERENCE_MAPPINGS));
+    }
+
+    /**
+     * The failure message of the textual check - same wording as {@code driftReport} in
+     * {@code ui/tests/mapping/emitter.test.mjs}: a header, then per drifted mapping its name,
+     * the drawn (emitted) expression and the typed (hand-written) expression.
+     */
+    static String driftReport(List<ReferenceMapping> mappings) {
+        List<ReferenceMapping> drifted = mappings.stream().filter(m -> !m.emitted().equals(m.typed())).toList();
+        StringBuilder report = new StringBuilder(drifted.size() + " of " + mappings.size()
+                + " reference mappings drifted from the hand-written reference:");
+        drifted.forEach(m -> report.append('\n').append(m.name())
+                .append("\n  drawn: ").append(m.emitted())
+                .append("\n  typed: ").append(m.typed()));
+        return report.toString();
     }
 
     // Scenario: Drawn equals typed on the engine - both strings evaluate to the same output

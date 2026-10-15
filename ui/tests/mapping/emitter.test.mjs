@@ -6,6 +6,7 @@
 //
 //   Scenario: Drawn equals typed            -> 10 of 10 hand-written strings equal the emitted
 //   Scenario: A difference fails the test   -> a planted wrong hand-write is caught (notEqual)
+//   Scenario: A difference shows the difference -> driftReport names it with both expressions
 //
 // The backend parity leg (platform-transform/src/test/.../parity) evaluates the SAME ten
 // hand-written and emitted strings on the same samples through com.dashjoin:jsonata 0.9.10.
@@ -66,11 +67,22 @@ export const REFERENCE_MAPPINGS = [
     hand: "{'envelope': {'address': address.city}, 'total_amount': amount}" }
 ];
 
+/**
+ * The failure message of the textual check - same wording as driftReport in the backend
+ * EmitterParityTest: a header, then per drifted row its name, the drawn (emitted) expression
+ * and the typed (hand-written) expression. rows = [{ name, drawn, typed }].
+ */
+export function driftReport(rows) {
+  const drifted = rows.filter((r) => r.drawn !== r.typed);
+  return [`${drifted.length} of ${rows.length} reference mappings drifted from the hand-written reference:`,
+    ...drifted.map((r) => `${r.name}\n  drawn: ${r.drawn}\n  typed: ${r.typed}`)].join('\n');
+}
+
 // Scenario: Drawn equals typed - 10 of 10 equal strings.
 test('the ten hand-written reference mappings equal the drawn-and-emitted strings', () => {
-  const equal = REFERENCE_MAPPINGS.filter((m) => emitJsonata(drawn(m.links).links).expression === m.hand);
-  assert.deepEqual(equal.map((m) => m.name), REFERENCE_MAPPINGS.map((m) => m.name),
-    `${equal.length} of ${REFERENCE_MAPPINGS.length} reference mappings emit the hand-written string`);
+  const rows = REFERENCE_MAPPINGS.map((m) => ({ name: m.name, drawn: emitJsonata(drawn(m.links).links).expression, typed: m.hand }));
+  const equal = rows.filter((r) => r.drawn === r.typed);
+  assert.deepEqual(equal.map((m) => m.name), REFERENCE_MAPPINGS.map((m) => m.name), driftReport(rows));
 });
 
 test('every reference mapping emits without refusal', () => {
