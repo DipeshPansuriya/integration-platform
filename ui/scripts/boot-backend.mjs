@@ -213,6 +213,18 @@ export function jdkEnv(baseEnv, jdk) {
   };
 }
 
+// --- T130 (row 323, F21 BS-B): additive two-tenant options - RED stubs ----------------------
+// Behaviour defined by tests/base-suite/unit/boot-plan.test.mjs.
+
+export const HARNESS_LOGINS = null;
+export const HARNESS_APP_ENV = null;
+export function extraTenantPlan() {
+  throw new Error('RED (row323 T130): extraTenantPlan not implemented');
+}
+export function mergeAppEnv() {
+  throw new Error('RED (row323 T130): mergeAppEnv not implemented');
+}
+
 async function healthy(appPort) {
   try {
     const response = await fetch(`http://127.0.0.1:${appPort}/actuator/health`, { signal: AbortSignal.timeout(2000) });
