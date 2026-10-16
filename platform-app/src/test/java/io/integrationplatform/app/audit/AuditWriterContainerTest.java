@@ -236,10 +236,13 @@ class AuditWriterContainerTest {
         publishInTenantTransaction(TENANT_A, replay);
 
         assertThat(countUnderTenant(TENANT_A, "OPERATOR_REPLAY")).isEqualTo(1);
-        List<String> targets = boundTenantRead(TENANT_A,
-                "select target_ids::text from public.audit_event where action = 'OPERATOR_REPLAY'"
-                        + " and actor = 'support-replay-leg'");
-        assertThat(targets.get(0))
+        List<String> rows = boundTenantRead(TENANT_A,
+                "select actor, tenant_id::text, target_ids::text from public.audit_event"
+                        + " where action = 'OPERATOR_REPLAY' and actor = 'support-replay-leg'");
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0)).startsWith("support-replay-leg|");
+        String targets = rows.get(0).split("\\|", 3)[2];
+        assertThat(targets)
                 .contains("delivery:" + deliveryId)
                 .contains("mapping_version:" + mappingVersion)
                 .contains("contract_version:" + contractVersion);
