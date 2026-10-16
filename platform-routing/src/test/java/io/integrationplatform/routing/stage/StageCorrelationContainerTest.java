@@ -2,10 +2,10 @@ package io.integrationplatform.routing.stage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.integrationplatform.ingest.internal.outbox.JdbcOutboxWriter;
+import io.integrationplatform.delivery.internal.JdbcDeliveryRepository;
+import io.integrationplatform.delivery.internal.stage1.JdbcStage1Deliveries;
+import io.integrationplatform.delivery.port.Stage1Delivery;
 import io.integrationplatform.ingest.port.CorrelationContext;
-import io.integrationplatform.ingest.port.OutboxEntry;
-import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.routing.stage2.LayerOneRouteBuilder;
 import io.integrationplatform.routing.stage2.LayerOneWaits;
 import io.integrationplatform.routing.stage2.Stage2Send;
@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.camel.ProducerTemplate;
 import org.apache.camel.impl.DefaultCamelContext;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -49,13 +50,17 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <ul>
  *   <li><b>route</b> - a {@code message.accepted} record read from Kafka runs its handler inside the record's
  *       journey: the handler's log fields carry the record's correlation id, the row's tenant (resolved through
- *       {@code ipaas_work_tenant}) and the message id, and the {@code delivery.due} outbox row the handler appends
- *       stores the same traceparent - the deliver hop's Kafka header (the relay restores it, proven by
+ *       {@code ipaas_work_tenant}) and the message id, and the stage-1 write the handler runs - production's
+ *       fan-out insert through {@code JdbcStage1Deliveries} - appends the {@code delivery.due} outbox row with the
+ *       same traceparent: the deliver hop's Kafka header (the relay restores it, proven by
  *       KafkaPublishPortContainerTest);</li>
  *   <li><b>deliver</b> - a {@code delivery.due} record carrying that traceparent runs its send through the Camel
- *       layer-1 route, and every try of the target call (a redelivery included) carries the same correlation id.</li>
+ *       layer-1 route, and every try of the target call (a redelivery included) logs under the same correlation
+ *       id, the delivery row's tenant (resolved through {@code ipaas_work_tenant}) and the delivery id.</li>
  * </ul>
- * The transform hop and the follow-one-POST test need the end-to-end composition (T106) and are not here.
+ * The transform hop and the follow-one-POST test need the end-to-end composition (T106) and are not here; in that
+ * composition the transform runs inside the deliver stage's target call, on the same thread, so the deliver leg's
+ * fields are the ones its log lines carry.
  */
 @Tag("container")
 class StageCorrelationContainerTest {
@@ -68,15 +73,15 @@ class StageCorrelationContainerTest {
     @Test
     void theRouteAndDeliverStagesContinueTheJourneyTheKafkaRecordCarries() throws Exception {
         UUID message = db.seedMessage(StageFixture.TENANT_A);
-        UUID delivery = UUID.randomUUID();
+        AtomicReference<UUID> delivery = new AtomicReference<>();
         List<Map<String, String>> routeFields = new CopyOnWriteArrayList<>();
 
-        // route: message.accepted from the broker -> the handler logs and appends delivery.due inside the journey
+        // route: message.accepted from the broker -> the handler logs and runs the stage-1 write inside the journey
         try (Wire route = new Wire()) {
             route.send(message, "message.accepted", TRACEPARENT);
             StageConsumer stage = route.stage(db.protectedRows(), (record, tenantId) -> {
                 routeFields.add(MDC.getCopyOfContextMap());
-                appendDeliveryDue(delivery);
+                delivery.set(stageOneWrite(record.id(), tenantId));
             });
             drainUntil(stage, () -> !routeFields.isEmpty());
         }
@@ -84,16 +89,16 @@ class StageCorrelationContainerTest {
                 .containsEntry(CorrelationContext.CORRELATION_ID, CORRELATION_ID)
                 .containsEntry(CorrelationContext.TENANT_ID, StageFixture.TENANT_A.toString())
                 .containsEntry(CorrelationContext.MESSAGE_ID, message.toString()));
-        String deliverHeader = storedTraceparent(delivery);
+        String deliverHeader = storedTraceparent(delivery.get());
         assertThat(deliverHeader).as("the delivery.due outbox row carries the journey to the deliver hop")
                 .isEqualTo(TRACEPARENT);
 
         // deliver: delivery.due from the broker -> the Camel layer-1 route -> the target call, one redelivery
-        List<String> idsPerTry = new CopyOnWriteArrayList<>();
+        List<Map<String, String>> fieldsPerTry = new CopyOnWriteArrayList<>();
         DefaultCamelContext camel = new DefaultCamelContext();
         camel.addRoutes(new LayerOneRouteBuilder(send -> {
-            idsPerTry.add(MDC.get(CorrelationContext.CORRELATION_ID));
-            if (idsPerTry.size() == 1) {
+            fieldsPerTry.add(MDC.getCopyOfContextMap());
+            if (fieldsPerTry.size() == 1) {
                 throw new TargetFaultException.TransientFaultException("the target blinked");
             }
         }, (deliveryId, layer, outcome, startedAt, finishedAt, detail) -> { },
@@ -101,28 +106,40 @@ class StageCorrelationContainerTest {
                 new LayerOneWaits(2, Duration.ofMillis(1), Duration.ofSeconds(5))));
         camel.start();
         try (Wire deliver = new Wire(); ProducerTemplate producer = camel.createProducerTemplate()) {
-            deliver.send(delivery, "delivery.due", deliverHeader);
-            StageConsumer stage = deliver.stage(rowOfTenantA(), (record, tenantId) -> producer.sendBody(
+            deliver.send(delivery.get(), "delivery.due", deliverHeader);
+            StageConsumer stage = deliver.stage(db.protectedRows(), (record, tenantId) -> producer.sendBody(
                     LayerOneRouteBuilder.LAYER_ONE_SEND,
                     new Stage2Send(record.id(), UUID.randomUUID(), "key-1", UUID.randomUUID(), false)));
-            drainUntil(stage, () -> idsPerTry.size() == 2);
+            drainUntil(stage, () -> fieldsPerTry.size() == 2);
         } finally {
             camel.stop();
         }
-        assertThat(idsPerTry).as("the target call's first try and its redelivery")
-                .containsExactly(CORRELATION_ID, CORRELATION_ID);
+        assertThat(fieldsPerTry).as("the target call's first try and its redelivery").hasSize(2)
+                .allSatisfy(fields -> assertThat(fields)
+                        .containsEntry(CorrelationContext.CORRELATION_ID, CORRELATION_ID)
+                        .containsEntry(CorrelationContext.TENANT_ID, StageFixture.TENANT_A.toString())
+                        .containsEntry(CorrelationContext.DELIVERY_ID, delivery.get().toString()));
     }
 
-    /** What stage 1 does for a routed message: the delivery.due outbox append, in the tenant-stamped transaction. */
-    private void appendDeliveryDue(UUID delivery) {
+    /**
+     * Stage 1's write for a routed message as production runs it: the fan-out insert through
+     * {@link JdbcStage1Deliveries} - one PENDING delivery and its {@code delivery.due} outbox row - in the
+     * tenant-stamped transaction. The route and target ids carry no foreign key; the journey is under proof.
+     * Returns the new delivery's id.
+     */
+    private UUID stageOneWrite(UUID message, UUID tenant) {
         try (Connection connection = db.app()) {
             SingleConnectionDataSource app = new SingleConnectionDataSource(connection, true);
             JdbcClient jdbc = JdbcClient.create(app);
-            new TransactionTemplate(new DataSourceTransactionManager(app)).executeWithoutResult(status -> {
+            return new TransactionTemplate(new DataSourceTransactionManager(app)).execute(status -> {
                 jdbc.sql("select set_config('app.tenant_id', :tenant, true)")
-                        .param("tenant", StageFixture.TENANT_A.toString()).query().singleValue();
-                new JdbcOutboxWriter(jdbc, () -> Optional.of(StageFixture.TENANT_A)).append(new OutboxEntry(
-                        OutboxTopic.DELIVERY_DUE, delivery, "delivery:" + delivery, null, null));
+                        .param("tenant", tenant.toString()).query().singleValue();
+                new JdbcStage1Deliveries(new JdbcDeliveryRepository(jdbc, () -> Optional.of(tenant)))
+                        .insertPerRoute(List.of(new Stage1Delivery(message, UUID.randomUUID(), Instant.now(),
+                                UUID.randomUUID(), null, null)));
+                return jdbc.sql("select id from public.delivery where message_id = :message::uuid")
+                        .param("message", message.toString()).query((row, n) -> row.getObject(1, UUID.class))
+                        .single();
             });
         } catch (java.sql.SQLException e) {
             throw new IllegalStateException(e);
@@ -139,21 +156,6 @@ class StageCorrelationContainerTest {
                 return stored.getString(1);
             }
         }
-    }
-
-    /** The deliver stage's row lookup is E9 stage 2's (a delivery row of tenant A); the journey is under proof. */
-    private static StageConsumer.ProtectedRows rowOfTenantA() {
-        return new StageConsumer.ProtectedRows() {
-            @Override
-            public UUID tenantFor(WorkKind kind, UUID id) {
-                return StageFixture.TENANT_A;
-            }
-
-            @Override
-            public boolean visibleTo(UUID tenantId, WorkKind kind, UUID id) {
-                return true;
-            }
-        };
     }
 
     private static void drainUntil(StageConsumer stage, java.util.function.BooleanSupplier done) throws Exception {

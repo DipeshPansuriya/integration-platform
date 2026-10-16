@@ -218,8 +218,16 @@ class IntakeCommitContainerTest {
     @DisplayName("the inbound traceparent rides the outbox row; the accepted log line carries correlation, tenant and message ids")
     void theInboundTraceparentRidesTheOutboxRowAndTheAcceptedLogLine() throws SQLException {
         String inbound = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        // each line's log fields are read as it is written, inside the journey: logback reads an event's MDC lazily
+        // (ListAppender only stores the event), and the journey has closed by the time the assertions run
         ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> lines =
-                new ch.qos.logback.core.read.ListAppender<>();
+                new ch.qos.logback.core.read.ListAppender<>() {
+                    @Override
+                    protected void append(ch.qos.logback.classic.spi.ILoggingEvent line) {
+                        line.prepareForDeferredProcessing();
+                        super.append(line);
+                    }
+                };
         lines.start();
         ch.qos.logback.classic.Logger intakeLog =
                 (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(IntakeService.class);
