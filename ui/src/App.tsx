@@ -134,12 +134,33 @@ export function App() {
   });
 
   useEffect(() => {
+    // T125 (B12 back-history): a Back/Forward traversal fires popstate immediately before its
+    // hashchange; a link move, a Leave or a typed address fires hashchange alone. A back-triggered
+    // leave must NOT replaceState the entry the user just landed on - that rewrites (destroys) it
+    // and the next Back skips a page. The entry still exists one step back, so the editor is
+    // restored by moving FORWARD again; the traversal that restoration causes is swallowed (the
+    // screen and its edits never left, so it must not re-route or re-confirm).
+    let popped = false;
+    let restoring = false;
+    const onPopState = () => { popped = true; };
     const onHashChange = (event: HashChangeEvent) => {
+      const wasPop = popped;
+      popped = false;
+      if (restoring) {
+        restoring = false; // this is the history.go(1) below arriving back on the editor's own entry
+        return;
+      }
       const editor = editorGuard.current;
       const move = hashMove(event.oldURL, event.newURL, editor ? editor.state() : null);
       if (move.kind === 'confirm' && editor) {
-        // Keep the editor and put the address back on the flow (no new entry, no second hashchange).
-        window.history.replaceState(null, '', move.restore);
+        if (wasPop) {
+          restoring = true;
+          window.history.go(1); // return onto the still-existing flow entry; the landed one survives
+        } else {
+          // A push (typed address): the flow's entry stays where it is and the new entry goes back
+          // on the flow (no second hashchange).
+          window.history.replaceState(null, '', move.restore);
+        }
         editor.confirm(move.leaveTo);
         return;
       }
@@ -147,7 +168,11 @@ export function App() {
       setRouteSeq((seq) => seq + 1);
     };
     window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('popstate', onPopState);
+    };
   }, []);
 
   function checkSession() {
