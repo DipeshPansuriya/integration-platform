@@ -299,6 +299,12 @@ class TargetCredentialContainerTest {
                 "{\"fieldMappings\":[],\"compiledExpression\":\"$\",\"sourceContractVersionId\":\""
                         + sourceVersion + "\",\"targetContractVersionId\":\"" + targetVersionId + "\"}")
                 .status()).isEqualTo(200);
+        // T-037: publish is gated on a passing sample run of the pinned mapping content - the author runs it.
+        String mappingId = scalar("SELECT id::text FROM public.mapping WHERE route_id = ?::uuid", routeId);
+        Response sampleRun = call(port, "POST", "/api/v1/admin/mappings/" + mappingId + "/test", author,
+                "{\"sample\":{\"customerId\":\"c-1\"}}");
+        assertThat(sampleRun.status()).as(sampleRun.body()).isEqualTo(200);
+        assertThat(sampleRun.json().path("status").asString()).as(sampleRun.body()).isEqualTo("OK");
         assertThat(call(port, "PUT", "/api/v1/admin/flows/" + flowId, author, "{\"sourceSystem\":\"" + sourceCode
                 + "\",\"destinations\":[\"" + targetCode + "\"],\"businessKeyRule\":\"$.orderId\"}")
                 .status()).isEqualTo(200);

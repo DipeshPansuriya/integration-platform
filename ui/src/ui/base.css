@@ -1,0 +1,506 @@
+/*
+ * T78 lane F — base primitives + app shell (02-style-guide v3 execution values;
+ * 00-§2 nav model). Every colour traces to a --color-* token in tokens.css.
+ * Floors enforced here: 2px focus-visible ring on every interactive element,
+ * 12.5px type floor, worded badges (status never colour-alone), 150ms motion
+ * disabled under prefers-reduced-motion. Per-screen classes are the screen
+ * lanes' work — nothing screen-specific belongs in this file.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Focus: blue ring + soft halo, same geometry in both themes --- */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* --- Motion: 150ms colour/position transitions, off under reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+/* Theme flip: App.tsx sets .theme-switching on <html> for one frame around the
+   data-theme change, so no colour tweens from the old theme's value (row 310 T85:
+   nav labels showed light ink over the dark surface mid-transition). */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
+
+/* --- Buttons --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-2);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--tr), border-color var(--tr), color var(--tr), filter var(--tr);
+}
+.btn:hover {
+  border-color: var(--color-border-strong);
+}
+.btn-primary {
+  background: var(--color-accent);
+  border-color: transparent;
+  color: #ffffff; /* 5.17:1 on light accent, measured (01 §1) */
+  box-shadow: var(--shadow-btn);
+}
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+}
+/* Dark (row 310 T90): white on the dark accent #3b82f6 is only 3.68:1, so the fill takes the
+   dark accent-hover #2563eb (5.17:1) - same as the T89 submit default - and hovers darker. */
+[data-theme="dark"] .btn-primary {
+  background: var(--color-accent-hover);
+}
+[data-theme="dark"] .btn-primary:hover {
+  filter: brightness(0.9);
+}
+.btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
+  border-radius: var(--r-1);
+}
+
+/* --- Badges: the word is the carrier; colour only repeats the status --- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.badge::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor; /* dot repeats what the word already says */
+}
+.badge-success {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+.badge-warn {
+  background: var(--color-warn-bg);
+  color: var(--color-warn-text);
+}
+.badge-info {
+  background: var(--color-accent-faint);
+  color: var(--color-accent-faint-ink);
+}
+.badge-danger {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}
+.badge-neutral {
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-text);
+}
+
+/* --- Tables: one strong header rule, hairline rows, quiet cells --- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+}
+.table th {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border-strong); /* the one strong header rule */
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--color-ink-muted);
+}
+.table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+  line-height: 1.4;
+  height: 40px;
+}
+.table td.num,
+.table time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- App shell (00-§2) --- */
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--topbar-h);
+  padding: 0 var(--space-4);
+  background: var(--color-glass);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+[data-theme="dark"] .topbar {
+  backdrop-filter: blur(10px); /* dark glass panels (02 v3) */
+}
+.brand {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-pill);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-ink-muted);
+  background: var(--color-surface);
+  font-variant-numeric: tabular-nums;
+}
+.account {
+  position: relative;
+}
+.account-summary {
+  cursor: pointer;
+  list-style: none;
+}
+.account-summary::-webkit-details-marker {
+  display: none;
+}
+.account .menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 180px;
+  padding: var(--space-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-1);
+  box-shadow: var(--shadow-1);
+}
+.account .menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.account .menu button:hover {
+  background: var(--color-accent-faint);
+  color: var(--color-accent-faint-ink);
+}
+
+.shell-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.sidenav {
+  width: var(--nav-w);
+  padding: var(--space-4) var(--space-3);
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  transition: width var(--tr);
+  overflow: hidden;
+  flex: none;
+}
+.shell-collapsed .sidenav {
+  width: var(--nav-w-collapsed);
+}
+.shell-collapsed .topbar .brand,
+.shell-collapsed .nav-title,
+.shell-collapsed .nav-label {
+  display: none;
+}
+.nav-group + .nav-group {
+  margin-top: var(--space-5);
+}
+.nav-title {
+  margin: 0 0 var(--space-1);
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-ink-faint);
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: var(--r-1);
+  color: var(--color-ink-muted);
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--tr), color var(--tr);
+}
+.nav-item:hover {
+  background: var(--color-accent-soft);
+  color: var(--color-ink);
+}
+.nav-item-active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-faint-ink);
+  font-weight: 500;
+  box-shadow: inset 2px 0 0 var(--color-accent); /* the 2px accent bar (00-§2) */
+}
+/* Collapsed rail: icon (initial mark) + tooltip via title */
+.shell-collapsed .nav-item::before {
+  content: attr(data-initial);
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-faint-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.shell-collapsed .nav-item {
+  padding: 5px 5px;
+  justify-content: center;
+}
+.shell-collapsed .nav-item-active {
+  justify-content: flex-start;
+}
+
+/* --- Content column --- */
+.content {
+  flex: 1;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-5);
+  min-width: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .content > :first-child {
+    animation: none; /* no entrance animations (01 §3) */
+  }
+}
+
+/* --- Element defaults for pages not yet redesigned (row 310 T89) ---
+   Bare label/input/select/textarea/button/table/h1/h2 inside the content column
+   get the token look. Every selector is wrapped in :where() - zero specificity -
+   so any wave 2-4 page class (or .btn/.table) overrides it without a fight. The
+   third-party subtrees keep their own styling: jdm decision table
+   ([data-decision-table]), xyflow canvas ([data-canvas]), CodeMirror (.raw-expression). */
+:where([data-theme="dark"]) {
+  color-scheme: dark; /* native checkbox, select popup and scrollbars follow the theme */
+}
+:where(main.content) :where([hidden]) {
+  display: none !important; /* the defaults below set display; [hidden] must still hide */
+}
+:where(main.content) :where(h1, h2) {
+  margin: 0 0 var(--space-4);
+  font-size: 20px; /* page title (01 §2.1) - pages use h1 or h2 for it */
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+:where(main.content) :where(label):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  display: flex;
+  flex-direction: column; /* label text above its field; the field stretches to the label */
+  gap: 6px;
+  max-width: 520px;
+  margin: 0 0 var(--space-4);
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 500;
+}
+:where(main.content) :where(label:has(> input[type="checkbox"], > input[type="radio"])):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+:where(main.content) :where(input[type="checkbox"], input[type="radio"]):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+:where(main.content) :where(input:not([type="checkbox"], [type="radio"], [type="hidden"]), select, textarea):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border-control); /* >= 3:1 boundary, WCAG 1.4.11 (row 310 T90) */
+  border-radius: var(--r-1);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+  transition: border-color var(--tr);
+}
+:where(main.content) :where(input:not([type="checkbox"], [type="radio"], [type="hidden"]), select, textarea):where(:hover):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  /* ponytail: hover reuses ink-faint (>= 4.5:1, pinned) - border-strong is 1.93-2.56:1, below 1.4.11 */
+  border-color: var(--color-ink-faint);
+}
+:where(main.content) :where(input:not([type="checkbox"], [type="radio"], [type="hidden"]), select, textarea):where(:focus):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  border-color: var(--color-accent); /* plus the global 2px focus-visible ring */
+}
+:where(main.content) :where(textarea):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  min-height: 8rem;
+  resize: vertical;
+  font-family: var(--font-mono); /* payloads and schemas are mono (01 §2.1) */
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+:where(main.content) :where(input, textarea):not(:where([data-decision-table], [data-canvas], .raw-expression) *)::placeholder {
+  color: var(--color-ink-faint);
+  opacity: 1;
+}
+/* row 310 T90b: bare links took the browser default blue (fails on the dark surface).
+   Author colour beats the UA :visited colour, so visited links stay on the token too. */
+:where(main.content) :where(a):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  color: var(--color-link);
+  text-decoration: none;
+}
+:where(main.content) :where(a):where(:hover):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  text-decoration: underline; /* hover is shown by the underline, not a second colour */
+}
+:where(main.content) :where(fieldset):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  max-width: 560px;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-2);
+}
+:where(main.content) :where(legend):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  padding: 0 var(--space-1);
+  color: var(--color-ink-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+:where(main.content) :where(button):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  padding: 7px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-2);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background-color var(--tr), border-color var(--tr), filter var(--tr);
+}
+:where(main.content) :where(button):where(:hover):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  border-color: var(--color-border-strong);
+}
+:where(main.content) :where(button[disabled]):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* Spacing on Contracts and Versions is page-level, not here: the .btn + .btn and
+   .btn + .contracts-note-group margins plus the .contracts-note-group inline-flex gap
+   (contracts.css), and the flex gap of .versions-actions (flows.css). row 310 B9 added a
+   bare-button sibling margin on Contracts (change note + Submit); B15 scoped it to that page
+   because elsewhere (Mappings "Link" + "Save", Systems "Open" + "Test") the buttons were
+   already spaced and the margin added a second gap. Both are gone now: every Contracts
+   control-adjacent button carries .btn and the form's only class-less submit follows a
+   <label>, not a control, so nothing matched the rule - removed as dead. */
+/* type=submit is the one primary marker the pages already carry. */
+:where(main.content) :where(button[type="submit"]):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  border-color: transparent;
+  background: var(--color-accent);
+  color: #ffffff; /* 5.17:1 on light accent */
+  box-shadow: var(--shadow-btn);
+}
+:where(main.content) :where(button[type="submit"]):where(:hover):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  background: var(--color-accent-hover);
+}
+/* Dark: white on the dark accent #3b82f6 is only 3.68:1, so the primary fill takes the
+   dark accent-hover #2563eb (5.17:1) and hovers by brightness, not a lighter blue. */
+:where([data-theme="dark"] main.content) :where(button[type="submit"]):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  background: var(--color-accent-hover);
+}
+:where([data-theme="dark"] main.content) :where(button[type="submit"]):where(:hover):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  filter: brightness(0.9);
+}
+:where(main.content) :where(table):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  margin: 0 0 var(--space-4);
+  border-collapse: collapse;
+  background: var(--color-surface);
+  font-size: 13px;
+}
+:where(main.content) :where(th):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border-strong); /* the one strong header rule */
+  color: var(--color-ink-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  white-space: nowrap;
+}
+:where(main.content) :where(td):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+:where(main.content) :where(td) :where(input, button):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  font-size: 13px; /* controls inside table rows follow the 13px table body (01 §2.1) */
+}

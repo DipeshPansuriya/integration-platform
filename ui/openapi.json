@@ -1085,6 +1085,65 @@
         ]
       }
     },
+    "/api/v1/admin/flows/{flowId}/routes": {
+      "get": {
+        "operationId": "routes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "flowId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "versionId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER: the bearer resolves to no directory user"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the flow, or the named version of it, is not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "flow-admin-controller"
+        ]
+      }
+    },
     "/api/v1/admin/flows/{flowId}/rule-sets": {
       "get": {
         "operationId": "listRuleSets",
@@ -1484,6 +1543,140 @@
         },
         "tags": [
           "lookup-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/mappings/{id}/test": {
+      "post": {
+        "operationId": "test",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The sample ran; status is OK, ERROR or MAPPING_TIMEOUT"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Validation refusal: the mandatory sample is missing"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER: the bearer resolves to no directory user"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the mapping is unknown, not a uuid, or not visible to the bound tenant"
+          }
+        },
+        "tags": [
+          "mapping-test-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/queue/summary": {
+      "get": {
+        "operationId": "summary",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "flowId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "A bad query value (a flowId that is not a uuid, a non-ISO date)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: the figures are message-timeline reads"
+          }
+        },
+        "tags": [
+          "queue-summary-controller"
         ]
       }
     },
@@ -2559,7 +2752,7 @@
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:65230"
+      "url": "http://127.0.0.1:50975"
     }
   ]
 }

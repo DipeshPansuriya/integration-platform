@@ -74,6 +74,9 @@ class ApiOperationRulesCompletenessTest {
                 Map.entry("POST /api/v1/admin/flows/{flowId}/submit", Operation.SUBMIT_FOR_APPROVAL),
                 Map.entry("POST /api/v1/admin/flows/{flowId}/approve", Operation.APPROVE_VERSION),
                 Map.entry("POST /api/v1/admin/flows/{flowId}/publish", Operation.PUBLISH_VERSION),
+                // F10-narrow lane D (row278 plan step 8): the queue summary is a read of message/delivery
+                // state, so it rides the same operation the message timeline reads on
+                Map.entry("GET /api/v1/admin/queue/summary", Operation.READ_MESSAGE_TIMELINE),
                 Map.entry("POST /api/v1/admin/contracts/versions", Operation.EDIT_CONFIGURATION),
                 Map.entry("GET /api/v1/admin/contracts/versions/{versionId}", Operation.READ_CONFIGURATION),
                 Map.entry("POST /api/v1/admin/contracts/versions/{versionId}/submit", Operation.SUBMIT_FOR_APPROVAL)));

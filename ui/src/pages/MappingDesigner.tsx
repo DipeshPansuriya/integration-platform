@@ -14,6 +14,11 @@ import {
   emptyGraph, parseSavedMapping, schemaPaths, targetRefusal, toSaveRequest
 } from '../mapping/graph';
 import { applyExpressionEdit as applyRawEdit } from '../mapping/expression/raw';
+import { emitJsonata } from '../mapping/emit/emit';
+import { MappingRoutes } from '../mapping/MappingRoutes';
+import { MappingSamplePanel } from '../mapping/MappingSamplePanel';
+import { saveRefusal } from '../mapping/saveRefusal';
+import '../mapping/mapping.css';
 import type { FieldSchema, MappingGraph, SavedMappingAnswer } from '../mapping/graph';
 import type { CanvasSelected } from '../mapping/MappingCanvas';
 
@@ -43,6 +48,16 @@ const refusalOf = (error: unknown): string => {
   return body?.message ?? JSON.stringify(body ?? 'the mapping could not be saved');
 };
 
+/** The drawn links ARE the mapping (emit.ts, ADR-004 rule 3): a link edit re-emits the expression the
+ * save stores, so "Run sample" runs what was drawn. A refused emission (one target drawn twice) keeps
+ * the previous expression and names the refusal. */
+const withEmitted = (next: MappingGraph): { graph: MappingGraph; refusal: string | null } => {
+  const emitted = emitJsonata(next.links);
+  return emitted.refusal
+    ? { graph: next, refusal: emitted.refusal }
+    : { graph: { ...next, expression: emitted.expression }, refusal: null };
+};
+
 const loadVersion = async (versionId: string) => {
   const { data } = await api.GET('/api/v1/admin/contracts/versions/{versionId}', {
     params: { path: { versionId } }
@@ -59,6 +74,9 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
   const [selected, setSelected] = useState<CanvasSelected>({ source: null, target: null });
   const [refusal, setRefusal] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // T92: the sample runs the SAVED mapping - its id, and whether the drawing has unsaved edits.
+  const [mappingId, setMappingId] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +85,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
       return;
     }
     setLoaded(false);
+    setDirty(false);
     Promise.all([
       api.GET('/api/v1/admin/routes/{routeId}/mapping', { params: { path: { routeId } } }),
       api.GET('/api/v1/admin/contracts')
@@ -78,6 +97,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
         return;
       }
       const savedAnswer = (mapping.data ?? {}) as SavedMappingAnswer;
+      setMappingId(savedAnswer.mappingId ?? null);
       setGraph(parseSavedMapping(savedAnswer));
       // Re-render exactly as left: the two trees come from exactly the bound contract versions.
       if (savedAnswer.sourceContractVersionId || savedAnswer.targetContractVersionId) {
@@ -119,6 +139,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
    * other side's tree, and already drawn links stay (the save guard refuses stale ones). */
   const bindSide = async (side: 'sourceContractVersionId' | 'targetContractVersionId', versionId: string) => {
     setSaved(false);
+    setDirty(true);
     const schema = versionId ? (await loadVersion(versionId))?.jsonSchema ?? null : null;
     setTargetSchema((current) => (side === 'targetContractVersionId' ? schema : current));
     setGraph((current) => ({
@@ -141,28 +162,47 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
   const drawLink = () => {
     if (!selected.source || !selected.target) return;
     setSaved(false);
+    setDirty(true);
     const { graph: next, refusal: refused } = addLinkToGraph(graph, selected.source, selected.target);
-    setGraph(next);
-    setRefusal(refused); // named field (the target contract does not have it) or null
+    if (refused) {
+      setRefusal(refused); // named field (the target contract does not have it)
+      return;
+    }
+    const emitted = withEmitted(next);
+    setGraph(emitted.graph);
+    setRefusal(emitted.refusal);
   };
 
   const changeTarget = (id: string, target: string) => {
     setSaved(false);
+    setDirty(true);
     const { graph: next, refusal: refused } = changeLinkOnGraph(graph, id, { target });
-    setGraph(next);
-    setRefusal(refused);
+    if (refused) {
+      setGraph(next);
+      setRefusal(refused);
+      return;
+    }
+    const emitted = withEmitted(next);
+    setGraph(emitted.graph);
+    setRefusal(emitted.refusal);
   };
 
   const removeLink = (id: string) => {
     setSaved(false);
-    setGraph(deleteLinkFromGraph(graph, id));
-    setRefusal(null);
+    setDirty(true);
+    const emitted = withEmitted(deleteLinkFromGraph(graph, id));
+    setGraph(emitted.graph);
+    setRefusal(emitted.refusal);
   };
 
   // T-039: a raw-expression edit lands back through applyExpressionEdit - a $round edit (ADR-006
   // rule 8: money rounding never via $round) is refused here and shown with the rule named.
   const editExpression = (text: string) => {
+    // The editor echoes every programmatic sync (load, save, re-emit) through onEdit with the same
+    // text - only a real edit marks the drawing unsaved.
+    if (text === graph.expression) return;
     setSaved(false);
+    setDirty(true);
     const { graph: next, refusal: refused } = applyRawEdit(graph, text);
     setGraph(next);
     setRefusal(refused);
@@ -183,6 +223,12 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
         return;
       }
     }
+    // T57: while the emitter refuses the drawn links the expression is the previous one - never PUT it.
+    const drawnRefusal = saveRefusal(graph);
+    if (drawnRefusal) {
+      setRefusal(drawnRefusal);
+      return;
+    }
     setRefusal(null);
     const { data, error } = await api.PUT('/api/v1/admin/routes/{routeId}/mapping', {
       params: { path: { routeId } },
@@ -194,6 +240,8 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
         sourceFields: graph.sourceFields,
         targetFields: graph.targetFields
       });
+      setMappingId((data as SavedMappingAnswer).mappingId ?? mappingId);
+      setDirty(false);
       setSaved(true); // stored for this pair only; re-renders exactly as it was left
     } else {
       setRefusal(refusalOf(error));
@@ -203,16 +251,29 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
   const sourceOptions = versions.filter((v) => v.role === 'SOURCE_REQUEST');
   const targetOptions = versions.filter((v) => v.role === 'TARGET_REQUEST' && v.status === 'APPROVED');
 
+  const unbound = graph.sourceFields.length === 0 && graph.targetFields.length === 0;
+  // 10-screens s8: the same empty state for an unknown route and a route with nothing drawn yet - the
+  // route's existence is never leaked (a 404 is also another tenant's answer, ADR-011 Decision 4).
+  const emptyState = (
+    <p className="mapping-empty">
+      This route has no mapping yet. Bind the two contract versions and draw the first link.
+    </p>
+  );
+
   return (
-    <main data-page="mapping-designer" data-mapping-loaded={loaded ? 'true' : undefined}>
-      <h2>Mapping designer</h2>
-      {missing && <p data-mapping-missing="true">No mapping for this route.</p>}
+    <div data-page="mapping-designer" data-mapping-loaded={loaded ? 'true' : undefined} className="mapping-page">
+      <div className="mapping-head">
+        <h2>Mapping designer</h2>
+        {routeId && <a href="#/mappings" data-action="all-mappings">All mappings</a>}
+      </div>
       {routeId ? (
         missing ? (
-          <p>Open a mapping from its route.</p>
+          <section className="mapping-card mapping-canvas-card" aria-label="Mapping canvas" data-mapping-missing="true">
+            {emptyState}
+          </section>
         ) : (
           <>
-            <p>
+            <div className="mapping-card mapping-bind">
               <label>
                 Source contract version{' '}
                 <select
@@ -227,7 +288,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
                     </option>
                   ))}
                 </select>
-              </label>{' '}
+              </label>
               <label>
                 Target contract version{' '}
                 <select
@@ -243,69 +304,109 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
                   ))}
                 </select>
               </label>
-            </p>
-            <Suspense fallback={<p data-canvas-loading="true">Loading the mapping canvas...</p>}>
-              <MappingCanvas graph={graph} selected={selected} onNodeSelect={selectNode} />
-            </Suspense>
-            <p>
-              <button
-                type="button"
-                data-action="add-link"
-                onClick={drawLink}
-                disabled={!selected.source || !selected.target}
-              >
-                Link selected source to selected target
-              </button>{' '}
-              <button type="button" data-action="save" onClick={() => void save()} disabled={!routeId}>
-                Save
-              </button>
-            </p>
-            <p data-selection={`source:${selected.source ?? '-'} target:${selected.target ?? '-'}`}>
-              {refusal && <span data-refusal>{refusal}</span>}
-              {!refusal && saved && <span data-saved="true">Mapping saved.</span>}
-            </p>
-            <table>
-              <caption>Drawn links (the drawing, per interface-target pair)</caption>
-              <thead>
-                <tr>
-                  <th>Source field</th>
-                  <th>Target field</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {graph.links.map((link) => (
-                  <tr key={link.id} data-link-row={`${link.source}->${link.target}`}>
-                    <td>
-                      <input data-field="link-source" value={link.source} readOnly />
-                    </td>
-                    <td>
-                      <input
-                        data-field="link-target"
-                        value={link.target}
-                        onChange={(e) => changeTarget(link.id, e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <button type="button" data-action="delete-link" onClick={() => removeLink(link.id)}>
-                        Delete
-                      </button>
-                    </td>
+            </div>
+            <section className="mapping-card mapping-canvas-card" aria-label="Mapping canvas">
+              <div className="mapping-canvas-legend" aria-hidden="true">
+                <span>Source fields</span>
+                <span>Target fields</span>
+              </div>
+              {unbound && graph.links.length === 0 ? (
+                emptyState
+              ) : (
+                <Suspense fallback={<p className="mapping-empty" data-canvas-loading="true">Loading the mapping canvas...</p>}>
+                  <MappingCanvas graph={graph} selected={selected} onNodeSelect={selectNode} />
+                </Suspense>
+              )}
+              <div className="mapping-actions">
+                <p
+                  className="mapping-selection"
+                  data-selection={`source:${selected.source ?? '-'} target:${selected.target ?? '-'}`}
+                >
+                  Source <span className="mapping-mono">{selected.source ?? 'none'}</span> {'→'} target{' '}
+                  <span className="mapping-mono">{selected.target ?? 'none'}</span>
+                </p>
+                <button
+                  type="button"
+                  className="btn"
+                  data-action="add-link"
+                  onClick={drawLink}
+                  disabled={!selected.source || !selected.target}
+                >
+                  Link selected fields
+                </button>
+                <button type="button" className="btn btn-primary" data-action="save" onClick={() => void save()} disabled={!routeId}>
+                  Save
+                </button>
+                <div className="mapping-actions-note">
+                  {refusal && (
+                    <p role="alert" className="mapping-alert mapping-alert-danger" data-refusal>
+                      {refusal}
+                    </p>
+                  )}
+                  {!refusal && saved && (
+                    <p role="status" className="mapping-alert mapping-alert-success" data-saved="true">
+                      Mapping saved.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+            <div className="mapping-grid">
+              <table className="table">
+                <caption>Drawn links (the drawing, per interface-target pair)</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Source field</th>
+                    <th scope="col">Target field</th>
+                    <th scope="col">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            <p>
-              <label>Raw expression (JSONata - typed, ADR-006)</label>
-            </p>
-            <Suspense fallback={<p data-raw-loading="true">Loading the raw expression editor...</p>}>
-              <RawExpressionEditor graph={graph} onEdit={editExpression} />
-            </Suspense>
+                </thead>
+                <tbody>
+                  {graph.links.map((link) => (
+                    <tr key={link.id} data-link-row={`${link.source}->${link.target}`}>
+                      <td>
+                        <input data-field="link-source" value={link.source} readOnly aria-label={`Source field of link ${link.source}`} />
+                      </td>
+                      <td>
+                        <input
+                          data-field="link-target"
+                          value={link.target}
+                          aria-label={`Target field of link from ${link.source}`}
+                          onChange={(e) => changeTarget(link.id, e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <button type="button" className="btn" data-action="delete-link" onClick={() => removeLink(link.id)}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {graph.links.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="mapping-muted">No links drawn yet.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <MappingSamplePanel mappingId={mappingId} dirty={dirty} />
+            <div className="mapping-card">
+              <p>
+                <label>Raw expression (JSONata - typed, ADR-006)</label>
+              </p>
+              <Suspense fallback={<p className="mapping-muted" data-raw-loading="true">Loading the raw expression editor...</p>}>
+                <RawExpressionEditor graph={graph} onEdit={editExpression} />
+              </Suspense>
+            </div>
           </>
         )
       ) : (
-        <p>Open a mapping from its route.</p>
+        <>
+          <p className="mapping-lede">Each route of an interface has one mapping: a source contract version bound to the target version.</p>
+          <MappingRoutes />
+        </>
       )}
-    </main>
+    </div>
   );
 }

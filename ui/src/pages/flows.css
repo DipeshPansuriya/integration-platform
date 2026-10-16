@@ -1,0 +1,264 @@
+/* Row 310 lane B (T88): Flows list landing, flow editor (2-pane form, sticky actions) and
+   Versions (table + lifecycle panel), 10-screens §3/§4. Tokens only (tokens.css); base.css owns
+   .btn / .badge / .table. Every rule is scoped under the three page roots. */
+
+.flows-page .flows-head,
+.versions-page .flows-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-4); /* B15: the title's space below moves here, so the head centres on the title */
+}
+:is(.flows-page, .versions-page) .flows-head h2 {
+  margin: 0;
+}
+
+:is(.flows-page, .versions-page) .flows-muted {
+  color: var(--color-ink-muted);
+  font-size: 13px;
+  margin: var(--space-1) 0;
+}
+
+:is(.flows-page, .versions-page) .flows-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+:is(.flows-page, .versions-page) .flows-mono {
+  font-family: var(--font-mono);
+}
+
+/* alerts: worded, never colour alone */
+:is(.flows-page, .versions-page) .flows-alert {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid;
+  border-radius: var(--r-2);
+  margin: var(--space-3) 0;
+}
+:is(.flows-page, .versions-page) .flows-alert p {
+  margin: 0;
+}
+:is(.flows-page, .versions-page) .flows-alert-danger {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-text);
+  color: var(--color-danger-text);
+}
+:is(.flows-page, .versions-page) .flows-alert-success {
+  background: var(--color-success-bg);
+  border-color: var(--color-success-text);
+  color: var(--color-success-text);
+}
+:is(.flows-page, .versions-page) .flows-alert-info {
+  background: var(--color-accent-faint);
+  border-color: var(--color-accent-faint-ink);
+  color: var(--color-accent-faint-ink);
+}
+:is(.flows-page, .versions-page) .flows-alert-warn {
+  background: var(--color-warn-bg);
+  border-color: var(--color-warn-text);
+  color: var(--color-warn-text);
+}
+:is(.flows-page, .versions-page) .flows-alert-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+:is(.flows-page, .versions-page) .flows-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--r-3);
+  background: var(--color-surface);
+}
+
+/* worklist table (style guide §8) */
+:is(.flows-page, .versions-page) .flows-grid {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-1);
+  overflow-x: auto;
+}
+:is(.flows-page, .versions-page) .flows-grid .table {
+  width: 100%;
+}
+.flows-page .flows-row,
+.versions-page tr[data-flow-row] {
+  cursor: pointer;
+}
+.flows-page .flows-row:hover,
+.versions-page tr[data-flow-row]:hover {
+  background: var(--color-neutral-bg);
+}
+/* B14: selected = aria-current (AT) + tint + bold name + inset bar - never colour alone */
+.versions-page tr[aria-current='true'] {
+  background: var(--color-accent-faint);
+}
+.versions-page tr[aria-current='true'] > td:first-child {
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+.versions-page tr[data-flow-row]:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.flows-page .flows-filter {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin: var(--space-3) 0;
+}
+.flows-page .flows-filter label {
+  margin: 0; /* B15: base.css label margin pushed Clear 8px below the input */
+}
+.flows-page .flows-filter input {
+  min-width: 16rem;
+}
+
+/* editor: two columns at desktop, stacked under 1000px */
+.flows-page .flow-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+@media (max-width: 1000px) {
+  .flows-page .flow-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+:is(.flows-page, .versions-page) .flows-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-3);
+  background: var(--color-surface);
+  padding: var(--space-3) var(--space-4);
+  margin: 0 0 var(--space-4);
+  min-width: 0;
+}
+.flows-page legend {
+  font-weight: 600;
+  padding: 0 var(--space-1);
+}
+:is(.flows-page, .versions-page) .flows-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+}
+/* B15: a hint belongs to the field above it - 4px to it, 12px before the next field */
+.flows-page .flows-field:has(+ .flows-muted) {
+  margin-bottom: 0;
+}
+.flows-page .flows-field + .flows-muted {
+  margin: var(--space-1) 0 var(--space-3);
+}
+.flows-page .flows-field textarea {
+  font-family: var(--font-mono);
+}
+.flows-page .flows-error {
+  color: var(--color-danger-text);
+  font-size: 13px;
+  margin: 0 0 var(--space-2);
+}
+/* B15: the row owns the vertical margin, so flex-end lines Remove up with the input bottom (0px) */
+.flows-page .flow-destination {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+.flows-page .flow-destination .flows-field {
+  flex: 1;
+  margin: 0;
+}
+
+.flows-page .flow-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) 0;
+  background: var(--color-canvas);
+  border-top: 1px solid var(--color-border);
+}
+.flows-page .flow-actions .flows-alert {
+  margin: 0;
+  margin-inline-end: auto;
+}
+
+/* versions: table + lifecycle panel */
+.versions-page .versions-zones {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 1000px) {
+  .versions-page .versions-zones {
+    grid-template-columns: 1fr;
+  }
+}
+.versions-page .versions-panel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-3);
+  background: var(--color-surface);
+  padding: var(--space-3) var(--space-4);
+}
+.versions-page .versions-panel h3 {
+  margin-top: 0;
+}
+.versions-page .versions-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-3);
+}
+.versions-page .versions-stepper li {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--color-border);
+  color: var(--color-ink-muted);
+  font-size: 13px;
+}
+.versions-page .versions-stepper li[data-step='done'] {
+  color: var(--color-ink);
+}
+.versions-page .versions-stepper li[data-step='done']::before {
+  content: '\2713 ';
+}
+.versions-page .versions-stepper li[aria-current='step'] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-faint);
+  color: var(--color-accent-faint-ink);
+  font-weight: 600;
+}
+.versions-page .versions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+.versions-page .versions-harness {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--color-border);
+}
+.versions-page .versions-ghost {
+  background: transparent;
+  box-shadow: none;
+}

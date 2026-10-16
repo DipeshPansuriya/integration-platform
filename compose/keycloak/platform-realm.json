@@ -1,6 +1,7 @@
 {
   "realm": "platform",
   "displayName": "Integration platform",
+  "loginTheme": "platform",
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": false,

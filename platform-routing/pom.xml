@@ -47,6 +47,13 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-ingest</artifactId>
     </dependency>
+    <!-- E10 narrow (T-050): the API target adapter's reads go through TenantScopedRepository (R08) - the
+         tenancy base is where its SQL must run, so the edge is named here the same way the ingest edge is.
+         No cycle: platform-tenancy imports no routing class. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-tenancy</artifactId>
+    </dependency>
     <!-- E8 lane C2 (T-191, ADR-005 Decision 12): the stage consumers' database breaker per consumer group
          (Resilience4j plain modules, version from resilience4j.version), Micrometer metrics and an observation
          (span) per consumed record, and the consumer-lag check. -->

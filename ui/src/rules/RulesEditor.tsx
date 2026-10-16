@@ -2,11 +2,16 @@
 // creates one from a flow (POST /api/v1/admin/flows/{flowId}/rule-sets, starting from the kind's starter
 // table); #/rules/<ruleSetId> authors it as decision tables in jdm-editor behind the ONE editor seam
 // (DecisionTableEditorAdapter -> ZEN JSON, ADR-003) and saves it with PUT, beside the always-visible
-// test panel. Functional and unstyled like every E3 screen (design.md section 4; the look is E19's).
+// test panel. Styled by row 310 T102 (rules-editor.css, tokens only).
 // Refusals stay visible: a malformed table names the cell and the engine's reason; another tenant's id
 // is the plain not-found state, with no hint that the row exists.
 // SELECTOR CONTRACT (lane C's e2e relies on it): [data-page="rules-editor"][data-rule-set-id],
 // [data-action="save-rule-set"], and the panel's attributes (RuleTestPanel.tsx).
+// Row 310 T102 (10-screens s7): home is a header (title + "New rule set" primary) over a flow + kind
+// filter and the rule sets table with worded kind badges; the editor keeps its two columns - settings
+// row and table cards left, the sticky "Test this rule set" card right - inside the .rules-editor
+// wrapper that carries the jdm-editor --grl-* overrides (rules-editor.css, 01-tokens s4.1). A refused
+// cell is shown above its own table; the save row links to it.
 
 import { useEffect, useMemo, useState } from 'react';
 import { listFlows, type FlowSummary } from '../api/flows';
@@ -14,8 +19,9 @@ import type { EditableTable } from './DecisionTableEditorAdapter';
 import { JdmEditorAdapter } from './jdm/JdmEditorAdapter';
 import { JdmDecisionTable } from './jdm/JdmDecisionTable';
 import { createRuleSet, listRuleSets, readRuleSet, saveRuleSet, type RuleSet, type RuleSetAnswer } from './ruleSets';
-import { KIND_LABELS, RULE_KINDS, sampleInput, starterJdm, type RuleKind } from './templates';
+import { KIND_LABELS, RULE_KINDS, kindBadge, sampleInput, starterJdm, type RuleKind } from './templates';
 import { RuleTestPanel } from './RuleTestPanel';
+import './rules-editor.css';
 
 export function RulesEditor({ ruleSetId }: { ruleSetId: string | null }) {
   return ruleSetId ? <RuleSetEditor key={ruleSetId} ruleSetId={ruleSetId} /> : <RulesHome />;
@@ -28,6 +34,9 @@ function RulesHome() {
   const [name, setName] = useState('');
   const [ruleSets, setRuleSets] = useState<RuleSet[]>([]);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [kindFilter, setKindFilter] = useState('');
+  const [creating, setCreating] = useState(false);
+  const shown = kindFilter ? ruleSets.filter((ruleSet) => ruleSet.kind === kindFilter) : ruleSets;
 
   useEffect(() => {
     void listFlows().then((result) => {
@@ -53,45 +62,104 @@ function RulesHome() {
   }
 
   return (
-    <main data-page="rules-home">
-      <h1>Rules</h1>
-      <label>
-        Flow
-        <select data-field="rule-set-flow" value={flowId} onChange={(e) => setFlowId(e.target.value)}>
-          {flows.map((flow) => (
-            <option key={flow.id} value={flow.id}>
-              {flow.name || flow.code || flow.id}
-            </option>
-          ))}
-        </select>
-      </label>
-      <ul>
-        {ruleSets.map((ruleSet) => (
-          <li key={ruleSet.id} data-rule-set-row={ruleSet.id}>
-            <a href={`#/rules/${ruleSet.id}`}>{ruleSet.name}</a> ({KIND_LABELS[ruleSet.kind as RuleKind] ?? ruleSet.kind})
-          </li>
-        ))}
-      </ul>
-      <h2>New rule set</h2>
-      <label>
-        Kind
-        <select data-field="rule-set-kind" value={kind} onChange={(e) => setKind(e.target.value as RuleKind)}>
-          {RULE_KINDS.map((k) => (
-            <option key={k} value={k}>
-              {KIND_LABELS[k]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Name
-        <input data-field="rule-set-name" value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <button type="button" data-action="create-rule-set" disabled={!flowId} onClick={() => void create()}>
-        Create
-      </button>
-      {refusal && <p data-refusal="rule-set-create">{refusal}</p>}
-    </main>
+    <div data-page="rules-home">
+      <div className="rules-home">
+        <div className="rules-head">
+          <h2>Rules</h2>
+          <button
+            type="button"
+            className="btn btn-primary"
+            data-action="new-rule-set"
+            aria-expanded={creating}
+            aria-controls="rules-create"
+            onClick={() => setCreating((open) => !open)}
+          >
+            New rule set
+          </button>
+        </div>
+        <section id="rules-create" className="rules-card rules-create" aria-labelledby="rules-create-title" hidden={!creating}>
+          <h3 id="rules-create-title">New rule set</h3>
+          <div className="rules-create-row">
+            <label>
+              Kind
+              <select data-field="rule-set-kind" value={kind} onChange={(e) => setKind(e.target.value as RuleKind)}>
+                {RULE_KINDS.map((k) => (
+                  <option key={k} value={k}>
+                    {KIND_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Name
+              <input data-field="rule-set-name" value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+            <button type="button" className="btn btn-primary" data-action="create-rule-set" disabled={!flowId} onClick={() => void create()}>
+              Create
+            </button>
+          </div>
+          {refusal && (
+            <p className="rules-alert" role="alert" data-refusal="rule-set-create">
+              {refusal}
+            </p>
+          )}
+        </section>
+        <div className="rules-filter">
+          <label>
+            Flow
+            <select data-field="rule-set-flow" value={flowId} onChange={(e) => setFlowId(e.target.value)}>
+              {flows.map((flow) => (
+                <option key={flow.id} value={flow.id}>
+                  {flow.name || flow.code || flow.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Kind filter
+            <select data-field="rule-set-kind-filter" value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+              <option value="">All kinds</option>
+              {RULE_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {shown.length === 0 ? (
+          <p className="rules-empty">{ruleSets.length === 0 ? 'No rule sets on this flow yet.' : 'No rule sets of this kind on this flow.'}</p>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Kind</th>
+                <th scope="col">Open</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((ruleSet) => {
+                const badge = kindBadge(ruleSet.kind);
+                return (
+                  <tr key={ruleSet.id} data-rule-set-row={ruleSet.id}>
+                    <td>{ruleSet.name}</td>
+                    <td>
+                      <span className={`badge badge-${badge.tone}`}>{badge.word}</span>
+                    </td>
+                    <td>
+                      <a href={`#/rules/${ruleSet.id}`} aria-label={`Open ${ruleSet.name}`}>
+                        Open
+                      </a>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -136,46 +204,79 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
 
   if (load.state !== 'loaded') {
     return (
-      <main data-page="rules-editor" data-rule-set-id={ruleSetId}>
+      <div data-page="rules-editor" data-rule-set-id={ruleSetId}>
         {load.state === 'loading' && <p>Loading the rule set...</p>}
         {load.state === 'not-found' && <p data-refusal="rule-set-not-found">Rule set not found.</p>}
         {load.state === 'failed' && <p data-refusal="rule-set-unreadable">The rule set could not be read (status {load.status}).</p>}
-      </main>
+      </div>
     );
   }
 
   const kind = load.ruleSet.kind;
+  // a RULE_TABLE_INVALID refusal names its table: shown above that table, linked from the save row
+  const refusedNode = refusal && refusal.status === 400 && refusal.reason !== undefined ? (refusal.cell?.node ?? null) : null;
+  const anchored = refusal !== null && refusedNode !== null && tables.some((t) => t.nodeId === refusedNode);
   return (
-    <main
+    <div
       data-page="rules-editor"
       data-rule-set-id={ruleSetId}
-      style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 380px)', gap: 16, alignItems: 'start' }}
     >
-      <div>
-        <h1>{KIND_LABELS[kind as RuleKind] ?? kind}</h1>
-        <label>
-          Name
-          <input
-            data-field="rule-set-name"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setSaved(false);
-            }}
-          />
-        </label>
-        <button type="button" data-action="save-rule-set" onClick={() => void save()}>
-          Save
-        </button>
-        {saved && <span data-saved="true">Saved.</span>}
-        {refusal && <SaveRefusal refusal={refusal} />}
-        {tables.map((t) => (
-          <JdmDecisionTable key={t.nodeId} nodeId={t.nodeId} name={t.name} table={t.table} onChange={onTableChange} />
-        ))}
+      <div className="rules-editor rules-layout">
+        <div className="rules-main">
+          <div className="rules-head">
+            <h2>{kindBadge(kind).word}</h2>
+          </div>
+          <section className="rules-card" aria-label="Rule set settings">
+            <div className="rules-settings">
+              <label>
+                Name
+                <input
+                  data-field="rule-set-name"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setSaved(false);
+                  }}
+                />
+              </label>
+              <button type="button" className="btn btn-primary" data-action="save-rule-set" onClick={() => void save()}>
+                Save
+              </button>
+              {saved && (
+                <span className="rules-saved" role="status" data-saved="true">
+                  Saved.
+                </span>
+              )}
+            </div>
+            {anchored && (
+              <p className="rules-muted">
+                Not saved: a cell of table {refusedNode} is refused.
+                <button type="button" className="rules-jump" data-action="jump-to-refusal" onClick={jumpToRefusal}>
+                  Go to the refused cell
+                </button>
+              </p>
+            )}
+          </section>
+          {refusal && !anchored && <SaveRefusal refusal={refusal} />}
+          {tables.map((t) => (
+            <div key={t.nodeId} className="rules-card rules-table-card">
+              {refusal && anchored && refusedNode === t.nodeId && <SaveRefusal refusal={refusal} />}
+              <JdmDecisionTable nodeId={t.nodeId} name={t.name} table={t.table} onChange={onTableChange} />
+            </div>
+          ))}
+        </div>
+        <RuleTestPanel ruleSetId={ruleSetId} sample={sampleInput(kind)} />
       </div>
-      <RuleTestPanel ruleSetId={ruleSetId} sample={sampleInput(kind)} />
-    </main>
+    </div>
   );
+}
+
+const REFUSAL_ID = 'rules-refusal';
+
+function jumpToRefusal() {
+  const alert = document.getElementById(REFUSAL_ID);
+  alert?.scrollIntoView({ block: 'center' });
+  alert?.focus({ preventScroll: true });
 }
 
 /** A refused save: RULE_TABLE_INVALID names the cell (node, 0-based row index, column id) and the reason. */
@@ -189,6 +290,10 @@ function SaveRefusal({ refusal }: { refusal: Refusal }) {
     ].filter(Boolean);
     return (
       <p
+        id={REFUSAL_ID}
+        tabIndex={-1}
+        className="rules-alert"
+        role="alert"
         data-refusal="rule-table-invalid"
         data-cell-node={cell.node ?? undefined}
         data-cell-row={typeof cell.row === 'number' ? String(cell.row) : undefined}
@@ -199,5 +304,9 @@ function SaveRefusal({ refusal }: { refusal: Refusal }) {
       </p>
     );
   }
-  return <p data-refusal="rule-set-save">Not saved: {refusal.error ?? refusal.refusal ?? `refused ${refusal.status}`}</p>;
+  return (
+    <p className="rules-alert" role="alert" data-refusal="rule-set-save">
+      Not saved: {refusal.error ?? refusal.refusal ?? `refused ${refusal.status}`}
+    </p>
+  );
 }
