@@ -134,27 +134,58 @@ export function App() {
   });
 
   useEffect(() => {
-    // T125 (B12 back-history): a Back/Forward traversal fires popstate immediately before its
-    // hashchange; a link move, a Leave or a typed address fires hashchange alone. A back-triggered
-    // leave must NOT replaceState the entry the user just landed on - that rewrites (destroys) it
-    // and the next Back skips a page. The entry still exists one step back, so the editor is
-    // restored by moving FORWARD again; the traversal that restoration causes is swallowed (the
-    // screen and its edits never left, so it must not re-route or re-confirm).
+    // T125 (B12 back-history): what tells a Back/Forward traversal from a new navigation (typed
+    // address, goto, in-app link) is the Navigation API `navigate` event on window.navigation,
+    // which fires BEFORE popstate/hashchange with the location still on the old fragment; its
+    // navigationType is 'traverse' for Back/Forward and 'push' (or 'replace') for everything new
+    // (measured on this suite's Chromium - probes t125-fix-navorder-probe*.log). Where the event
+    // carries no navigationType, a traversal is still the move whose destination already exists
+    // in this tab's history list while a push's does not. popstate alone cannot discriminate:
+    // Chromium also fires popstate before the hashchange of a typed same-document goto, and that
+    // mis-routed the typed address into the traversal branch's history.go(1) - a no-op at the
+    // forward tip, so the address was never restored. A back-triggered leave must NOT replaceState
+    // the entry the user just landed on - that rewrites (destroys) it and the next Back skips a
+    // page. The entry still exists one step back, so a traversal restores the editor by moving
+    // FORWARD again; the traversal that restoration causes is swallowed (the screen and its edits
+    // never left, so it must not re-route or re-confirm). A new navigation never left the flow
+    // entry, so it restores over the landed entry with replaceState. The swallowing flag holds the
+    // URL the go(1) must arrive on: a hashchange for any other URL means it was stale, and a real
+    // fragment move is then handled normally. Browsers without the Navigation API - or a move the
+    // API did not announce - keep the popped-based semantics.
     let popped = false;
-    let restoring = false;
+    let restoring: string | null = null;
+    let navType: 'traverse' | 'new' | null = null;
+    const navHost = (window as unknown as { navigation?: EventTarget & { entries?: () => Array<{ url: string }> } }).navigation;
+    const navEntries = typeof navHost?.entries === 'function' ? navHost.entries.bind(navHost) : null;
+    const onNavigate = (event: Event) => {
+      const navEvent = event as { navigationType?: string; destination?: { url?: string } };
+      if (typeof navEvent.navigationType === 'string') {
+        navType = navEvent.navigationType === 'traverse' ? 'traverse' : 'new';
+        return;
+      }
+      const destination = navEvent.destination?.url;
+      if (destination === undefined || navEntries === null) {
+        navType = null; // no usable signal: fall back to popped for this move
+        return;
+      }
+      navType = navEntries().some((entry) => entry.url === destination) ? 'traverse' : 'new';
+    };
     const onPopState = () => { popped = true; };
     const onHashChange = (event: HashChangeEvent) => {
       const wasPop = popped;
       popped = false;
-      if (restoring) {
-        restoring = false; // this is the history.go(1) below arriving back on the editor's own entry
-        return;
+      const wasTraverse = navType !== null ? navType === 'traverse' : wasPop;
+      navType = null;
+      if (restoring !== null) {
+        const swallow = event.newURL === restoring; // the go(1) below arriving back on the editor's own entry
+        restoring = null;
+        if (swallow) return;
       }
       const editor = editorGuard.current;
       const move = hashMove(event.oldURL, event.newURL, editor ? editor.state() : null);
       if (move.kind === 'confirm' && editor) {
-        if (wasPop) {
-          restoring = true;
+        if (wasTraverse) {
+          restoring = move.restore;
           window.history.go(1); // return onto the still-existing flow entry; the landed one survives
         } else {
           // A push (typed address): the flow's entry stays where it is and the new entry goes back
@@ -167,11 +198,14 @@ export function App() {
       setRoute(parseHash());
       setRouteSeq((seq) => seq + 1);
     };
+    const hasNavigateSignal = typeof navHost?.addEventListener === 'function';
     window.addEventListener('hashchange', onHashChange);
     window.addEventListener('popstate', onPopState);
+    if (hasNavigateSignal) navHost.addEventListener('navigate', onNavigate);
     return () => {
       window.removeEventListener('hashchange', onHashChange);
       window.removeEventListener('popstate', onPopState);
+      if (hasNavigateSignal) navHost.removeEventListener('navigate', onNavigate);
     };
   }, []);
 
