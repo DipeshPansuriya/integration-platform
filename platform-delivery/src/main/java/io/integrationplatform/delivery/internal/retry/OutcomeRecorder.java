@@ -2,6 +2,7 @@ package io.integrationplatform.delivery.internal.retry;
 
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.domain.delivery.OutcomeClass;
+import io.integrationplatform.ingest.port.StageTimings;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
@@ -33,11 +34,23 @@ public final class OutcomeRecorder {
     private final DeliveryRetryStore store;
     private final RetryPolicy policy;
     private final DoubleSupplier jitterSource;
+    private final StageTimings timings;
 
+    /** Records no stage timing - for a database without the message family (this module's own tests). */
     public OutcomeRecorder(DeliveryRetryStore store, RetryPolicy policy, DoubleSupplier jitterSource) {
         this.store = Objects.requireNonNull(store, "store");
         this.policy = Objects.requireNonNull(policy, "policy");
         this.jitterSource = Objects.requireNonNull(jitterSource, "jitterSource");
+        this.timings = null;
+    }
+
+    /** T105: a dead letter also records the message's DELIVER stage, finished at the failure, in its transaction. */
+    public OutcomeRecorder(DeliveryRetryStore store, RetryPolicy policy, DoubleSupplier jitterSource,
+            StageTimings timings) {
+        this.store = Objects.requireNonNull(store, "store");
+        this.policy = Objects.requireNonNull(policy, "policy");
+        this.jitterSource = Objects.requireNonNull(jitterSource, "jitterSource");
+        this.timings = Objects.requireNonNull(timings, "timings");
     }
 
     /**

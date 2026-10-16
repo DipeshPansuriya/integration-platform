@@ -51,4 +51,9 @@ public class JdbcStageTimingWriter extends TenantScopedRepository implements Sta
                     + " tenant - the message is missing or the stamp disagreed (never expected); nothing recorded");
         }
     }
+
+    @Override
+    public void recordDeliverFinished(UUID deliveryId, Instant finishedAt) {
+        throw new UnsupportedOperationException("T105 RED: the DELIVER stage writer is not written yet");
+    }
 }

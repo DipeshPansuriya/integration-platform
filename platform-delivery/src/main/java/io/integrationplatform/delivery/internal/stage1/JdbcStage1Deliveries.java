@@ -3,7 +3,9 @@ package io.integrationplatform.delivery.internal.stage1;
 import io.integrationplatform.delivery.internal.JdbcDeliveryRepository;
 import io.integrationplatform.delivery.port.Stage1Deliveries;
 import io.integrationplatform.delivery.port.Stage1Delivery;
+import io.integrationplatform.ingest.port.StageTimings;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -17,9 +19,18 @@ import java.util.UUID;
 public final class JdbcStage1Deliveries implements Stage1Deliveries {
 
     private final JdbcDeliveryRepository repository;
+    private final StageTimings timings;
 
+    /** Records no stage timing - for a database without the message family (this module's own tests). */
     public JdbcStage1Deliveries(JdbcDeliveryRepository repository) {
         this.repository = repository;
+        this.timings = null;
+    }
+
+    /** T105: the {@code ACCEPTED -> ROUTED} guard also writes the message's ROUTE row in its transaction. */
+    public JdbcStage1Deliveries(JdbcDeliveryRepository repository, StageTimings timings) {
+        this.repository = repository;
+        this.timings = Objects.requireNonNull(timings, "timings");
     }
 
     @Override
