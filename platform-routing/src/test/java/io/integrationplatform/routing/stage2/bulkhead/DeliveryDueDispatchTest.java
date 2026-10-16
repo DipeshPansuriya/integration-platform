@@ -103,6 +103,7 @@ class DeliveryDueDispatchTest {
             dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
 
             assertThat(claim.calls).hasSize(1);
+            awaitOneSend(send); // the hand-off ran on the pool - now its thread name is settled
             String poolThread = completion.get();
             assertThat(poolThread).as("the send handed off to the target's pool").isNotNull();
             assertThat(poolThread).startsWith("bulkhead-");
@@ -129,7 +130,7 @@ class DeliveryDueDispatchTest {
             assertThat(dispatched.orderingKey()).isEqualTo("key-9");
             assertThat(dispatched.targetEndpointId()).isEqualTo(target);
             assertThat(dispatched.targetDeclaresIdempotentReceive()).isTrue();
-            assertThat(claim.calls.get(0).token()).isEqualTo(dispatched.claimToken());
+            assertThat(claim.calls.get(0).claimToken()).isEqualTo(dispatched.claimToken());
         } finally {
             registry.shutdown();
         }

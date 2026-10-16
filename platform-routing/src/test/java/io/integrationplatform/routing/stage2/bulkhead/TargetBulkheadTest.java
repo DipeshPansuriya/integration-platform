@@ -93,7 +93,6 @@ class TargetBulkheadTest {
         assertThat(new BulkheadSettings(4).maxConcurrentSends()).isEqualTo(4);
         assertThat(new BulkheadSettings(1).maxConcurrentSends()).isEqualTo(1);
         assertThat(new BulkheadSettings(32).maxConcurrentSends()).isEqualTo(32);
-        assertThat(IllegalStateException.class.isAssignableFrom(RuntimeException.class)).isTrue();
         org.assertj.core.api.Assertions
                 .assertThatThrownBy(() -> new BulkheadSettings(0))
                 .isInstanceOf(IllegalArgumentException.class)
