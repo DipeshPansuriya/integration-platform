@@ -213,16 +213,69 @@ export function jdkEnv(baseEnv, jdk) {
   };
 }
 
-// --- T130 (row 323, F21 BS-B): additive two-tenant options - RED stubs ----------------------
-// Behaviour defined by tests/base-suite/unit/boot-plan.test.mjs.
+// --- T130 (row 323, F21 BS-B): additive two-tenant options --------------------------------
+// ADD, never repurpose (tests/base-suite/unit/boot-plan.test.mjs): the logins bound below and the app
+// settings the harness passes are its own - an extra tenant or extra app setting can never take one, so
+// with no extras the boot is exactly what it was before.
 
-export const HARNESS_LOGINS = null;
-export const HARNESS_APP_ENV = null;
-export function extraTenantPlan() {
-  throw new Error('RED (row323 T130): extraTenantPlan not implemented');
+export const HARNESS_LOGINS = Object.freeze(['default', 'approver', 'other-tenant', 'empty-tenant']);
+const HARNESS_TENANT_KEYS = Object.freeze(['b', 'c']); // `${tenantCode}-b` (the other tenant), `-c` (the empty one)
+export const HARNESS_APP_ENV = Object.freeze([
+  'DB_URL', 'DB_USERNAME', 'DB_PASSWORD', 'DB_MIGRATION_USERNAME', 'DB_MIGRATION_PASSWORD',
+  'OIDC_ISSUER_URI', 'OIDC_AUDIENCE', 'CONSOLE_OIDC_CLIENT_ID', 'CONSOLE_OIDC_CLIENT_SECRET',
+  'CONSOLE_OIDC_REDIRECT_URI', 'CONSOLE_POST_LOGOUT_REDIRECT_URI', 'CONSOLE_URL',
+  // the JVM's own settings: an extra here could swap the app's real host resolver (jdk.net.hosts.file)
+  'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS', 'JAVA_HOME', 'PATH',
+  // the realm's admin client secret: only the harness itself passes it (sourceCredentials), never an extra
+  'PLATFORM_ADMIN_CLIENT_SECRET'
+]);
+
+/**
+ * `extraTenants` -> the tenants to add: each `{ key, logins: { <login>: <ROLE> } }` becomes the NEW tenant
+ * `${tenantCode}-${key}` with NEW realm users bound in the role_grant vocabulary. A harness login or
+ * tenant is never taken, nothing is given twice, a role is a closed-set name (the extraUsers check).
+ */
+export function extraTenantPlan(tenantCode, extraTenants = []) {
+  const keys = new Set();
+  const logins = new Set();
+  return (extraTenants ?? []).map(({ key, logins: wanted } = {}) => {
+    if (HARNESS_TENANT_KEYS.includes(key)) throw new Error(`boot-backend: tenant key ${key} is a harness tenant (-b other, -c empty) - add a new one`);
+    if (typeof key !== 'string' || !/^[a-z][a-z0-9-]{1,20}$/.test(key)) throw new Error(`boot-backend: invalid tenant key ${key}`);
+    if (keys.has(key)) throw new Error(`boot-backend: tenant key ${key} given twice`);
+    keys.add(key);
+    const entries = Object.entries(wanted ?? {});
+    if (entries.length === 0) throw new Error(`boot-backend: extra tenant ${key} has no logins`);
+    for (const [login, role] of entries) {
+      if (HARNESS_LOGINS.includes(login)) throw new Error(`boot-backend: harness login ${login} is never repurposed - name a new login`);
+      if (!/^[a-z][a-z0-9-]{1,30}$/.test(login)) throw new Error(`boot-backend: invalid login ${login}`);
+      if (logins.has(login)) throw new Error(`boot-backend: login ${login} given twice`);
+      if (typeof role !== 'string' || !/^[A-Z_]+$/.test(role)) throw new Error(`boot-backend: invalid role for ${login}`);
+      logins.add(login);
+    }
+    return { key, code: `${tenantCode}-${key}`, logins: entries };
+  });
 }
-export function mergeAppEnv() {
-  throw new Error('RED (row323 T130): mergeAppEnv not implemented');
+
+/**
+ * The app's environment plus extra settings (the dev-only exception's profile and host, a sidecar's
+ * address): an extra ADDS a name - it never replaces one the harness owns (HARNESS_APP_ENV, compared
+ * case-insensitively as Windows does), never repeats one, and is always text.
+ */
+export function mergeAppEnv(base, ...extras) {
+  const owned = new Set(HARNESS_APP_ENV.map((name) => name.toUpperCase()));
+  const added = new Set();
+  const merged = { ...base };
+  for (const extra of extras) {
+    for (const [name, value] of Object.entries(extra ?? {})) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`boot-backend: app setting ${name} is not an environment name`);
+      if (owned.has(name.toUpperCase())) throw new Error(`boot-backend: app setting ${name} is harness-owned - an extra never replaces it`);
+      if (added.has(name.toUpperCase())) throw new Error(`boot-backend: app setting ${name} given twice`);
+      if (typeof value !== 'string') throw new Error(`boot-backend: app setting ${name} must be text`);
+      added.add(name.toUpperCase());
+      merged[name] = value;
+    }
+  }
+  return merged;
 }
 
 async function healthy(appPort) {
