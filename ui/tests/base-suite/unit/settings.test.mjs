@@ -12,12 +12,14 @@ import { test } from 'node:test';
 import {
   EXCEPTION_ENV,
   NOT_CONFIGURED,
+  PLACEHOLDER,
   assertRealResolver,
   exceptionSettings,
   requireException,
   targetUrl
 } from '../lib/settings.mjs';
 
+// Fixture values only: row 278's real profile, host and app setting name are TBD(row278) (row 326's build).
 const VALID = Object.freeze({
   IPASS_BS_EXCEPTION_PROFILE: 'showcase',
   IPASS_BS_EXCEPTION_HOST: 'target.showcase.test',
@@ -53,6 +55,25 @@ test('partly set: only the missing names are listed', () => {
   assert.equal(settings.configured, false);
   assert.deepEqual(settings.missing, ['IPASS_BS_EXCEPTION_HOST', 'IPASS_BS_EXCEPTION_HOST_VAR']);
   assert.ok(!settings.reason.includes('IPASS_BS_EXCEPTION_PROFILE'));
+});
+
+test('the TBD(row278) placeholder is never a configuration: a still-TBD value fails, naming row 278', () => {
+  assert.equal(PLACEHOLDER, 'TBD(row278)');
+  const allTbd = exceptionSettings({
+    IPASS_BS_EXCEPTION_PROFILE: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST_VAR: PLACEHOLDER
+  });
+  const named = (reason) => reason.match(/IPASS_BS_EXCEPTION_[A-Z_]+/g);
+  assert.equal(allTbd.configured, false);
+  assert.match(allTbd.reason, /still TBD\(row278\)/);
+  assert.deepEqual(named(allTbd.reason), Object.values(EXCEPTION_ENV));
+  assert.equal(allTbd.appEnv, undefined, 'no app environment from a placeholder');
+  for (const [name, value] of [['IPASS_BS_EXCEPTION_PROFILE', 'tbd'], ['IPASS_BS_EXCEPTION_HOST', 'tbd.showcase.test'],
+    ['IPASS_BS_EXCEPTION_HOST_VAR', 'TBD_ROW278_HOST']]) {
+    const settings = exceptionSettings(withEnv({ [name]: value }));
+    assert.equal(settings.configured, false, `${name}=${value}`);
+    assert.deepEqual(settings.missing, [], 'a TBD value is set - still TBD, not missing');
+    assert.deepEqual(named(settings.reason), [name], settings.reason);
+  }
 });
 
 test('configured: the app gets the named profile and the one host through the variable row 278 names', () => {

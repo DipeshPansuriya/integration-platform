@@ -278,6 +278,16 @@ export function mergeAppEnv(base, ...extras) {
   return merged;
 }
 
+/** T130 step 5 RED stub (tests/base-suite/unit/boot-services.test.mjs). */
+export function servicePlan() {
+  throw new Error('not implemented');
+}
+
+/** T130 step 5 RED stub (tests/base-suite/unit/boot-services.test.mjs). */
+export function extraTenantSql() {
+  throw new Error('not implemented');
+}
+
 async function healthy(appPort) {
   try {
     const response = await fetch(`http://127.0.0.1:${appPort}/actuator/health`, { signal: AbortSignal.timeout(2000) });

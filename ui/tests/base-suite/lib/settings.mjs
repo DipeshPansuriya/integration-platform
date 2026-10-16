@@ -18,6 +18,8 @@ export const EXCEPTION_ENV = Object.freeze({
 });
 
 export const NOT_CONFIGURED = 'dev-only exception not configured - waits for row 278';
+/** T130 step 5 RED stub (unit/settings.test.mjs). */
+export const PLACEHOLDER = null;
 const MISCONFIGURED = 'dev-only exception misconfigured';
 
 /** The JVM option variables a hosts-file or name-service override could ride in. */
