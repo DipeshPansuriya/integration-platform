@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -175,7 +176,7 @@ class SchedulerIncidentAlertsContainerTest {
                         "insert into scheduler.scheduled_tasks"
                                 + " (task_name, task_instance, execution_time, picked, version)"
                                 + " values ('PAYLOAD_PURGE', 'overdue-probe', ?, false, 1)")) {
-            insert.setObject(1, dueAt);
+            insert.setTimestamp(1, Timestamp.from(dueAt));
             insert.executeUpdate();
         }
 
@@ -269,7 +270,7 @@ class SchedulerIncidentAlertsContainerTest {
         try (var connection = dataSource.getConnection(); var rs = connection.createStatement().executeQuery(
                 "select execution_time from scheduler.scheduled_tasks where task_name = '" + jobType + "'")) {
             assertThat(rs.next()).as("a pending execution for " + jobType).isTrue();
-            return rs.getObject(1, Instant.class);
+            return rs.getTimestamp(1).toInstant();
         }
     }
 
@@ -291,7 +292,7 @@ class SchedulerIncidentAlertsContainerTest {
         try (var connection = dataSource.getConnection(); var rs = connection.createStatement().executeQuery(
                 "select scheduled_for from scheduler.job_run where outcome = '" + outcome + "' order by started")) {
             rs.next();
-            return rs.getObject(1, Instant.class);
+            return rs.getTimestamp(1).toInstant();
         }
     }
 
