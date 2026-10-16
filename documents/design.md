@@ -52,10 +52,10 @@ appears here, so the design skill is named only by where it is recorded.
 | "C" is the third direction, the one to be reworked only from his reference | [Inferred] | m-b5697d: "Direction C rework only after his reference" |
 | What he sent: a **screenshot of a schema editor in an API-design tool**, as his modern reference | [Verified] (as recorded) | m-dbda93, m-5916ad, m-13338f (`ws/_memory/shared.md`); ledger row 276 |
 | The screenshot was kept **in that chat session only** - no file, and no description of it in words, was ever written | [Verified] | m-5916ad ("saved in this chat only"); `ws/_specs/project-plan.md`, "Dependencies and inputs", provenance row `design.md`; search of 2026-10-07 (section 6) |
-| Directions A and B are **not** the reference; their branches were in the repository deleted on 2026-10-02 and no branch of them exists here | [Verified] | m-b5697d; `git branch -a` in this repository on 2026-10-07: no row-276 branch |
+| Directions A and B are **not** the reference; their branches (`dir-a`, `dir-b`, cut from base 5b01d68) lived in the repository deleted on 2026-10-02, and no branch or commit of them exists here | [Verified] | branch names and base: m-c31f0a, m-c73a0d (`ws/_memory/shared.md`); deletion on 2026-10-02: `ws/_specs/project-plan.md`, front-matter description; measured in this repository on 2026-10-16: `git branch -a \| grep -ciE 'dir-a\|dir-b\|row276\|direction'` = 0, `git cat-file -t 5b01d68` and `git cat-file -t 504c9ec` (dir-a tip, m-c73a0d) both "Not a valid object name" |
 | His words on colour (row 276): he asked for a modern design and said that for "color and such thing" the design skill can be used | [Verified] (paraphrased: the original names the skill) | ledger row 276, request column |
-| Visual rules in force today (colour, type, spacing, layout, components): **none** | [Verified] | sections 2 and 3 of this file; no stylesheet in `ui/` (section 3) |
-| Styling tokens: **none recorded** - the project has no `_mockups/tokens/` folder and no token in `_memory/` | [Verified] | listing of `ws/` (`_documents`, `_memory`, `_reports`, `_specs` only), 2026-10-07 |
+| Visual rules in force today (colour, type, spacing, layout, components): the **token layer** - `ui/src/tokens.css` (every colour a light and dark pair; e.g. `--color-accent: #2563eb` at `:25`, `--topbar-h: 48px` at `:66`) and the base primitives and app shell in `ui/src/ui/base.css`, both added in ac2f52c on 2026-10-14 ("T78 lane F: token layer + app shell"); the shell is redesigned on that layer (02-style-guide v3). Reference design C itself is still undescribed (TBD-1) | [Verified] | `ui/src/tokens.css:1-6`, `:25`, `:66`; `ui/src/ui/base.css:1-4`; `ui/src/App.tsx:10-13`; `git log --diff-filter=A --format='%h %ad' --date=short main -- ui/src/tokens.css ui/src/ui/base.css` = ac2f52c 2026-10-14 |
+| Styling tokens: **recorded** in the hub workspace - `ws/_specs/ui-modernization/01-tokens.md` (section 1, colour tokens for both themes; its header: palette fixed by Dipesh on 2026-10-13, slate with a blue accent) with the execution values in `ws/_specs/ui-modernization/02-style-guide.html` (v3); both added in hub commit 26fd0c4c on 2026-10-13. The workspace now holds `_diagrams`, `_documents`, `_memory`, `_reports` and `_specs` (`_diagrams` first committed 2026-10-15, hub 792f1ec2); there is still no `_mockups/` folder | [Verified] | `ws/_specs/ui-modernization/01-tokens.md`, header and section 1; hub `git log --diff-filter=A --format='%h %ad' --date=short -- <01-tokens.md> <02-style-guide.html>` = 26fd0c4c 2026-10-13; listing of `ws/` on 2026-10-16; hub `git log --diff-filter=A --format='%h %ad' --date=short -- <ws>/_diagrams \| tail -1` = 792f1ec2 2026-10-15 |
 
 **TBD-1 - Dipesh: what does reference design C look like?** Please describe it in words, or send the
 schema-editor screenshot again so it can be written down here and you confirm the wording in one
@@ -89,7 +89,7 @@ Read at `row278-integration` 762061c on 2026-10-07.
 
 | Screen | Route | What it shows | Grade | Source |
 |---|---|---|---|---|
-| Shell | every route | A persistent left-side nav of grouped real links - Overview (Dashboard, Queue), Build (Flows, Versions, Systems, Contracts), Author (Rules, Mappings); a 48px top bar; hash routing so every screen loads directly by URL | [Verified] | `ui/src/App.tsx:65-89`, `:331-353`; hash-route comment `:1-2` |
+| Shell | every route | A persistent left-side nav of grouped real links - Overview (Dashboard, Queue), Build (Flows, Versions, Systems, Contracts), Author (Rules, Mappings); a 48px top bar; hash routing so every screen loads directly by URL | [Verified] | `ui/src/App.tsx:65-89`, `:331-353`; hash-route comment `:1-2`; 48px top bar `ui/src/App.tsx:12`, `:282` and `ui/src/tokens.css:66` |
 | Home | `#/` | The signed-in Dashboard (heading "Dashboard"; "Checking your session..." while the session check runs) | [Verified] | `ui/src/App.tsx:371-372`; `ui/src/pages/Dashboard.tsx:106` |
 | Flow definition (T-017, E3-F1-S1; T88 redesign) | `#/flows` (list landing), `#/flow/{id}`, `#/flow/new` | Heading "Flow definition"; a two-pane form with a sticky action bar (T88); fields Source system, destinations as configuration rows (two at first, addable and removable), Interface name, Business-key rule (mandatory), Ordering (`PER_KEY` default or `NONE`), Source schema (JSON Schema, a text area); a **Save draft** submit button | [Verified] | `ui/src/pages/FlowDefinition.tsx:6-8` (2-pane + routes), `:249` (heading), `:292-374` (fields), `:387-388` (Save draft) |
 | Versions and approval (T-022, E3-F2-S1; T88 redesign) | `#/versions` | Heading "Versions and approval"; a table of flows with each version status (the selected row is marked for assistive tech with `aria-current` plus a hidden "(selected)" text, and shown bold with an accent bar); a lifecycle panel that offers only the actions valid for the selected status - `DRAFT`: **Save draft**, **Submit for approval**; `SUBMITTED`: **Approve**, **New draft**; `APPROVED`: **Publish**, **New draft**; `PUBLISHED`: **New draft**. A submitted version shows no **Save draft** at all | [Verified] | `ui/src/pages/flow-lifecycle.ts:8-13`; `ui/src/pages/Versions.tsx:222-237`, `:266-291` |
@@ -117,8 +117,8 @@ These are functional constraints, not visual rules; they follow from "no functio
 
 | Statement | Grade | Source |
 |---|---|---|
-| The screen tests and the page-load measurement find elements by `data-*` attributes: `data-nav`, `data-page`, `data-field`, `data-action`, `data-saved`, `data-validation-error`, `data-refusal`, `data-version-status`, `data-published`, `data-bundle-equals-snapshot`, `data-flow-row`, `data-confirm`, `data-notice`, `data-dashboard-loaded`, `data-flows-loaded` | [Verified] | `ui/tests/screens/flow-definition.docker.spec.mjs:22-420`; `ui/tests/screens/lifecycle.docker.spec.mjs:21-279`; `ui/tests/perf/pages.json:4-6` |
-| A restyle therefore keeps every one of those attributes, and every visible text a test asserts, unchanged | [Inferred] | the row above plus `ws/_specs/project-plan.md`, phase "Look-and-feel redesign" |
+| The screen tests and the page-load measurement find elements by `data-*` attributes. The rule, kept generic so it cannot go stale: **every `data-*` attribute used in `ui/tests/screens/*.spec.mjs` and `ui/tests/perf/pages.json`**. Measured on main 8c6f193, 2026-10-16: 66 distinct attributes across the 12 screen specs and the 6 measured pages (e.g. `data-nav`, `data-page`, `data-action`, `data-systems-loaded`, `data-contracts-loaded`, `data-mapping-loaded`, `data-queue-loaded`, `data-system-row`, `data-decision-table`, `data-session-tenant`, `data-test-panel-run`); the first command in the source column lists them all | [Verified] | `git grep -ohE 'data-[a-z][a-z0-9-]*' main -- 'ui/tests/screens/*.spec.mjs' ui/tests/perf/pages.json \| sort -u` (66 lines with `\| wc -l`); `git ls-tree --name-only main ui/tests/screens/ \| grep -c '\.spec\.mjs$'` = 12; `ui/tests/perf/pages.json:4-9` |
+| A restyle therefore keeps every attribute that command lists, and every visible text a test asserts, unchanged | [Inferred] | the row above plus `ws/_specs/project-plan.md`, phase "Look-and-feel redesign" |
 | Every API refusal stays visible, never hidden, and the not-found text keeps giving no hint of another tenant's data | [Verified] | `ui/src/pages/Versions.tsx:4-5`; `ui/src/pages/FlowDefinition.tsx:277-278` |
 | Hash routes stay, so every admin screen remains directly loadable for the page-load figure | [Verified] | `ui/src/App.tsx:1-2`; `ui/tests/perf/pages.json:2` |
 | Figure: admin page load p95 under 1.5 s | [Verified] | `PRD.md:158`; `ws/_specs/project-plan.md`, phase "Flow configuration: source to destination" (figure owned) and the "Figures by phase" table |
@@ -129,21 +129,31 @@ These are functional constraints, not visual rules; they follow from "no functio
 | Statement | Grade | Source |
 |---|---|---|
 | Every input, select and text area sits inside its own `<label>`, so each has an accessible name | [Verified] | `ui/src/pages/FlowDefinition.tsx:292-374`; `ui/src/pages/Versions.tsx:260-263` |
-| All actions are native `<button>` elements, so they are reachable by keyboard | [Inferred] | native element behaviour; `ui/src/App.tsx:283-322`, `ui/src/pages/Versions.tsx:268-291`, `:341` |
+| Actions are reachable by keyboard: most are native `<button>` elements (on 42 lines of `ui/src`); some are native links with an `href` (`data-action` values `back-to-flows`, `define-flow`, `open-mapping`) and one is a native `<summary>` (the account menu, `data-action="account"`), all focusable by default; the flow rows of the Versions table are made focusable (`tabIndex={0}`) and select on click, Enter or Space | [Verified] for the markup; [Inferred] for the keyboard reach of native elements (native element behaviour) | `git grep -c '<button' main -- ui/src` summed = 42; `ui/src/App.tsx:283-322` (`<summary>` at `:320`); `ui/src/pages/FlowDefinition.tsx:251`; `ui/src/pages/FlowsList.tsx:40`; `ui/src/mapping/MappingRoutes.tsx:109`; `ui/src/pages/Versions.tsx:181-182`, `:224-230`, `:268-291`, `:341` |
 | Accessibility markup exists in `ui/src` - measured 2026-10-16: `aria-` on 72 lines (76 occurrences, 20 files), `role=` on 39 lines (39 occurrences, 18 files) (the E3-era "0 hits" note was stale; the T88 redesign and B13-B16 work added it). Refusals carry `role="alert"`, saved messages and loading notices `role="status"` or `aria-live="polite"`, so a screen reader announces them when they appear | [Verified] | `grep -rn` of `ui/src` for `aria-` (72 lines) and `role=` (39 lines), `grep -ro` for the occurrences; e.g. `ui/src/pages/FlowDefinition.tsx:277`, `:284`, `:382`; `ui/src/pages/Versions.tsx:194`, `:303-322` |
 | Colour contrast and visible focus are not measured in E3; they are measured on the restyled build | [Verified] | `ws/_specs/project-plan.md`, phase "Look-and-feel redesign"; `ws/_specs/backlog.md`, E19-F1-S2 |
 
-## 4. Screens still to come (function first, look at E19)
+## 4. Screens built after E3, and what is still to come
 
-| Screen | Phase | Grade | Source |
-|---|---|---|---|
-| Console login | Login and identity (FR-04) | [Verified] | `PRD.md:107` |
-| Systems and contract registry | FR-05 | [Verified] | `PRD.md:108` |
-| Validation and conditional rules (decision tables) | FR-06 | [Verified] | `PRD.md:109` |
-| Mapping designer - the product's core screen, on the React Flow canvas | FR-07; ADR-004 | [Verified] | `PRD.md:110`; [ADR-004](adr/ADR-004-mapping-canvas.md) |
-| Tracking, stage timings, daily report | FR-13 | [Verified] | `PRD.md:116` |
-| Queue dashboard | FR-17 (Release 2) | [Verified] | `PRD.md:120` |
-| Each is built functional first and restyled to design C only at E19 | [Inferred] | rule R20; `ws/_specs/project-plan.md`, "Phases" (build-order note) |
+Measured on main 8c6f193, 2026-10-16. The shell parses each route at `ui/src/App.tsx:91-109` and
+renders its page at `ui/src/App.tsx:355-372`; every built screen has its own spec in `ui/tests/screens/`
+(`git ls-tree --name-only main ui/tests/screens/`).
+
+| Screen | Route | Requirement | Page file and shell wiring | Screen spec | Grade |
+|---|---|---|---|---|---|
+| Console login (sign-in card) | `#/login` | FR-04 (`PRD.md:107`) | `ui/src/pages/Login.tsx:28` (heading "Sign in"); `ui/src/App.tsx:93`, `:278` | `login.docker.spec.mjs` | [Verified] |
+| Systems registry | `#/systems` | FR-05 (`PRD.md:108`) | `ui/src/pages/Systems.tsx:110` (heading "Systems"); `ui/src/App.tsx:98`, `:362` | `systems.docker.spec.mjs` | [Verified] |
+| Contract versions | `#/contracts` | FR-05 (`PRD.md:108`) | `ui/src/pages/ContractVersions.tsx:95` (heading "Contract versions"); `ui/src/App.tsx:100`, `:364` | `contracts.docker.spec.mjs` | [Verified] |
+| Validation and conditional rules (decision tables) | `#/rules`, `#/rules/{ruleSetId}` | FR-06 (`PRD.md:109`) | `ui/src/rules/RulesEditor.tsx:68` (heading "Rules"); decision table `ui/src/rules/jdm/JdmDecisionTable.tsx:16-18`; `ui/src/App.tsx:40` (loaded on first use), `:101-103`, `:365-369` | `rules-editor.docker.spec.mjs`, `rules-parity.docker.spec.mjs` | [Verified] |
+| Mapping designer - the product's core screen, on the React Flow canvas | `#/mappings`, `#/mappings/{routeId}` | FR-07 (`PRD.md:110`); [ADR-004](adr/ADR-004-mapping-canvas.md) | `ui/src/pages/MappingDesigner.tsx:266` (heading "Mapping designer"); canvas `ui/src/mapping/MappingCanvas.tsx:12-14` (`@xyflow/react`); `ui/src/App.tsx:105-107`, `:370` | `mapping-designer.docker.spec.mjs`, `raw-expression.docker.spec.mjs` | [Verified] |
+| Queue dashboard | `#/queue` | FR-17 (`PRD.md:120`); Release 2 in the plan's split (`ws/_specs/project-plan.md`, "Size and estimate"), built early as a narrow slice (`ui/src/App.tsx:27-28`) | `ui/src/pages/QueueDashboard.tsx:42` (heading "Queue"); `ui/src/App.tsx:99`, `:363` | `queue-dashboard.docker.spec.mjs` | [Verified] |
+| **Still to come:** tracking, stage timings and daily report | none yet | FR-13 (`PRD.md:116`) | no page and no route: `git grep -niE 'tracking\|stage tim\|daily report' main -- ui/src` = 0 hits; the route list `ui/src/App.tsx:43` has no such page | none | [Verified] |
+
+These screens were built functional first and already carry their own stylesheets (among the 9
+counted in section 3: `pages/systems/systems.css`, `pages/contracts/contracts.css`,
+`rules/rules-editor.css`, `mapping/mapping.css`); the formal look-and-feel phase (E19) still closes
+Release 2 and restyles every screen to this file (rule R20; `ws/_specs/project-plan.md`, "Phases",
+build-order note). [Verified]
 
 ## 5. Diagrams
 
