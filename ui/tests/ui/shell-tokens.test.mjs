@@ -686,21 +686,20 @@ for (const theme of ['light', 'dark']) {
   });
 }
 
-// row 310 B9 (sanjay-developer, fix-forward of T89b): adjacent controls in the content column
-// touched (Versions action row, Contracts change-note + submit). A control followed by a bare
-// button gets an inline gap - same zero-specificity :where(main.content) default + exclusion.
-// Only class-less buttons, so a redesigned row (.btn in a flex/grid gap) never doubles up.
-// row 310 B15: scoped to the Contracts page - on Mappings/Systems the buttons are already spaced by
-// text and the margin doubled the gap (measured in tests/screens/layout-gaps.docker.spec.mjs).
-const SIBLING_BUTTON = `:where(main.content [data-page="contracts"]) :where(button, input:not([type="hidden"]), select, textarea) + :where(button:not([class]))${NOT_3P}`;
-
-test('B9 a control followed by a bare button gets an inline gap on Contracts only (zero specificity, 3P excluded)', () => {
+// row 310 B9/B15 + E7 T122: the Contracts bare-button sibling rule in base.css was DEAD and is
+// removed - every Contracts control-adjacent button carries .btn (ContractList.tsx:76-107), and the
+// one class-less submit (ImportContractForm.tsx:99) follows a <label>, not a control. The live 8px
+// gaps are page-level: contracts.css (.btn + .btn, .btn + .contracts-note-group, the note-group's
+// own inline-flex gap) and flows.css (.versions-actions flex gap), measured in the browser by
+// tests/screens/layout-gaps.docker.spec.mjs.
+test('T122/B9: base.css holds no Contracts sibling-gap rule, and the spacing lives in contracts.css', () => {
   const base = readFileSync(join(src, 'ui', 'base.css'), 'utf8');
-  assert.ok(SIBLING_BUTTON.includes(' + :where(button'), 'adjacent-sibling combinator onto a button');
+  assert.ok(!base.includes(`:where(main.content [data-page="contracts"]) :where(button, input:not([type="hidden"]), select, textarea) + :where(button`),
+    'the dead B9 bare-button sibling rule stays removed');
   assert.ok(!base.includes(`${SCOPE} :where(button, input:not([type="hidden"]), select, textarea) + :where(button`),
-    'B15: the sibling gap is not applied to every page in the content column');
-  assert.ok(SIBLING_BUTTON.endsWith(NOT_3P), 'third-party subtrees excluded');
-  assert.equal(specificResidue(SIBLING_BUTTON), '', 'selector must carry zero specificity');
-  const decls = ruleDecls(base, SIBLING_BUTTON);
-  assert.equal(decls.get('margin-inline-start'), 'var(--space-2)', 'sibling gap is the 8px space token');
+    'B15: no page-wide sibling gap in the content column either');
+  const page = readFileSync(join(src, 'pages', 'contracts', 'contracts.css'), 'utf8');
+  assert.ok(page.includes('.contracts-page .contracts-actions .btn + .btn'), 'Contracts .btn rows keep their page-level gap');
+  assert.ok(page.includes('.contracts-page .contracts-actions .btn + .contracts-note-group'), 'change-note gap is page-level');
+  assert.ok(page.includes('.contracts-page .contracts-note-group'), 'the note group carries its own inline-flex gap');
 });
