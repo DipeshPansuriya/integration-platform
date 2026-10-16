@@ -56,6 +56,8 @@ class SchedulerIncidentAlertsContainerTest {
     static JobIncidentJdbcSink sink;
     static Scheduler scheduler;
     static List<RecurringTask<Void>> tasks;
+    /** The clock instant the startup reconcile seeds against - the sync leg derives its startup expectation from it. */
+    static Instant startupSyncAnchor;
 
     /** Throws on its first run (the FAILED incident), succeeds afterwards (the loop keeps rescheduling). */
     static final class ThrowingOnceJobHandler implements JobHandler {
@@ -132,6 +134,7 @@ class SchedulerIncidentAlertsContainerTest {
                 .pollingInterval(Duration.ofSeconds(1))
                 .addSchedulerListener(listener)
                 .build();
+        startupSyncAnchor = Instant.now();
         scheduler.start();
 
         // the four register rows exist: the schedule sync at start seeded pending executions for the enabled jobs
@@ -195,9 +198,10 @@ class SchedulerIncidentAlertsContainerTest {
             assertThat(rs.getBoolean(3)).as("a MISSED run has no instance (it never started)").isTrue();
         }
 
-        // the pending execution was canceled, and detecting again adds nothing (never alert twice)
+        // the pending execution was canceled, and detecting again adds nothing (never alert twice). The check is
+        // instance-scoped: the register row's own recurring execution (seeded at startup) stays pending on purpose.
         assertThat(detector.detectAndRecord()).isEqualTo(0);
-        assertThat(pendingRowCount("PAYLOAD_PURGE")).isEqualTo(0);
+        assertThat(pendingRowCount("PAYLOAD_PURGE", "overdue-probe")).isEqualTo(0);
         assertThat(alertCount("PAYLOAD_PURGE", "MISSED", dueAt)).isEqualTo(1);
         assertThat(detector.oldestOverdueSeconds()).isEqualTo(0.0);
     }
@@ -205,16 +209,19 @@ class SchedulerIncidentAlertsContainerTest {
     @Test
     @Order(3)
     void aJobDefinitionRowChangeTakesEffectAtTheNextScheduleSync() throws SQLException {
-        // the startup sync (the scheduler's own onStartup) put the daily report at its row's 00:05 slot
+        // the startup sync (the scheduler's own onStartup) seeded the first UTC slot of the row's 00:05 pattern
+        // strictly after its clock - derive the expectation from that anchor, never from the seeded slot itself
+        // (nextCron of the slot is the slot one day later: tg6 expected 2026-10-18 against the correct 10-17 seed)
         Instant beforeChange = pendingExecutionTime("DAILY_REPORT");
-        assertThat(beforeChange).isEqualTo(nextCron(beforeChange, "0 5 0 * * *"));
+        assertThat(beforeChange).isEqualTo(nextCron(startupSyncAnchor, "0 5 0 * * *"));
 
         // the operator changes the pattern; the next sync reconciles the task against the changed row
         updateJobDefinition("DAILY_REPORT", "CRON", "0 6 0 * * *");
+        Instant syncAnchor = Instant.now();
         new JobScheduleSync(List.copyOf(tasks), scheduler, Instant::now).sync();
         Instant afterChange = pendingExecutionTime("DAILY_REPORT");
         assertThat(afterChange).isNotEqualTo(beforeChange);
-        assertThat(afterChange).isEqualTo(nextCron(afterChange, "0 6 0 * * *"));
+        assertThat(afterChange).isEqualTo(nextCron(syncAnchor, "0 6 0 * * *"));
 
         // pause the row: the next sync cancels the pending execution; the job never fires while paused
         pauseJobDefinition("DAILY_REPORT", true);
@@ -261,6 +268,15 @@ class SchedulerIncidentAlertsContainerTest {
     private static int pendingRowCount(String jobType) throws SQLException {
         try (var connection = dataSource.getConnection(); var rs = connection.createStatement().executeQuery(
                 "select count(*) from scheduler.scheduled_tasks where task_name = '" + jobType + "'")) {
+            rs.next();
+            return rs.getInt(1);
+        }
+    }
+
+    private static int pendingRowCount(String jobType, String taskInstance) throws SQLException {
+        try (var connection = dataSource.getConnection(); var rs = connection.createStatement().executeQuery(
+                "select count(*) from scheduler.scheduled_tasks where task_name = '" + jobType
+                        + "' and task_instance = '" + taskInstance + "'")) {
             rs.next();
             return rs.getInt(1);
         }
