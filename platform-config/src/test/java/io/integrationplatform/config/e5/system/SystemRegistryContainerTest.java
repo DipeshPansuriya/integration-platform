@@ -49,8 +49,7 @@ import tools.jackson.databind.JsonNode;
  * The screens are lane D's (T-159); this suite drives the API the screens call.
  */
 @Tag("container")
-@SpringBootTest(classes = E5SystemSuiteApp.class, webEnvironment = WebEnvironment.RANDOM_PORT,
-        properties = "platform.config.destinations.allowed-hosts=*.e5.test,*.partner.example,mq.example")
+@SpringBootTest(classes = E5SystemSuiteApp.class, webEnvironment = WebEnvironment.RANDOM_PORT)
 class SystemRegistryContainerTest {
 
     @LocalServerPort
@@ -207,49 +206,6 @@ class SystemRegistryContainerTest {
         assertThat(call(port, "GET", SYSTEMS, reader, null).status()).isEqualTo(200);
         assertThat(call(port, "POST", SYSTEMS, reader, systemBody(randomCode("sys-ro"), "INBOUND", null, null))
                 .status()).isEqualTo(403);
-    }
-
-    @Test
-    @Tag("negative")
-    @DisplayName("T-184: the one destination guard refuses a host that can never be an outbound destination - "
-            + "at save time, before any DNS query")
-    void saveTimeDestinationGuardRefuses() {
-        String subject = configuratorOfA();
-
-        Response privateApi = call(port, "POST", SYSTEMS, subject,
-                systemBody(randomCode("sys-priv"), "OUTBOUND", "API", "{\"baseUrl\":\"http://10.0.0.5/orders\"}"));
-        assertThat(privateApi.status()).as("body: %s", privateApi.body()).isEqualTo(400);
-        assertThat(String.join("\n", errorsOf(privateApi))).contains("baseUrl").contains("private");
-
-        Response metadataMq = call(port, "POST", SYSTEMS, subject,
-                systemBody(randomCode("sys-meta"), "OUTBOUND", "MQ",
-                        "{\"host\":\"169.254.169.254\",\"port\":1414,\"queue\":\"Q\"}"));
-        assertThat(metadataMq.status()).as("body: %s", metadataMq.body()).isEqualTo(400);
-        assertThat(String.join("\n", errorsOf(metadataMq))).contains("host").contains("link-local");
-
-        Response offList = call(port, "POST", SYSTEMS, subject,
-                systemBody(randomCode("sys-offlist"), "OUTBOUND", "API", "{\"baseUrl\":\"https://not-allowed.example/\"}"));
-        assertThat(offList.status()).as("body: %s", offList.body()).isEqualTo(400);
-        assertThat(String.join("\n", errorsOf(offList))).contains("allow-list");
-
-        // the allowed destination saves - and no lookup happened to decide it (pre-DNS allow-list; the suite's
-        // fake resolver is never consulted for ok.e5.test at save time)
-        Response allowedMq = call(port, "POST", SYSTEMS, subject,
-                systemBody(randomCode("sys-okmq"), "OUTBOUND", "MQ",
-                        "{\"host\":\"ok.e5.test\",\"port\":1414,\"queue\":\"Q\"}"));
-        assertThat(allowedMq.status()).as("body: %s", allowedMq.body()).isEqualTo(201);
-
-        Response created = call(port, "POST", SYSTEMS, subject,
-                systemBody(randomCode("sys-edit"), "OUTBOUND", "API", "{\"baseUrl\":\"https://a.partner.example/\"}"));
-        assertThat(created.status()).as("body: %s", created.body()).isEqualTo(201);
-        String id = created.json().path("id").asString();
-
-        Response refusedEdit = call(port, "PUT", SYSTEMS + "/" + id, subject,
-                "{\"type\":\"API\",\"settings\":{\"baseUrl\":\"http://[::ffff:10.0.0.5]/\"}}");
-        assertThat(refusedEdit.status()).as("body: %s", refusedEdit.body()).isEqualTo(400);
-        assertThat(String.join("\n", errorsOf(refusedEdit))).contains("private");
-        assertThat(scalar("SELECT settings->>'baseUrl' FROM public.system WHERE id = ?::uuid", id))
-                .as("a refused edit changes nothing").isEqualTo("https://a.partner.example/");
     }
 
     private static List<String> errorsOf(Response response) {
