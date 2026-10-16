@@ -3,6 +3,8 @@ package io.integrationplatform.tenantdenial;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import io.integrationplatform.app.message.MessageTrackingController;
+import io.integrationplatform.app.message.MessageTrackingService;
 import io.integrationplatform.app.queue.QueueSummaryController;
 import io.integrationplatform.app.queue.QueueSummaryService;
 import io.integrationplatform.config.adapter.in.ConfigActors;
@@ -37,6 +39,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -196,10 +199,10 @@ class EndpointMatrixCoverageTest {
                 // row 278 T104 lane A (T-048): the common intake endpoint, covered by E11IntakeMatrix - the real
                 // handler is registered here so the reverse check sees it; mocked port, no method is ever invoked
                 new IntakeController(mock(IntakeTransaction.class)),
-                new io.integrationplatform.app.message.MessageTrackingController(
-                        mock(io.integrationplatform.app.message.MessageTrackingService.class), mock(ConfigActors.class),
-                        mock(org.springframework.beans.factory.ObjectProvider.class),
-                        mock(org.springframework.beans.factory.ObjectProvider.class))};
+                // row 278 T110 lane C (T-137 API + E12 failure diagnosis read side): the message timeline and
+                // failures reads, covered by E13TimelineMatrix; mocked service and providers, nothing is invoked
+                new MessageTrackingController(mock(MessageTrackingService.class), mock(ConfigActors.class),
+                        mock(ObjectProvider.class), mock(ObjectProvider.class))};
     }
 
     private static Object[] withPlanted(Object planted) {
