@@ -92,6 +92,26 @@ class IntakeEndpointShapeTest {
     }
 
     @Test
+    @DisplayName("T126 enumerated leg: a body of exactly PAYLOAD_LIMIT_BYTES is accepted 202 (pins the strict '>' cap)")
+    void exactlyOneMegabyteAccepted() throws Exception {
+        UUID tracking = UUID.fromString("f0000000-0000-4000-8000-00000000000d");
+        intake.answer = new AcceptedMessage(tracking, 1L);
+        // {"d":"aaaa..."} with the padding computed from the controller's own limit: the overhead is
+        // {"d":" (6 bytes) + "} (2 bytes), all ASCII, so the UTF-8 length is exact by construction.
+        byte[] body = ("{\"d\":\"" + "a".repeat(IntakeController.PAYLOAD_LIMIT_BYTES - 8) + "\"}")
+                .getBytes(StandardCharsets.UTF_8);
+        assertThat(body).as("the body is exactly the payload limit").hasSize(IntakeController.PAYLOAD_LIMIT_BYTES);
+        http.perform(post(V1)
+                        .header("X-Source-Contract-Version", "1.0")
+                        .header("Idempotency-Key", "idem-exact-1mb")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.trackingId").value(tracking.toString()));
+        assertThat(intake.calls.get()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("the unversioned path is 404 and never reaches the intake transaction")
     void unversionedPathIs404() throws Exception {
         http.perform(post(UNVERSIONED)
@@ -167,6 +187,20 @@ class IntakeEndpointShapeTest {
                         .content("{}"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("INTAKE_UNAVAILABLE"));
+    }
+
+    @Test
+    @DisplayName("T126 enumerated leg: the 503 answers without a tracking id")
+    void serviceUnavailableHasNoTrackingId() throws Exception {
+        intake.unavailable = new IllegalStateException("the connection pool is exhausted");
+        http.perform(post(V1)
+                        .header("X-Source-Contract-Version", "1.0")
+                        .header("Idempotency-Key", "idem-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("INTAKE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.trackingId").doesNotExist());
     }
 
     @Test
