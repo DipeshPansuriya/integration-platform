@@ -7,11 +7,14 @@ import io.integrationplatform.TestImages;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.SQLException;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.flywaydb.core.api.callback.Callback;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -114,5 +117,22 @@ class SchedulerSpringWiringContainerTest {
             throw lastError;
         }
         return last;
+    }
+
+    /**
+     * Row 278: the grant must land between Flyway and the db-scheduler startup reconcile, so the login joins
+     * {@code ipaas_app} in a Flyway AFTER_MIGRATE callback (Spring Boot's flyway autoconfiguration applies
+     * every {@link Callback} bean of the context) - only this test's context gets it, other suites stay
+     * byte-identical. {@code @DynamicPropertySource} has already started the container and created the login
+     * when this bean is built (before the flyway bean runs). The {@code @BeforeEach} grant stays as an
+     * idempotent safety net.
+     */
+    @TestConfiguration(proxyBeanMethods = false)
+    static class GrantAppRoleWiring {
+
+        @Bean
+        Callback grantAppRoleFlywayCallback() {
+            return new GrantAppRoleFlywayCallback(POSTGRES, login);
+        }
     }
 }

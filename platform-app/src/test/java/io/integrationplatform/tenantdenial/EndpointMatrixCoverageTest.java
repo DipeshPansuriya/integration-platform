@@ -27,6 +27,8 @@ import io.integrationplatform.config.rule.application.LookupEntryService;
 import io.integrationplatform.config.rule.application.RuleSetAdminService;
 import io.integrationplatform.config.system.adapter.in.SystemAdminController;
 import io.integrationplatform.config.system.application.SystemAdminService;
+import io.integrationplatform.ingest.adapter.in.IntakeController;
+import io.integrationplatform.ingest.port.IntakeTransaction;
 import io.integrationplatform.tenancy.port.DeniedTenantAttempt.Channel;
 import java.util.Arrays;
 import java.util.List;
@@ -190,7 +192,10 @@ class EndpointMatrixCoverageTest {
                 // E7 lane B2 (T-108/T-109): the mapping test endpoint, covered by E7MappingTestMatrix
                 new MappingTestController(mock(MappingTestService.class), mock(ConfigActors.class)),
                 // row 310 F10-narrow / row 278 T84: the queue dashboard read, covered by F10QueueSummaryMatrix
-                new QueueSummaryController(mock(QueueSummaryService.class), mock(ConfigActors.class))};
+                new QueueSummaryController(mock(QueueSummaryService.class), mock(ConfigActors.class)),
+                // row 278 T104 lane A (T-048): the common intake endpoint, covered by E11IntakeMatrix - the real
+                // handler is registered here so the reverse check sees it; mocked port, no method is ever invoked
+                new IntakeController(mock(IntakeTransaction.class))};
     }
 
     private static Object[] withPlanted(Object planted) {

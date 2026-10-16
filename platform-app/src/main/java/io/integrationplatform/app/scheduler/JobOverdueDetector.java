@@ -41,7 +41,7 @@ public class JobOverdueDetector {
     public int detectAndRecord() {
         List<Overdue> overdue = registry.overdueExecutions((rs, rowNum) -> new Overdue(
                 rs.getString("task_name"), rs.getString("task_instance"),
-                rs.getObject("execution_time", Instant.class)));
+                rs.getTimestamp("execution_time").toInstant()));
         int incidents = 0;
         for (Overdue o : overdue) {
             try {

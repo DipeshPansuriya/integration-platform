@@ -3,7 +3,7 @@ package io.integrationplatform.app.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.kagkarlsson.scheduler.Scheduler;
-import com.github.kagkarlsson.scheduler.task.Task;
+import com.github.kagkarlsson.scheduler.task.helper.RecurringTask;
 import io.integrationplatform.config.scheduler.JdbcJobDefinitionRepository;
 import io.integrationplatform.config.scheduler.JobScheduleSync;
 import io.integrationplatform.domain.scheduler.JobHandler;
@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -54,7 +55,9 @@ class SchedulerIncidentAlertsContainerTest {
     static JdbcJobDefinitionRepository repository;
     static JobIncidentJdbcSink sink;
     static Scheduler scheduler;
-    static List<Task<?>> tasks;
+    static List<RecurringTask<Void>> tasks;
+    /** The clock instant the startup reconcile seeds against - the sync leg derives its startup expectation from it. */
+    static Instant startupSyncAnchor;
 
     /** Throws on its first run (the FAILED incident), succeeds afterwards (the loop keeps rescheduling). */
     static final class ThrowingOnceJobHandler implements JobHandler {
@@ -119,11 +122,19 @@ class SchedulerIncidentAlertsContainerTest {
         // the raw scheduler must own the same task table as the app context (scheduler.scheduled_tasks,
         // V2_2_1400): Scheduler.create defaults to the unqualified db-scheduler table, whose polls then fail
         // on every run (window-1 evidence, row278: relation "scheduled_tasks" does not exist).
-        scheduler = Scheduler.create(dataSource, tasks)
+        // The tasks reach the scheduler ONLY through startTasks: db-scheduler 16.12.0 SchedulerBuilder.java:96-97
+        // adds every startTask to knownTasks (the pollable set TaskResolver resolves) AND to the OnStartup list
+        // that start() replays (Scheduler.java:163, 187-194) - so this matches the deployment, whose spring
+        // starter registers the same way. Passing the same tasks to create(dataSource, ...) as well puts each
+        // one into knownTasks twice (SchedulerBuilder.java:87 + 96) and TaskResolver.java:45's
+        // Collectors.toMap(Task::getName, identity()) then throws "Duplicate key DELIVERY_RETRY" (row278 g4).
+        scheduler = Scheduler.create(dataSource)
+                .startTasks(tasks)
                 .tableName("scheduler.scheduled_tasks")
                 .pollingInterval(Duration.ofSeconds(1))
                 .addSchedulerListener(listener)
                 .build();
+        startupSyncAnchor = Instant.now();
         scheduler.start();
 
         // the four register rows exist: the schedule sync at start seeded pending executions for the enabled jobs
@@ -168,7 +179,7 @@ class SchedulerIncidentAlertsContainerTest {
                         "insert into scheduler.scheduled_tasks"
                                 + " (task_name, task_instance, execution_time, picked, version)"
                                 + " values ('PAYLOAD_PURGE', 'overdue-probe', ?, false, 1)")) {
-            insert.setObject(1, dueAt);
+            insert.setTimestamp(1, Timestamp.from(dueAt));
             insert.executeUpdate();
         }
 
@@ -187,9 +198,10 @@ class SchedulerIncidentAlertsContainerTest {
             assertThat(rs.getBoolean(3)).as("a MISSED run has no instance (it never started)").isTrue();
         }
 
-        // the pending execution was canceled, and detecting again adds nothing (never alert twice)
+        // the pending execution was canceled, and detecting again adds nothing (never alert twice). The check is
+        // instance-scoped: the register row's own recurring execution (seeded at startup) stays pending on purpose.
         assertThat(detector.detectAndRecord()).isEqualTo(0);
-        assertThat(pendingRowCount("PAYLOAD_PURGE")).isEqualTo(0);
+        assertThat(pendingRowCount("PAYLOAD_PURGE", "overdue-probe")).isEqualTo(0);
         assertThat(alertCount("PAYLOAD_PURGE", "MISSED", dueAt)).isEqualTo(1);
         assertThat(detector.oldestOverdueSeconds()).isEqualTo(0.0);
     }
@@ -197,25 +209,28 @@ class SchedulerIncidentAlertsContainerTest {
     @Test
     @Order(3)
     void aJobDefinitionRowChangeTakesEffectAtTheNextScheduleSync() throws SQLException {
-        // the startup sync (the scheduler's own onStartup) put the daily report at its row's 00:05 slot
+        // the startup sync (the scheduler's own onStartup) seeded the first UTC slot of the row's 00:05 pattern
+        // strictly after its clock - derive the expectation from that anchor, never from the seeded slot itself
+        // (nextCron of the slot is the slot one day later: tg6 expected 2026-10-18 against the correct 10-17 seed)
         Instant beforeChange = pendingExecutionTime("DAILY_REPORT");
-        assertThat(beforeChange).isEqualTo(nextCron(beforeChange, "0 5 0 * * *"));
+        assertThat(beforeChange).isEqualTo(nextCron(startupSyncAnchor, "0 5 0 * * *"));
 
         // the operator changes the pattern; the next sync reconciles the task against the changed row
         updateJobDefinition("DAILY_REPORT", "CRON", "0 6 0 * * *");
-        new JobScheduleSync(tasks, scheduler, Instant::now).sync();
+        Instant syncAnchor = Instant.now();
+        new JobScheduleSync(List.copyOf(tasks), scheduler, Instant::now).sync();
         Instant afterChange = pendingExecutionTime("DAILY_REPORT");
         assertThat(afterChange).isNotEqualTo(beforeChange);
-        assertThat(afterChange).isEqualTo(nextCron(afterChange, "0 6 0 * * *"));
+        assertThat(afterChange).isEqualTo(nextCron(syncAnchor, "0 6 0 * * *"));
 
         // pause the row: the next sync cancels the pending execution; the job never fires while paused
         pauseJobDefinition("DAILY_REPORT", true);
-        new JobScheduleSync(tasks, scheduler, Instant::now).sync();
+        new JobScheduleSync(List.copyOf(tasks), scheduler, Instant::now).sync();
         assertThat(pendingRowCount("DAILY_REPORT")).isEqualTo(0);
 
         // resume: the next sync schedules it again at the row's (changed) pattern
         pauseJobDefinition("DAILY_REPORT", false);
-        new JobScheduleSync(tasks, scheduler, Instant::now).sync();
+        new JobScheduleSync(List.copyOf(tasks), scheduler, Instant::now).sync();
         assertThat(pendingExecutionTime("DAILY_REPORT")).isEqualTo(nextCron(Instant.now(), "0 6 0 * * *"));
     }
 
@@ -258,11 +273,20 @@ class SchedulerIncidentAlertsContainerTest {
         }
     }
 
+    private static int pendingRowCount(String jobType, String taskInstance) throws SQLException {
+        try (var connection = dataSource.getConnection(); var rs = connection.createStatement().executeQuery(
+                "select count(*) from scheduler.scheduled_tasks where task_name = '" + jobType
+                        + "' and task_instance = '" + taskInstance + "'")) {
+            rs.next();
+            return rs.getInt(1);
+        }
+    }
+
     private static Instant pendingExecutionTime(String jobType) throws SQLException {
         try (var connection = dataSource.getConnection(); var rs = connection.createStatement().executeQuery(
                 "select execution_time from scheduler.scheduled_tasks where task_name = '" + jobType + "'")) {
             assertThat(rs.next()).as("a pending execution for " + jobType).isTrue();
-            return rs.getObject(1, Instant.class);
+            return rs.getTimestamp(1).toInstant();
         }
     }
 
@@ -284,7 +308,7 @@ class SchedulerIncidentAlertsContainerTest {
         try (var connection = dataSource.getConnection(); var rs = connection.createStatement().executeQuery(
                 "select scheduled_for from scheduler.job_run where outcome = '" + outcome + "' order by started")) {
             rs.next();
-            return rs.getObject(1, Instant.class);
+            return rs.getTimestamp(1).toInstant();
         }
     }
 
