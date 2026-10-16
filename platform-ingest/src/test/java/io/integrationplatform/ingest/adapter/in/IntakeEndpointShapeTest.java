@@ -5,6 +5,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.integrationplatform.ingest.port.AcceptedMessage;
 import io.integrationplatform.ingest.port.IntakeRefusedException;
 import io.integrationplatform.ingest.port.IntakeTransaction;
@@ -14,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -29,7 +34,9 @@ import tools.jackson.databind.JsonNode;
  * Scenario: An unpublished interface is refused      -> 404, nothing persisted
  * Scenario: The path cannot reach another tenant     -> 404 (tenant-scoped resolution; container proof)
  * Scenario: The unversioned path                     -> 404 (v1 only)
- * Scenario: The database fails                       -> 503 with no tracking id
+ * Scenario: The database fails                       -> 503 with no tracking id, the cause ERROR-logged
+ * Scenario: A malformed JSON body                    -> 400, not the catch-all 503
+ * Scenario: A missing or wrong Content-Type          -> 415 with the JSON error body
  * </pre>
  *
  * Header contract (ADR-011 Decision 4 plus the version pin of ADR-013): {@code X-Source-Contract-Version} and
@@ -160,6 +167,68 @@ class IntakeEndpointShapeTest {
                         .content("{}"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("INTAKE_UNAVAILABLE"));
+    }
+
+    @Test
+    @DisplayName("T126 shape: a malformed JSON body answers 400 MALFORMED_JSON, not the catch-all 503")
+    void malformedJsonIs400() throws Exception {
+        http.perform(post(V1)
+                        .header("X-Source-Contract-Version", "1.0")
+                        .header("Idempotency-Key", "idem-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ not json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_JSON"));
+        assertThat(intake.calls.get()).isZero();
+    }
+
+    @Test
+    @DisplayName("T126 shape: a wrong Content-Type answers 415 UNSUPPORTED_MEDIA_TYPE with the JSON error body")
+    void wrongContentTypeIs415() throws Exception {
+        http.perform(post(V1)
+                        .header("X-Source-Contract-Version", "1.0")
+                        .header("Idempotency-Key", "idem-1")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("{\"a\":1}"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
+        assertThat(intake.calls.get()).isZero();
+    }
+
+    @Test
+    @DisplayName("T126 shape: a missing Content-Type answers 415, never the silent empty Spring status")
+    void missingContentTypeIs415() throws Exception {
+        http.perform(post(V1).header("X-Source-Contract-Version", "1.0").header("Idempotency-Key", "idem-1")
+                        .content("{\"a\":1}".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
+        assertThat(intake.calls.get()).isZero();
+    }
+
+    @Test
+    @DisplayName("T126 shape: an unexpected internal failure still answers 503 but logs the cause at ERROR (no silent swallow)")
+    void unexpectedFailureIs503AndErrorLogged() throws Exception {
+        Logger controllerLog = (Logger) LoggerFactory.getLogger(IntakeController.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        controllerLog.addAppender(appender);
+        try {
+            intake.unavailable = new IllegalStateException("the connection pool is exhausted");
+            http.perform(post(V1)
+                            .header("X-Source-Contract-Version", "1.0")
+                            .header("Idempotency-Key", "idem-1")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("INTAKE_UNAVAILABLE"));
+            assertThat(appender.list)
+                    .anyMatch(e -> e.getLevel() == Level.ERROR
+                            && e.getThrowableProxy() != null
+                            && "the connection pool is exhausted".equals(e.getThrowableProxy().getMessage()));
+        } finally {
+            controllerLog.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     /** The stub the shape tests run against; the commit contract is the container test's business. */
