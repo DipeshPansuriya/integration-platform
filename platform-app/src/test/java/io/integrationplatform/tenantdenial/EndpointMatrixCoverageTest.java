@@ -195,7 +195,11 @@ class EndpointMatrixCoverageTest {
                 new QueueSummaryController(mock(QueueSummaryService.class), mock(ConfigActors.class)),
                 // row 278 T104 lane A (T-048): the common intake endpoint, covered by E11IntakeMatrix - the real
                 // handler is registered here so the reverse check sees it; mocked port, no method is ever invoked
-                new IntakeController(mock(IntakeTransaction.class))};
+                new IntakeController(mock(IntakeTransaction.class)),
+                new io.integrationplatform.app.message.MessageTrackingController(
+                        mock(io.integrationplatform.app.message.MessageTrackingService.class), mock(ConfigActors.class),
+                        mock(org.springframework.beans.factory.ObjectProvider.class),
+                        mock(org.springframework.beans.factory.ObjectProvider.class))};
     }
 
     private static Object[] withPlanted(Object planted) {
