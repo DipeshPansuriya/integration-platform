@@ -452,14 +452,14 @@ summary:focus-visible {
   opacity: 0.45;
   cursor: not-allowed;
 }
-/* row 310 B9: a control followed by a bare button keeps an 8px gap on Contracts (change note +
-   Submit, Approve + harness approve). The Versions action row gets its 8px from the flex gap of
-   .versions-actions (flows.css), not from here. B15: scoped to the Contracts page - elsewhere
-   (Mappings "Link" + "Save", Systems "Open" + "Test") the buttons are already spaced by text and
-   the margin added a second gap. Class-less only, so a .btn row in a flex/grid gap never doubles. */
-:where(main.content [data-page="contracts"]) :where(button, input:not([type="hidden"]), select, textarea) + :where(button:not([class])):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
-  margin-inline-start: var(--space-2);
-}
+/* Spacing on Contracts and Versions is page-level, not here: the .btn + .btn and
+   .btn + .contracts-note-group margins plus the .contracts-note-group inline-flex gap
+   (contracts.css), and the flex gap of .versions-actions (flows.css). row 310 B9 added a
+   bare-button sibling margin on Contracts (change note + Submit); B15 scoped it to that page
+   because elsewhere (Mappings "Link" + "Save", Systems "Open" + "Test") the buttons were
+   already spaced and the margin added a second gap. Both are gone now: every Contracts
+   control-adjacent button carries .btn and the form's only class-less submit follows a
+   <label>, not a control, so nothing matched the rule - removed as dead. */
 /* type=submit is the one primary marker the pages already carry. */
 :where(main.content) :where(button[type="submit"]):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
   border-color: transparent;
