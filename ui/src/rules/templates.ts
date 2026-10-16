@@ -14,6 +14,13 @@ export const KIND_LABELS: Record<RuleKind, string> = {
   LOOKUP: 'Lookup table'
 };
 
+/** Row 310 T102 (10-screens s7): a kind badge carries its word; registered kinds use the info tint, any
+ * other kind the neutral one and shows its own code (DECISION etc keep their words). Never colour alone. */
+export function kindBadge(kind: string): { word: string; tone: 'info' | 'neutral' } {
+  const word = KIND_LABELS[kind as RuleKind];
+  return word ? { word, tone: 'info' } : { word: kind, tone: 'neutral' };
+}
+
 const TABLES: Record<RuleKind, ZenDecisionTable> = {
   VALIDATION: {
     hitPolicy: 'collect',

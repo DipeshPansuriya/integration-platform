@@ -40,19 +40,16 @@ export function EditSystemForm({ system, onSaved }: { system: SystemView; onSave
 
   return (
     <form data-form="edit-system" data-system-id={system.id} onSubmit={onSubmit}>
-      <h3>
-        Edit system {system.code} ({system.direction === 'INBOUND' ? 'inbound' : 'outbound'})
-      </h3>
       <label>
         Name
-        <input data-field="system-name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input id="sys-field-name" data-field="system-name" value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <TypeField value={type} onChange={setType} />
       <SettingsFields type={type} values={values} onChange={(field, value) => setValues((v) => ({ ...v, [field]: value }))} />
       <button type="submit" data-action="save-system" disabled={busy}>
         Save system
       </button>
-      {saved && <p data-saved="true">System saved.</p>}
+      {saved && <p role="status" className="systems-alert systems-alert-success" data-saved="true">System saved.</p>}
       <ValidationErrors errors={errors} />
     </form>
   );

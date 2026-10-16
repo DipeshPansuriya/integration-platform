@@ -37,6 +37,13 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-jdbc</artifactId>
     </dependency>
+    <!-- E11 A1 narrow (T-048/T-130): the ONE common intake endpoint is this module's @RestController
+         (ADR-011 Decision 4); starter-web as in platform-config, so the controller and the tenant
+         interceptor have spring-webmvc here. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-flyway</artifactId>

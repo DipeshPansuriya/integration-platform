@@ -74,6 +74,8 @@ async function createThroughScreen(page, flowId, kind, name) {
   await page.goto(`${consoleUrl()}/#/rules`);
   await expect(page.locator('[data-page="rules-home"]')).toBeVisible();
   await page.selectOption('[data-field="rule-set-flow"]', flowId);
+  // Row 310 T102: "New rule set" is the header's primary; it opens the create card.
+  await page.click('[data-action="new-rule-set"]');
   await page.selectOption('[data-field="rule-set-kind"]', kind);
   await page.fill('[data-field="rule-set-name"]', name);
   await page.click('[data-action="create-rule-set"]');
@@ -163,6 +165,31 @@ test('@negative a decision table with an unparsable expression is refused with t
   await expect(refusal).toHaveAttribute('data-cell-column', 'c1');
   await expect(refusal.locator('[data-refusal-reason]')).not.toBeEmpty();
   await expect(page.locator(`${EDITOR} [data-saved="true"]`)).toHaveCount(0);
+
+  // Row 310 T102: the refusal is anchored ABOVE the offending table, and the save row jumps to it.
+  const table = page.locator(`${EDITOR} [data-decision-table="checks"]`);
+  expect((await refusal.boundingBox()).y).toBeLessThan((await table.boundingBox()).y);
+  await expect(refusal).toHaveAttribute('role', 'alert');
+  await page.mouse.wheel(0, 2000);
+  await page.click(`${EDITOR} [data-action="jump-to-refusal"]`);
+  await expect(refusal).toBeInViewport();
+});
+
+test('row 310 T102: rules home lists rule sets in a table, the kind badge carries its word, the kind filter narrows it', async ({ page }) => {
+  await page.goto(consoleUrl());
+  const flowId = await tenantAFlowId(page);
+  const name = `badge-${Date.now()}`;
+  await createThroughScreen(page, flowId, 'LOOKUP', name);
+  await page.goto(`${consoleUrl()}/#/rules`);
+  await page.selectOption('[data-field="rule-set-flow"]', flowId);
+  const row = page.locator('[data-page="rules-home"] table tr[data-rule-set-row]').filter({ hasText: name });
+  await expect(row).toHaveCount(1);
+  await expect(row.locator('.badge')).toHaveText('Lookup table');
+  await expect(row.locator('a')).toHaveAttribute('href', /^#\/rules\//);
+  await page.selectOption('[data-field="rule-set-kind-filter"]', 'VALIDATION');
+  await expect(row).toHaveCount(0);
+  await page.selectOption('[data-field="rule-set-kind-filter"]', '');
+  await expect(row).toHaveCount(1);
 });
 
 // Tenant B opens tenant A's rule set by id THROUGH THE SCREEN: the harness's second-tenant binding
@@ -204,6 +231,7 @@ test('the test panel is visible at 1440x900 without scrolling and its verdict eq
   const flowId = await tenantAFlowId(page);
   const id = await createThroughScreen(page, flowId, 'VALIDATION', `panel-${Date.now()}`);
 
+  await expect(page.locator('[data-test-panel] h3, [data-test-panel] h2').first()).toHaveText('Test this rule set');
   for (const part of ['[data-test-panel]', '[data-test-panel-input]', '[data-test-panel-run]', '[data-test-panel-verdict]']) {
     await expect(page.locator(part)).toBeInViewport({ ratio: 1 });
   }

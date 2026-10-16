@@ -64,6 +64,33 @@ public final class OutcomeClassifier {
     }
 
     /**
+     * The class of a send that cut its connection on the endpoint's timeout (E10, T-050): the request may have
+     * been processed, so {@code AMBIGUOUS} - or {@code TRANSIENT} when the target declares idempotent receive,
+     * the same register as the 408/5xx family. No adapter maps a timeout itself.
+     */
+    public static OutcomeClass ofTimeout(boolean targetDeclaresIdempotentReceive) {
+        return targetDeclaresIdempotentReceive ? OutcomeClass.TRANSIENT : OutcomeClass.AMBIGUOUS;
+    }
+
+    /**
+     * The class of a connect failure (unknown host, refused socket): nothing was sent, so the try may repeat -
+     * {@code TRANSIENT}. (A failed TLS handshake does not repeat: the destination's identity cannot be verified,
+     * which is the refusal family - the same register {@code OutboundHttpCheck} keeps for its TLS_FAILED.)
+     */
+    public static OutcomeClass ofConnectFailure() {
+        return OutcomeClass.TRANSIENT;
+    }
+
+    /**
+     * The class of a refused destination (the guard said no, or a TLS handshake cannot verify the destination's
+     * identity): only the endpoint's configuration can fix it - {@code PERMANENT}. Nothing is ever sent, and
+     * nothing is ever retried.
+     */
+    public static OutcomeClass ofDestinationRefusal() {
+        return OutcomeClass.PERMANENT;
+    }
+
+    /**
      * The class of {@code status} for a target with this error dictionary.
      *
      * @param errorDictionary the target's per-status overrides; ignored for 400, 401, 403 and 422
