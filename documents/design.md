@@ -40,7 +40,7 @@ appears here, so the design skill is named only by where it is recorded.
 | Every restyled screen must pass **WCAG AA contrast** and work **by keyboard with a visible focus** | [Verified] | `ws/_specs/project-plan.md:129`; `ws/_specs/backlog.md:4436-4448` (E19-F1-S2) |
 | E3 needs this file only to (a) record design C in words or a TBD line for Dipesh, and (b) stay free of invented design. It does not restyle anything | [Verified] | `ws/_specs/backlog.md:1103-1124` (E3-F3-S2, T-095), `:1139` (E3-C10); `ws/_specs/project-plan.md:105` |
 | The redesign task (T-154) restyles every screen "to design.md", so this file is its single reference | [Verified] | `ws/_specs/backlog.md:4413-4419`, `:4434`, `:4486` (E19-C1) |
-| UI work, the redesign included, uses the design skill named on the project's Skills line in the hub | [Verified] | rule R20 (`rule.md:54`); `ws/_memory/overview.md:12`; m-2446fd (`ws/_memory/shared.md:513`, Dipesh 2026-10-01, row 268) |
+| UI work, the redesign included, uses the design skill named on the project's Skills line in the hub | [Verified] | rule R20 (`rule.md:54`); `ws/_memory/overview.md:12`; m-2446fd (hub workspace `ws/_memory/shared.md` by entry id - the file rotates, so no line ref survives; Dipesh 2026-10-01, row 268) |
 
 ## 2. Reference design C
 
@@ -88,8 +88,8 @@ Read at `row278-integration` 762061c on 2026-10-07.
 
 | Screen | Route | What it shows | Grade | Source |
 |---|---|---|---|---|
-| Shell | every route | A persistent left-side nav of grouped real links - Overview (Dashboard, Queue), Build (Flows, Versions, Systems, Contracts), Author (Rules, Mappings); a 48px top bar; hash routing so every screen loads directly by URL | [Verified] | `ui/src/App.tsx:65-89`, `:275-293`; hash-route comment `:1-2` |
-| Home | `#/` | The signed-in Dashboard (heading "Dashboard"; "Checking your session..." while the session check runs) | [Verified] | `ui/src/App.tsx:312-313`; `ui/src/pages/Dashboard.tsx:106` |
+| Shell | every route | A persistent left-side nav of grouped real links - Overview (Dashboard, Queue), Build (Flows, Versions, Systems, Contracts), Author (Rules, Mappings); a 48px top bar; hash routing so every screen loads directly by URL | [Verified] | `ui/src/App.tsx:65-89`, `:334-352`; hash-route comment `:1-2` |
+| Home | `#/` | The signed-in Dashboard (heading "Dashboard"; "Checking your session..." while the session check runs) | [Verified] | `ui/src/App.tsx:371-372`; `ui/src/pages/Dashboard.tsx:106` |
 | Flow definition (T-017, E3-F1-S1; T88 redesign) | `#/flows` (list landing), `#/flow/{id}`, `#/flow/new` | Heading "Flow definition"; a two-pane form with a sticky action bar (T88); fields Source system, destinations as configuration rows (two at first, addable and removable), Interface name, Business-key rule (mandatory), Ordering (`PER_KEY` default or `NONE`), Source schema (JSON Schema, a text area); a **Save draft** submit button | [Verified] | `ui/src/pages/FlowDefinition.tsx:6-8` (2-pane + routes), `:249` (heading), `:292-374` (fields), `:387-388` (Save draft) |
 | Versions and approval (T-022, E3-F2-S1; T88 redesign) | `#/versions` | Heading "Versions and approval"; a table of flows with each version status (the selected row is marked for assistive tech with `aria-current` plus a hidden "(selected)" text, and shown bold with an accent bar); a lifecycle panel that offers only the actions valid for the selected status - `DRAFT`: **Save draft**, **Submit for approval**; `SUBMITTED`: **Approve**, **New draft**; `APPROVED`: **Publish**, **New draft**; `PUBLISHED`: **New draft**. A submitted version shows no **Save draft** at all | [Verified] | `ui/src/pages/flow-lifecycle.ts:8-13`; `ui/src/pages/Versions.tsx:222-237`, `:266-291` |
 | Versions - test-harness only | `#/versions` | "Approve as the harness approver" renders only while the screen-test harness exposes its second login; it is not a product control | [Verified] | `ui/src/pages/Versions.tsx:6-7`, `:338-342` |
@@ -116,7 +116,7 @@ These are functional constraints, not visual rules; they follow from "no functio
 
 | Statement | Grade | Source |
 |---|---|---|
-| The screen tests and the page-load measurement find elements by `data-*` attributes: `data-nav`, `data-page`, `data-field`, `data-action`, `data-saved`, `data-validation-error`, `data-refusal`, `data-version-status`, `data-published`, `data-bundle-equals-snapshot`, `data-flow-row` | [Verified] | `ui/tests/screens/flow-definition.docker.spec.mjs:22-385`; `ui/tests/screens/lifecycle.docker.spec.mjs:22-279`; `ui/tests/perf/pages.json:4-6` |
+| The screen tests and the page-load measurement find elements by `data-*` attributes: `data-nav`, `data-page`, `data-field`, `data-action`, `data-saved`, `data-validation-error`, `data-refusal`, `data-version-status`, `data-published`, `data-bundle-equals-snapshot`, `data-flow-row` | [Verified] | `ui/tests/screens/flow-definition.docker.spec.mjs:22-420`; `ui/tests/screens/lifecycle.docker.spec.mjs:22-279`; `ui/tests/perf/pages.json:4-6` |
 | A restyle therefore keeps every one of those attributes, and every visible text a test asserts, unchanged | [Inferred] | the row above plus `ws/_specs/project-plan.md:129` |
 | Every API refusal stays visible, never hidden, and the not-found text keeps giving no hint of another tenant's data | [Verified] | `ui/src/pages/Versions.tsx:4-5`; `ui/src/pages/FlowDefinition.tsx:277-278` |
 | Hash routes stay, so every admin screen remains directly loadable for the page-load figure | [Verified] | `ui/src/App.tsx:1-2`; `ui/tests/perf/pages.json:2` |
@@ -128,7 +128,7 @@ These are functional constraints, not visual rules; they follow from "no functio
 | Statement | Grade | Source |
 |---|---|---|
 | Every input, select and text area sits inside its own `<label>`, so each has an accessible name | [Verified] | `ui/src/pages/FlowDefinition.tsx:292-374`; `ui/src/pages/Versions.tsx:260-263` |
-| All actions are native `<button>` elements, so they are reachable by keyboard | [Inferred] | native element behaviour; `ui/src/App.tsx:224-263`, `ui/src/pages/Versions.tsx:268-291`, `:341` |
+| All actions are native `<button>` elements, so they are reachable by keyboard | [Inferred] | native element behaviour; `ui/src/App.tsx:283-322`, `ui/src/pages/Versions.tsx:268-291`, `:341` |
 | Accessibility markup exists in `ui/src` - measured 2026-10-16: `aria-` on 72 lines (76 occurrences, 20 files), `role=` on 39 lines (39 occurrences, 18 files) (the E3-era "0 hits" note was stale; the T88 redesign and B13-B16 work added it). Refusals carry `role="alert"`, saved messages and loading notices `role="status"` or `aria-live="polite"`, so a screen reader announces them when they appear | [Verified] | `grep -rn` of `ui/src` for `aria-` (72 lines) and `role=` (39 lines), `grep -ro` for the occurrences; e.g. `ui/src/pages/FlowDefinition.tsx:277`, `:284`, `:382`; `ui/src/pages/Versions.tsx:194`, `:303-322` |
 | Colour contrast and visible focus are not measured in E3; they are measured on the restyled build | [Verified] | `ws/_specs/project-plan.md:129`; `ws/_specs/backlog.md:4448` |
 
