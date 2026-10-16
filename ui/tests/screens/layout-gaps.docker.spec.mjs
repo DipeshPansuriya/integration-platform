@@ -4,9 +4,13 @@
 //  - flow editor: a destination's Remove button bottom-aligns with its input (0px, +-1);
 //  - flow editor: the ordering hint sits close to its select, with a clearer gap before "Source schema";
 //  - Flows list: Clear lines up with the filter input; the header button lines up with the page title;
-//  - B9 kept: 8px between neighbouring Versions action buttons and between a Contracts change note
-//    and its Submit button;
-//  - B9 scoped: the bare-button sibling gap adds NO margin on the Rules and Mappings pages.
+//  - 8px between neighbouring Versions action buttons and between a Contracts change note and its
+//    Submit button - measured live; the gaps come from page CSS (flows.css .versions-actions flex
+//    gap; contracts.css .btn+.btn / .btn+.contracts-note-group margins and the note group's own
+//    inline-flex gap). E7 T122 removed the row-310 B9 base.css bare-button rule after it went dead
+//    (every Contracts control-adjacent button now carries .btn);
+//  - and the sibling gap adds NO margin on the Rules and Mappings pages (Mappings "Link" + "Save"
+//    and Systems "Open" + "Test" are spaced by text - B15's original finding).
 // Seeds through the browser's own signed-in session (the specs' inBrowser pattern), real API only.
 
 import { expect, test } from '@playwright/test';
