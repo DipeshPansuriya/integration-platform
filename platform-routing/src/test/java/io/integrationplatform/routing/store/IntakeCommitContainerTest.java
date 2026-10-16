@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.ingest.internal.intake.IntakeService;
 import io.integrationplatform.ingest.port.AcceptedMessage;
+import io.integrationplatform.ingest.port.CorrelationContext;
 import io.integrationplatform.ingest.port.IntakeRefusedException;
 import io.integrationplatform.ingest.port.IntakeTransaction;
 import io.integrationplatform.ingest.port.OutboxWriter;
@@ -204,6 +205,48 @@ class IntakeCommitContainerTest {
             stampTenant(appConnection, TENANT_B);
             assertThat(count(appConnection, "select count(*) from public.message", null)).isEqualTo(BigDecimal.ZERO);
         }
+    }
+
+    /**
+     * T-063/T-064 (row 278 T107, E12-F1-S1): the correlation id is set at intake. Inside the request's journey (the
+     * scope {@code CorrelationFilter} opens from the inbound {@code traceparent}), the intake transaction stores that
+     * traceparent on its outbox row - the value the relay restores as the Kafka record's one header (proven by
+     * KafkaPublishPortContainerTest.theTraceSurvivesTheOutboxAsTheRecordsOnlyHeader) - and its accepted log line
+     * carries the correlation id, the authenticated tenant and the new message id.
+     */
+    @Test
+    @DisplayName("the inbound traceparent rides the outbox row; the accepted log line carries correlation, tenant and message ids")
+    void theInboundTraceparentRidesTheOutboxRowAndTheAcceptedLogLine() throws SQLException {
+        String inbound = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> lines =
+                new ch.qos.logback.core.read.ListAppender<>();
+        lines.start();
+        ch.qos.logback.classic.Logger intakeLog =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(IntakeService.class);
+        intakeLog.addAppender(lines);
+        AcceptedMessage accepted;
+        try (CorrelationContext.Scope journey = CorrelationContext.open(inbound)) {
+            accepted = asAppRole(tenantA).accept(request(CODE, PINNED_LABEL, "{\"customer_code\":\"CUST-T107\"}"));
+        } finally {
+            intakeLog.detachAppender(lines);
+        }
+
+        UUID tracking = accepted.trackingId();
+        try (Connection read = owner.getConnection();
+                PreparedStatement row = read.prepareStatement(
+                        "select traceparent from public.outbox where aggregate_id = ?")) {
+            row.setObject(1, tracking);
+            try (ResultSet stored = row.executeQuery()) {
+                assertThat(stored.next()).isTrue();
+                assertThat(stored.getString(1)).as("the inbound traceparent is the outbox row's").isEqualTo(inbound);
+            }
+        }
+        assertThat(lines.list).as("one accepted line for the message")
+                .filteredOn(line -> line.getFormattedMessage().contains(tracking.toString())).singleElement()
+                .satisfies(line -> assertThat(line.getMDCPropertyMap())
+                        .containsEntry(CorrelationContext.CORRELATION_ID, "0af7651916cd43dd8448eb211c80319c")
+                        .containsEntry(CorrelationContext.TENANT_ID, TENANT_A.toString())
+                        .containsEntry(CorrelationContext.MESSAGE_ID, tracking.toString()));
     }
 
     // ---------------------------------------------------------------- the transaction under proof
