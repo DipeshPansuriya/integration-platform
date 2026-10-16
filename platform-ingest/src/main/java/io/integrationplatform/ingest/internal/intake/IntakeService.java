@@ -11,12 +11,15 @@ import io.integrationplatform.tenancy.TenantContext;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The intake transaction implementation (E11 A1 narrow, T-048; ADR-011 Decision 4, steps in order):
  * resolve published flow -> pin check -> business key -> the acceptance write (message + payload, one statement)
  * -> the outbox append (reuse of the frozen {@code OutboxWriter}, ADR-011 Decision 5) -> the INTAKE stage timing
- * row. Every step runs on the caller's transaction: a refusal throws before the write, a failure anywhere rolls
+ * row. Every step is tenant-scoped (R11), so all of them need a transaction: the {@code @Transactional} on
+ * {@link #accept} is that commit boundary (REQUIRED - it joins an active caller transaction, as the container
+ * proof does, and starts one for the HTTP path). A refusal throws before the write, a failure anywhere rolls
  * the whole commit back ("no tracking id without the commit", E11-F1-S1).
  */
 public class IntakeService implements IntakeTransaction {
@@ -33,6 +36,7 @@ public class IntakeService implements IntakeTransaction {
     }
 
     @Override
+    @Transactional
     public AcceptedMessage accept(IntakeRequest request) {
         IntakeStore.PublishedInterface published = store.resolvePublishedInterface(request.interfaceCode())
                 .orElseThrow(() -> new IntakeRefusedException(
