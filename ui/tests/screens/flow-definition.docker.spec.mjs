@@ -276,6 +276,41 @@ test('B12 browser Back away from a dirty editor shows the confirm, keeps the edi
   await expect(editor(page)).toBeHidden();
 });
 
+// T125 (row 278 E7 housekeeping D): B12's confirm restored the address with replaceState even when
+// the move came from the BACK button - that rewrote the entry the user had just landed on instead
+// of the one they left, destroying it: the next Back skipped a page. Stay-after-Back must keep the
+// history stack intact: the next Back lands on the immediately previous entry and Forward still
+// reaches the flow. Behavioural - a pure history walk, never source text. (10-screens.md §3 + the
+// judged B12 criteria only require the confirm and "Stay keeps the edits and the address"; they
+// say nothing about overwriting the landed entry - standard browser-history semantics decide.)
+test('B12 Stay-after-Back keeps the back stack: the next Back lands on the previous page and Forward returns to the flow', async ({ page }) => {
+  const idA = await createFlowViaApi(page, { name: `b12-history-${stamp()}`, sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'a_key' });
+  await page.goto(`${consoleUrl()}/#/flows`);
+  await expect(page.locator('[data-page="flows-list"]')).toBeVisible();
+  await openFlow(page, idA, 'a_key'); // the entry immediately before the flow is the flows list
+  await page.fill('[data-field="business-key-rule"]', 'edited');
+
+  await page.goBack(); // Back #1 over the dirty editor: the confirm holds and the address stays on the flow
+  await expect(confirmBox(page)).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`#/flow/${idA}$`));
+  await page.click('[data-action="stay"]');
+  await expect(confirmBox(page)).toBeHidden();
+  await expect(page.locator('[data-field="business-key-rule"]'), 'Stay keeps the edits').toHaveValue('edited');
+
+  await page.click('[data-action="save-draft"]'); // clean now: the guard no longer holds a history walk
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
+
+  await page.goBack(); // Back #2 must land on the flows list - the entry Stay must not have destroyed
+  await expect(page).toHaveURL(/#\/flows$/);
+  await expect(page.locator('[data-page="flows-list"]')).toBeVisible();
+  await expect(confirmBox(page)).toBeHidden();
+
+  await page.goForward(); // Forward still reaches the flow, with the saved edit read back
+  await expect(page).toHaveURL(new RegExp(`#/flow/${idA}$`));
+  await expect(page.locator('[data-page="flow-definition"]')).toBeVisible();
+  await expect(page.locator('[data-field="business-key-rule"]')).toHaveValue('edited');
+});
+
 test('B12 a typed #/ address away from a dirty editor shows the confirm and restores the flow address until Leave', async ({ page }) => {
   const idA = await createFlowViaApi(page, { name: `b12-typed-${stamp()}`, sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'a_key' });
   await openFlow(page, idA, 'a_key');
