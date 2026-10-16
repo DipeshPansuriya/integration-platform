@@ -88,10 +88,10 @@ Read at `row278-integration` 762061c on 2026-10-07.
 
 | Screen | Route | What it shows | Grade | Source |
 |---|---|---|---|---|
-| Shell | every route | A navigation bar with two buttons, **Flows** and **Versions**; hash routing so every screen loads directly by URL | [Verified] | `ui/src/App.tsx:1-2`, `:11-19`, `:33-40` |
-| Home | `#/` | The text "Integration Platform Console" only | [Verified] | `ui/src/App.tsx:43` |
-| Flow definition (T-017, E3-F1-S1) | `#/flows`, `#/flow/{id}` | Heading "Flow definition"; a form with Source system, Destination 1 and 2, Interface name, Business-key rule (mandatory), Ordering (`PER_KEY` default or `NONE`), Source schema (JSON Schema, a text area); a **Save draft** button | [Verified] | `ui/src/pages/FlowDefinition.tsx:25`, `:32`, `:117-175` |
-| Versions and approval (T-022, E3-F2-S1; T88 redesign) | `#/versions` | Heading "Versions and approval"; a table of flows with each version status (the selected row is marked for assistive tech with `aria-current` plus a hidden "(selected)" text, and shown bold with an accent bar); a lifecycle panel that offers only the actions valid for the selected status - `DRAFT`: **Save draft**, **Submit for approval**; `SUBMITTED`: **Approve**, **New draft**; `APPROVED`: **Publish**, **New draft**; `PUBLISHED`: **New draft**. A submitted version shows no **Save draft** at all | [Verified] | `ui/src/pages/flow-lifecycle.ts:8-13`; `ui/src/pages/Versions.tsx:188`, `:217-241`, `:266-291` |
+| Shell | every route | A persistent left-side nav of grouped real links - Overview (Dashboard, Queue), Build (Flows, Versions, Systems, Contracts), Author (Rules, Mappings); a 48px top bar; hash routing so every screen loads directly by URL | [Verified] | `ui/src/App.tsx:65-89`, `:275-293`; hash-route comment `:1-2` |
+| Home | `#/` | The signed-in Dashboard (heading "Dashboard"; "Checking your session..." while the session check runs) | [Verified] | `ui/src/App.tsx:312-313`; `ui/src/pages/Dashboard.tsx:106` |
+| Flow definition (T-017, E3-F1-S1) | `#/flows`, `#/flow/{id}` | Heading "Flow definition"; a form with Source system, Destination 1 and 2, Interface name, Business-key rule (mandatory), Ordering (`PER_KEY` default or `NONE`), Source schema (JSON Schema, a text area); a **Save draft** button | [Verified] | `ui/src/pages/FlowDefinition.tsx:249` (heading), `:292-370` (fields), `:388` (Save draft) |
+| Versions and approval (T-022, E3-F2-S1; T88 redesign) | `#/versions` | Heading "Versions and approval"; a table of flows with each version status (the selected row is marked for assistive tech with `aria-current` plus a hidden "(selected)" text, and shown bold with an accent bar); a lifecycle panel that offers only the actions valid for the selected status - `DRAFT`: **Save draft**, **Submit for approval**; `SUBMITTED`: **Approve**, **New draft**; `APPROVED`: **Publish**, **New draft**; `PUBLISHED`: **New draft**. A submitted version shows no **Save draft** at all | [Verified] | `ui/src/pages/flow-lifecycle.ts:8-13`; `ui/src/pages/Versions.tsx:222-237`, `:266-291` |
 | Versions - test-harness only | `#/versions` | "Approve as the harness approver" renders only while the screen-test harness exposes its second login; it is not a product control | [Verified] | `ui/src/pages/Versions.tsx:6-7`, `:338-342` |
 
 ### 3.2 Messages each screen can show
@@ -116,20 +116,20 @@ These are functional constraints, not visual rules; they follow from "no functio
 
 | Statement | Grade | Source |
 |---|---|---|
-| The screen tests and the page-load measurement find elements by `data-*` attributes: `data-nav`, `data-page`, `data-field`, `data-action`, `data-saved`, `data-validation-error`, `data-refusal`, `data-version-status`, `data-published`, `data-bundle-equals-snapshot`, `data-flow-row` | [Verified] | `ui/tests/screens/flow-definition.docker.spec.mjs:22-87`; `ui/tests/screens/lifecycle.docker.spec.mjs:25-54`; `ui/tests/perf/pages.json:4-6` |
+| The screen tests and the page-load measurement find elements by `data-*` attributes: `data-nav`, `data-page`, `data-field`, `data-action`, `data-saved`, `data-validation-error`, `data-refusal`, `data-version-status`, `data-published`, `data-bundle-equals-snapshot`, `data-flow-row` | [Verified] | `ui/tests/screens/flow-definition.docker.spec.mjs:22-385`; `ui/tests/screens/lifecycle.docker.spec.mjs:22-279`; `ui/tests/perf/pages.json:4-6` |
 | A restyle therefore keeps every one of those attributes, and every visible text a test asserts, unchanged | [Inferred] | the row above plus `ws/_specs/project-plan.md:129` |
-| Every API refusal stays visible, never hidden, and the not-found text keeps giving no hint of another tenant's data | [Verified] | `ui/src/pages/Versions.tsx:2-5`; `ui/src/pages/FlowDefinition.tsx:43` |
+| Every API refusal stays visible, never hidden, and the not-found text keeps giving no hint of another tenant's data | [Verified] | `ui/src/pages/Versions.tsx:4-5`; `ui/src/pages/FlowDefinition.tsx:277-278` |
 | Hash routes stay, so every admin screen remains directly loadable for the page-load figure | [Verified] | `ui/src/App.tsx:1-2`; `ui/tests/perf/pages.json:2` |
 | Figure: admin page load p95 under 1.5 s | [Verified] | `PRD.md:158`; `ws/_specs/project-plan.md:105` |
-| Last measured 117 / 103 / 120 ms (home, flow definition, versions) by the E3 judge on 2026-10-07; not re-run for this file | [Inferred] | m-a16de7 (`ws/_memory/shared.md:23`) |
+| Last measured 117 / 103 / 120 ms (home, flow definition, versions) by the E3 judge on 2026-10-07; not re-run for this file | [Inferred] | m-a16de7 (hub workspace `_memory/shared.md` by entry id - the file rotates, so no line ref survives) |
 
 ### 3.4 Accessibility today (the bar is checked at E19)
 
 | Statement | Grade | Source |
 |---|---|---|
-| Every input, select and text area sits inside its own `<label>`, so each has an accessible name | [Verified] | `ui/src/pages/FlowDefinition.tsx:123-164`; `ui/src/pages/Versions.tsx:191-194` |
-| All actions are native `<button>` elements, so they are reachable by keyboard | [Inferred] | native element behaviour; `ui/src/App.tsx:34-39`, `ui/src/pages/Versions.tsx:195-211` |
-| No `aria-*` or `role` attribute exists in `ui/src`: refusal and saved messages are plain paragraphs, so a screen reader may not announce them when they appear | [Verified] (0 hits) / [Inferred] (effect) | search of `ui/src` for `aria-\|role=`: 0 hits |
+| Every input, select and text area sits inside its own `<label>`, so each has an accessible name | [Verified] | `ui/src/pages/FlowDefinition.tsx:292-370`; `ui/src/pages/Versions.tsx:260-262` |
+| All actions are native `<button>` elements, so they are reachable by keyboard | [Inferred] | native element behaviour; `ui/src/App.tsx:224-263`, `ui/src/pages/Versions.tsx:268-291`, `:341` |
+| Accessibility markup exists in `ui/src` - measured 2026-10-16: 76 `aria-*` matches in 20 files, 39 `role=` matches in 18 files (the E3-era "0 hits" note was stale; the T88 redesign and B13-B16 work added it). Refusals carry `role="alert"`, saved messages and loading notices `role="status"` or `aria-live="polite"`, so a screen reader announces them when they appear | [Verified] | search of `ui/src` for `aria-` (76 hits) and `role=` (39 hits); e.g. `ui/src/pages/FlowDefinition.tsx:277`, `:284`, `:382`; `ui/src/pages/Versions.tsx:194`, `:303-322` |
 | Colour contrast and visible focus are not measured in E3; they are measured on the restyled build | [Verified] | `ws/_specs/project-plan.md:129`; `ws/_specs/backlog.md:4448` |
 
 ## 4. Screens still to come (function first, look at E19)
