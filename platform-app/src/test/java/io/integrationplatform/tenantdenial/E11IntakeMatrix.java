@@ -136,7 +136,11 @@ final class E11IntakeMatrix implements LaneMatrix {
     public void writeTenantRows(Connection owner, SeededTenant tenant) throws Exception {
         // IntakeCommitContainerTest.seedPublishedOrders' exact insert set (green on this tip), laneId-keyed and
         // tenant-unique. The contract hangs on the core chain's SOURCE system; the pin is this tenant's own
-        // APPROVED 1.0 (the core's DRAFT can never satisfy IntakeStore.pinnedLabel's status check).
+        // APPROVED 1.0 (the core's DRAFT can never satisfy IntakeStore.pinnedLabel's status check). The
+        // PUBLISHED version is approved by a NON-AUTHOR: the core chain's own publish seed
+        // (ForgedTenantDenialSuiteTest.insertFlow "publish") authors it as config.otherAuthorId with the tenant
+        // admin as approver, which is what the V2_2_4 approver_not_author CHECK demands - same two identities
+        // here, so the lane row satisfies the constraint exactly as the established pattern, not a new one.
         update(owner, "INSERT INTO public.contract (id, tenant_id, system_id, code, role, name)"
                         + " VALUES (?::uuid, ?::uuid, ?::uuid, ?, 'SOURCE_REQUEST', ?)",
                 contractId(tenant).toString(), tenant.id().toString(),
@@ -156,8 +160,8 @@ final class E11IntakeMatrix implements LaneMatrix {
                         + " VALUES (?::uuid, ?::uuid, ?::uuid, 1, 'PUBLISHED', ?, '{}'::jsonb, ?::uuid, ?::uuid,"
                         + " ?::uuid)",
                 versionId(tenant).toString(), tenant.id().toString(), interfaceId(tenant).toString(),
-                BUSINESS_KEY, contractVersionId(tenant).toString(), tenant.userId().toString(),
-                tenant.userId().toString());
+                BUSINESS_KEY, contractVersionId(tenant).toString(),
+                tenant.config().otherAuthorId().toString(), tenant.userId().toString());
     }
 
     @Override
