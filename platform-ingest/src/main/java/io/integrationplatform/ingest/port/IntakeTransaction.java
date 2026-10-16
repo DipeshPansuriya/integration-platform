@@ -8,9 +8,9 @@ import tools.jackson.databind.JsonNode;
  * -> business key -> <b>one transaction</b> that commits message, payload, outbox and the INTAKE stage timing
  * together (ADR-011 Decision 5's transactional outbox; E11-F1-S1 "no tracking id without the commit").
  *
- * <p>The implementer never opens a transaction of its own - the caller's transaction (per request) spans
- * {@link #accept}; every persistence goes through {@code TenantScopedRepository} (R08/R11), so the tenant is the
- * bound one, never a parameter.
+ * <p>{@link #accept} runs in the implementer's own transaction (method-level {@code @Transactional}, R11, per the
+ * f9d6de0 production fix); every persistence goes through {@code TenantScopedRepository} (R08/R11), so the tenant
+ * is the bound one, never a parameter.
  */
 public interface IntakeTransaction {
 

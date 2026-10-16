@@ -6,6 +6,8 @@ import io.integrationplatform.ingest.port.IntakeTransaction;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -24,9 +27,10 @@ import tools.jackson.databind.json.JsonMapper;
  * answers 404. Headers on every call: {@code X-Source-Contract-Version} (ADR-013's interface pin check) and
  * {@code Idempotency-Key} (its replay/store is E11 B1 - presence is required here).
  *
- * <p>Response table (ADR-011 Decision 4): 202 with the tracking id; 400 a required header missing; 413 the payload
- * cap (named); 404 an unknown/unpublished interface; 422 an off-pin version or unresolved business key; 503 the
- * transaction could not commit (no tracking id). The size cap is checked here, before the transaction runs - an
+ * <p>Response table (ADR-011 Decision 4; T126 shape handlers): 202 with the tracking id; 400 a required header
+ * missing or a malformed JSON body; 415 a missing or wrong Content-Type; 413 the payload cap (named); 404 an
+ * unknown/unpublished interface; 422 an off-pin version or unresolved business key; 503 the transaction could not
+ * commit (no tracking id, cause ERROR-logged). The size cap is checked here, before the transaction runs - an
  * over-cap record never reaches the database.
  */
 @RestController
@@ -35,6 +39,8 @@ public class IntakeController {
     /** The 1 MB payload cap (ADR-011 Decision 4; the bulk caps for batch records are E11 B2's). */
     static final int PAYLOAD_LIMIT_BYTES = 1_048_576;
 
+    private static final Logger log = LoggerFactory.getLogger(IntakeController.class);
+
     private final IntakeTransaction intake;
     private final JsonMapper mapper = JsonMapper.builder().build();
 
@@ -42,12 +48,19 @@ public class IntakeController {
         this.intake = intake;
     }
 
-    @PostMapping(value = "/api/v1/interfaces/{interfaceCode}/messages", consumes = MediaType.APPLICATION_JSON_VALUE)
+    // T126: the Content-Type check is IN the method (not consumes=) so the refusal carries the JSON error body
+    // instead of Spring's silent empty 415; the contract stays application/json per ADR-011 Decision 4.
+    @PostMapping(value = "/api/v1/interfaces/{interfaceCode}/messages")
     public ResponseEntity<Map<String, Object>> submit(
             @PathVariable("interfaceCode") String interfaceCode,
+            @RequestHeader(value = "Content-Type", required = false) MediaType contentType,
             @RequestHeader(value = "X-Source-Contract-Version", required = false) String sourceContractVersion,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody byte[] body) {
+        if (contentType == null || !MediaType.APPLICATION_JSON.isCompatibleWith(contentType)) {
+            return error(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "UNSUPPORTED_MEDIA_TYPE",
+                    "the request body must be application/json");
+        }
         if (sourceContractVersion == null || sourceContractVersion.isBlank()) {
             return error(HttpStatus.BAD_REQUEST, "CONTRACT_VERSION_REQUIRED",
                     "X-Source-Contract-Version is required");
@@ -61,7 +74,12 @@ public class IntakeController {
             refusal.put("limitBytes", PAYLOAD_LIMIT_BYTES);
             return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(refusal);
         }
-        JsonNode payload = mapper.readTree(new String(body, StandardCharsets.UTF_8));
+        JsonNode payload;
+        try {
+            payload = mapper.readTree(new String(body, StandardCharsets.UTF_8));
+        } catch (StreamReadException malformed) {
+            return error(HttpStatus.BAD_REQUEST, "MALFORMED_JSON", "the request body is not valid JSON");
+        }
         AcceptedMessage accepted = intake.accept(
                 new IntakeTransaction.IntakeRequest(interfaceCode, sourceContractVersion, payload, idempotencyKey));
         Map<String, Object> answer = new LinkedHashMap<>();
@@ -84,6 +102,7 @@ public class IntakeController {
 
     @ExceptionHandler(value = Exception.class)
     ResponseEntity<Map<String, Object>> unavailable(Exception failure) {
+        log.error("intake answered 503 - unexpected failure behind the common intake endpoint", failure);
         return error(HttpStatus.SERVICE_UNAVAILABLE, "INTAKE_UNAVAILABLE", "the intake transaction did not commit");
     }
 
