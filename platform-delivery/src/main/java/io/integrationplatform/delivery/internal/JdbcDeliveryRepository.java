@@ -90,11 +90,16 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
 
     // ------------------------------------------------------------------ transitions (ADR-010 section 6)
 
-    /** {@code PENDING/DUE -> SENDING} with a fresh claim token; the claim transaction's step 4. */
+    /**
+     * {@code PENDING/DUE -> SENDING} with a fresh claim token; the claim transaction's step 4. The transition also
+     * resets {@code bulkhead_deferrals} to 0 (T71-C1, E9-plan section 54: "a successful claim resets the count" -
+     * the claim-side half of the {@link io.integrationplatform.delivery.port.BulkheadDeferrals} contract; lane A's
+     * T-198 deferral path reads the reset value as its consecutive-deferral input).
+     */
     public boolean claimSend(UUID id, UUID claimToken, Instant at) {
         return transition(
                 "update public.delivery set state = 'SENDING', updated_at = :at, claim_token = :claim_token::uuid,"
-                        + " claimed_at = :at, next_attempt_at = null",
+                        + " claimed_at = :at, next_attempt_at = null, bulkhead_deferrals = 0",
                 "id = :id::uuid and state in ('PENDING', 'DUE')",
                 params("at", at, "claim_token", claimToken.toString(), "id", id.toString()),
                 id, DeliveryEventType.CLAIM, null, at);

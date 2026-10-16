@@ -347,4 +347,29 @@ class DeliveryClaimStoreContainerTest {
         }
         assertThat(state(id)).isEqualTo(DeliveryState.SENDING);
     }
+
+    @Test
+    void aSuccessfulClaimResetsTheBulkheadDeferralCounter() {
+        Instant base = DAY.plus(13, ChronoUnit.HOURS);
+        UUID id = newDelivery(DeliveryTestDatabase.TENANT_A, "deferral-reset-key", 1L, base);
+        // three consecutive bulkhead-full deferrals on the row (the counter T-198 maintains; its reset is the
+        // claim-side half the BulkheadDeferrals port's javadoc promises: "a successful claim resets the count")
+        tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> jdbc.sql(
+                "update public.delivery set bulkhead_deferrals = 3 where id = :id::uuid")
+                .params(Map.of("id", id.toString())).update());
+        assertThat(deferrals(id)).isEqualTo(3);
+
+        tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> repository().claimSend(id, UUID.randomUUID(), base.plusSeconds(1)));
+
+        assertThat(deferrals(id))
+                .as("T71-C1 (E9-plan section 54): the claim's transition resets the consecutive-deferral count to 0")
+                .isZero();
+    }
+
+    private int deferrals(UUID id) {
+        return tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> jdbc.sql("select bulkhead_deferrals from public.delivery where id = :id::uuid")
+                        .params(Map.of("id", id.toString())).query(Integer.class).single());
+    }
 }
