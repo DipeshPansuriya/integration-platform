@@ -97,7 +97,8 @@ class CredentialCleanupHandlerTest {
     @Test
     void aCompositionWithoutAWorkerTenantBindingFailsLoudInsteadOfSkippingSilently() {
         RecordingCleanup cleanup = new RecordingCleanup(Set.of());
-        CredentialCleanupHandler handler = new CredentialCleanupHandler(() -> List.of(TENANT_A), null, cleanup);
+        CredentialCleanupHandler handler = new CredentialCleanupHandler(() -> List.of(TENANT_A),
+                (WorkerTenantBinding) null, cleanup);
 
         assertThatThrownBy(() -> handler.run("")).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("WorkerTenantBinding");
