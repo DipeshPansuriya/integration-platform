@@ -110,14 +110,21 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
                         instant(rs, "updated_at")));
     }
 
+    /**
+     * Dead-lettered deliveries with the last failed attempt's detail and the last DEAD_LETTER event's detail. Both
+     * sub-selects are pinned to the delivery's own tenant, as in {@link #deliveries}; row-level security is the
+     * second gate (row 328 K2).
+     */
     List<DeadLetterRow> deadLetters(UUID flowId, Instant dayStart, Instant dayEnd) {
         Map<String, Object> params = new LinkedHashMap<>();
         return query("select d.id::text as id, d.message_id::text as message_id, d.interface_id::text as"
                         + " interface_id, d.target_id::text as target_id, d.dead_letter_class, d.updated_at,"
                         + " (select a.detail from public.delivery_attempt a where a.delivery_id = d.id"
+                        + "   and a.tenant_id = d.tenant_id"
                         + "   and a.outcome_class <> 'SUCCESS' and a.detail is not null"
                         + "   order by a.finished_at desc, a.id desc limit 1) as attempt_detail,"
                         + " (select e.detail from public.delivery_event e where e.delivery_id = d.id"
+                        + "   and e.tenant_id = d.tenant_id"
                         + "   and e.type = 'DEAD_LETTER' order by e.occurred_at desc, e.id desc limit 1)"
                         + "   as dead_letter_detail"
                         + " from public.delivery d",
