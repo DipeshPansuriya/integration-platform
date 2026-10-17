@@ -30,6 +30,7 @@ owner; author lines name planning-team roles ([../README.md](../README.md) expla
 | [ADR-013](ADR-013-mapping-versions.md) | Mapping versions: immutable, content-addressed `mapping_version` rows created at draft save, referenced from the snapshot, pinned on deliveries | **Accepted (Dipesh, 2026-10-12)** - unblocks E7 lane C1 and E9 T-117 | New |
 | [ADR-014](ADR-014-message-store-and-delivery-uniqueness.md) | Message store and delivery uniqueness: day-partitioned message and payload, deliveries on their message's day, unique (message_id, route_id, created_at) | **Accepted (Dipesh, 2026-10-12)** - payload retention 30 days; ADR-010 sections 2 and 6 amended; unblocks E8 lane A and E9 lane C | New |
 | [ADR-015](ADR-015-target-type-register-and-adapter-placement.md) | Target adapters in platform-routing; system-type register aligned to ADR-011 (MQ_CSV, KAFKA_TOPIC) in E10 | **Accepted (Dipesh, 2026-10-12)** - ADR-010 section 1 and architecture.md section 2 amended; code rename in E10 | New |
+| [ADR-016](ADR-016-retention-enforcement.md) | Retention enforcement: fifth job type `AUDIT_PARTITION_MAINTENANCE` run as the maintenance role; metrics and trace retention in the Prometheus and Tempo configuration; log retention enforced by the deployment's log collector | Decisions 1-2 Accepted (team, 2026-10-17) - Dipesh may reverse; **Decision 3 (logs) decided by Dipesh 2026-10-17: A** - stdout only, 30 days enforced by the deployment's log collector (deployment-checklist item), B (Loki) rejected for now; amends ADR-012 Decision 2 and architecture.md section 5 | New |
 
 ## Status against the code at main `90c1ddd` (2026-10-16)
 
@@ -74,5 +75,5 @@ re-publishes every dependent list in the same change.
 | Kafka topics | ADR-005 |
 | Definer functions that cross the tenant boundary | ADR-009, ADR-007, ADR-011 (listed together in [architecture.md](../architecture.md) section 5) |
 | Roles and caller kinds | ADR-007 (caller kind `OPERATOR_AGENT` added by ADR-012) |
-| Job types; platform-scoped tables outside row-level security (exemption register) | ADR-012 (listed in [architecture.md](../architecture.md) section 5) |
+| Job types; platform-scoped tables outside row-level security (exemption register) | ADR-012 (listed in [architecture.md](../architecture.md) section 5); fifth job type added by ADR-016 |
 | Camel starters in use | ADR-010 |
