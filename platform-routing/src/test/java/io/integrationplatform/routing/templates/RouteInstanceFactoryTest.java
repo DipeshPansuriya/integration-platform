@@ -150,6 +150,49 @@ class RouteInstanceFactoryTest {
         assertThat(factory.instanceOf(ENDPOINT_A)).as("the refused route is never registered").isEmpty();
     }
 
+    @Test
+    void publishValidatesTwoValidRowsAndBuildsNothing() {
+        reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
+                null, MAPPING_M3));
+        reader.add(new RouteConfigRow(instanceId("route-2"), ENDPOINT_B, "API", "https://target-b.example/v1",
+                null, MAPPING_M4));
+
+        factory.publishInterface(TENANT, INTERFACE_ID);
+
+        assertThat(context.getRoutes()).as("ADR-010 s3 amendment (AC-1): publish adds 0 Camel routes").isEmpty();
+        assertThat(factory.instanceOf(ENDPOINT_A)).as("publish writes 0 cache entries").isEmpty();
+        assertThat(factory.instanceOf(ENDPOINT_B)).isEmpty();
+        assertThat(template.builds).as("publish never builds a template").isZero();
+    }
+
+    @Test
+    void aPublishOfAValidThenARefusedSchemeRowFailsAndRegistersNothing() {
+        reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
+                null, MAPPING_M3));
+        reader.add(new RouteConfigRow(instanceId("route-3"), ENDPOINT_B, "API", "exec:/bin/echo", null, MAPPING_M4));
+
+        assertThatThrownBy(() -> factory.publishInterface(TENANT, INTERFACE_ID))
+                .isInstanceOf(RouteBuildRefusedException.class)
+                .hasMessageContaining("'exec'");
+        assertThat(context.getRoutes()).as("F14: the valid row before the refused one left no live route").isEmpty();
+        assertThat(factory.instanceOf(ENDPOINT_A)).as("and no cached instance").isEmpty();
+    }
+
+    @Test
+    void anUnknownTargetTypeIsRefusedAtPublishWithNoRouteRegistered() {
+        reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
+                null, MAPPING_M3));
+        reader.add(new RouteConfigRow(instanceId("route-4"), ENDPOINT_B, "FTP", "https://target-b.example/v1",
+                null, MAPPING_M4));
+
+        assertThatThrownBy(() -> factory.publishInterface(TENANT, INTERFACE_ID))
+                .as("the template-exists check runs at publish")
+                .isInstanceOf(RouteBuildRefusedException.class)
+                .hasMessageContaining("'FTP'");
+        assertThat(context.getRoutes()).as("0 routes registered by a refused publish").isEmpty();
+        assertThat(factory.instanceOf(ENDPOINT_A)).isEmpty();
+    }
+
     private UUID instanceId(String seed) {
         return UUID.nameUUIDFromBytes(seed.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }

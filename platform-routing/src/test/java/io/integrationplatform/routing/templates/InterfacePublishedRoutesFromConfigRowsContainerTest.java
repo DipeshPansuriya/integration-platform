@@ -172,6 +172,40 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
         assertThat(contextStartsOrStops).as("0 restarts: the context was never stopped or started again").hasValue(0);
     }
 
+    /**
+     * Row 278 T106, Varun N2 / Kavita F14 (ADR-010 s3 amendment, AC-1): the REAL publish of an interface whose route
+     * rows are one https: target and one exec: target is refused at BEFORE_COMMIT and rolled back - the interface's
+     * status and published-version pointer are unchanged, and no live or cached route is left behind.
+     */
+    @Test
+    void aPublishWithARefusedSchemeRowRollsBackAndLeavesNoRoute() {
+        Seed seed = new Seed();
+        UUID endpointHttps = seed.targetEndpoint("https://target-a.example/v1");
+        UUID endpointExec = seed.targetEndpoint("exec:/bin/echo");
+        RouteRow routeHttps = seed.draftRoute(endpointHttps, 1, "ACTIVE");
+        RouteRow routeExec = seed.draftRoute(endpointExec, 2, "ACTIVE");
+        seed.approvedVersion(1, List.of(routeHttps, routeExec),
+                List.of(seed.boundMapping(routeHttps), seed.boundMapping(routeExec)));
+        List<String> pointerBefore = seed.publishPointer();
+
+        Throwable thrown = org.assertj.core.api.Assertions.catchThrowable(
+                () -> spring.getBean(FlowAdminService.class).publish(seed.interfaceId.toString()));
+
+        assertThat(thrown).as("the publish is refused").isNotNull();
+        RouteBuildRefusedException refused = null;
+        for (Throwable t = thrown; t != null && refused == null; t = t.getCause()) {
+            if (t instanceof RouteBuildRefusedException r) {
+                refused = r;
+            }
+        }
+        assertThat(refused).as("the refusal is (or is caused by) RouteBuildRefusedException: " + thrown).isNotNull();
+        assertThat(refused.getMessage()).as("the refusal names the scheme").contains("'exec'");
+        assertThat(seed.publishPointer()).as("status and published-version pointer rolled back")
+                .isEqualTo(pointerBefore);
+        assertThat(camel.getRoutes()).as("a refused publish leaves no live Camel route (F14)").isEmpty();
+        assertThat(factory.instanceOf(endpointHttps)).as("and no cached instance for the https row").isEmpty();
+    }
+
     private List<String> routeIds() {
         return camel.getRoutes().stream().map(org.apache.camel.Route::getRouteId).toList();
     }
@@ -291,6 +325,13 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
                     + " :cv::uuid, :author::uuid, :approver::uuid)",
                     "interface", interfaceId, "version", version, "snapshot", snapshot, "cv", contractVersion,
                     "author", author, "approver", UUID.randomUUID());
+        }
+
+        /** The interface's status and published-version pointer, as one comparable pair. */
+        List<String> publishPointer() {
+            return tx.execute(status -> jdbc.sql("select status, published_version::text as pv from public.interface"
+                    + " where id = :id::uuid").param("id", interfaceId.toString())
+                    .query((rs, n) -> java.util.Arrays.asList(rs.getString("status"), rs.getString("pv"))).single());
         }
 
         String interfaceStatus() {
