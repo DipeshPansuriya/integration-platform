@@ -318,7 +318,7 @@ final class EndpointMatrix {
             // row 278 T104: before F10 - the intake acceptance family (message/payload/outbox/timing) has no FKs, so
             // E11's children are reachable by their own ids only while its parent message row still stands, and
             // F10's clear removes the tenant's whole message set.
-            new B9FlowRoutesMatrix(), new E11IntakeMatrix(), new F10QueueSummaryMatrix());
+            new B9FlowRoutesMatrix(), new E11IntakeMatrix(), new F10QueueSummaryMatrix(), new E13TimelineMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),
