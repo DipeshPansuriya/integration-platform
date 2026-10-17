@@ -35,6 +35,8 @@
     <module>platform-app</module>
     <!-- Test-only module: ArchUnit rules over every module's package (ADR-001 item 2, R08). Not part of the deployable. -->
     <module>arch-test</module>
+    <!-- E15 seam (arjun-fullstack, F17/T142): test-only module; Kavita's team builds the harness and scenarios in it. -->
+    <module>platform-e2e</module>
   </modules>
 
   <properties>

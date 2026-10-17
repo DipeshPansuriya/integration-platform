@@ -30,6 +30,15 @@ class ModuleScopeGuardTest {
     }
 
     @Test
+    void theTestOnlyE2eModuleIsNeverReportedMissing() {
+        // E15 seam (F17/T142): platform-e2e holds test sources only (black-box harness), so arch-test has nothing to scan.
+        List<String> modules = List.of("platform-routing", "platform-e2e", "arch-test");
+        Set<String> dependencies = Set.of("platform-routing");
+
+        assertThat(ModuleScopeGuard.missingFromScope(modules, dependencies)).isEmpty();
+    }
+
+    @Test
     void aBrandNewModuleMissingFromArchTestFailsTheGuard() {
         List<String> modules = List.of("platform-routing", "platform-tenancy", "platform-brandnew", "arch-test");
         Set<String> dependencies = Set.of("platform-routing", "platform-tenancy");
