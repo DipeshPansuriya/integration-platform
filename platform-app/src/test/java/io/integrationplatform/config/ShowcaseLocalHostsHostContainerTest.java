@@ -37,6 +37,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 class ShowcaseLocalHostsHostContainerTest {
 
     static final String LOCAL_HOSTS = "platform.config.destinations.showcase-local-hosts";
+    static final String LOCAL_PORTS = "platform.config.destinations.showcase-local-ports";
     static final String ALLOWED_HOSTS = "platform.config.destinations.allowed-hosts";
 
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestImages.POSTGRES);
@@ -66,7 +67,8 @@ class ShowcaseLocalHostsHostContainerTest {
                 .profiles(profiles)
                 .properties(wiring)
                 .properties("server.port=0", "spring.main.banner-mode=off")
-                .run("--" + ALLOWED_HOSTS + "=localhost", "--" + LOCAL_HOSTS + "=localhost");
+                .run("--" + ALLOWED_HOSTS + "=localhost", "--" + LOCAL_HOSTS + "=localhost",
+                        "--" + LOCAL_PORTS + "=8089");
     }
 
     @Test
@@ -94,7 +96,12 @@ class ShowcaseLocalHostsHostContainerTest {
                     .as("an unnamed loopback literal stays refused")
                     .isInstanceOfSatisfying(DestinationRefusedException.class,
                             refused -> assertThat(refused.refusal()).isEqualTo(Refusal.REFUSED_ADDRESS));
+            assertThatThrownBy(() -> guard.check(URI.create("http://localhost:5432/")))
+                    .as("B21: the named host on an unlisted port (the database) stays refused")
+                    .isInstanceOfSatisfying(DestinationRefusedException.class,
+                            refused -> assertThat(refused.refusal()).isEqualTo(Refusal.REFUSED_ADDRESS));
         }
-        assertThat(output.getAll()).contains("WARN").contains(LOCAL_HOSTS).contains("[localhost]");
+        assertThat(output.getAll()).contains("WARN").contains(LOCAL_HOSTS).contains("[localhost]")
+                .contains(LOCAL_PORTS).contains("[8089]");
     }
 }

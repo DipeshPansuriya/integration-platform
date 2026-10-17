@@ -24,9 +24,11 @@ import org.junit.jupiter.params.provider.ValueSource;
  * T138 (row 278, BS-17 legs 17a/17b/17e): the showcase-only local-host exception at the guard itself, without any
  * network. The exception names EXACT allow-listed host names that may resolve to a loopback or private address; it
  * never widens the allow-list, never lifts an IP literal, and never lifts link-local (cloud metadata), CGNAT,
- * multicast or any other refused range. Without it the guard refuses exactly as today (DestinationGuard :62, :76,
- * :81-86). The profile gate, the startup refusal and the WARN live in the Spring wiring
- * (SystemPersistenceShowcaseWiringTest, ShowcaseLocalHostsHostContainerTest). Not tagged container (R03).
+ * multicast or any other refused range. B21 (T137 F1, CWE-918): it is also pinned to EXACT ports - the range is
+ * lifted only when the host AND the port are listed, so a loopback name never reaches every host port. Without it
+ * the guard refuses exactly as today (DestinationGuard :62, :76, :81-86). The profile gate, the startup refusal and
+ * the WARN live in the Spring wiring (SystemPersistenceShowcaseWiringTest, ShowcaseLocalHostsHostContainerTest). Not
+ * tagged container (R03).
  */
 class DestinationGuardShowcaseLocalHostsTest {
 
@@ -61,8 +63,15 @@ class DestinationGuardShowcaseLocalHostsTest {
         return new DestinationGuard(AllowList.of(List.of(allowed)), RESOLVER);
     }
 
+    /** The test destination's ports: WireMock on 8089, and the scheme defaults for the URIs that omit a port. */
+    private static final List<Integer> PORTS = List.of(8089, 80, 443);
+
     private static DestinationGuard showcase(List<String> localHosts, String... allowed) {
-        return new DestinationGuard(AllowList.of(List.of(allowed)), RESOLVER, localHosts);
+        return showcase(localHosts, PORTS, allowed);
+    }
+
+    private static DestinationGuard showcase(List<String> localHosts, List<Integer> localPorts, String... allowed) {
+        return new DestinationGuard(AllowList.of(List.of(allowed)), RESOLVER, localHosts, localPorts);
     }
 
     private static Refusal refusalOf(DestinationGuard guard, String address) {
@@ -83,7 +92,7 @@ class DestinationGuardShowcaseLocalHostsTest {
 
         assertThat(refusalOf(guard, "http://" + TARGET + ":8089/tenant-a/orders")).isEqualTo(Refusal.REFUSED_ADDRESS);
         assertThat(refusalOf(guard, "http://docker.showcase.test/")).isEqualTo(Refusal.REFUSED_ADDRESS);
-        assertThat(refusalOf(showcase(List.of(), TARGET), "http://" + TARGET + "/"))
+        assertThat(refusalOf(showcase(List.of(), List.of(), TARGET), "http://" + TARGET + "/"))
                 .as("an empty exception list is today's guard").isEqualTo(Refusal.REFUSED_ADDRESS);
     }
 
@@ -99,6 +108,44 @@ class DestinationGuardShowcaseLocalHostsTest {
 
         CheckedDestination docker = guard.check(URI.create("https://docker.showcase.test/"));
         assertThat(docker.pinnedAddress()).isEqualTo(address("172.18.0.5"));
+    }
+
+    @Test
+    @DisplayName("B21: the same named host on a port that is not listed is refused - loopback is not every host port")
+    void theSameHostOnAnUnlistedPortIsRefused() throws Exception {
+        DestinationGuard guard = showcase(List.of(TARGET, "docker.showcase.test"), List.of(8089),
+                TARGET, "docker.showcase.test");
+
+        assertThat(guard.check(URI.create("http://" + TARGET + ":8089/tenant-a/orders")).pinnedAddress())
+                .as("the listed port still reaches the local test destination").isEqualTo(address("127.0.0.1"));
+        for (String unlisted : List.of("http://" + TARGET + ":5432/", "http://" + TARGET + ":8180/realms",
+                "http://" + TARGET + ":9092/", "http://" + TARGET + ":8090/", "http://" + TARGET + "/",
+                "https://" + TARGET + "/", "http://docker.showcase.test:8088/")) {
+            assertThat(refusalOf(guard, unlisted)).as(unlisted).isEqualTo(Refusal.REFUSED_ADDRESS);
+        }
+    }
+
+    @Test
+    @DisplayName("B21: showcase local hosts without any showcase local port are rejected")
+    void hostsWithoutPortsAreRejected() {
+        assertThatThrownBy(() -> showcase(List.of(TARGET), List.of(), TARGET))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("showcase local port");
+    }
+
+    @ParameterizedTest(name = "B21: port {0} is not a port")
+    @ValueSource(ints = {0, -1, 65536})
+    void anOutOfRangePortIsRejected(int port) {
+        assertThatThrownBy(() -> showcase(List.of(TARGET), List.of(8089, port), TARGET))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("showcase local port");
+    }
+
+    @Test
+    void aNullPortIsRejected() {
+        assertThatThrownBy(() -> showcase(List.of(TARGET), Arrays.asList(8089, null), TARGET))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("showcase local port");
     }
 
     @Test
@@ -151,7 +198,7 @@ class DestinationGuardShowcaseLocalHostsTest {
     @ParameterizedTest(name = "17b: \"{0}\" is not an exact host name")
     @ValueSource(strings = {"*.showcase.test", "*", "wire*mock.showcase.test", "", "  ", "127.0.0.1", "2130706433",
             "::1", "[::1]", "wiremock.showcase.test:8089", "http://wiremock.showcase.test", "wire mock",
-            "wiremock..test", ".showcase.test"})
+            "wiremock..test", ".showcase.test", "0x7f000001", "0x7f.1", "127.1"})
     void anythingButAnExactHostNameIsRejected(String entry) {
         assertThatThrownBy(() -> showcase(List.of(TARGET, entry), TARGET))
                 .isInstanceOf(IllegalArgumentException.class)

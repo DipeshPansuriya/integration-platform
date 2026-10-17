@@ -62,6 +62,12 @@ public final class DestinationGuard {
         this.showcaseLocalHosts = exactHostNames(Objects.requireNonNull(showcaseLocalHosts, "showcaseLocalHosts"));
     }
 
+    /** B21 RED compile-only stub: the ports are ignored until GREEN. */
+    public DestinationGuard(AllowList allowList, HostResolver resolver, Collection<String> showcaseLocalHosts,
+            Collection<Integer> showcaseLocalPorts) {
+        this(allowList, resolver, showcaseLocalHosts);
+    }
+
     /**
      * @throws DestinationRefusedException the address is refused (nothing may be sent to it)
      * @throws UnknownHostException the allow-listed name does not resolve (a failure, not a refusal)
