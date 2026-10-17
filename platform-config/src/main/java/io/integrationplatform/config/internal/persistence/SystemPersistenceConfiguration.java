@@ -13,6 +13,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,7 +41,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>T138, SHOWCASE ONLY: {@code platform.config.destinations.showcase-local-hosts} - exact allow-listed host names
  * that may resolve to a loopback or private address so a showcase reaches a local test destination. Honoured only
  * while the {@code showcase} profile is active (a WARN is logged at startup); set without that profile the
- * application refuses to start. Absent or empty, the guard is unchanged.
+ * application refuses to start. Absent or empty, the guard is unchanged. B21 (T137 F1/F2): it needs
+ * {@code platform.config.destinations.showcase-local-ports} - the exact ports of the local test destination (a range
+ * is lifted only on host AND port); hosts without ports, or the exception next to a production-like profile
+ * ({@value #PRODUCTION_LIKE}), refuse to start.
  */
 @Configuration(proxyBeanMethods = false)
 class SystemPersistenceConfiguration {
@@ -49,7 +53,9 @@ class SystemPersistenceConfiguration {
     static final String RATE_LIMIT = "platform.config.test-connection.rate-limit.limit";
     static final String RATE_WINDOW = "platform.config.test-connection.rate-limit.window";
     static final String SHOWCASE_LOCAL_HOSTS = "platform.config.destinations.showcase-local-hosts";
+    static final String SHOWCASE_LOCAL_PORTS = "platform.config.destinations.showcase-local-ports";
     static final String SHOWCASE_PROFILE = "showcase";
+    static final String PRODUCTION_LIKE = "prod | production | staging | uat";
 
     private static final Logger LOG = LoggerFactory.getLogger(SystemPersistenceConfiguration.class);
 
@@ -74,6 +80,8 @@ class SystemPersistenceConfiguration {
         List<String> allowed = binder.bind(ALLOWED_HOSTS, Bindable.listOf(String.class)).orElse(List.of());
         List<String> showcaseLocal = binder.bind(SHOWCASE_LOCAL_HOSTS, Bindable.listOf(String.class))
                 .orElse(List.of());
+        List<Integer> showcasePorts = binder.bind(SHOWCASE_LOCAL_PORTS, Bindable.listOf(Integer.class))
+                .orElse(List.of());
         if (showcaseLocal.isEmpty()) {
             return new DestinationGuard(AllowList.of(allowed), resolver);
         }
@@ -81,10 +89,19 @@ class SystemPersistenceConfiguration {
             throw new IllegalStateException(SHOWCASE_LOCAL_HOSTS + " is set but the '" + SHOWCASE_PROFILE
                     + "' profile is not active - refusing to start: the local-host exception is showcase-only");
         }
-        DestinationGuard guard = new DestinationGuard(AllowList.of(allowed), resolver, showcaseLocal);
-        LOG.warn("SHOWCASE ONLY: {}={} - these allow-listed hosts may resolve to loopback or private addresses"
-                + " (profile '{}'); remove the property to restore the refusal", SHOWCASE_LOCAL_HOSTS, showcaseLocal,
-                SHOWCASE_PROFILE);
+        if (environment.acceptsProfiles(Profiles.of(PRODUCTION_LIKE))) {
+            throw new IllegalStateException(SHOWCASE_LOCAL_HOSTS + " is set next to a production-like profile "
+                    + Arrays.toString(environment.getActiveProfiles())
+                    + " - refusing to start: the local-host exception is showcase-only");
+        }
+        if (showcasePorts.isEmpty()) {
+            throw new IllegalStateException(SHOWCASE_LOCAL_PORTS + " must list the exact port(s) of the local test"
+                    + " destination while " + SHOWCASE_LOCAL_HOSTS + " is set - refusing to start");
+        }
+        DestinationGuard guard = new DestinationGuard(AllowList.of(allowed), resolver, showcaseLocal, showcasePorts);
+        LOG.warn("SHOWCASE ONLY: {}={} on {}={} - these allow-listed hosts may resolve to loopback or private"
+                + " addresses on these ports only (profile '{}'); remove the properties to restore the refusal",
+                SHOWCASE_LOCAL_HOSTS, showcaseLocal, SHOWCASE_LOCAL_PORTS, showcasePorts, SHOWCASE_PROFILE);
         return guard;
     }
 
