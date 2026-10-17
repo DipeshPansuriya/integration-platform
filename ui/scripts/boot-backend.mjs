@@ -358,12 +358,21 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
       default: await keycloak.createUser('lane-d-configurator'),
       approver: await keycloak.createUser('lane-d-approver'),
       'other-tenant': await keycloak.createUser('lane-d-other-tenant'),
+      // T112 (row 328 M2): a tenant-B user that HOLDS the read role, so a tenant-isolation spec proves the
+      // tenant cut (404 / empty list) rather than the role check the CONFIGURATOR binding hits first.
+      'other-tenant-reader': await keycloak.createUser('lane-d-other-tenant-reader'),
       'empty-tenant': await keycloak.createUser('lane-d-empty-tenant')
     };
     // E4 T-099 seeding: roles are role_grant rows (ADR-007 Decision 5). The default login authors AND is refused
     // its own approval on screen, so it must pass the role check: tenant admin (admins may also approve).
-    const roles = { default: 'TENANT_ADMIN', approver: 'APPROVER', 'other-tenant': 'CONFIGURATOR', 'empty-tenant': 'TENANT_ADMIN' };
-    const tenantOf = { 'other-tenant': otherTenantCode, 'empty-tenant': emptyTenantCode };
+    const roles = {
+      default: 'TENANT_ADMIN',
+      approver: 'APPROVER',
+      'other-tenant': 'CONFIGURATOR',
+      'other-tenant-reader': 'READ_ONLY',
+      'empty-tenant': 'TENANT_ADMIN'
+    };
+    const tenantOf = { 'other-tenant': otherTenantCode, 'other-tenant-reader': otherTenantCode, 'empty-tenant': emptyTenantCode };
     for (const [login, user] of Object.entries(users)) {
       const code = tenantOf[login] ?? tenantCode;
       psql(pgName,
