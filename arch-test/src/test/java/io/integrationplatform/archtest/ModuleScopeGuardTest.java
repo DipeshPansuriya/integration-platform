@@ -2,10 +2,13 @@ package io.integrationplatform.archtest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Scope guard for E1-F2-S1, example "native SQL string | a brand-new module" (R08: the deleted build's rule missed a
@@ -44,10 +47,21 @@ class ModuleScopeGuardTest {
         // (moved here from platform-e2e's own TestOnlyModuleTest so one place checks every test-only module).
         assertThat(ModuleScopeGuard.TEST_ONLY_MODULES).contains("arch-test", "platform-e2e");
         for (String module : ModuleScopeGuard.TEST_ONLY_MODULES) {
-            Path moduleDir = Path.of("..", module);
-            assertThat(moduleDir.resolve("pom.xml")).as(module + " is a module of this build").exists();
-            assertThat(moduleDir.resolve("src/main")).as(module + " holds test sources only").doesNotExist();
+            assertThat(Path.of("..", module, "pom.xml")).as(module + " is a module of this build").exists();
         }
+        assertThat(ModuleScopeGuard.testOnlyModulesWithProductionSources(Path.of("..")))
+                .as("test-only modules that hold a src/main").isEmpty();
+    }
+
+    @Test
+    void aTestOnlyModuleThatGrowsASrcMainFailsTheGuard(@TempDir Path root) throws IOException {
+        // Row 327 T155 (C5): the permanent form of T151's manual proof (a temporary platform-e2e/src/main).
+        for (String module : ModuleScopeGuard.TEST_ONLY_MODULES) {
+            Files.createDirectories(root.resolve(module).resolve("src/test/java"));
+        }
+        Files.createDirectories(root.resolve("platform-e2e/src/main/java"));
+
+        assertThat(ModuleScopeGuard.testOnlyModulesWithProductionSources(root)).containsExactly("platform-e2e");
     }
 
     @Test

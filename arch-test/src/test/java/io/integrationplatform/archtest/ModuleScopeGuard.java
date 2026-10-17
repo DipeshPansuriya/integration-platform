@@ -1,5 +1,6 @@
 package io.integrationplatform.archtest;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -50,6 +51,13 @@ final class ModuleScopeGuard {
         return modules.stream()
                 .filter(module -> !TEST_ONLY_MODULES.contains(module))
                 .filter(module -> !dependencies.contains(module))
+                .toList();
+    }
+
+    /** The test-only modules under {@code root} that hold a {@code src/main} (none may: they are skipped above). */
+    static List<String> testOnlyModulesWithProductionSources(Path root) {
+        return TEST_ONLY_MODULES.stream().sorted()
+                .filter(module -> Files.exists(root.resolve(module).resolve("src/main")))
                 .toList();
     }
 
