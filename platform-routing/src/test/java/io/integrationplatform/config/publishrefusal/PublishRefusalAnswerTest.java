@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.integrationplatform.config.adapter.in.ConfigApiExceptionHandler;
+import io.integrationplatform.config.flow.api.InterfacePublished;
+import io.integrationplatform.routing.templates.InterfacePublishedRouteListener;
 import io.integrationplatform.routing.templates.RouteConfigReader;
 import io.integrationplatform.routing.templates.RouteConfigRow;
 import io.integrationplatform.routing.templates.RouteInstanceFactory;
@@ -35,8 +37,9 @@ import org.springframework.web.bind.annotation.RestController;
  * Row 278 T106, Kavita F15: a publish refused by the routing module (an unapproved endpoint URI scheme, an unknown
  * target type) answers through the REAL configuration API error seam as a 400 that names the refused scheme or type
  * - never the catch-all 500, and never the endpoint URI (a URI can carry userinfo). The stub controller lives in an
- * {@code io.integrationplatform.config.*} package so the advice's {@code basePackages} applies, and it drives the
- * real {@link RouteInstanceFactory#publishInterface} (MockMvc standaloneSetup + setControllerAdvice).
+ * {@code io.integrationplatform.config.*} package so the advice's {@code basePackages} applies, and it publishes
+ * through the real {@link InterfacePublishedRouteListener} over the real {@link RouteInstanceFactory#publishInterface}
+ * (MockMvc standaloneSetup + setControllerAdvice; row 278 C2, ADR-017 Gate 2).
  */
 @Tag("e9-t116")
 class PublishRefusalAnswerTest {
@@ -156,8 +159,13 @@ class PublishRefusalAnswerTest {
                     return exchange -> { };
                 }
             };
-            new RouteInstanceFactory(reader, camel, List.of(api), Set.of("https"), Duration.ofMinutes(30),
-                    () -> Instant.parse("2026-10-17T12:00:00Z")).publishInterface(seed("tenant"), seed("iface"));
+            RouteInstanceFactory factory = new RouteInstanceFactory(reader, camel, List.of(api), Set.of("https"),
+                    Duration.ofMinutes(30), () -> Instant.parse("2026-10-17T12:00:00Z"));
+            StaticListableBeanFactory beans = new StaticListableBeanFactory();
+            beans.addBean("routeInstanceFactory", factory);
+            // ADR-017 Gate 2: the publish goes through the BEFORE_COMMIT listener, the translation point
+            new InterfacePublishedRouteListener(beans.getBeanProvider(RouteInstanceFactory.class))
+                    .onInterfacePublished(new InterfacePublished(seed("tenant"), seed("iface"), 1));
             return "published";
         }
     }

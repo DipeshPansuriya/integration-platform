@@ -19,6 +19,11 @@ public class RouteBuildRefusedException extends ConfigApiException { // ponytail
         super(httpStatus, ConfigApiException.body("error", answer), detail);
     }
 
+    /** RED stub (row 278 C2): compiles only; GREEN exposes the client-safe text here. */
+    public String answer() {
+        return null;
+    }
+
     /** 400 - the row's endpoint URI scheme is not in allowedSchemes; the answer names the scheme only. */
     static RouteBuildRefusedException scheme(String scheme, String detail) {
         return new RouteBuildRefusedException(400,

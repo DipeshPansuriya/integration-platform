@@ -185,6 +185,48 @@ class RouteInstanceFactoryTest {
     }
 
     @Test
+    void theRefusalAnswerNamesTheSchemeOrTypeButNeverTheUri() {
+        reader.add(new RouteConfigRow(instanceId("route-7"), ENDPOINT_A, "API",
+                "exec://user:pw@host/bin/echo?token=s3cret", null, MAPPING_M3));
+        assertThatThrownBy(() -> factory.publishInterface(TENANT, INTERFACE_ID))
+                .isInstanceOfSatisfying(RouteBuildRefusedException.class, refused -> assertThat(refused.answer())
+                        .as("row 278 C2: the client-safe text is answer(), routing's own")
+                        .isEqualTo("the publish was refused: endpoint URI scheme 'exec' is not in allowedSchemes"));
+
+        reader.replace(instanceId("route-7"), new RouteConfigRow(instanceId("route-7"), ENDPOINT_A, "FTP",
+                "https://target-a.example/v1", null, MAPPING_M3));
+        assertThatThrownBy(() -> factory.publishInterface(TENANT, INTERFACE_ID))
+                .isInstanceOfSatisfying(RouteBuildRefusedException.class, refused -> assertThat(refused.answer())
+                        .isEqualTo("the publish was refused: no route template for target type 'FTP'"));
+    }
+
+    @Test
+    void aRouteIdAlreadyInTheContextIsRefusedWithItsOwnAnswer() throws Exception {
+        RouteConfigRow row = new RouteConfigRow(instanceId("route-8"), ENDPOINT_A, "API",
+                "https://target-a.example/v1", null, MAPPING_M3);
+        String routeId = RouteInstanceFactory.ROUTE_ID_PREFIX + row.routeId();
+        context.addRoutes(new org.apache.camel.builder.RouteBuilder() {
+            @Override
+            public void configure() {
+                from("direct:held-elsewhere").routeId(routeId).log("x");
+            }
+        });
+
+        assertThatThrownBy(() -> factory.ensure(row))
+                .isInstanceOfSatisfying(RouteBuildRefusedException.class, refused -> {
+                    assertThat(refused.answer()).isEqualTo("the route instance is already in the running context");
+                    assertThat(refused.getMessage()).as("the log detail names the route id").contains(routeId);
+                });
+    }
+
+    @Test
+    void theRefusalIsRoutingsOwnTypeWithNoHttpStatus() {
+        assertThat(RouteBuildRefusedException.class.getSuperclass())
+                .as("ADR-017 Decision 3: a plain RuntimeException, nothing from config")
+                .isEqualTo(RuntimeException.class);
+    }
+
+    @Test
     void publishValidatesTwoValidRowsAndBuildsNothing() {
         reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
                 null, MAPPING_M3));
