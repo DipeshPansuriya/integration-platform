@@ -127,11 +127,12 @@ test('all flows: each row carries its flow label; a flow not in the list shows i
   assert.equal(failureRows(answer)[0].flowLabel, FLOW, 'no labels known: the raw flowId');
 });
 
-test('the Flow column is in the header list only when no flow is selected', () => {
-  const all = failureColumns(false);
+// Row 328 D3: the header takes the same showFlow flag as the cell - no negation for the reader to undo.
+test('the Flow column is in the header list only when showFlow (All flows) is set', () => {
+  const all = failureColumns(true);
   assert.ok(all.includes('Flow'));
   assert.deepEqual(all, ['Tracking id', 'Flow', 'Failing stage', 'Error class', 'Last error', 'Origin', 'Failed at (UTC)']);
-  const one = failureColumns(true);
+  const one = failureColumns(false);
   assert.ok(!one.includes('Flow'));
   assert.deepEqual(one, ['Tracking id', 'Failing stage', 'Error class', 'Last error', 'Origin', 'Failed at (UTC)']);
 });
