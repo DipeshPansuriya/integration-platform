@@ -12,6 +12,7 @@ import io.integrationplatform.tenancy.port.SourceCredentialAdmin;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -50,8 +51,10 @@ class CredentialPersistenceConfiguration {
     }
 
     @Bean
-    CredentialAudit credentialAudit() {
-        return new CredentialAudit();
+    CredentialAudit credentialAudit(ApplicationEventPublisher events, PlatformTransactionManager transactions) {
+        // E12-F2-S1 (T-134): each credential action's audit event is published in a write transaction (joined
+        // when the target save's is open) so the AFTER_COMMIT audit writer persists it
+        return new CredentialAudit(events, new TransactionTemplate(transactions));
     }
 
     @Bean

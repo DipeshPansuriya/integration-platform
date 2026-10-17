@@ -142,8 +142,7 @@ public class FlowAdminController {
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping("/{flowId}/submit")
     public ResponseEntity<Map<String, Object>> submit(@PathVariable String flowId, @RequestBody JsonNode body) {
-        actors.requireActor();
-        return ResponseEntity.ok(service.submit(flowId, body));
+        return ResponseEntity.ok(service.submit(flowId, body, actors.requireActor().userId()));
     }
 
     /** The approval answer is designed, not thrown: a refusal commits (the audit row the database recorded). */
@@ -171,7 +170,6 @@ public class FlowAdminController {
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping("/{flowId}/publish")
     public ResponseEntity<Map<String, Object>> publish(@PathVariable String flowId) {
-        actors.requireActor();
-        return ResponseEntity.ok(service.publish(flowId));
+        return ResponseEntity.ok(service.publish(flowId, actors.requireActor().userId()));
     }
 }

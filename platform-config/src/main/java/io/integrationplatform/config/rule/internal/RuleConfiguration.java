@@ -31,8 +31,11 @@ class RuleConfiguration {
     }
 
     @Bean
-    RuleSetAdminService ruleSetAdminService(JdbcRuleSetRepository ruleSets, DecisionEngine engine) {
-        return new RuleSetAdminService(ruleSets, engine);
+    RuleSetAdminService ruleSetAdminService(JdbcRuleSetRepository ruleSets, DecisionEngine engine,
+            ApplicationEventPublisher events, ObjectProvider<TenantContext> tenantContexts) {
+        // E12-F2-S1: the edit's audit event names the bound tenant; none bound falls back fail-closed
+        return new RuleSetAdminService(ruleSets, engine, events,
+                tenantContexts.getIfAvailable(() -> java.util.Optional::empty));
     }
 
     @Bean

@@ -2,8 +2,11 @@ package io.integrationplatform.config.mapping.application;
 
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.mapping.internal.persistence.JdbcMappingRepository;
+import io.integrationplatform.domain.audit.ConfigAuditActions;
+import io.integrationplatform.tenancy.TenantContext;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
@@ -17,9 +20,18 @@ import tools.jackson.databind.JsonNode;
 public class MappingAdminService {
 
     private final JdbcMappingRepository mappings;
+    private final ApplicationEventPublisher events;
+    private final TenantContext tenants;
 
-    public MappingAdminService(JdbcMappingRepository mappings) {
+    /**
+     * @param events  where a completed save publishes its audit event (E12-F2-S1)
+     * @param tenants the bound tenant the audit event names
+     */
+    public MappingAdminService(JdbcMappingRepository mappings, ApplicationEventPublisher events,
+            TenantContext tenants) {
         this.mappings = Objects.requireNonNull(mappings, "mappings");
+        this.events = Objects.requireNonNull(events, "events");
+        this.tenants = Objects.requireNonNull(tenants, "tenants");
     }
 
     @Transactional(readOnly = true)
@@ -83,6 +95,12 @@ public class MappingAdminService {
             versionId = existing.id();
             version = existing.version();
         }
+        // E12-F2-S1: one audit event per completed save - the mapping version before and after, never the content
+        events.publishEvent(ConfigAuditActions.event(ConfigAuditActions.MAPPING_SAVED, tenants.requireTenantId(),
+                actorId, java.util.List.of(ConfigAuditActions.target("route", routeId),
+                        ConfigAuditActions.target("mapping", live.id())),
+                ConfigAuditActions.state("mappingVersionId", live.mappingVersionId()),
+                ConfigAuditActions.state("mappingVersionId", versionId)));
         return ConfigApiException.body(
                 "routeId", routeId,
                 "mappingId", live.id(),

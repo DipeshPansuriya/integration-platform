@@ -53,6 +53,7 @@ class FlowPublishEventTest {
         service.publish(FLOW);
 
         assertThat(events).as("one publish, one announcement the routing module instantiates its routes from")
+                .filteredOn(InterfacePublished.class::isInstance) // row327 T117: the publish is also audited
                 .containsExactly(new InterfacePublished(TENANT, UUID.fromString(FLOW), 3));
     }
 
