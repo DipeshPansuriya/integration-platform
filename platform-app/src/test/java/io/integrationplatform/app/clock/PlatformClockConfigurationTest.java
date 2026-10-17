@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.convert.ApplicationConversionService;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
@@ -17,7 +18,11 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
  */
 class PlatformClockConfigurationTest {
 
+    // SpringApplication installs Boot's ApplicationConversionService (String -> Duration) on the bean factory; the
+    // bare runner does not, so it is installed here the same way.
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
+            .withInitializer(context -> context.getBeanFactory()
+                    .setConversionService(ApplicationConversionService.getSharedInstance()))
             .withUserConfiguration(PlatformClockConfiguration.class);
 
     @Test
