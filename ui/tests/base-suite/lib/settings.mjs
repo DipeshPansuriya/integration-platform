@@ -4,7 +4,8 @@
 // through the dev-only exception row 278 builds - a named dev/showcase profile, one exact host, no
 // wildcard, the app's REAL host resolver (plan section 2; karan reviews it as BS-17 / T137 before it
 // lands). Its profile name, its host and the name of the app variable that carries the host are row
-// 278's [TBD at its landing]; they are read from the three names in EXCEPTION_ENV and nowhere else.
+// 278's - TBD(row278) until row 278's build lands; they are read from the three names in EXCEPTION_ENV and
+// nowhere else, and a value still reading TBD is refused (PLACEHOLDER).
 //
 // Unset -> not configured: every BS scenario FAILS with NOT_CONFIGURED (never a skip). There is no
 // default host and no fallback: the unnamed loopback stays what the guard refuses
@@ -18,8 +19,12 @@ export const EXCEPTION_ENV = Object.freeze({
 });
 
 export const NOT_CONFIGURED = 'dev-only exception not configured - waits for row 278';
-/** T130 step 5 RED stub (unit/settings.test.mjs). */
-export const PLACEHOLDER = null;
+/**
+ * Step 5: the placeholder the suite's docs show for the three names until row 278's build lands.
+ * Any value still reading "tbd" (any case) is refused - fail closed, never a guessed name that looks final.
+ */
+export const PLACEHOLDER = 'TBD(row278)';
+const STILL_TBD = 'dev-only exception still TBD(row278)';
 const MISCONFIGURED = 'dev-only exception misconfigured';
 
 /** The JVM option variables a hosts-file or name-service override could ride in. */
@@ -74,6 +79,10 @@ export function exceptionSettings(env = process.env) {
       reason: `${NOT_CONFIGURED}: set ${missing.join(', ')} (the named profile, the one exact host and the app`
         + " variable name row 278's build defines)"
     };
+  }
+  const tbd = Object.entries(EXCEPTION_ENV).filter(([key]) => /tbd/i.test(values[key])).map(([, name]) => name);
+  if (tbd.length > 0) {
+    return { configured: false, missing: [], reason: `${STILL_TBD}: ${tbd.join(', ')} - set them to the names row 278's build defines` };
   }
   const problems = [profileProblem(values.profile), hostProblem(values.host), hostVarProblem(values.hostVar)].filter(Boolean);
   if (problems.length > 0) return { configured: false, missing: [], reason: `${MISCONFIGURED}: ${problems.join('; ')}` };

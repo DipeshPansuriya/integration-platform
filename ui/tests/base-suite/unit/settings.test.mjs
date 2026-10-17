@@ -19,7 +19,7 @@ import {
   targetUrl
 } from '../lib/settings.mjs';
 
-// Fixture values only: row 278's real profile, host and app setting name are TBD(row278) (row 326's build).
+// Fixture values only: row 278's real profile, host and app setting name are TBD(row278) until row 278's build lands.
 const VALID = Object.freeze({
   IPASS_BS_EXCEPTION_PROFILE: 'showcase',
   IPASS_BS_EXCEPTION_HOST: 'target.showcase.test',

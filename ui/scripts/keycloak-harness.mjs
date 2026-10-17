@@ -157,6 +157,9 @@ export async function startKeycloak({ repo, audience, consoleRedirectUri, postLo
       audience,
       consoleClientId: CONSOLE_CLIENT,
       consoleClientSecret: secrets.CONSOLE_OIDC_CLIENT_SECRET,
+      // T130 (row 323): the realm's platform-admin service-account secret (PLATFORM_ADMIN_CLIENT_SECRET above,
+      // random per run, memory only); bootBackend hands it to the app only with `sourceCredentials`
+      platformAdminClientSecret: secrets.PLATFORM_ADMIN_CLIENT_SECRET,
       createUser,
       stop
     };
