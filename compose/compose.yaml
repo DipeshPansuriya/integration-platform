@@ -125,7 +125,10 @@ services:
       - operations
 
   # E15 (F17/T143): the JMS broker of the end-to-end scenarios - e2e profile only. Login from the ARTEMIS_* variable
-  # names (R07), anonymous login off; host ports are loopback-only (61616 core/AMQP/OpenWire, 8161 console).
+  # names (R07), anonymous login off; host ports are loopback-only. 61616 is the core/AMQP/OpenWire acceptor the
+  # scenarios use. 8161 (web console) is kept only so a developer running this profile by hand can inspect queues and
+  # the DLQ from the same machine; nothing automated uses it, and the Testcontainers harness does not expose it (T151).
+  # Whether compose drops 8161 too is T150.
   artemis:
     image: apache/activemq-artemis:2.44.0@sha256:0305c26f19eda00c0506d0953cfe265600a72ac1b17f7934412120c01a595cff
     profiles: ["e2e"]
