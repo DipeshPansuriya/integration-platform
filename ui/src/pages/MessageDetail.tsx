@@ -106,17 +106,28 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
       </p>
       {timeline && (
         <>
+          {/* Row 328 V1 (WCAG 1.3.1): every group has the same form - one <div> holding one dt and one dd. */}
           <dl data-message-summary>
-            <dt>Tracking id</dt>
-            <dd data-tracking-id>{timeline.trackingId}</dd>
-            <dt>Flow</dt>
-            <dd data-flow-id>{timeline.flowId}</dd>
-            <dt>State</dt>
-            <dd data-message-state>{timeline.state}</dd>
-            <dt>Accepted at</dt>
-            <dd>{timeline.acceptedAt ? <time dateTime={timeline.acceptedAt}>{utcText(timeline.acceptedAt)}</time> : 'Not recorded'}</dd>
-            <dt>Total</dt>
-            <dd data-total-ms={timeline.totalMs === null ? '' : String(timeline.totalMs)}>{totalText(timeline.totalMs)}</dd>
+            <div>
+              <dt>Tracking id</dt>
+              <dd data-tracking-id>{timeline.trackingId}</dd>
+            </div>
+            <div>
+              <dt>Flow</dt>
+              <dd data-flow-id>{timeline.flowId}</dd>
+            </div>
+            <div>
+              <dt>State</dt>
+              <dd data-message-state>{timeline.state}</dd>
+            </div>
+            <div>
+              <dt>Accepted at</dt>
+              <dd>{timeline.acceptedAt ? <time dateTime={timeline.acceptedAt}>{utcText(timeline.acceptedAt)}</time> : 'Not recorded'}</dd>
+            </div>
+            <div>
+              <dt>Total</dt>
+              <dd data-total-ms={timeline.totalMs === null ? '' : String(timeline.totalMs)}>{totalText(timeline.totalMs)}</dd>
+            </div>
             {responses.map((r) => (
               <div key={r.key} data-target-response={r.key}>
                 <dt>{r.label}</dt>
