@@ -19,7 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>Filters: one action (blank means none) and a date range of inclusive UTC days, bound half-open
  *       ({@code [from 00:00Z, to+1 00:00Z)}).</li>
  *   <li>The page size is bounded: {@value #DEFAULT_SIZE} by default, at most {@value #MAX_SIZE}, at least 1; a
- *       negative page is page 0. Out-of-range values are clamped, not refused - the view always answers a page.</li>
+ *       negative page is page 0, and the page is capped so offset plus size stays within {@value #MAX_OFFSET}
+ *       rows. Out-of-range values are clamped, not refused - the view always answers a page.</li>
  *   <li>One row beyond the page is read, so the answer says whether there is more without a count query.</li>
  * </ul>
  */
@@ -27,7 +28,7 @@ public class ActivityService {
 
     static final int DEFAULT_SIZE = 50;
     static final int MAX_SIZE = 200;
-    /** RED stub: the ceiling exists, nothing clamps to it yet. */
+    /** The deepest row the view reads: offset plus page size never passes it, so no OFFSET scans every partition. */
     static final int MAX_OFFSET = 10_000;
 
     /** One audit event as the activity view shows it; {@code at} is the event time as a UTC instant. */
@@ -49,7 +50,8 @@ public class ActivityService {
     @Transactional(readOnly = true)
     public ActivityPage list(String action, LocalDate from, LocalDate to, Integer page, Integer size) {
         int boundedSize = size == null ? DEFAULT_SIZE : Math.clamp(size, 1, MAX_SIZE);
-        int boundedPage = page == null ? 0 : Math.max(page, 0);
+        int lastPage = (MAX_OFFSET - boundedSize) / boundedSize;
+        int boundedPage = page == null ? 0 : Math.clamp(page, 0, lastPage);
         List<JdbcActivityStore.ActivityRow> rows = store.page(
                 action == null || action.isBlank() ? null : action,
                 from == null ? null : from.atStartOfDay(ZoneOffset.UTC).toInstant(),
@@ -63,7 +65,9 @@ public class ActivityService {
                 .limit(boundedSize)
                 .map(ActivityService::activity)
                 .toList();
-        return new ActivityPage(items, boundedPage, boundedSize, rows.size() > boundedSize);
+        // past the last reachable page the next request would clamp back here, so it never says "more"
+        return new ActivityPage(items, boundedPage, boundedSize,
+                rows.size() > boundedSize && boundedPage < lastPage);
     }
 
     /** One of the bound tenant's events by id; empty when the tenant cannot see it. */
