@@ -57,19 +57,23 @@ class ShowcaseLocalHostsHostContainerTest {
         POSTGRES.stop();
     }
 
-    private static SpringApplicationBuilder application(String... profiles) {
+    /**
+     * Started the way an operator starts a showcase: the destination settings are command-line arguments, which
+     * outrank config-systems.yml ({@code allowed-hosts: []}); builder properties are only defaults and would not.
+     */
+    private static ConfigurableApplicationContext start(String... profiles) {
         return new SpringApplicationBuilder(IntegrationPlatformApplication.class)
                 .profiles(profiles)
                 .properties(wiring)
-                .properties("server.port=0", "spring.main.banner-mode=off",
-                        ALLOWED_HOSTS + "=localhost", LOCAL_HOSTS + "=localhost");
+                .properties("server.port=0", "spring.main.banner-mode=off")
+                .run("--" + ALLOWED_HOSTS + "=localhost", "--" + LOCAL_HOSTS + "=localhost");
     }
 
     @Test
     @DisplayName("17c: the exception without the showcase profile - the application refuses to start")
     void withoutTheShowcaseProfileTheApplicationRefusesToStart() {
         assertThatThrownBy(() -> {
-            try (ConfigurableApplicationContext started = application().run()) {
+            try (ConfigurableApplicationContext started = start()) {
                 started.getBean(DestinationGuard.class); // reached only when the refusal is missing
             }
         }).rootCause()
@@ -81,7 +85,7 @@ class ShowcaseLocalHostsHostContainerTest {
     @Test
     @DisplayName("17a/17d: under the showcase profile the application starts, WARNs, and reaches the named local host")
     void underTheShowcaseProfileTheApplicationStartsAndWarns(CapturedOutput output) throws Exception {
-        try (ConfigurableApplicationContext started = application("showcase").run()) {
+        try (ConfigurableApplicationContext started = start("showcase")) {
             DestinationGuard guard = started.getBean(DestinationGuard.class);
 
             assertThat(guard.check(URI.create("http://localhost:8089/tenant-a/orders")).pinnedAddress()

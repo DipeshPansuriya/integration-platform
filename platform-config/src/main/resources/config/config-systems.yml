@@ -8,6 +8,9 @@ platform:
       # Loopback, private, link-local, CGNAT, multicast and broadcast resolutions are refused even when
       # a name is listed here.
       allowed-hosts: []
+      # SHOWCASE ONLY (T138): showcase-local-hosts lists EXACT allow-listed host names (no wildcard, no IP) that may
+      # resolve to a loopback or private address. Honoured only under the "showcase" profile, with a startup WARN;
+      # set without that profile the application refuses to start. Not set here - set it only for a showcase run.
     test-connection:
       rate-limit:
         # test-connection attempts per tenant + user in each window; over it the call answers 429
