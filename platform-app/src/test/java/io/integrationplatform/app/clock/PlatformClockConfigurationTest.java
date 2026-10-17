@@ -66,7 +66,9 @@ class PlatformClockConfigurationTest {
     @Test
     void theE2eProfileRefusesANegativeOffset() {
         runner.withPropertyValues("spring.profiles.active=e2e", "platform.test-clock.offset=-P1D")
-                .run(context -> assertThat(context).hasFailed());
+                .run(context -> assertThat(context).hasFailed().getFailure()
+                        .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                        .hasRootCauseMessage("the test clock only moves forward, not by PT-24H"));
     }
 
     @Test
