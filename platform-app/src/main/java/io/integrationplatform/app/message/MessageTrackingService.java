@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -21,6 +22,14 @@ import java.util.UUID;
  * pipeline order, with its own duration ({@code finished - started}, null while running) and the gap since the
  * previous stage ended ({@code started - previous finished}, or the previous start while that stage still runs);
  * {@code totalMs} runs from the first start to the latest instant recorded.
+ *
+ * <p><b>Failing stage</b> (T112 round 2, row 328 M1) - server-side state only, never a client hint: a message
+ * {@code ROUTE_FAILED} failed at {@code ROUTE}; one with a {@code DEAD_LETTERED} delivery failed at {@code DELIVER};
+ * otherwise null (in flight, delivered, accepted).
+ *
+ * <p><b>Deliveries</b> (row 329 M3): one entry per delivery of the message with the target's response time - the LAST
+ * attempt's {@code finished_at - started_at} (sent to answered, Stage2AttemptWriter) and that attempt's outcome class;
+ * both null when the delivery has no attempt yet. Not the Deliver stage, which includes our retry waits.
  *
  * <p><b>Failures</b>, newest first:
  * <ul>
@@ -46,7 +55,11 @@ public class MessageTrackingService {
 
     /** One message's journey: every recorded stage in pipeline order, and the total from first start to last end. */
     public record Timeline(String trackingId, String flowId, String state, String acceptedAt, List<StageTime> stages,
-            Long totalMs) {
+            Long totalMs, String failingStage, List<DeliveryTime> deliveries) {
+    }
+
+    /** One delivery of a message: its target and the last attempt's sent-to-answered time and outcome (null: none). */
+    public record DeliveryTime(String deliveryId, String targetId, Long durationMs, String outcome) {
     }
 
     /** One failed or dead-lettered message: where it failed, the error class and the last error text. */
@@ -80,8 +93,9 @@ public class MessageTrackingService {
                 latest = latest == null || end.isAfter(latest) ? end : latest;
             }
             Long total = rows.isEmpty() ? null : millis(rows.get(0).startedAt(), latest);
+            List<JdbcMessageTrackingStore.DeliveryAttemptRow> deliveryRows = store.deliveries(trackingId);
             return new Timeline(message.id(), message.flowId(), message.state(), text(message.acceptedAt()), stages,
-                    total);
+                    total, failingStage(message.state(), deliveryRows), deliveryTimes(deliveryRows));
         });
     }
 
@@ -108,6 +122,45 @@ public class MessageTrackingService {
                 .sorted(Map.Entry.<Instant, Failure>comparingByKey().reversed())
                 .map(Map.Entry::getValue)
                 .toList();
+    }
+
+    /** ROUTE_FAILED is ROUTE; any DEAD_LETTERED delivery is DELIVER; otherwise nothing failed. */
+    private static String failingStage(String state, List<JdbcMessageTrackingStore.DeliveryAttemptRow> deliveries) {
+        if ("ROUTE_FAILED".equals(state)) {
+            return "ROUTE";
+        }
+        return deliveries.stream().anyMatch(row -> "DEAD_LETTERED".equals(row.state())) ? "DELIVER" : null;
+    }
+
+    /** One entry per delivery, ordered by target then delivery id, each with its last attempt (finish, then id). */
+    private static List<DeliveryTime> deliveryTimes(List<JdbcMessageTrackingStore.DeliveryAttemptRow> rows) {
+        Map<String, JdbcMessageTrackingStore.DeliveryAttemptRow> last = new LinkedHashMap<>();
+        for (JdbcMessageTrackingStore.DeliveryAttemptRow row : rows) {
+            last.merge(row.deliveryId(), row, MessageTrackingService::later);
+        }
+        return last.values().stream()
+                .sorted(Comparator.comparing(JdbcMessageTrackingStore.DeliveryAttemptRow::targetId,
+                                Comparator.nullsLast(Comparator.<String>naturalOrder()))
+                        .thenComparing(JdbcMessageTrackingStore.DeliveryAttemptRow::deliveryId))
+                .map(row -> new DeliveryTime(row.deliveryId(), row.targetId(),
+                        row.attemptId() == null ? null : millis(row.startedAt(), row.finishedAt()),
+                        row.attemptId() == null ? null : row.outcomeClass()))
+                .toList();
+    }
+
+    private static JdbcMessageTrackingStore.DeliveryAttemptRow later(JdbcMessageTrackingStore.DeliveryAttemptRow a,
+            JdbcMessageTrackingStore.DeliveryAttemptRow b) {
+        if (a.attemptId() == null) {
+            return b;
+        }
+        if (b.attemptId() == null) {
+            return a;
+        }
+        int byFinish = a.finishedAt().compareTo(b.finishedAt());
+        if (byFinish != 0) {
+            return byFinish > 0 ? a : b;
+        }
+        return a.attemptId() >= b.attemptId() ? a : b;
     }
 
     private static int pipelineIndex(String stage) {

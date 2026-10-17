@@ -51,6 +51,15 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
             String attemptDetail, String deadLetterDetail, Instant failedAt) {
     }
 
+    /**
+     * T112 round 2 (row 328 M1 + row 329 M3): one delivery of a message joined to ONE of its attempts - a delivery
+     * with n attempts gives n rows, one with none gives one row with null attempt fields. The service derives the
+     * failing stage (any DEAD_LETTERED state) and the target response (the last attempt) from these rows.
+     */
+    record DeliveryAttemptRow(String deliveryId, String targetId, String state, Long attemptId, Instant startedAt,
+            Instant finishedAt, String outcomeClass) {
+    }
+
     JdbcMessageTrackingStore(JdbcClient jdbcClient, TenantContext tenantContext) {
         super(jdbcClient, tenantContext);
     }
@@ -69,6 +78,24 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
                 "message_id = :message_id::uuid", Map.of("message_id", messageId.toString()),
                 (rs, n) -> new StageRow(rs.getString("stage"), instant(rs, "started_at"),
                         instant(rs, "finished_at")));
+    }
+
+    /**
+     * Every delivery of the message with each of its attempts. The base appends its tenant predicate to the outer
+     * statement, where {@code tenant_id} can only mean {@code d.tenant_id} (the lateral sub-select exposes no
+     * tenant column); the attempts are pinned to the delivery's own tenant as well, and row-level security on both
+     * tables is the second gate - an attempt another tenant wrote against this delivery id never joins.
+     */
+    List<DeliveryAttemptRow> deliveries(UUID messageId) {
+        return query("select d.id::text as delivery_id, d.target_id::text as target_id, d.state, a.attempt_id,"
+                        + " a.started_at, a.finished_at, a.outcome_class"
+                        + " from public.delivery d left join lateral (select x.id as attempt_id, x.started_at,"
+                        + "   x.finished_at, x.outcome_class from public.delivery_attempt x"
+                        + "   where x.delivery_id = d.id and x.tenant_id = d.tenant_id) a on true",
+                "d.message_id = :message_id::uuid", Map.of("message_id", messageId.toString()),
+                (rs, n) -> new DeliveryAttemptRow(rs.getString("delivery_id"), rs.getString("target_id"),
+                        rs.getString("state"), rs.getObject("attempt_id", Long.class), instant(rs, "started_at"),
+                        instant(rs, "finished_at"), rs.getString("outcome_class")));
     }
 
     List<RouteFailureRow> routeFailures(UUID flowId, Instant dayStart, Instant dayEnd) {
