@@ -28,8 +28,10 @@ import org.springframework.transaction.support.TransactionOperations;
  *       zero-attempt-row deferral update and acknowledge the record (0 rows = another transaction already
  *       moved it - also just acknowledged). The partition thread never waits and never claims on a full
  *       pool;</li>
- *   <li>with the permit held: the claim transaction (HELD or a duplicate returns the permit at once,
- *       acknowledged);</li>
+ *   <li>with the permit held: the pinned target's idempotent-receive flag, read in its own tenant-scoped
+ *       transaction BEFORE the claim (B19 F1 - a read after the claim committed could fail and strand the
+ *       CLAIMED/SENDING row; a failure here claims nothing and the stage base retries the record);</li>
+ *   <li>the claim transaction (HELD or a duplicate returns the permit at once, acknowledged);</li>
  *   <li>{@code CLAIMED}: hand the send to the target's pool thread - the target call, the layer-1
  *       redelivery and the outcome path all live there; the permit returns when the send finishes.</li>
  * </ol>
@@ -37,8 +39,9 @@ import org.springframework.transaction.support.TransactionOperations;
  * <p>No target call is reachable from this thread except by that hand-off (E9-F1-S4 "the partition thread
  * never makes a target call"): the only thing this class does after {@link TargetBulkhead#execute} is
  * return. Best-effort by construction (E9-C9): each target's pool is its own, one full or hanging target
- * defers or slows only its own work. The tenant binding of the stage base (E8) is the caller's: like the
- * claim handler, this class runs under the record's tenant and is Kafka- and database-client-free (R12).
+ * defers or slows only its own work. The record's tenant (resolved by the stage base through the protected path,
+ * never from the record) is bound here with {@link WorkerTenantBinding} for the whole handler, as the T106 stage
+ * handlers do; this class stays Kafka- and database-client-free (R12).
  */
 public final class DeliveryDueDispatch implements io.integrationplatform.routing.stage.StageConsumer.Handler {
 
@@ -76,7 +79,10 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
             throw new IllegalArgumentException("the delivery.due dispatch handles DELIVERY work records only,"
                     + " got: " + record.type());
         }
-        UUID deliveryId = record.id();
+        binding.runAs(tenantId, () -> dispatch(record.id()));
+    }
+
+    private void dispatch(UUID deliveryId) {
         Optional<BulkheadFacts> read = facts.forDelivery(deliveryId);
         if (read.isEmpty()) {
             return; // no visible row: acknowledged with no effect
@@ -89,13 +95,15 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
         }
         boolean handedOff = false;
         try {
+            boolean idempotent = Boolean.TRUE.equals(
+                    transactions.execute(status -> idempotentReceive(delivery.targetEndpointId())));
             UUID claimToken = UUID.randomUUID();
             DeliveryClaimService.Outcome outcome = claims.claim(delivery.orderingKey(), deliveryId, claimToken);
             if (outcome != DeliveryClaimService.Outcome.CLAIMED) {
                 return; // HELD or duplicate: acknowledged; the permit returns in the finally
             }
             Stage2Send send = new Stage2Send(deliveryId, claimToken, delivery.orderingKey(),
-                    delivery.targetEndpointId(), idempotentReceive(delivery.targetEndpointId()));
+                    delivery.targetEndpointId(), idempotent);
             Runnable task = () -> {
                 try {
                     sends.dispatch(send);
