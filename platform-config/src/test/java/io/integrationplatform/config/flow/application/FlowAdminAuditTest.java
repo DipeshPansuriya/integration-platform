@@ -171,6 +171,22 @@ class FlowAdminAuditTest {
     }
 
     @Test
+    @SuppressWarnings("deprecation")
+    void aPublishWithoutAnActingUserIsStillAuditedAsTheSystemActor() {
+        aFlowWithLatest(new VersionInfo(V3, 3, "APPROVED", "$.id", SNAPSHOT, null, "SRC"));
+        when(flows.publishVersion(V3)).thenReturn(1);
+
+        service.publish(FLOW);
+
+        assertThat(audits()).as("no publish path skips the audit").hasSize(1);
+        AuditEvent event = audits().getFirst();
+        assertThat(event.action()).isEqualTo(ConfigAuditActions.FLOW_PUBLISHED);
+        assertThat(event.who()).isEqualTo(ConfigAuditActions.SYSTEM_ACTOR.toString());
+        assertThat(event.tenantId()).isEqualTo(TENANT);
+        assertThat(event.targetIds()).containsExactly("interface:" + FLOW, "interface_version:" + V3);
+    }
+
+    @Test
     void aFailedPublishPublishesNoAuditEvent() {
         aFlowWithLatest(new VersionInfo(V3, 3, "APPROVED", "$.id", SNAPSHOT, null, "SRC"));
         when(flows.publishVersion(V3)).thenReturn(0);

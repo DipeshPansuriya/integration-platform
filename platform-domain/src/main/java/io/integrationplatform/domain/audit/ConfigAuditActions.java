@@ -18,6 +18,12 @@ import java.util.stream.Collectors;
  */
 public final class ConfigAuditActions {
 
+    /**
+     * No human actor - an in-process caller (the nil uuid). The one-argument flow publish audits under it, so no
+     * publish path skips the audit.
+     */
+    public static final UUID SYSTEM_ACTOR = new UUID(0L, 0L);
+
     public static final String FLOW_CREATED = "FLOW_CREATED";
     public static final String FLOW_DRAFT_SAVED = "FLOW_DRAFT_SAVED";
     public static final String FLOW_SUBMITTED = "FLOW_SUBMITTED";

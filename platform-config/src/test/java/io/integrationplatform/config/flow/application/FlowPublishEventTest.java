@@ -13,8 +13,6 @@ import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.Int
 import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.VersionInfo;
 import io.integrationplatform.config.mapping.application.MappingPublishPinCheck;
 import io.integrationplatform.config.system.application.SystemAdminService;
-import io.integrationplatform.domain.audit.AuditEvent;
-import io.integrationplatform.domain.audit.ConfigAuditActions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -32,7 +30,6 @@ class FlowPublishEventTest {
     private static final String FLOW = "11111111-1111-1111-1111-111111111111";
     private static final String V3 = "22222222-2222-2222-2222-222222222223";
     private static final UUID TENANT = UUID.fromString("99999999-9999-9999-9999-999999999999");
-    private static final UUID ACTOR = UUID.fromString("77777777-7777-7777-7777-777777777777");
     private static final String SNAPSHOT = "{\"interface\":{\"code\":\"F\",\"name\":\"F\",\"ordering\":\"PER_KEY\","
             + "\"businessKeyRule\":\"$.id\"},\"routes\":[],\"mappings\":[]}";
 
@@ -53,22 +50,18 @@ class FlowPublishEventTest {
     void aSuccessfulPublishAnnouncesTheInterfaceVersionForRouteInstantiation() {
         anApprovedVersion(1);
 
-        service.publish(FLOW, ACTOR);
+        service.publish(FLOW);
 
-        assertThat(events.stream().filter(InterfacePublished.class::isInstance).toList())
-                .as("one publish, one announcement the routing module instantiates its routes from")
+        assertThat(events).as("one publish, one announcement the routing module instantiates its routes from")
+                .filteredOn(InterfacePublished.class::isInstance) // row327 T117: the publish is also audited
                 .containsExactly(new InterfacePublished(TENANT, UUID.fromString(FLOW), 3));
-        assertThat(events.stream().filter(AuditEvent.class::isInstance).map(AuditEvent.class::cast)
-                .map(AuditEvent::action).toList())
-                .as("E12-F2-S1: the same publish is audited exactly once")
-                .containsExactly(ConfigAuditActions.FLOW_PUBLISHED);
     }
 
     @Test
     void aFailedPublishAnnouncesNothing() {
         anApprovedVersion(0); // the approved version changed under the publish
 
-        assertThatThrownBy(() -> service.publish(FLOW, ACTOR)).isInstanceOf(ConfigApiException.class);
+        assertThatThrownBy(() -> service.publish(FLOW)).isInstanceOf(ConfigApiException.class);
         assertThat(events).as("no route is instantiated for a publish that did not happen").isEmpty();
     }
 }
