@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { failureRows, failuresQuery, todayUtc, originWord, emptyText, failuresCaption } = await import(
+const { failureRows, failuresQuery, todayUtc, originWord, emptyText, failuresCaption, failureColumns, flowLabels } = await import(
   '../../src/pages/failures-view.ts'
 );
 
@@ -103,4 +103,35 @@ test('empty and caption words name the filters actually applied', () => {
 
 test('an empty answer is no rows', () => {
   assert.deepEqual(failureRows([]), []);
+});
+
+// T112 follow-up (arjun-fullstack, Dipesh go 17-Oct): a Flow column, shown only in the "All flows" view.
+// The label is the flow code from listFlows() (the caption names a selected flow by its code too); a flow
+// not in the list shows its raw flowId. Data: Failure.flowId only - no backend field.
+
+const OTHER_FLOW = '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b';
+
+test('flow labels: the flow code from listFlows(), keyed by flow id', () => {
+  const labels = flowLabels([
+    { id: FLOW, code: 'ORDERS', name: 'Order intake', ordering: 'NONE', status: 'PUBLISHED' },
+    { id: OTHER_FLOW, code: 'INVOICES', name: '', ordering: 'NONE', status: 'DRAFT' }
+  ]);
+  assert.equal(labels[FLOW], 'ORDERS');
+  assert.equal(labels[OTHER_FLOW], 'INVOICES');
+});
+
+test('all flows: each row carries its flow label; a flow not in the list shows its raw flowId', () => {
+  const mixed = [...answer, { ...answer[1], trackingId: 'm-3', flowId: OTHER_FLOW }];
+  const rows = failureRows(mixed, { [FLOW]: 'ORDERS' });
+  assert.deepEqual(rows.map((r) => r.flowLabel), ['ORDERS', 'ORDERS', OTHER_FLOW]);
+  assert.equal(failureRows(answer)[0].flowLabel, FLOW, 'no labels known: the raw flowId');
+});
+
+test('the Flow column is in the header list only when no flow is selected', () => {
+  const all = failureColumns(false);
+  assert.ok(all.includes('Flow'));
+  assert.deepEqual(all, ['Tracking id', 'Flow', 'Failing stage', 'Error class', 'Last error', 'Origin', 'Failed at (UTC)']);
+  const one = failureColumns(true);
+  assert.ok(!one.includes('Flow'));
+  assert.deepEqual(one, ['Tracking id', 'Failing stage', 'Error class', 'Last error', 'Origin', 'Failed at (UTC)']);
 });
