@@ -48,6 +48,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  *       with the failing stage, the error class and the last error text - the platform's own (our-side) errors
  *       included and marked {@code PLATFORM}, a target's answer marked {@code TARGET};</li>
  *   <li>tenant B sees nothing of tenant A: no timeline (the endpoint's 404) and none of A's failures;</li>
+ *   <li>the timeline names its failing stage from server-side state (T112 round 2, row 328 M1): ROUTE for a
+ *       route-failed message, DELIVER for one with a DEAD_LETTERED delivery, null otherwise - and another tenant's
+ *       dead-lettered delivery, even one naming this tenant's message id, never marks it failed;</li>
+ *   <li>the timeline lists every delivery of the message with the target's response time - the LAST attempt's
+ *       sent-to-answered duration and outcome, null without an attempt (row 329 M3) - and another tenant's
+ *       deliveries and attempts never appear in it;</li>
  *   <li>with no tenant bound, no read runs at all.</li>
  * </ol>
  */
@@ -79,6 +85,8 @@ class MessageTrackingContainerTest {
     private static final UUID DELIVERED_DELIVERY = UUID.randomUUID();
     // tenant B
     private static final UUID B_ROUTE_FAILED = UUID.randomUUID();
+    /** T112 round 2: tenant B's DEAD_LETTERED delivery that names tenant A's DELIVERED message id (forged reference). */
+    private static final UUID B_FORGED_DEAD = UUID.randomUUID();
 
     /** Whole milliseconds, a few seconds back: every seeded instant stays inside today's UTC day partitions. */
     private static final Instant T0 = Instant.now().truncatedTo(ChronoUnit.MILLIS).minusSeconds(10);
@@ -168,6 +176,11 @@ class MessageTrackingContainerTest {
 
             message(owner, TENANT_B, B_ROUTE_FAILED, FLOW, "ROUTE_FAILED", T0, T0.plusSeconds(1));
             stage(owner, TENANT_B, B_ROUTE_FAILED, T0, "INTAKE", T0, T0.plusMillis(25));
+            // OTHER_FLOW on purpose: B's failures for FLOW (asserted exactly above) stay B_ROUTE_FAILED alone
+            delivery(owner, TENANT_B, B_FORGED_DEAD, DELIVERED, OTHER_FLOW, "DEAD_LETTERED", "PERMANENT", T0,
+                    T0.plusSeconds(2));
+            // and a tenant-B attempt naming tenant A's delivery, finishing LATER than A's own attempt
+            attempt(owner, TENANT_B, DELIVERED_DELIVERY, "PERMANENT", T0.plusSeconds(5), "forged by tenant B");
         }
     }
 
@@ -248,9 +261,53 @@ class MessageTrackingContainerTest {
     }
 
     @Test
+    void theTimelineNamesTheFailingStageFromServerSideState() {
+        assertThat(timelineOf(TENANT_A, TIMED).failingStage()).isEqualTo("DELIVER"); // the target refused it
+        assertThat(timelineOf(TENANT_A, CREDENTIAL).failingStage()).isEqualTo("DELIVER"); // our side refused it
+        assertThat(timelineOf(TENANT_A, ROUTE_FAILED).failingStage()).isEqualTo("ROUTE");
+    }
+
+    @Test
+    void anotherTenantsDeadLetterNeverMarksThisTenantsMessageFailed() {
+        // tenant B holds a DEAD_LETTERED delivery whose message_id is tenant A's DELIVERED message
+        Optional<MessageTrackingService.Timeline> mine = boundTenant.as(TENANT_A, () -> tracking.timeline(DELIVERED));
+        assertThat(mine).isPresent();
+        assertThat(mine.get().failingStage()).isNull();
+        // and A's message stays invisible to B (the endpoint's 404)
+        assertThat(boundTenant.as(TENANT_B, () -> tracking.timeline(DELIVERED))).isEmpty();
+    }
+
+    @Test
+    void theTimelineListsEachDeliveryWithItsLastAttemptsResponseTime() {
+        // TIMED's delivery: two target answers, the last (PERMANENT, 50 ms sent-to-answered) is the response
+        assertThat(timelineOf(TENANT_A, TIMED).deliveries()).containsExactly(new MessageTrackingService.DeliveryTime(
+                TARGET_DEAD.toString(), TARGET.toString(), 50L, "PERMANENT"));
+        // CREDENTIAL's delivery dead-lettered before any send: no attempt, no duration
+        assertThat(timelineOf(TENANT_A, CREDENTIAL).deliveries()).containsExactly(
+                new MessageTrackingService.DeliveryTime(PLATFORM_DEAD.toString(), TARGET.toString(), null, null));
+        // a route-failed message never reached a delivery
+        assertThat(timelineOf(TENANT_A, ROUTE_FAILED).deliveries()).isEmpty();
+    }
+
+    @Test
+    void anotherTenantsDeliveriesAndAttemptsNeverAppearInThisTenantsTimeline() {
+        // B's forged delivery (naming A's DELIVERED message) and B's later forged attempt (naming A's delivery)
+        Optional<MessageTrackingService.Timeline> mine = boundTenant.as(TENANT_A, () -> tracking.timeline(DELIVERED));
+        assertThat(mine).isPresent();
+        assertThat(mine.get().deliveries()).containsExactly(new MessageTrackingService.DeliveryTime(
+                DELIVERED_DELIVERY.toString(), TARGET.toString(), 50L, "SUCCESS"));
+        assertThat(boundTenant.as(TENANT_B, () -> tracking.timeline(DELIVERED))).isEmpty();
+    }
+
+    @Test
     void noReadRunsWithoutABoundTenant() {
         assertThatThrownBy(() -> tracking.timeline(TIMED)).isInstanceOf(NoTenantBoundException.class);
         assertThatThrownBy(() -> tracking.failures(FLOW, TODAY)).isInstanceOf(NoTenantBoundException.class);
+    }
+
+    /** The bound tenant's own timeline, which must exist. */
+    private MessageTrackingService.Timeline timelineOf(UUID tenant, UUID trackingId) {
+        return boundTenant.as(tenant, () -> tracking.timeline(trackingId)).orElseThrow();
     }
 
     // ------------------------------------------------------------------ owner-side seeding (RLS bypassed)
