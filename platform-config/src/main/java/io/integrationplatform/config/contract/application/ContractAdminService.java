@@ -241,7 +241,7 @@ public class ContractAdminService {
 
     /** POST /api/v1/admin/contracts/versions/{id}/submit - the definer move draft -> pending approval. */
     @Transactional
-    public void submit(String versionId, JsonNode body) {
+    public void submit(String versionId, JsonNode body, UUID actorId) {
         String changeNote = SystemAdminService.required(body, "changeNote");
         String result = contracts.submitVersion(versionId, changeNote);
         switch (result) {

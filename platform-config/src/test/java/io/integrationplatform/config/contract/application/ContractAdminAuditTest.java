@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.internal.persistence.JdbcContractRepository;
 import io.integrationplatform.config.internal.persistence.JdbcContractRepository.VersionDetail;
+import io.integrationplatform.config.internal.persistence.JdbcContractRepository.VersionRow;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemRow;
 import io.integrationplatform.domain.audit.AuditEvent;
@@ -93,6 +94,47 @@ class ContractAdminAuditTest {
         assertThat(event.action()).isEqualTo(ConfigAuditActions.CONTRACT_VERSION_APPROVED);
         assertThat(event.before()).isEqualTo("{\"status\":\"PENDING_APPROVAL\"}");
         assertThat(event.after()).isEqualTo("{\"status\":\"APPROVED\",\"versionLabel\":\"1.0\"}");
+    }
+
+    @Test
+    void aDraftSavePublishesOneContractDraftSavedEvent() {
+        when(systems.findSystemByCode("src-a")).thenReturn(Optional.of(new SystemRow(SYSTEM, "src-a", "S", "INBOUND")));
+        when(contracts.findContractByCode("src-a")).thenReturn(Optional.empty());
+        when(contracts.insertContract(any(), any(), any())).thenReturn(CONTRACT);
+        when(contracts.insertVersion(any(), any(), any(), any())).thenReturn(VERSION);
+        when(contracts.findVersionById(VERSION)).thenReturn(Optional.of(new VersionRow(VERSION, CONTRACT, "1.0",
+                "DRAFT", "{\"type\":\"object\",\"properties\":{\"secretField\":{\"type\":\"string\"}}}", null,
+                "src-a")));
+
+        service.saveDraft(JSON.readTree("{\"system\":\"src-a\",\"role\":\"SOURCE_REQUEST\",\"name\":\"S\","
+                + "\"sourceSchema\":{\"type\":\"object\",\"properties\":{\"secretField\":{\"type\":\"string\"}}}}"),
+                ACTOR);
+
+        AuditEvent event = theOneAudit();
+        assertThat(event.action()).isEqualTo(ConfigAuditActions.CONTRACT_DRAFT_SAVED);
+        assertThat(event.before()).isNull();
+        assertThat(event.after()).isEqualTo("{\"status\":\"DRAFT\",\"versionLabel\":\"1.0\"}");
+    }
+
+    @Test
+    void aSubmitPublishesOneContractSubmittedEvent() {
+        when(contracts.submitVersion(VERSION, "ready")).thenReturn("SUBMITTED");
+
+        service.submit(VERSION, JSON.readTree("{\"changeNote\":\"ready\"}"), ACTOR);
+
+        AuditEvent event = theOneAudit();
+        assertThat(event.action()).isEqualTo(ConfigAuditActions.CONTRACT_SUBMITTED);
+        assertThat(event.before()).isEqualTo("{\"status\":\"DRAFT\"}");
+        assertThat(event.after()).isEqualTo("{\"status\":\"PENDING_APPROVAL\"}");
+    }
+
+    @Test
+    void aRefusedSubmitPublishesNothing() {
+        when(contracts.submitVersion(VERSION, "ready")).thenReturn("NOT_DRAFT");
+
+        assertThatThrownBy(() -> service.submit(VERSION, JSON.readTree("{\"changeNote\":\"ready\"}"), ACTOR))
+                .isInstanceOf(ConfigApiException.class);
+        assertThat(audits()).isEmpty();
     }
 
     @Test

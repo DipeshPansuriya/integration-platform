@@ -26,6 +26,8 @@ public final class ConfigAuditActions {
     public static final String MAPPING_SAVED = "MAPPING_SAVED";
     public static final String RULE_SET_CREATED = "RULE_SET_CREATED";
     public static final String RULE_SET_UPDATED = "RULE_SET_UPDATED";
+    public static final String CONTRACT_DRAFT_SAVED = "CONTRACT_DRAFT_SAVED";
+    public static final String CONTRACT_SUBMITTED = "CONTRACT_SUBMITTED";
     public static final String CONTRACT_VERSION_IMPORTED = "CONTRACT_VERSION_IMPORTED";
     public static final String CONTRACT_VERSION_APPROVED = "CONTRACT_VERSION_APPROVED";
     public static final String CREDENTIAL_SOURCE_ISSUED = "CREDENTIAL_SOURCE_ISSUED";

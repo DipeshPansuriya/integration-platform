@@ -147,6 +147,9 @@ class E12ConfigAuditTrailContainerTest {
                 .doesNotContain("customer_code");
 
         submit(port, author, versionId);
+        assertThat(rows(tenant, ConfigAuditActions.CONTRACT_SUBMITTED)).as("one submit, one row")
+                .containsExactly(tenant.userId("CONFIGURATOR") + "|contract_version:" + versionId
+                        + "|{\"status\":\"PENDING_APPROVAL\"}");
         HttpResponse<String> refused = approve(port, author, versionId);
         assertThat(refused.statusCode()).as("the author never approves: %s", refused.body()).isEqualTo(403);
         assertThat(count(tenant, ConfigAuditActions.CONTRACT_VERSION_APPROVED))
