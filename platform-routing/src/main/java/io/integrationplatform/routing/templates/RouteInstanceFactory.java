@@ -113,19 +113,21 @@ public final class RouteInstanceFactory {
 
     /**
      * The one validation publish and build share: the row's scheme is in allowedSchemes and its target type has a
-     * template. The exception messages keep their wording (logs and the stage 2 dead-letter reason read them).
+     * template. The exception messages (logs and the stage 2 dead-letter reason read them) name only the
+     * {@link RefusalText}-bounded scheme or type, the route id and the endpoint id - never the endpoint URI (B22 M1).
      */
     private RouteTemplate approvedTemplate(RouteConfigRow row) {
         String scheme = row.scheme();
         if (!allowedSchemes.contains(scheme)) {
-            throw RouteBuildRefusedException.scheme(scheme, "endpoint URI scheme '" + scheme
-                    + "' is not in allowedSchemes - the route for endpoint " + row.targetEndpointId()
-                    + " (URI '" + row.endpointUri() + "') is refused: configuration cannot reach an unapproved component");
+            throw RouteBuildRefusedException.scheme(scheme, "endpoint URI scheme '" + RefusalText.scheme(scheme)
+                    + "' is not in allowedSchemes - the route " + row.routeId() + " for endpoint "
+                    + row.targetEndpointId() + " is refused: configuration cannot reach an unapproved component");
         }
         RouteTemplate template = templatesByType.get(row.targetType());
         if (template == null) {
             throw RouteBuildRefusedException.targetType(row.targetType(), "no route template for target type '"
-                    + row.targetType() + "' - the route for endpoint " + row.targetEndpointId() + " is refused");
+                    + RefusalText.targetType(row.targetType()) + "' - the route " + row.routeId() + " for endpoint "
+                    + row.targetEndpointId() + " is refused");
         }
         return template;
     }
