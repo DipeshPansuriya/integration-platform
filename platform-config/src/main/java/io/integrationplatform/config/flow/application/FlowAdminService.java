@@ -242,8 +242,8 @@ public class FlowAdminService {
             throw ConfigApiException.conflict("the approved version changed under the publish");
         }
         flows.updateInterfaceAfterPublish(interfaceRow.id(), approved.version());
-        // T-116: the routing module builds the interface's route instances from these rows before the commit -
-        // a route it refuses rolls this publish back.
+        // T-116: the routing module validates these rows before the commit - it validates; never builds; routes
+        // are built lazily in stage 2 (ADR-010 s3 amendment, F16 verdict c). A row it refuses rolls this publish back.
         events.publishEvent(new InterfacePublished(tenants.requireTenantId(), UUID.fromString(interfaceRow.id()),
                 approved.version()));
         return ConfigApiException.body("id", interfaceRow.id(), "version", approved.version());

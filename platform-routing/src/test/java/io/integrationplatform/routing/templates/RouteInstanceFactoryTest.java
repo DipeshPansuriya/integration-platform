@@ -57,13 +57,14 @@ class RouteInstanceFactoryTest {
     }
 
     @Test
-    void publishingAnInterfaceWithTwoTargetsCreatesItsRouteInstancesAtRuntime() {
+    void aPublishedInterfaceWithTwoTargetsGetsItsRouteInstancesAtRuntimeOnFirstUse() {
         reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
                 null, MAPPING_M3));
         reader.add(new RouteConfigRow(instanceId("route-2"), ENDPOINT_B, "API", "https://target-b.example/v1",
                 null, MAPPING_M4));
 
-        List<RouteInstance> instances = factory.publishInterface(TENANT, INTERFACE_ID);
+        factory.publishInterface(TENANT, INTERFACE_ID); // AC-1: validates only
+        List<RouteInstance> instances = reader.rows.values().stream().map(factory::ensure).toList(); // stage 2, lazily
 
         assertThat(context.isStarted())
                 .as("0 deploys, 0 restarts: the already-running context is still the same started instance")
@@ -86,7 +87,8 @@ class RouteInstanceFactoryTest {
         RouteConfigRow m3 = new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API",
                 "https://target-a.example/v1", null, MAPPING_M3);
         reader.add(m3);
-        RouteInstance first = factory.publishInterface(TENANT, INTERFACE_ID).stream().findFirst().orElseThrow();
+        factory.publishInterface(TENANT, INTERFACE_ID);
+        RouteInstance first = factory.ensure(m3); // built lazily in stage 2 with the row's pinned versions
 
         reader.replace(m3.routeId(), new RouteConfigRow(m3.routeId(), ENDPOINT_A, "API",
                 "https://target-a.example/v2", null, MAPPING_M4));
@@ -107,7 +109,7 @@ class RouteInstanceFactoryTest {
     void aRouteIdlingPastThirtyMinutesIsRemovedFromTheRunningContextAndRebuiltLazily() {
         reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
                 null, MAPPING_M3));
-        RouteInstance first = factory.publishInterface(TENANT, INTERFACE_ID).stream().findFirst().orElseThrow();
+        RouteInstance first = factory.ensure(reader.current(ENDPOINT_A));
         factory.touch(ENDPOINT_A, Instant.parse("2026-10-12T12:00:00Z"));
 
         factory.evictIdle(Instant.parse("2026-10-12T12:29:59Z"));
@@ -132,11 +134,13 @@ class RouteInstanceFactoryTest {
     void publishIsIdempotentAndNeverRebuildsARouteThatIsAlreadyInstantiated() {
         reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
                 null, MAPPING_M3));
+        factory.ensure(reader.current(ENDPOINT_A));
         factory.publishInterface(TENANT, INTERFACE_ID);
         factory.publishInterface(TENANT, INTERFACE_ID);
+        factory.ensure(reader.current(ENDPOINT_A));
 
         assertThat(template.builds).isEqualTo(1)
-                .as("a second publish of the same rows creates no second build (lazy re-use)");
+                .as("republishing the same rows and ensuring again creates no second build (lazy re-use)");
     }
 
     @Test
