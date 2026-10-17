@@ -82,6 +82,14 @@ function seedDeadLetter(tenantId, flowId, messageId) {
     + ` '${at(5000)}'::timestamptz, 'PERMANENT', '${flowId}'::uuid, gen_random_uuid(), '${messageId}'::uuid)`);
   psql(`insert into public.delivery_event (tenant_id, delivery_id, type, detail, occurred_at) values`
     + ` ('${tenantId}'::uuid, '${id}'::uuid, 'DEAD_LETTER', 'PERMANENT', '${at(5000)}'::timestamptz)`);
+  return id;
+}
+
+/** One target call of a delivery: sent at startMs, outcome decided at finishMs (row 329: target response). */
+function seedAttempt(tenantId, deliveryId, layer, outcome, startMs, finishMs) {
+  psql(`insert into public.delivery_attempt (tenant_id, delivery_id, layer, outcome_class, started_at, finished_at)`
+    + ` values ('${tenantId}'::uuid, '${deliveryId}'::uuid, ${layer}, '${outcome}', '${at(startMs)}'::timestamptz,`
+    + ` '${at(finishMs)}'::timestamptz)`);
 }
 
 async function openDetail(page, hash) {
@@ -97,7 +105,10 @@ test('a dead-lettered message: every stage with times, duration and gap, the tot
   seedStage(tenantId, msg, 'ROUTE', 50, 80);
   seedStage(tenantId, msg, 'TRANSFORM', 100, 1334);
   seedStage(tenantId, msg, 'DELIVER', 1400, null);
-  seedDeadLetter(tenantId, flow.id, msg);
+  const delivery = seedDeadLetter(tenantId, flow.id, msg);
+  // two calls: a transient one, then the deciding one - target response is the LAST call only (row 329)
+  seedAttempt(tenantId, delivery, 1, 'TRANSIENT', 1400, 1500);
+  seedAttempt(tenantId, delivery, 2, 'PERMANENT', 3000, 3412);
 
   // reached from Failures (the detail screen has no menu entry)
   await page.goto(consoleUrl());
@@ -120,6 +131,15 @@ test('a dead-lettered message: every stage with times, duration and gap, the tot
   await expect(deliver).toHaveAttribute('data-stage-status', 'failed');
   await expect(deliver.locator('[data-duration-cell]')).toHaveText('Did not finish');
   await expect(deliver.locator('[data-since-cell]')).toHaveText('66 ms');
+
+  // E13-C2 spec words on the stage rows, and the target's own time (not our retry waits) in the summary
+  await expect(page.locator('[data-stage-row="INTAKE"] th')).toHaveText('Intake (source intake)');
+  await expect(page.locator('[data-stage-row="ROUTE"] th')).toHaveText('Route');
+  await expect(page.locator('[data-stage-row="TRANSFORM"] th')).toHaveText('Transform (conversion)');
+  await expect(deliver.locator('th')).toHaveText('Deliver (all attempts)');
+  const response = page.locator(`[data-target-response="${delivery}"]`);
+  await expect(response.locator('dt')).toHaveText('Target response');
+  await expect(response.locator('dd')).toHaveText('412 ms (Permanent)');
 
   // table semantics (WCAG AA basics): caption, column and row headers
   await expect(page.locator('table[data-timeline] caption')).toContainText(msg);
@@ -156,17 +176,53 @@ test('@negative an unknown or malformed tracking id reads "No message with this 
   await expect(page.locator('[role="status"][data-empty="message-not-found"]')).toHaveText('No message with this tracking id');
 });
 
-// @negative @tenant: tenant A's message is never shown to tenant B - refused (CONFIGURATOR lacks the read
-// rule) or not found, with no stage rows and no wording that hints at another tenant.
-test("@negative @tenant another tenant's console never sees tenant A's message", async ({ page }) => {
+// Row 328 M1: the failing stage is the server's - no ?failed= hint is needed, and a forged one marks nothing.
+test('@negative the failing stage comes from the server: no hint still shows DELIVER failed, a forged hint shows nothing failed', async ({ page }) => {
+  const flow = await freshFlow(page, 'server-stage');
+  const tenantId = tenantIdOf();
+  const dead = seedMessage(tenantId, flow.id, 'ROUTED');
+  seedStage(tenantId, dead, 'INTAKE', 0, 40);
+  seedDeadLetter(tenantId, flow.id, dead);
+  await openDetail(page, `#/messages/${dead}`);
+  await expect(page.locator('[data-failing-stage]')).toHaveAttribute('data-failing-stage', 'DELIVER');
+  await expect(page.locator('[data-stage-row="DELIVER"]')).toHaveAttribute('data-stage-status', 'failed');
+
+  const inFlight = seedMessage(tenantId, flow.id, 'ROUTED');
+  seedStage(tenantId, inFlight, 'INTAKE', 0, 40);
+  await openDetail(page, `#/messages/${inFlight}?failed=DELIVER`);
+  await expect(page.locator(`${PAGE}[data-message-loaded="true"]`)).toBeVisible();
+  await expect(page.locator('[data-failing-stage]')).toHaveCount(0);
+  await expect(page.locator('[data-stage-status="failed"]')).toHaveCount(0);
+  // no delivery yet: the target was not reached - never a zero duration
+  await expect(page.locator('[data-target-response] dd')).toHaveText('Not reached');
+});
+
+// @negative @tenant (row 328 M2, backlog: tenant B gets 404): a tenant-B user WITH the read role passes the
+// role check, so only tenant scoping stands between it and tenant A's message - the answer is not found.
+test("@negative @tenant another tenant's reader gets not found for tenant A's message", async ({ page }) => {
   const flow = await freshFlow(page, 'tenant-cut');
+  const tenantId = tenantIdOf();
+  const msg = seedMessage(tenantId, flow.id, 'ROUTE_FAILED');
+  seedStage(tenantId, msg, 'INTAKE', 0, 40);
+
+  await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant-reader' });
+  await openDetail(page, `#/messages/${msg}`);
+  await expect(page.locator(`${PAGE}[data-load="not-found"]`)).toBeVisible();
+  await expect(page.locator('[role="status"][data-empty="message-not-found"]')).toHaveText('No message with this tracking id');
+  await expect(page.locator('[data-stage-row]')).toHaveCount(0);
+  await expect(page.locator(PAGE)).not.toContainText(/tenant/i);
+});
+
+// @negative @role: the other-tenant binding is a CONFIGURATOR of tenant B, without the read role - refused
+// (403) before tenant scoping runs; no stage rows either way.
+test("@negative @role another tenant's configurator is refused tenant A's message", async ({ page }) => {
+  const flow = await freshFlow(page, 'role-cut');
   const tenantId = tenantIdOf();
   const msg = seedMessage(tenantId, flow.id, 'ROUTE_FAILED');
   seedStage(tenantId, msg, 'INTAKE', 0, 40);
 
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
   await openDetail(page, `#/messages/${msg}`);
-  await expect(page.locator(`${PAGE}[data-load="refused"], ${PAGE}[data-load="not-found"]`)).toBeVisible();
+  await expect(page.locator(`${PAGE}[data-load="refused"]`)).toBeVisible();
   await expect(page.locator('[data-stage-row]')).toHaveCount(0);
-  await expect(page.locator(PAGE)).not.toContainText(/tenant/i);
 });

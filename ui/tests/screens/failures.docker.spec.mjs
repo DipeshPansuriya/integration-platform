@@ -187,9 +187,47 @@ test('a tenant with no failures sees the empty state announced', async ({ page }
   await expect(page.locator('[data-failure-row]')).toHaveCount(0);
 });
 
-// @negative @tenant @role: the list rides READ_MESSAGE_TIMELINE; the other-tenant binding is a CONFIGURATOR
-// of tenant B - refused outright, and never lists tenant A's failures.
-test("the other tenant's console is refused and lists none of tenant A's failures", async ({ page }) => {
+// Row 328 D2: the All-flows view shows the Flow column - header and cells aligned, each cell the row's flow code.
+test('All flows: the Flow column heads the table and each row names its own flow', async ({ page }) => {
+  const first = await freshFlow(page, 'all-flows-1');
+  const second = await freshFlow(page, 'all-flows-2');
+  const tenantId = tenantIdOf();
+  const one = seedMessage(tenantId, first.id, 'ROUTE_FAILED', `${DAY} 00:01:00+00`);
+  const two = seedMessage(tenantId, second.id, 'ROUTE_FAILED', `${DAY} 00:02:00+00`);
+
+  await openFailures(page);
+  await expect(page.getByLabel('Flow', { exact: true })).toHaveValue('');
+  const headers = page.locator('table[data-failures] th[scope="col"]');
+  await expect(headers).toHaveCount(7);
+  await expect(headers.nth(1)).toHaveText('Flow');
+  await expect(page.locator(`[data-failure-row="${one}"] [data-flow-cell]`)).toHaveText(first.code);
+  await expect(page.locator(`[data-failure-row="${two}"] [data-flow-cell]`)).toHaveText(second.code);
+  // the Flow cell sits in the header's position (second cell of the row)
+  await expect(page.locator(`[data-failure-row="${one}"] > td`).nth(1)).toHaveAttribute('data-flow-cell', '');
+
+  // one flow selected: no Flow column, no Flow cell
+  await pickFlow(page, first.id);
+  await expect(headers).toHaveCount(6);
+  await expect(page.locator('[data-flow-cell]')).toHaveCount(0);
+});
+
+// @negative @tenant (row 328 M2): a tenant-B user WITH the read role gets past the role check and sees an
+// empty list - tenant A's failures are cut by tenant scoping, never by a refusal.
+test("@negative @tenant the other tenant's reader lists none of tenant A's failures", async ({ page }) => {
+  const flow = await freshFlow(page, 'tenant-reader');
+  const msg = seedMessage(tenantIdOf(), flow.id, 'ROUTE_FAILED', `${DAY} 00:01:00+00`);
+  await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant-reader' });
+  await openFailures(page);
+  await page.getByLabel(/Day \(UTC/).fill('');
+  await expect(page.locator(`${PAGE}[data-load="ready"]`)).toBeVisible();
+  await expect(page.locator('[role="status"][data-refusal]')).toHaveCount(0);
+  await expect(page.locator(`[data-failure-row="${msg}"]`)).toHaveCount(0);
+  await expect(page.locator('[role="status"][data-empty="failures-none"]')).toHaveText('No failed messages.');
+});
+
+// @negative @role: the list rides READ_MESSAGE_TIMELINE; the other-tenant binding is a CONFIGURATOR
+// of tenant B - refused outright (403, the role case), and never lists tenant A's failures.
+test("@negative @role the other tenant's configurator is refused and lists none of tenant A's failures", async ({ page }) => {
   const flow = await freshFlow(page, 'tenant-cut');
   const msg = seedMessage(tenantIdOf(), flow.id, 'ROUTE_FAILED', `${DAY} 00:01:00+00`);
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
