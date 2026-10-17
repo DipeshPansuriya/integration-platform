@@ -3,7 +3,7 @@ type: ADR
 title: "ADR-010 - Apache Camel as the routing core, inside one module, with exactly two retry layers"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): bulkhead-full backoff and re-drive cap, every state change takes the key lock first with 40001/40P01 retry, missing key uses no attempt, not-ready instance stops its consumers, broker-address check and egress policy. 2026-10-12 - amended with the approval of ADR-014 (sections 2 and 6: one delivery per message and route, unique on (message_id, route_id, created_at) with created_at = the message's accepted_at, message and payload day-partitioned) and ADR-015 (section 1: target adapters and the send-time destination check live in platform-routing; routing depends on platform-config's public API only), both approved by Dipesh 2026-10-12. 2026-10-17 - section 8: the dev/showcase-only exception to the destination check (T138; property platform.config.destinations.showcase-local-hosts, honoured only under the showcase profile, fail closed, never in production; AC approved by Dipesh 2026-10-17, memory m-b39c08)"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): bulkhead-full backoff and re-drive cap, every state change takes the key lock first with 40001/40P01 retry, missing key uses no attempt, not-ready instance stops its consumers, broker-address check and egress policy. 2026-10-12 - amended with the approval of ADR-014 (sections 2 and 6: one delivery per message and route, unique on (message_id, route_id, created_at) with created_at = the message's accepted_at, message and payload day-partitioned) and ADR-015 (section 1: target adapters and the send-time destination check live in platform-routing; routing depends on platform-config's public API only), both approved by Dipesh 2026-10-12. 2026-10-17 - section 8: the dev/showcase-only exception to the destination check (T138; property platform.config.destinations.showcase-local-hosts, honoured only under the showcase profile, fail closed, never in production; AC approved by Dipesh 2026-10-17, memory m-b39c08). 2026-10-17 - section 3 amended for finding F16 (row 278): publish validates and never builds; routes are built lazily in stage 2, keyed by (target endpoint id, endpoint version = fingerprint of the row values a template is built from); the idle sweep is scheduled"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -153,6 +153,40 @@ another (best-effort, OQ-09), except the same-key hold of ADR-011, which is per 
 - **Endpoint URIs are never free text.** Template parameters come from typed target settings
   validated against the per-type schema (ADR-011). Stage 2 dispatches with `toD` whose
   `allowedSchemes` is `direct` only, so configuration cannot reach an unapproved component.
+
+**Amendment 2026-10-17 (finding F16, ledger row 278): where the build happens and what the key
+is.** The code at `4b3516b` builds every route at publish, inside the publish transaction, and
+caches it by target endpoint id alone (`RouteInstanceFactory.java:49`, `:77-83`, `:98-101`,
+`:120`; called by the `BEFORE_COMMIT` listener `InterfacePublishedRouteListener.java:29-34`).
+A Camel registration is not part of the transaction, so a refused later row or a failed commit
+leaves live, cached routes behind (finding F14). Decision:
+
+- **Publish validates; it never builds.** For every active route row of the interface, the
+  publish path runs the scheme check (`allowedSchemes`) and the template-exists check. A refusal
+  fails the publish and rolls it back. Publish adds 0 Camel routes and writes 0 cache entries,
+  so a failed publish leaves nothing to undo.
+- **The build is lazy, in stage 2.** The consuming instance builds the instance in the send
+  path the first time a delivery needs the pair, on any instance, with no broadcast (as above).
+- **The key is (target endpoint id, endpoint version).** The schema has no endpoint version
+  column, and `target_endpoint` is not updated in place (`V2_2_1__config_systems.sql:23-45`).
+  So the *endpoint version* is a deterministic fingerprint of every row value a template is built
+  from: target type, endpoint URI, contract version id and mapping version id. A changed value
+  is a new key, so the next delivery builds a new instance and nothing is rebuilt over a live one.
+  The old instance drains and the idle sweep removes it. The Camel route id and the `direct:`
+  consumer both carry the key, so two versions of one endpoint never share a consumer.
+- **Tenants.** Endpoint ids are globally unique primary keys, and the row is read under the
+  delivery's tenant (row-level security), so a key cannot alias across tenants. The instance
+  holds no tenant state; the tenant travels with the delivery.
+- **The 30-minute idle removal runs on a schedule.** It is a claimed control, so it has a caller
+  and a test.
+- **Gives up:** a fault that only appears when Camel registers the route is found at the first
+  send, not at publish (that delivery dead-letters `PERMANENT`), instead of failing the publish.
+  Accepted: scheme and target type, the faults configuration can cause, are still refused at
+  publish.
+- **Gates (counts):** publishing 2 valid rows adds 0 routes. A publish of [valid, refused] fails
+  and adds 0 routes. 2 deliveries for one key build 1 instance. A changed mapping version builds
+  a 2nd instance and leaves the 1st untouched. An instance idle 31 minutes is removed (0 left);
+  one touched at 29 minutes stays (1 left).
 
 ### 4. Exactly two retry layers
 
