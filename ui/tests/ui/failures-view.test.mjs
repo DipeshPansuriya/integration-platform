@@ -105,7 +105,7 @@ test('an empty answer is no rows', () => {
   assert.deepEqual(failureRows([]), []);
 });
 
-// T112 follow-up (arjun-fullstack, Dipesh go 17-Oct): a Flow column, shown only in the "All flows" view.
+// T112 follow-up (arjun-fullstack, Mira/row 328 review 17-Oct): a Flow column, shown only in the "All flows" view.
 // The label is the flow code from listFlows() (the caption names a selected flow by its code too); a flow
 // not in the list shows its raw flowId. Data: Failure.flowId only - no backend field.
 

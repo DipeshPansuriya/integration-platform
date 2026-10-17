@@ -82,8 +82,10 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
 
     /**
      * Every delivery of the message with its last attempt - latest {@code finished_at}, then highest id, the same
-     * order as the dead-letter read below; one indexed probe per delivery, not every attempt of every daily partition
-     * (row 328 V4). The base appends its tenant predicate to the outer
+     * order as the dead-letter read below. The lateral sub-select reads only this delivery's attempts (the index is
+     * {@code (tenant_id, delivery_id, started_at)}, so they are still sorted on {@code finished_at} in every daily
+     * partition) and returns one row per delivery, not one per attempt (row 328 V4, V7). The base appends its tenant
+     * predicate to the outer
      * statement, where {@code tenant_id} can only mean {@code d.tenant_id} (the lateral sub-select exposes no
      * tenant column); the attempts are pinned to the delivery's own tenant as well, and row-level security on both
      * tables is the second gate - an attempt another tenant wrote against this delivery id never joins.
