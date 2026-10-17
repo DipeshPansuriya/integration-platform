@@ -21,7 +21,7 @@
           "ingest",
           "db"
         ],
-        "note": "Token; tenant + customer from our DB; customerId cross-check; schema then rules, all violations at once; one intake tx (4.1 steps 1-5)."
+        "note": "Runs today: token; tenant + customer from our DB; customerId cross-check; interface, pin, business key; one intake tx."
       },
       {
         "id": "route",
@@ -32,7 +32,7 @@
           "routing",
           "db"
         ],
-        "note": "One publisher per key bucket; consumers claim the record key first; stage 1 idempotent: ACCEPTED to ROUTED guard + unique (message, route)"
+        "note": "Built with tests, not wired yet: relay, stage consumer, duplicate guard, stage-1 SQL (E11 composition starts them)."
       },
       {
         "id": "sync",
@@ -43,7 +43,7 @@
           "routing",
           "db"
         ],
-        "note": "Message and delivery outbox rows deferred; inline stage 1, bulkhead permit, same claim, one call (architecture.md 4.2)."
+        "note": "Planned (E11): synchronous inline path - no SYNC code yet."
       }
     ]
   },
@@ -66,7 +66,7 @@
     {
       "id": "ingest",
       "type": "backend",
-      "label": "platform-ingest + relay"
+      "label": "ingest; relay not wired"
     },
     {
       "id": "db",
@@ -81,24 +81,24 @@
     {
       "id": "routing",
       "type": "backend",
-      "label": "platform-routing"
+      "label": "routing (not wired)"
     }
   ],
   "segments": [
     {
       "from": 146,
       "to": 460,
-      "label": "1. Authenticate + intake"
+      "label": "1. Authenticate + intake (runs today)"
     },
     {
       "from": 474,
       "to": 676,
-      "label": "2. Relay + route (stage 1)"
+      "label": "2. Relay + route stage 1 (built, not wired)"
     },
     {
       "from": 684,
       "to": 732,
-      "label": "3. SYNC only"
+      "label": "3. SYNC only (planned)"
     }
   ],
   "messages": [
@@ -124,9 +124,9 @@
       "from": "source",
       "to": "tenancy",
       "y": 222,
-      "label": "POST /interfaces/{code}/messages[:bulk] + Bearer + Idempotency-Key",
+      "label": "POST /api/v1/interfaces/{code}/messages + Bearer + Idempotency-Key",
       "variant": "emphasis",
-      "note": "Token validated: issuer, JWKS signature, RS256/ES256, aud, exp (ADR-007 D4)"
+      "note": "Token validated: issuer, JWKS signature, RS256/ES256, aud, exp (ADR-007 D4). Also required: Content-Type application/json and X-Source-Contract-Version. Bulk (:bulk) is planned (E11)."
     },
     {
       "id": "m04",
@@ -168,8 +168,8 @@
       "from": "ingest",
       "to": "db",
       "y": 362,
-      "label": "validate each record: contract schema, then rules",
-      "note": "JSON Schema (networknt, every error) first, then each VALIDATION rule set via platform-config's RuleEvaluationPort (ZEN); all violations in one rejection; rules skipped when the payload is not the contract's object (ADR-003 rule 4)"
+      "label": "published interface, contract pin, business key",
+      "note": "IntakeService: unknown or unpublished interface = 404; header version not the published pin, or business key unresolved = 422. Contract JSON Schema + rule validation exists (PayloadValidationService) but intake does not call it yet."
     },
     {
       "id": "m05",
@@ -178,14 +178,14 @@
       "y": 390,
       "label": "one tx: message + payload + outbox",
       "variant": "emphasis",
-      "note": "Idempotency key per source credential, 24 h; same key, other body = 422 (ADR-011 D4)"
+      "note": "One commit (ADR-011 D5). Idempotency-Key is required but not stored or checked yet; the 24 h idempotency store and the per-key sequence are planned (E11)."
     },
     {
       "id": "m06",
       "from": "ingest",
       "to": "source",
       "y": 418,
-      "label": "202 per-record results",
+      "label": "202 + trackingId",
       "variant": "return"
     },
     {
@@ -193,8 +193,9 @@
       "from": "ingest",
       "to": "source",
       "y": 446,
-      "label": "400 every violation listed, 413, 422, 503 (nothing stored)",
-      "variant": "dashed"
+      "label": "400, 404, 413 (1 MB), 415, 422, 503 (nothing stored)",
+      "variant": "dashed",
+      "note": "400 = missing header or malformed JSON; 415 = missing or wrong Content-Type (IntakeController)."
     },
     {
       "id": "m08",
@@ -203,7 +204,7 @@
       "y": 494,
       "label": "relay publishes via the publish port (the Kafka adapter)",
       "variant": "emphasis",
-      "note": "Fire-and-forget publish + acknowledge; the adapter lives in platform-routing (T-110, ADR-015)"
+      "note": "PostgresOutboxRelay: advisory lock per key bucket (T-179), breaker, acknowledge with timeout. The Kafka publish port is a bean only when IPASS_KAFKA_BOOTSTRAP_SERVERS is set; the relay itself is not started by platform-app yet."
     },
     {
       "id": "m08b",
@@ -219,7 +220,8 @@
       "from": "kafka",
       "to": "routing",
       "y": 550,
-      "label": "stage 1 consumes"
+      "label": "stage 1 consumes",
+      "note": "StageConsumer: tenant from the row via ipaas_work_tenant, never from the record; offset committed only after the work succeeds."
     },
     {
       "id": "m09b",
@@ -236,7 +238,7 @@
       "y": 606,
       "label": "one tx: ACCEPTED to ROUTED + deliveries + outbox",
       "variant": "emphasis",
-      "note": "Key lock; 0 rows = duplicate; insert on conflict (message, route) do nothing; releases holds"
+      "note": "SQL built (JdbcStage1Deliveries): key lock; 0 rows = duplicate; insert on conflict (message_id, route_id, created_at) do nothing; one delivery.due outbox row each. The route-condition handler that drives it is planned."
     },
     {
       "id": "m11",
@@ -262,7 +264,7 @@
       "y": 690,
       "label": "inline stage 1, bulkhead permit, claim, one call",
       "variant": "dashed",
-      "note": "Message and delivery outbox rows deferred by budget + 5 s (ADR-011 D5)"
+      "note": "Planned (E11 A3): message and delivery outbox rows deferred by budget + 5 s (ADR-011 D5)."
     },
     {
       "id": "m14",
@@ -279,23 +281,23 @@
       "title": "Accepted means stored",
       "items": [
         "202 only after message, payload and outbox commit together",
-        "Kafka records carry ids; the payload stays in PostgreSQL"
+        "Kafka records carry ids (not wired); the payload stays in PostgreSQL"
       ]
     },
     {
       "dot": "orange",
-      "title": "Duplicates are harmless",
+      "title": "Duplicate-safe (not wired)",
       "items": [
-        "Same record twice: the guard's claim detects it; N deliveries, not 2N",
-        "Same key, 3 relay instances: published in order"
+        "Same record twice: the duplicate guard's claim detects it",
+        "Same key, several relay instances: published in order"
       ]
     },
     {
       "dot": "rose",
-      "title": "Continues in part 2",
+      "title": "Status at code main",
       "items": [
-        "Each delivery outbox row goes to delivery.due",
-        "Part 2: claim, bulkhead, send, retry, reconcile"
+        "Section 1 runs today; 2 is built, not wired",
+        "Section 3, bulk, idempotency store: planned"
       ]
     }
   ]

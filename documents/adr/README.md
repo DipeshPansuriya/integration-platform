@@ -10,7 +10,8 @@ project: ipass/integration-platform
 
 The previous ADR files were deleted with the old repository on 2026-10-02. The records below
 were recreated with per-section provenance, or written new, in phase 0 of the rebuild. Dipesh
-re-confirms each recreation; every decision stays reversible on his review.
+re-confirms each recreation; every decision stays reversible on his review. Dipesh is the project
+owner; author lines name planning-team roles ([../README.md](../README.md) explains the references).
 
 | ADR | Title | Status | Provenance |
 |---|---|---|---|
@@ -29,6 +30,25 @@ re-confirms each recreation; every decision stays reversible on his review.
 | [ADR-013](ADR-013-mapping-versions.md) | Mapping versions: immutable, content-addressed `mapping_version` rows created at draft save, referenced from the snapshot, pinned on deliveries | **Accepted (Dipesh, 2026-10-12)** - unblocks E7 lane C1 and E9 T-117 | New |
 | [ADR-014](ADR-014-message-store-and-delivery-uniqueness.md) | Message store and delivery uniqueness: day-partitioned message and payload, deliveries on their message's day, unique (message_id, route_id, created_at) | **Accepted (Dipesh, 2026-10-12)** - payload retention 30 days; ADR-010 sections 2 and 6 amended; unblocks E8 lane A and E9 lane C | New |
 | [ADR-015](ADR-015-target-type-register-and-adapter-placement.md) | Target adapters in platform-routing; system-type register aligned to ADR-011 (MQ_CSV, KAFKA_TOPIC) in E10 | **Accepted (Dipesh, 2026-10-12)** - ADR-010 section 1 and architecture.md section 2 amended; code rename in E10 | New |
+
+## Status against the code at main `90c1ddd` (2026-10-16)
+
+The decisions above are unchanged; an ADR is a record of what was decided and why. This table only says where the
+code does not carry a decision out yet, so nobody reads an accepted decision as running code. Status words as in
+[architecture.md](../architecture.md) section 9.
+
+| ADR | Where the code stands | Evidence |
+|---|---|---|
+| ADR-001 | One deployable built; ArchUnit rules enforce boundaries; no Spring Modulith; `platform-ledger`, `platform-audit` and `platform-e2e` are not modules yet | `pom.xml:23-38`; `arch-test/src/test/java/io/integrationplatform/archtest/` |
+| ADR-005 | Topics are named in code; the relay and the consumers are **not wired**; the Kafka publish port is created only when `IPASS_KAFKA_BOOTSTRAP_SERVERS` is set | `platform-routing/src/main/java/io/integrationplatform/routing/publish/KafkaPublishPortConfiguration.java:29` |
+| ADR-006 | JSONata runs behind the mapping test only; transform in the send path **planned** | [architecture.md](../architecture.md) section 9 |
+| ADR-009, ADR-011 (definer functions) | 3 of the 4 functions exist; `ipaas_active_tenants` has no migration yet | [architecture.md](../architecture.md) section 9 |
+| ADR-010 | Camel routing, layer-1 send route, outcome classes and the state register are built; stage consumers, the per-target bulkhead and its bulkhead-full deferral, claim and send are **not wired**; reconciler, stale-claim sweeper and the per-target send breaker **planned** | `platform-routing/src/main/java/io/integrationplatform/routing/stage2/LayerOneRouteBuilder.java:28-31`; `platform-routing/src/main/java/io/integrationplatform/routing/stage2/bulkhead/TargetBulkhead.java:23-36`; `platform-delivery/src/main/java/io/integrationplatform/delivery/internal/deferral/JdbcBulkheadDeferrals.java:31` |
+| ADR-011 Decision 4-5 | Single-record intake endpoint built; bulk, the idempotency store, intake validation and `SYNC` **planned** | [interface.md](../interface.md) section 2, "As built" |
+| ADR-012 | db-scheduler runs 4 recurring jobs; their bodies are no-ops or skipped (`DELIVERY_RETRY` has no handler) | `platform-app/src/main/java/io/integrationplatform/app/scheduler/SchedulerJobTasks.java:37-53`; `platform-app/src/main/java/io/integrationplatform/app/scheduler/JobRunWrapper.java:32-34` |
+| ADR-013 | Mapping versions and the publish pin check, including a passing sample run, are built | `platform-config/src/main/java/io/integrationplatform/config/mapping/application/MappingPublishPinCheck.java:28-30`, `:76-80` |
+| ADR-014 | Message, payload and delivery store built; stage-1 uniqueness `(message_id, route_id, created_at)` in code, not wired | `platform-delivery/src/main/java/io/integrationplatform/delivery/internal/stage1/JdbcStage1Deliveries.java:11-13` |
+| ADR-015 | Adapters sit in `platform-routing`; the `system.type` rename to `MQ_CSV` / `KAFKA_TOPIC` (E10) has **not landed** - `system.type` is still `API`, `DB`, `MQ`, `FILE` | `platform-config/src/main/resources/db/migration/V2_2_7__config_system_type_settings.sql:13`; `platform-config/src/main/resources/db/migration/V2_3_7__target_credential.sql:22` |
 
 ## Recreation additions waiting for Dipesh's re-confirmation
 

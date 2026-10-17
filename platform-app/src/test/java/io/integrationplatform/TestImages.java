@@ -12,6 +12,9 @@ public final class TestImages {
     /** Keycloak 26.8.0 (E4, T-097): the newest stable tag docker pull confirmed on 2026-10-07; compose uses the same. */
     public static final String KEYCLOAK = "quay.io/keycloak/keycloak:26.8.0";
 
+    /** Apache Kafka 4.3.1 (E11 T-132): the same tag platform-routing's KafkaImages pins, matching kafka-clients 4.3.1. */
+    public static final String KAFKA = "apache/kafka:4.3.1";
+
     private TestImages() {
     }
 }

@@ -11,8 +11,25 @@
     ],
     "views": [
       {
+        "id": "runs-today",
+        "label": "Runs today",
+        "focus": [
+          "console",
+          "keycloak",
+          "source",
+          "config",
+          "rules",
+          "tenancy",
+          "ingest",
+          "postgres",
+          "transform",
+          "kek"
+        ],
+        "note": "platform-app starts these: login, admin API, mapping test, intake into the outbox, scheduler shell."
+      },
+      {
         "id": "control-plane",
-        "label": "Configuration (control plane)",
+        "label": "Control plane",
         "focus": [
           "console",
           "keycloak",
@@ -25,7 +42,7 @@
       },
       {
         "id": "data-plane",
-        "label": "Message path (data plane)",
+        "label": "Data plane",
         "focus": [
           "source",
           "ingest",
@@ -38,7 +55,7 @@
           "targets",
           "kek"
         ],
-        "note": "One call in, one delivery per matched target out (architecture.md section 4.1)."
+        "note": "Design: one call in, one delivery per matched target out. Today intake stops at the outbox; the rest is not wired."
       },
       {
         "id": "tenant-isolation",
@@ -52,7 +69,12 @@
         ],
         "note": "Tenant bound from our database, never from a token, body, header or Kafka record (T1-T6)."
       }
-    ]
+    ],
+    "repository": {
+      "url": "https://github.com/DipeshPansuriya/integration-platform.git",
+      "revision": "90c1ddd369ac45a4abf552dbd02d2af2588f2d54",
+      "link_mode": "local-only"
+    }
   },
   "components": [
     {
@@ -68,13 +90,26 @@
         170,
         66
       ],
-      "tag": "ADR-007"
+      "tag": "ADR-007",
+      "sources": [
+        {
+          "path": "ui/src/App.tsx",
+          "line": 65,
+          "end_line": 88,
+          "label": "console nav groups"
+        },
+        {
+          "path": "platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/web/ConsoleSecurityConfiguration.java",
+          "line": 146,
+          "label": "BFF login chain"
+        }
+      ]
     },
     {
       "id": "keycloak",
       "type": "security",
       "label": "Keycloak",
-      "sublabel": "OIDC, machine clients",
+      "sublabel": "OIDC, clients, login theme",
       "pos": [
         20,
         210
@@ -83,7 +118,26 @@
         170,
         66
       ],
-      "tag": "ADR-007"
+      "tag": "ADR-007",
+      "sources": [
+        {
+          "path": "compose/compose.yaml",
+          "line": 41,
+          "end_line": 42,
+          "label": "Keycloak service"
+        },
+        {
+          "path": "platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/web/TenancySecurityConfiguration.java",
+          "line": 54,
+          "end_line": 56,
+          "label": "issuer, audience, RS256/ES256"
+        },
+        {
+          "path": "platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/web/KeycloakAdminAdapter.java",
+          "line": 45,
+          "label": "admin port"
+        }
+      ]
     },
     {
       "id": "source",
@@ -97,6 +151,20 @@
       "size": [
         170,
         66
+      ],
+      "sources": [
+        {
+          "path": "platform-ingest/src/main/java/io/integrationplatform/ingest/adapter/in/IntakeController.java",
+          "line": 53,
+          "end_line": 59,
+          "label": "intake endpoint"
+        },
+        {
+          "path": "platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/persistence/JdbcClientBootstrap.java",
+          "line": 20,
+          "end_line": 25,
+          "label": "client bootstrap"
+        }
       ]
     },
     {
@@ -112,13 +180,32 @@
         170,
         66
       ],
-      "tag": "control plane"
+      "tag": "control plane",
+      "sources": [
+        {
+          "path": "platform-config/src/main/java/io/integrationplatform/config/flow/adapter/in/FlowAdminController.java",
+          "line": 143,
+          "end_line": 172,
+          "label": "submit, approve, publish"
+        },
+        {
+          "path": "platform-config/src/main/java/io/integrationplatform/config/flow/application/FlowAdminService.java",
+          "line": 195,
+          "end_line": 235,
+          "label": "atomic publish"
+        },
+        {
+          "path": "platform-config/src/main/java/io/integrationplatform/config/system/adapter/in/SystemAdminController.java",
+          "line": 105,
+          "label": "test-connection"
+        }
+      ]
     },
     {
       "id": "rules",
       "type": "backend",
       "label": "ZEN rules (in config)",
-      "sublabel": "rule sets, RuleEvaluationPort",
+      "sublabel": "rule sets, lookups, test API",
       "pos": [
         610,
         90
@@ -127,7 +214,26 @@
         170,
         66
       ],
-      "tag": "ADR-003"
+      "tag": "ADR-003",
+      "sources": [
+        {
+          "path": "platform-config/src/main/java/io/integrationplatform/config/rule/internal/RuleConfiguration.java",
+          "line": 29,
+          "end_line": 40,
+          "label": "ZEN engine + RuleEvaluationPort"
+        },
+        {
+          "path": "platform-config/src/main/java/io/integrationplatform/config/rule/adapter/in/RuleEvaluationController.java",
+          "line": 46,
+          "label": "rule test API"
+        },
+        {
+          "path": "platform-config/src/main/java/io/integrationplatform/config/rule/adapter/in/LookupAdminController.java",
+          "line": 49,
+          "end_line": 66,
+          "label": "lookup entries"
+        }
+      ]
     },
     {
       "id": "tenancy",
@@ -142,52 +248,124 @@
         170,
         66
       ],
-      "tag": "ADR-009"
+      "tag": "ADR-009",
+      "sources": [
+        {
+          "path": "platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/persistence/TenancyPersistenceConfiguration.java",
+          "line": 29,
+          "end_line": 60,
+          "label": "stamping tx, bootstraps"
+        },
+        {
+          "path": "platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/web/SourceCustomerFilter.java",
+          "line": 56,
+          "end_line": 59,
+          "label": "body customerId 403"
+        }
+      ]
     },
     {
       "id": "ingest",
       "type": "backend",
       "label": "platform-ingest",
-      "sublabel": "API, bulk, RuleEvaluationPort",
+      "sublabel": "intake API, outbox; relay not wired",
       "pos": [
-        315,
+        300,
         330
       ],
       "size": [
-        170,
+        200,
         66
       ],
-      "tag": "data plane"
+      "tag": "data plane",
+      "sources": [
+        {
+          "path": "platform-ingest/src/main/java/io/integrationplatform/ingest/internal/intake/IntakeService.java",
+          "line": 38,
+          "end_line": 66,
+          "label": "one intake transaction"
+        },
+        {
+          "path": "platform-ingest/src/main/java/io/integrationplatform/ingest/adapter/in/IntakeController.java",
+          "line": 53,
+          "end_line": 87,
+          "label": "refusals 400/413/415"
+        },
+        {
+          "path": "platform-ingest/src/main/java/io/integrationplatform/ingest/internal/relay/PostgresOutboxRelay.java",
+          "line": 45,
+          "label": "relay (not wired)"
+        }
+      ]
     },
     {
       "id": "delivery",
       "type": "backend",
       "label": "platform-delivery",
-      "sublabel": "states, retry, reconciler",
+      "sublabel": "claim, retry, re-drive (not wired)",
       "pos": [
-        610,
+        595,
         330
       ],
       "size": [
-        170,
+        200,
         66
       ],
-      "tag": "ADR-010"
+      "tag": "ADR-010",
+      "sources": [
+        {
+          "path": "platform-delivery/src/main/java/io/integrationplatform/delivery/DeliveryClaimService.java",
+          "line": 69,
+          "end_line": 95,
+          "label": "claim transaction (not wired)"
+        },
+        {
+          "path": "platform-delivery/src/main/java/io/integrationplatform/delivery/internal/JdbcDeliveryRepository.java",
+          "line": 38,
+          "end_line": 44,
+          "label": "final-state release (not wired)"
+        },
+        {
+          "path": "platform-delivery/src/main/java/io/integrationplatform/delivery/internal/trigger/DeliveryRetryTrigger.java",
+          "line": 84,
+          "end_line": 90,
+          "label": "re-drive (not wired)"
+        }
+      ]
     },
     {
       "id": "domain",
       "type": "backend",
       "label": "platform-domain",
-      "sublabel": "ids, Delivery states, outcomes",
+      "sublabel": "Delivery states, outcomes (not wired)",
       "pos": [
-        610,
+        580,
         210
       ],
       "size": [
-        170,
+        230,
         66
       ],
-      "tag": "ADR-010"
+      "tag": "ADR-010",
+      "sources": [
+        {
+          "path": "platform-domain/src/main/java/io/integrationplatform/domain/delivery/DeliveryTransitions.java",
+          "line": 37,
+          "end_line": 47,
+          "label": "state register (not wired)"
+        },
+        {
+          "path": "platform-domain/src/main/java/io/integrationplatform/domain/delivery/OutcomeClassifier.java",
+          "line": 29,
+          "end_line": 31,
+          "label": "outcome classes (not wired)"
+        },
+        {
+          "path": "platform-domain/src/main/java/io/integrationplatform/domain/scheduler/JobHandler.java",
+          "line": 19,
+          "label": "job handler type"
+        }
+      ]
     },
     {
       "id": "transform",
@@ -201,28 +379,60 @@
       "size": [
         170,
         66
+      ],
+      "sources": [
+        {
+          "path": "platform-transform/src/main/java/io/integrationplatform/transform/internal/DashjoinJsonataTransformPort.java",
+          "line": 31,
+          "label": "JSONata port"
+        },
+        {
+          "path": "platform-transform/src/main/resources/config/transform.yml",
+          "line": 8,
+          "label": "5 s budget"
+        }
       ]
     },
     {
       "id": "routing",
       "type": "backend",
       "label": "platform-routing",
-      "sublabel": "only Camel module, bulkheads",
+      "sublabel": "only Camel module, API adapter (not wired)",
       "pos": [
-        905,
+        870,
         330
       ],
       "size": [
-        170,
+        240,
         66
       ],
-      "tag": "ADR-010"
+      "tag": "ADR-010",
+      "sources": [
+        {
+          "path": "platform-routing/src/main/java/io/integrationplatform/routing/stage/StageConsumer.java",
+          "line": 23,
+          "end_line": 41,
+          "label": "stage consumer (not wired)"
+        },
+        {
+          "path": "platform-routing/src/main/java/io/integrationplatform/routing/adapter/api/ApiAdapterConfiguration.java",
+          "line": 38,
+          "end_line": 45,
+          "label": "API adapter, body stub (not wired)"
+        },
+        {
+          "path": "platform-routing/src/main/java/io/integrationplatform/routing/stage2/LayerOneRouteBuilder.java",
+          "line": 60,
+          "end_line": 80,
+          "label": "layer-1 route (not wired)"
+        }
+      ]
     },
     {
       "id": "postgres",
       "type": "database",
       "label": "PostgreSQL 17",
-      "sublabel": "RLS on every tenant table, outbox, sessions, sealed target secrets",
+      "sublabel": "RLS on tenant tables; outbox, sessions, sealed secrets, scheduler schema",
       "pos": [
         315,
         490
@@ -231,13 +441,32 @@
         465,
         66
       ],
-      "tag": "ADR-009"
+      "tag": "ADR-009",
+      "sources": [
+        {
+          "path": "compose/compose.yaml",
+          "line": 13,
+          "end_line": 14,
+          "label": "PostgreSQL 17 service"
+        },
+        {
+          "path": "platform-tenancy/src/main/resources/db/migration/V1_3_2__tenant_directory_and_app_user_rls.sql",
+          "line": 31,
+          "end_line": 32,
+          "label": "RLS on"
+        },
+        {
+          "path": "platform-config/src/main/resources/db/migration/V2_2_1400__scheduler_schema.sql",
+          "line": 23,
+          "label": "scheduler schema"
+        }
+      ]
     },
     {
       "id": "kafka",
       "type": "messagebus",
       "label": "Apache Kafka (KRaft)",
-      "sublabel": "accepted, delivery.due, poison",
+      "sublabel": "3 topics (not wired)",
       "pos": [
         905,
         490
@@ -246,7 +475,27 @@
         170,
         66
       ],
-      "tag": "ADR-005"
+      "tag": "ADR-005",
+      "sources": [
+        {
+          "path": "compose/compose.yaml",
+          "line": 72,
+          "end_line": 76,
+          "label": "KRaft broker"
+        },
+        {
+          "path": "platform-routing/src/main/java/io/integrationplatform/routing/topics/Topics.java",
+          "line": 13,
+          "end_line": 23,
+          "label": "accepted, delivery.due, poison (not wired)"
+        },
+        {
+          "path": "platform-routing/src/main/java/io/integrationplatform/routing/publish/KafkaPublishPort.java",
+          "line": 26,
+          "end_line": 29,
+          "label": "ids-only record, traceparent (not wired)"
+        }
+      ]
     },
     {
       "id": "kafbat",
@@ -261,28 +510,48 @@
         170,
         66
       ],
-      "tag": "ADR-005"
+      "tag": "ADR-005",
+      "sources": [
+        {
+          "path": "compose/compose.yaml",
+          "line": 104,
+          "end_line": 120,
+          "label": "operations network only"
+        }
+      ]
     },
     {
       "id": "targets",
       "type": "external",
       "label": "Target systems",
-      "sublabel": "API, MQ-CSV, DB, File, Kafka",
+      "sublabel": "API; MQ, DB, File, Kafka planned",
       "pos": [
-        1176,
+        1160,
         330
       ],
       "size": [
-        170,
+        190,
         66
       ],
-      "tag": "ADR-011"
+      "tag": "ADR-011",
+      "sources": [
+        {
+          "path": "platform-routing/src/main/java/io/integrationplatform/routing/adapter/api/ApiTargetCall.java",
+          "line": 48,
+          "label": "API target call (not wired)"
+        },
+        {
+          "path": "platform-config/src/main/resources/db/migration/V2_2_7__config_system_type_settings.sql",
+          "line": 13,
+          "label": "types API, DB, MQ, FILE"
+        }
+      ]
     },
     {
       "id": "observability",
       "type": "cloud",
-      "label": "Grafana, Prometheus, Tempo",
-      "sublabel": "metrics, trace per call",
+      "label": "Prometheus, Grafana, Tempo",
+      "sublabel": "planned: not in compose",
       "pos": [
         1176,
         210
@@ -290,13 +559,33 @@
       "size": [
         170,
         66
+      ],
+      "sources": [
+        {
+          "path": "platform-app/src/main/resources/application.yml",
+          "line": 57,
+          "end_line": 58,
+          "label": "actuator exposes health only"
+        },
+        {
+          "path": "platform-routing/src/main/resources/config/messaging-alert-rules.rules",
+          "line": 10,
+          "end_line": 39,
+          "label": "6 messaging alerts (not wired)"
+        },
+        {
+          "path": "platform-app/pom.xml",
+          "line": 85,
+          "end_line": 86,
+          "label": "Prometheus registry (not exposed)"
+        }
       ]
     },
     {
       "id": "arch-test",
       "type": "backend",
       "label": "arch-test (build time)",
-      "sublabel": "ArchUnit, Modulith rules",
+      "sublabel": "ArchUnit, 6 rule sets",
       "pos": [
         1176,
         90
@@ -305,7 +594,24 @@
         170,
         66
       ],
-      "tag": "R08"
+      "tag": "R08",
+      "sources": [
+        {
+          "path": "arch-test/src/test/java/io/integrationplatform/archtest/CamelOnlyInRoutingRule.java",
+          "line": 22,
+          "label": "Camel only in routing"
+        },
+        {
+          "path": "arch-test/src/test/java/io/integrationplatform/archtest/TenantFilterRule.java",
+          "line": 34,
+          "label": "tenant filter"
+        },
+        {
+          "path": "arch-test/src/test/java/io/integrationplatform/archtest/ModuleInternalsRule.java",
+          "line": 26,
+          "label": "no foreign internals"
+        }
+      ]
     },
     {
       "id": "kek",
@@ -320,13 +626,30 @@
         170,
         66
       ],
-      "tag": "ADR-007 D7"
+      "tag": "ADR-007 D7",
+      "sources": [
+        {
+          "path": "platform-config/src/main/java/io/integrationplatform/config/credential/crypto/EnvironmentKeyEncryptionKeys.java",
+          "line": 30,
+          "label": "keys from env names"
+        },
+        {
+          "path": "platform-config/src/main/java/io/integrationplatform/config/credential/crypto/EnvelopeSealer.java",
+          "line": 24,
+          "label": "seal at save"
+        },
+        {
+          "path": "platform-routing/src/main/java/io/integrationplatform/routing/credential/EnvelopeOpener.java",
+          "line": 30,
+          "label": "open at send (not wired)"
+        }
+      ]
     }
   ],
   "boundaries": [
     {
       "kind": "region",
-      "label": "platform-app - one deployable, modular monolith (ADR-001)",
+      "label": "platform-app - one deployable (ADR-001); also runs the db-scheduler shell (job bodies no-op today) + queue summary API",
       "wraps": [
         "config",
         "rules",
@@ -344,7 +667,7 @@
       "id": "console-admin",
       "from": "console",
       "to": "config",
-      "label": "admin API"
+      "label": "admin API, queue summary"
     },
     {
       "id": "console-login",
@@ -442,23 +765,25 @@
       "id": "intake-tx",
       "from": "ingest",
       "to": "postgres",
-      "label": "one tx: message + outbox",
+      "label": "one tx: message + payload + outbox",
       "variant": "emphasis",
       "fromSide": "bottom",
-      "toSide": "top"
+      "toSide": "top",
+      "labelDx": -14
     },
     {
       "id": "relay",
       "from": "postgres",
       "to": "kafka",
-      "label": "relay: ids only",
-      "variant": "emphasis"
+      "label": "relay: ids only (not wired)",
+      "variant": "emphasis",
+      "labelDy": -27
     },
     {
       "id": "consume",
       "from": "kafka",
       "to": "routing",
-      "label": "stage 1 + stage 2",
+      "label": "stage 1 + 2 (not wired)",
       "variant": "emphasis",
       "fromSide": "top",
       "toSide": "bottom"
@@ -476,7 +801,7 @@
       "id": "map",
       "from": "routing",
       "to": "transform",
-      "label": "transform port",
+      "label": "transform (planned)",
       "fromSide": "top",
       "toSide": "bottom"
     },
@@ -484,13 +809,17 @@
       "id": "classify",
       "from": "routing",
       "to": "delivery",
-      "label": "attempt + outcome"
+      "label": "claim, outcome writes (not wired)",
+      "labelAt": [
+        858,
+        316
+      ]
     },
     {
       "id": "persist",
       "from": "delivery",
       "to": "postgres",
-      "label": "delivery rows",
+      "label": "delivery rows (not wired)",
       "fromSide": "bottom",
       "toSide": "top"
     },
@@ -498,7 +827,7 @@
       "id": "state-register",
       "from": "delivery",
       "to": "domain",
-      "label": "state register",
+      "label": "state register (not wired)",
       "fromSide": "top",
       "toSide": "bottom"
     },
@@ -506,15 +835,18 @@
       "id": "send",
       "from": "routing",
       "to": "targets",
-      "label": "send, 6 controls",
+      "label": "send (not wired)",
       "variant": "emphasis",
-      "labelDy": 26
+      "labelAt": [
+        1191,
+        410
+      ]
     },
     {
       "id": "telemetry",
       "from": "routing",
       "to": "observability",
-      "label": "metrics, spans",
+      "label": "metrics, alert rules (planned)",
       "variant": "dashed"
     },
     {
@@ -557,7 +889,7 @@
       "id": "decrypt-at-send",
       "from": "routing",
       "to": "kek",
-      "label": "open at send time",
+      "label": "open at send time (not wired)",
       "variant": "security",
       "fromSide": "bottom",
       "toSide": "left"
@@ -566,7 +898,7 @@
       "id": "read-sealed-credentials",
       "from": "routing",
       "to": "config",
-      "label": "reads sealed credentials + key availability (config.credential.api)",
+      "label": "reads sealed credentials + key availability (config.credential.api) (not wired)",
       "variant": "dashed",
       "fromSide": "bottom",
       "toSide": "top",
@@ -643,9 +975,8 @@
       "title": "One deployable",
       "items": [
         "Modules are Maven modules inside platform-app (ADR-001)",
-        "Camel only in platform-routing; ArchUnit fails the build otherwise (ADR-010)",
-        "Config written by the control plane, read as published versions only",
-        "Every module emits metrics and spans to Grafana, Prometheus, Tempo (R13)"
+        "Camel only in platform-routing; ArchUnit fails the build otherwise (T-121)",
+        "Kafka records carry ids (not wired); payloads stay in PostgreSQL (ADR-011 D7)"
       ]
     },
     {
@@ -653,18 +984,17 @@
       "title": "Tenant isolation",
       "items": [
         "Tenant from the credential via our DB, never a claim or header (ADR-007, T1)",
-        "Every query via TenantScopedRepository (R08, T2)",
-        "RLS on every tenant table, stamped per transaction (ADR-009, T3-T4)",
-        "Exactly four definer functions cross the boundary (T5)"
+        "Every query via TenantScopedRepository; RLS stamped per transaction (T2-T4)",
+        "3 tenant-crossing definer functions today; a 4th (active tenants) planned (T5)"
       ]
     },
     {
       "dot": "amber",
-      "title": "Kafka carries work only",
+      "title": "Status at code main",
       "items": [
-        "Records carry ids; payloads stay in PostgreSQL (ADR-011 D7)",
-        "No retry or delay topics; unreadable records go to platform.poison (ADR-005)",
-        "platform-ledger and platform-audit read the same rows for tracking and audit"
+        "Runs today: login, admin API, intake into the outbox, scheduler shell",
+        "Not wired: relay, stage consumers, claim, bulkhead, send - code + tests exist (E11)",
+        "Planned: transform in send, per-target send breaker, reconciler, ledger, audit"
       ]
     }
   ]

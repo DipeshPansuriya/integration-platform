@@ -1,0 +1,385 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Integration platform - console UI shell",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/DipeshPansuriya/integration-platform.git",
+      "revision": "90c1ddd369ac45a4abf552dbd02d2af2588f2d54",
+      "link_mode": "local-only"
+    }
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "external",
+      "label": "Operators",
+      "sublabel": "browser",
+      "pos": [
+        40,
+        197
+      ],
+      "size": [
+        110,
+        60
+      ]
+    },
+    {
+      "id": "shell",
+      "type": "frontend",
+      "label": "App shell",
+      "sublabel": "App.tsx: sidenav, #/login, session",
+      "pos": [
+        230,
+        192
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "ui/src/App.tsx",
+          "line": 65,
+          "end_line": 88,
+          "label": "nav groups: Overview, Build, Author"
+        },
+        {
+          "path": "ui/src/pages/Login.tsx",
+          "line": 14,
+          "label": "sign-in card #/login"
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "type": "frontend",
+      "label": "Dashboard + Queue",
+      "sublabel": "#/ tiles, #/queue flow + day counts",
+      "pos": [
+        470,
+        40
+      ],
+      "size": [
+        190,
+        54
+      ],
+      "sources": [
+        {
+          "path": "ui/src/pages/Dashboard.tsx",
+          "line": 78,
+          "label": "Dashboard #/"
+        },
+        {
+          "path": "ui/src/pages/QueueDashboard.tsx",
+          "line": 14,
+          "label": "Queue #/queue"
+        },
+        {
+          "path": "ui/src/api/queue.ts",
+          "line": 30,
+          "label": "GET queue summary"
+        }
+      ]
+    },
+    {
+      "id": "flows",
+      "type": "frontend",
+      "label": "Flows + Versions",
+      "sublabel": "#/flows, #/versions - field errors (B13)",
+      "pos": [
+        470,
+        120
+      ],
+      "size": [
+        190,
+        54
+      ],
+      "sources": [
+        {
+          "path": "ui/src/pages/FlowsList.tsx",
+          "line": 15,
+          "label": "flows list"
+        },
+        {
+          "path": "ui/src/pages/Versions.tsx",
+          "line": 49,
+          "label": "versions + approval"
+        }
+      ]
+    },
+    {
+      "id": "sysc",
+      "type": "frontend",
+      "label": "Systems + Contracts",
+      "sublabel": "#/systems, #/contracts + 480px drawer",
+      "pos": [
+        470,
+        200
+      ],
+      "size": [
+        190,
+        54
+      ],
+      "sources": [
+        {
+          "path": "ui/src/pages/Systems.tsx",
+          "line": 27,
+          "label": "systems"
+        },
+        {
+          "path": "ui/src/pages/ContractVersions.tsx",
+          "line": 27,
+          "label": "contracts"
+        },
+        {
+          "path": "ui/src/ui/drawer.css",
+          "label": "480px drawer"
+        }
+      ]
+    },
+    {
+      "id": "rules",
+      "type": "frontend",
+      "label": "Rules editor",
+      "sublabel": "#/rules - jdm --grl-* scoped",
+      "pos": [
+        470,
+        280
+      ],
+      "size": [
+        190,
+        54
+      ],
+      "sources": [
+        {
+          "path": "ui/src/rules/RulesEditor.tsx",
+          "line": 26,
+          "label": "rules editor"
+        },
+        {
+          "path": "ui/src/rules/rules-editor.css",
+          "label": "--grl-* scoped tokens"
+        }
+      ]
+    },
+    {
+      "id": "map",
+      "type": "frontend",
+      "label": "Mapping designer",
+      "sublabel": "#/mappings - xyflow --xy-* scoped",
+      "pos": [
+        470,
+        360
+      ],
+      "size": [
+        190,
+        54
+      ],
+      "sources": [
+        {
+          "path": "ui/src/pages/MappingDesigner.tsx",
+          "line": 68,
+          "label": "mapping designer"
+        },
+        {
+          "path": "ui/src/mapping/mapping.css",
+          "label": "--xy-* scoped tokens"
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "platform-app",
+      "sublabel": "/api/v1 tenant-stamped",
+      "pos": [
+        740,
+        192
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/web/ConsoleSecurityConfiguration.java",
+          "line": 146,
+          "label": "console login chain (BFF)"
+        },
+        {
+          "path": "platform-app/src/main/java/io/integrationplatform/app/queue/QueueSummaryController.java",
+          "line": 51,
+          "label": "queue summary API"
+        }
+      ]
+    },
+    {
+      "id": "kc",
+      "type": "security",
+      "label": "Keycloak",
+      "sublabel": "login theme + realm",
+      "pos": [
+        740,
+        40
+      ],
+      "size": [
+        160,
+        56
+      ],
+      "sources": [
+        {
+          "path": "compose/compose.yaml",
+          "line": 41,
+          "end_line": 42,
+          "label": "Keycloak service"
+        },
+        {
+          "path": "compose/compose.yaml",
+          "line": 66,
+          "label": "login theme mounted read-only"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Browser - light + dark tokens",
+      "wraps": [
+        "shell",
+        "overview",
+        "flows",
+        "sysc",
+        "rules",
+        "map"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "Platform",
+      "wraps": [
+        "api",
+        "kc"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "enter",
+      "from": "users",
+      "to": "shell",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "r-overview",
+      "from": "shell",
+      "to": "overview"
+    },
+    {
+      "id": "r-flows",
+      "from": "shell",
+      "to": "flows"
+    },
+    {
+      "id": "r-sysc",
+      "from": "shell",
+      "to": "sysc"
+    },
+    {
+      "id": "r-rules",
+      "from": "shell",
+      "to": "rules"
+    },
+    {
+      "id": "r-map",
+      "from": "shell",
+      "to": "map"
+    },
+    {
+      "id": "api-overview",
+      "from": "overview",
+      "to": "api",
+      "label": "REST"
+    },
+    {
+      "id": "api-flows",
+      "from": "flows",
+      "to": "api"
+    },
+    {
+      "id": "api-sysc",
+      "from": "sysc",
+      "to": "api"
+    },
+    {
+      "id": "api-rules",
+      "from": "rules",
+      "to": "api"
+    },
+    {
+      "id": "api-map",
+      "from": "map",
+      "to": "api"
+    },
+    {
+      "id": "verify",
+      "from": "api",
+      "to": "kc",
+      "label": "OIDC login (BFF)",
+      "variant": "security"
+    },
+    {
+      "id": "signin-redirect",
+      "from": "users",
+      "to": "kc",
+      "label": "sign-in page (redirect)",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "left",
+      "via": [
+        [
+          95,
+          14
+        ],
+        [
+          700,
+          14
+        ],
+        [
+          700,
+          68
+        ]
+      ],
+      "labelAt": [
+        400,
+        8
+      ]
+    },
+    {
+      "id": "session",
+      "from": "shell",
+      "to": "api",
+      "label": "session: /api/v1/me, /logout",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          310,
+          470
+        ],
+        [
+          820,
+          470
+        ]
+      ],
+      "labelAt": [
+        565,
+        486
+      ]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 ---
 type: Design
 title: "Fetch - data and integration (configuration-driven integration platform)"
-status: "Recreated 2026-10-12 (E5, T-107) from the surviving hub sources and the E5 build at row278-integration 4e9de1d. Design follows ADR-011; where the build differs from ADR-011 the difference is listed in section 8, not hidden."
+status: "Recreated 2026-10-12 (E5, T-107) from the surviving hub sources and the E5 build at row278-integration 4e9de1d. Design follows ADR-011; where the build differs from ADR-011 the difference is listed in section 8, not hidden. Re-checked 2026-10-16 at main 90c1ddd (ledger row 325): every code file cited here is unchanged since 4e9de1d; section 8 gains a status column."
 date: 2026-10-12
 author: "mahesh-architect (ledger row 278, T-107)"
 project: ipass/integration-platform
@@ -27,9 +27,15 @@ related:
 
 **Grades.** Every statement carries one: **[Verified]** - read on 2026-10-12 in the file cited;
 **[Inferred]** - deduced from the neighbour named; **[TBD]** - not decided or not built yet, with
-the phase or person that settles it. Source paths starting `ws/` are in the hub repository,
-project workspace `_personal/_project_ipass/integration-platform/`; all other paths are in this
-repository at row278-integration `4e9de1d`. Rule R19 applies: no product or organisation name.
+the phase or person that settles it. Source paths starting `ws/` are in the planning workspace kept
+outside this repository (see [README.md](README.md)); all other paths are in this repository at
+row278-integration `4e9de1d`. Rule R19 applies: no product or organisation name.
+
+**Re-checked 2026-10-16 at main `90c1ddd`.** Every code file cited in this document is unchanged between `4e9de1d`
+and `90c1ddd` (`git diff --stat 4e9de1d 90c1ddd -- <file>` is empty for each), so every `path:line` here still
+holds. What has moved on is the runtime around them: section 4's send-time decryption (`CredentialedDelivery`) and
+section 7's Kafka records are built but **not wired** - `platform-app` does not call them yet
+([architecture.md](architecture.md) section 9).
 
 ## 1. What this document covers
 
@@ -133,6 +139,13 @@ kept by Mira); ADR-011 Decision 1.*
 *Sources: `ws/_specs/project-plan.md:113` (record key), `:102` (ids only, tenant from the
 RLS-protected row); ADR-011 Decision 7-8. Built in the backbone phase E8 (`ws/_specs/backlog.md:2011`), not in E5.*
 
+*Status 2026-10-16 (main `90c1ddd`):* the relay and the consumers are built but **not wired**, and the Kafka publish
+port is created only when `IPASS_KAFKA_BOOTSTRAP_SERVERS` is set
+(`platform-routing/src/main/java/io/integrationplatform/routing/publish/KafkaPublishPortConfiguration.java:29`), so
+nothing crosses Kafka in the running application yet. `ipaas_work_tenant` exists
+(`platform-routing/src/main/resources/db/migration/V2_3_811__ipaas_work_tenant.sql:13`); `ipaas_active_tenants` has
+no migration yet [TBD].
+
 | Statement | Grade | Source |
 |---|---|---|
 | A Kafka record carries ids only: value `{"v": 1, "type": "message.accepted" \| "delivery.due", "id": "<uuid>"}`, header `traceparent`, key SHA-256 of (tenant, interface, business key); no tenant id in value or headers; the payload stays in PostgreSQL | [Verified] | ADR-011 `:269-279` |
@@ -143,6 +156,13 @@ RLS-protected row); ADR-011 Decision 7-8. Built in the backbone phase E8 (`ws/_s
 
 *Sources: `ws/_specs/project-plan.md:110`, `:116`; `ws/_specs/backlog.md:2807` (E11-F1, the
 one common API). These are findings for the owning phases, not changes made here.*
+
+*Status 2026-10-16 (main `90c1ddd`), measured by searching every `*.sql` migration:* all four findings below are
+**still open**. `system.type` is still `API`/`DB`/`MQ`/`FILE` while `target_credential.target_type` uses `MQ_CSV` and
+`KAFKA_TOPIC` (the rename ADR-015 assigns to E10 has not landed); the `idempotency_key` table is unchanged and intake
+only checks that the header is present
+(`platform-ingest/src/main/java/io/integrationplatform/ingest/adapter/in/IntakeController.java:68-69`); stage 1, which
+would write `delivery.contract_version_id`, is not wired.
 
 | Finding | Grade | Source |
 |---|---|---|

@@ -83,7 +83,7 @@
       "col": 1,
       "type": "frontend",
       "label": "Register systems",
-      "sublabel": "source + targets, test",
+      "sublabel": "systems, credentials, test",
       "width": 136
     },
     {
@@ -92,7 +92,7 @@
       "col": 2,
       "type": "frontend",
       "label": "Contract versions",
-      "sublabel": "per target, e.g. v1.0",
+      "sublabel": "source + target, import",
       "width": 136
     },
     {
@@ -110,7 +110,7 @@
       "col": 4,
       "type": "frontend",
       "label": "Mapping per target",
-      "sublabel": "tested on a sample",
+      "sublabel": "sample run recorded",
       "width": 136
     },
     {
@@ -154,8 +154,8 @@
       "lane": "support",
       "col": 5,
       "type": "database",
-      "label": "Monitor",
-      "sublabel": "timeline, dashboard",
+      "label": "Queue dashboard",
+      "sublabel": "counts per flow, day",
       "width": 136
     },
     {
@@ -164,7 +164,7 @@
       "col": 4,
       "type": "backend",
       "label": "Replay dead letter",
-      "sublabel": "pinned versions",
+      "sublabel": "planned: no API yet",
       "width": 136
     },
     {
@@ -173,7 +173,7 @@
       "col": 3,
       "type": "external",
       "label": "Rejected",
-      "sublabel": "comment, back to draft",
+      "sublabel": "planned: no reject API",
       "width": 136
     },
     {
@@ -181,8 +181,8 @@
       "lane": "refusals",
       "col": 5,
       "type": "external",
-      "label": "Pin mismatch",
-      "sublabel": "route + versions named",
+      "label": "Publish refused",
+      "sublabel": "409, route + reason named",
       "width": 136
     }
   ],
@@ -254,7 +254,7 @@
       "id": "e-pin-refused",
       "from": "publish",
       "to": "pinRefused",
-      "label": "mapping pin mismatch",
+      "label": "pin or sample-run gap",
       "variant": "security",
       "role": "error"
     },
@@ -262,7 +262,7 @@
       "id": "e-reject",
       "from": "approveBundle",
       "to": "rejected",
-      "label": "reject",
+      "label": "reject (planned)",
       "variant": "security",
       "role": "error"
     },
@@ -270,7 +270,7 @@
       "id": "e-redraft",
       "from": "rejected",
       "to": "flow",
-      "label": "redraft",
+      "label": "redraft (planned)",
       "variant": "dashed",
       "role": "return"
     },
@@ -278,7 +278,7 @@
       "id": "e-replay",
       "from": "monitor",
       "to": "replay",
-      "label": "dead letter",
+      "label": "dead letter (planned)",
       "variant": "dashed",
       "role": "branch"
     }
@@ -296,17 +296,16 @@
       "dot": "rose",
       "title": "Approval gates",
       "items": [
-        "A contract version and a bundle each need an approver who is not the author",
-        "No change note, the author approving, or a missing role: refused"
+        "Contract version and bundle: approver is never the author (403 + DB check)",
+        "No change note or role: refused; reject is planned"
       ]
     },
     {
       "dot": "emerald",
-      "title": "After publish",
+      "title": "Publish (one transaction)",
       "items": [
-        "Every route's mapping is pinned to its saved contract versions; a pin mismatch refuses the publish and names the route and both versions",
-        "The data plane uses the new version on the next message",
-        "Any publish failure changes nothing (one transaction)"
+        "Mappings must match their pinned contracts and pass a sample run, else 409",
+        "Monitoring: queue dashboard; replay planned"
       ]
     }
   ]
