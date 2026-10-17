@@ -3,6 +3,7 @@ package io.integrationplatform.config.destination;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -34,6 +35,11 @@ public final class DestinationGuard {
     public DestinationGuard(AllowList allowList, HostResolver resolver) {
         this.allowList = Objects.requireNonNull(allowList, "allowList");
         this.resolver = Objects.requireNonNull(resolver, "resolver");
+    }
+
+    /** T138 RED stub: the showcase-only local-host exception (compile-only). */
+    public DestinationGuard(AllowList allowList, HostResolver resolver, Collection<String> showcaseLocalHosts) {
+        throw new UnsupportedOperationException("T138 RED");
     }
 
     /**
