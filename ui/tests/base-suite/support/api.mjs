@@ -4,9 +4,11 @@
 //                marker - as another harness login (X-Harness-Login; tests/screens/console-server.mjs:10-13)
 //   intake       from Node as the SOURCE SYSTEM: a client-credentials token from the realm, then the one
 //                common endpoint POST /api/v1/interfaces/{code}/messages (IntakeController.java:53)
-//   WireMock     its admin API: the request journal (lib/wiremock.mjs reads it)
+//   WireMock     its admin API: the request journal (lib/wiremock.mjs reads it); T131: one stub replaced in place
+//   app log      T131: the runner's loopback log tap (support/log-tap.mjs)
 
 import { randomUUID } from 'node:crypto';
+import { stubMapping } from '../lib/wiremock.mjs';
 import { bsEnv } from './boot-state.mjs';
 
 /** One console API call from the page, with the CSRF token on writes; `asLogin` names a harness login. */
@@ -51,12 +53,16 @@ export async function sourceToken(clientId, clientSecret) {
   return data.access_token;
 }
 
-/** POST one record to the common intake as the source system: { status, data, idempotencyKey }. */
-export async function postRecord(token, interfaceCode, versionLabel, record) {
+/**
+ * POST one record to the common intake as the source system: { status, data, idempotencyKey }.
+ * T131: `extraHeaders` adds request headers (BS-09's inbound traceparent); it never replaces the four below.
+ */
+export async function postRecord(token, interfaceCode, versionLabel, record, extraHeaders = {}) {
   const idempotencyKey = randomUUID();
   const answer = await fetch(`${bsEnv('consoleUrl')}/api/v1/interfaces/${encodeURIComponent(interfaceCode)}/messages`, {
     method: 'POST',
     headers: {
+      ...extraHeaders,
       authorization: `Bearer ${token}`,
       'content-type': 'application/json',
       'X-Source-Contract-Version': versionLabel,
@@ -66,6 +72,29 @@ export async function postRecord(token, interfaceCode, versionLabel, record) {
     signal: AbortSignal.timeout(10000)
   });
   return { status: answer.status, data: await answer.json().catch(() => null), idempotencyKey };
+}
+
+/** T131 (BS-10): replace one tenant path's stub IN PLACE (its fixed id) so it answers 200 or 403. */
+export async function setStub(path, status) {
+  const mapping = stubMapping(path, status);
+  const answer = await fetch(`${bsEnv('wiremockAdmin')}/mappings/${mapping.id}`, {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(mapping), signal: AbortSignal.timeout(5000)
+  });
+  if (answer.status !== 200) throw new Error(`WireMock stub ${path} -> ${status}: HTTP ${answer.status}`);
+}
+
+/** T131 (BS-09): the app log's size now, in characters (support/log-tap.mjs). */
+export async function appLogSize() {
+  const answer = await fetch(`${bsEnv('appLog')}/size`, { signal: AbortSignal.timeout(5000) });
+  if (answer.status !== 200) throw new Error(`app-log tap: HTTP ${answer.status}`);
+  return (await answer.json()).size;
+}
+
+/** T131 (BS-09): the app log from character `from` on. */
+export async function appLogFrom(from) {
+  const answer = await fetch(`${bsEnv('appLog')}/log?from=${from}`, { signal: AbortSignal.timeout(10000) });
+  if (answer.status !== 200) throw new Error(`app-log tap: HTTP ${answer.status}`);
+  return answer.text();
 }
 
 /** WireMock's request journal (GET /__admin/requests). */

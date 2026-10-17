@@ -15,11 +15,13 @@ export const BS_ENV = Object.freeze({
   pgContainer: 'BS_PG_CONTAINER',
   wiremockPort: 'BS_WIREMOCK_PORT',
   wiremockAdmin: 'BS_WIREMOCK_ADMIN',
-  appPid: 'BS_APP_PID'
+  appPid: 'BS_APP_PID',
+  appLog: 'BS_APP_LOG_URL' // T131: the loopback app-log tap (support/log-tap.mjs) - BS-09 reads its own lines
 });
 
 let boot = null;
 let consoleServer = null;
+let logTap = null;
 
 export function setBooted(backend, consoleServerArg) {
   boot = backend;
@@ -35,9 +37,15 @@ export function bsEnv(key) {
   return value;
 }
 
+/** T131: the app-log tap global-setup started; closed first at teardown. */
+export function setLogTap(tap) {
+  logTap = tap;
+}
+
 export async function teardownAll() {
   fs.rmSync(BS_STORAGE_STATE, { force: true });
   try {
+    if (logTap) await logTap.close();
     if (consoleServer) await consoleServer.close();
   } finally {
     if (boot) await boot.teardown(); // sidecars, containers, JVM, then the docker-suite lock

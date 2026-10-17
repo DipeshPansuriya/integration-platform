@@ -18,7 +18,8 @@ import { BS_CONSOLE_LOGINS, baseSuiteBootOptions } from '../lib/boot-options.mjs
 import { assertRealResolver, exceptionSettings } from '../lib/settings.mjs';
 import { BS_STORAGE_STATE } from '../lib/suite-config.mjs';
 import { TENANT_B_PLAN } from '../lib/tenants.mjs';
-import { BS_ENV, setBooted } from './boot-state.mjs';
+import { BS_ENV, setBooted, setLogTap } from './boot-state.mjs';
+import { startLogTap } from './log-tap.mjs';
 
 const UI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -48,6 +49,9 @@ export default async function globalSetup() {
     if (!tenantB || !wiremock) throw new Error('base-suite global-setup: the boot came up without tenant B or the WireMock');
     consoleServer = await startConsole(backend.baseUrl, backend.sessions);
     setBooted(backend, consoleServer);
+    // T131 (BS-09): the app's log stays in this process's memory; workers read it over the loopback tap
+    const logTap = await startLogTap(() => backend.logDump());
+    setLogTap(logTap);
 
     const browser = await chromium.launch();
     try {
@@ -69,6 +73,7 @@ export default async function globalSetup() {
     process.env[BS_ENV.wiremockPort] = String(wiremock.port);
     process.env[BS_ENV.wiremockAdmin] = wiremock.adminUrl;
     process.env[BS_ENV.appPid] = String(backend.appPid);
+    process.env[BS_ENV.appLog] = logTap.url;
   } catch (e) {
     // a failure after the boot would strand its containers, JVM and the docker-suite lock
     if (consoleServer) await consoleServer.close().catch(() => {});

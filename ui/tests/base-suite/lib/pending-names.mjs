@@ -13,6 +13,15 @@ export const NAMES = Object.freeze({
   // provisional - lane t112 @21f6835 (vijay, T112; App.tsx claim arjun 13:24 IST 17-Oct, uncommitted screens)
   detailRoute: '#/messages/{trackingId}',
   failuresRoute: '#/failures',
+  detailPage: '[data-page="message-detail"]', // + data-message-loaded (MessageDetail.tsx:89)
+  detailTrackingId: '[data-tracking-id]', // MessageDetail.tsx:107
+  detailFailingStage: '[data-failing-stage]', // MessageDetail.tsx:118 - the marked failing stage
+  detailStageRow: '[data-stage-row]', // + data-stage-status, data-duration-ms (MessageDetail.tsx:139-141)
+  failuresPage: '[data-page="failures"]', // + data-failures-loaded (Failures.tsx:101)
+  failureRow: '[data-failure-row="{trackingId}"]', // + data-failing-stage, data-origin (Failures.tsx:26)
+  failureErrorClass: '[data-error-class]', // Failures.tsx:33
+  failureLastError: '[data-last-error]', // Failures.tsx:34
+  failureDetailLink: '[data-message-link="{trackingId}"]', // Failures.tsx:28 - carries ?failed=<STAGE>
   // provisional - T110 2a9c835 (MessageTrackingController, lane t109/t112 base 2344b8d)
   timelineApi: '/api/v1/admin/messages/{trackingId}/timeline',
   failuresApi: '/api/v1/admin/messages/failures',
