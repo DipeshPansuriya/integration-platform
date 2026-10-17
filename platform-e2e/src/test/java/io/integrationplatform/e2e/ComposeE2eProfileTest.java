@@ -16,12 +16,12 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * E15 seam (F17/T143) at the compose level, no Docker: the {@code e2e} profile adds Artemis and WireMock to
- * compose/compose.yaml without changing a plain {@code docker compose up}.
+ * compose/compose.yaml; the default services stay profile-free.
  * <ul>
  * <li>both services exist, carry {@code profiles: ["e2e"]}, use the {@link E2eImages} pins, run in UTC, publish
  * loopback-only ports and have a healthcheck;</li>
  * <li>{@code @security} Artemis credentials come from variable names only (R07) and anonymous login is off;</li>
- * <li>the default services (postgres, keycloak, kafka, kafbat) carry no profile, so {@code up} is unchanged.</li>
+ * <li>the default services (postgres, keycloak, kafka, kafbat) carry no profile.</li>
  * </ul>
  * ponytail: line-based service reading like KafbatComposeLayoutTest (platform-routing) - compose is flat and ours.
  */
@@ -73,7 +73,7 @@ class ComposeE2eProfileTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"postgres", "keycloak", "kafka", "kafbat"})
-    void theDefaultServicesCarryNoProfileSoPlainUpIsUnchanged(String name) throws IOException {
+    void theDefaultServicesCarryNoProfile(String name) throws IOException {
         assertThat(Service.of(COMPOSE, name).value("profiles")).as(name + " has no profiles line").isNull();
     }
 
