@@ -56,8 +56,8 @@ export function failureRows(failures: readonly Failure[], labels: Record<string,
 }
 
 /** The table's column headers; Flow only in the All-flows view (a selected flow is named in the caption). */
-export function failureColumns(flowSelected: boolean): string[] {
-  const flow = flowSelected ? [] : ['Flow'];
+export function failureColumns(showFlow: boolean): string[] {
+  const flow = showFlow ? ['Flow'] : [];
   return ['Tracking id', ...flow, 'Failing stage', 'Error class', 'Last error', 'Origin', 'Failed at (UTC)'];
 }
 

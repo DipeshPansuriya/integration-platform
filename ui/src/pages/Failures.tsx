@@ -68,6 +68,8 @@ export function Failures() {
 
   useEffect(() => {
     let current = true;
+    // Row 328 L7/D1: the old filter's rows never stay on screen under the new filter's caption and columns.
+    setAnswered([]);
     setLoad('loading');
     messageFailures(failuresQuery({ flowId, date }))
       .then((answer) => {
@@ -142,7 +144,7 @@ export function Failures() {
         <caption>{failuresCaption(flowLabel, day)}</caption>
         <thead>
           <tr>
-            {failureColumns(!showFlow).map((column) => (
+            {failureColumns(showFlow).map((column) => (
               <th scope="col" key={column}>
                 {column}
               </th>
