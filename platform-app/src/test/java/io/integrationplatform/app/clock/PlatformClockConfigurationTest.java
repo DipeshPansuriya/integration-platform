@@ -64,6 +64,12 @@ class PlatformClockConfigurationTest {
     }
 
     @Test
+    void theE2eProfileRefusesANegativeOffset() {
+        runner.withPropertyValues("spring.profiles.active=e2e", "platform.test-clock.offset=-P1D")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
     void theE2eProfileLogsAWarningThatTheTestClockIsInUse(CapturedOutput output) {
         runner.withPropertyValues("spring.profiles.active=e2e", "platform.test-clock.offset=P14D").run(context -> {
             assertThat(context).hasSingleBean(AdjustableClock.class);
