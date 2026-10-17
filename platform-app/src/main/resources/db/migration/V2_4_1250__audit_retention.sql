@@ -7,13 +7,19 @@
 -- is kept. It returns how many partitions it dropped.
 --
 -- SECURITY DEFINER, owned by the migration owner (never superuser, the V2_2_4 config_approve_version pattern), with a
--- fixed search_path and every name schema-qualified: the application role gets EXECUTE and nothing else - it still
--- cannot DROP, TRUNCATE, UPDATE or DELETE the ledger itself (V2_2_1220 grants). The function takes NO argument, so no
--- caller can move the cutoff; the 7 years is RetentionPolicy.AGREED.audit() (AuditRetentionMigrationTest keeps the two
--- equal). The purge is platform-wide (partitions span tenants), so it reads no tenant setting.
+-- fixed search_path, every name schema-qualified, and a 5 s lock_timeout so a busy ledger makes the drop fail fast
+-- instead of queueing every audit insert behind its lock. GRANTED TO NOBODY: the application role runs no DDL
+-- (architecture.md control T6, ADR-011 Decision 8, ADR-016), so it gets no EXECUTE; the maintenance role that will
+-- call the purge, and its grant, come with T-135b. Until then only the owner can run it. The function takes NO
+-- argument, so no caller can move the cutoff; the 7 years is RetentionPolicy.AGREED.audit()
+-- (AuditRetentionMigrationTest keeps the two equal). The purge is platform-wide (partitions span tenants), so it reads
+-- no tenant setting.
 
 CREATE OR REPLACE FUNCTION public.audit_purge_expired()
-RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET lock_timeout = '5s'
+AS $$
 DECLARE
     cutoff  timestamptz := now() - interval '7 years';
     expired record;
@@ -35,5 +41,5 @@ BEGIN
     RETURN dropped;
 END $$;
 
+-- PostgreSQL grants EXECUTE to PUBLIC by default; taken away, and nothing is granted in its place (T-135b).
 REVOKE ALL ON FUNCTION public.audit_purge_expired() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.audit_purge_expired() TO ipaas_app;
