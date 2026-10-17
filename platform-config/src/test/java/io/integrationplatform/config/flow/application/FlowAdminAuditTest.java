@@ -171,7 +171,6 @@ class FlowAdminAuditTest {
     }
 
     @Test
-    @SuppressWarnings("deprecation")
     void aPublishWithoutAnActingUserIsStillAuditedAsTheSystemActor() {
         aFlowWithLatest(new VersionInfo(V3, 3, "APPROVED", "$.id", SNAPSHOT, null, "SRC"));
         when(flows.publishVersion(V3)).thenReturn(1);

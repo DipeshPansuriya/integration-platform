@@ -181,9 +181,14 @@ public class ContractAdminService {
 
     /** E12-F2-S1 (T-134): one audit event per completed import or approval - status and label, never the schema. */
     private void audit(String action, UUID actorId, VersionDetail version, String before) {
+        audit(action, actorId, version.id(), before,
+                ConfigAuditActions.state("status", version.status(), "versionLabel", version.versionLabel()));
+    }
+
+    /** Ids, status and version label only - never the schema or the document. */
+    private void audit(String action, UUID actorId, String versionId, String before, String after) {
         events.publishEvent(ConfigAuditActions.event(action, tenants.requireTenantId(), actorId,
-                List.of(ConfigAuditActions.target("contract_version", version.id())), before,
-                ConfigAuditActions.state("status", version.status(), "versionLabel", version.versionLabel())));
+                List.of(ConfigAuditActions.target("contract_version", versionId)), before, after));
     }
 
     /** The source request contract keeps the E3 code (the system code); every other role is {@code code:ROLE}. */
@@ -235,8 +240,11 @@ public class ContractAdminService {
                 .orElseGet(() -> contracts.insertContract(system.id(), systemCode, name));
         String label = nextLabel(contracts.listVersionLabels(contractId));
         String versionId = contracts.insertVersion(contractId, label, sourceSchema.toString(), actorId.toString());
-        return contracts.findVersionById(versionId)
+        VersionRow saved = contracts.findVersionById(versionId)
                 .orElseThrow(() -> new IllegalStateException("the contract version row vanished after insert"));
+        audit(ConfigAuditActions.CONTRACT_DRAFT_SAVED, actorId, saved.id(), null,
+                ConfigAuditActions.state("status", saved.status(), "versionLabel", saved.versionLabel()));
+        return saved;
     }
 
     /** POST /api/v1/admin/contracts/versions/{id}/submit - the definer move draft -> pending approval. */
@@ -245,9 +253,9 @@ public class ContractAdminService {
         String changeNote = SystemAdminService.required(body, "changeNote");
         String result = contracts.submitVersion(versionId, changeNote);
         switch (result) {
-            case "SUBMITTED" -> {
-                return;
-            }
+            case "SUBMITTED" -> audit(ConfigAuditActions.CONTRACT_SUBMITTED, actorId, versionId,
+                    ConfigAuditActions.state("status", "DRAFT"),
+                    ConfigAuditActions.state("status", "PENDING_APPROVAL"));
             case "VERSION_NOT_FOUND" -> throw ConfigApiException.notFound();
             default -> throw ConfigApiException.conflict(
                     "only a DRAFT contract version submits (the version answered " + result + ")");

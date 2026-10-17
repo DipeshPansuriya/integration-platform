@@ -229,11 +229,13 @@ public class FlowAdminService {
         return ConfigApiException.body("id", published.interfaceId(), "version", published.version().version());
     }
 
-    /** The same publish without an acting user - no audit event; only compositions without HTTP call it (tests). */
+    /**
+     * The same publish for an in-process caller with no human actor (kept for the platform-routing proof): audited as
+     * {@link ConfigAuditActions#SYSTEM_ACTOR}, so no publish path skips the audit.
+     */
     @Transactional
     public Map<String, Object> publish(String flowId) {
-        Published published = materialize(flowId);
-        return ConfigApiException.body("id", published.interfaceId(), "version", published.version().version());
+        return publish(flowId, ConfigAuditActions.SYSTEM_ACTOR);
     }
 
     private record Published(String interfaceId, VersionInfo version) {
