@@ -99,9 +99,8 @@ public final class RouteInstanceFactory {
             }
             String routeId = ROUTE_ID_PREFIX + row.routeId();
             if (context.getRoute(routeId) != null) {
-                throw new RouteBuildRefusedException(409, "the route instance is already in the running context",
-                        "route id '" + routeId + "' is already in the Camel context without a held instance"
-                        + " - refusing to rebuild over it");
+                throw RouteBuildRefusedException.routeIdClash("route id '" + routeId
+                        + "' is already in the Camel context without a held instance - refusing to rebuild over it");
             }
             org.apache.camel.Processor send = template.build(row);
             registerRouteInstance(routeId, consumerOf(row), send);
@@ -113,8 +112,9 @@ public final class RouteInstanceFactory {
 
     /**
      * The one validation publish and build share: the row's scheme is in allowedSchemes and its target type has a
-     * template. The exception messages (logs and the stage 2 dead-letter reason read them) name only the
-     * {@link RefusalText}-bounded scheme or type, the route id and the endpoint id - never the endpoint URI (B22 M1).
+     * template. The exception messages are the log detail (including the stage 2 WARN line; the stage 2 dead-letter
+     * records no reason) and name only the {@link RefusalText}-bounded scheme or type, the route id and the endpoint
+     * id - never the endpoint URI (B22 M1).
      */
     private RouteTemplate approvedTemplate(RouteConfigRow row) {
         String scheme = row.scheme();

@@ -1,6 +1,7 @@
 package io.integrationplatform.config.adapter.in;
 
 import io.integrationplatform.config.application.ConfigApiException;
+import io.integrationplatform.config.flow.api.InterfacePublishRefused;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.port.DeniedTenantAttempt;
 import io.integrationplatform.tenancy.port.TenantDenialRecorder;
@@ -51,6 +52,16 @@ public class ConfigApiExceptionHandler {
             recordPathIdDenial(request);
         }
         return ResponseEntity.status(refused.httpStatus()).body(refused.body());
+    }
+
+    /**
+     * ADR-017 Decision 2: a publish listener refused the publish (it rolled back). 400 with the listener's sanitised
+     * reason; a validation refusal, not a cross-tenant attempt - no denial record, nothing logged above DEBUG.
+     */
+    @ExceptionHandler(InterfacePublishRefused.class)
+    public ResponseEntity<Map<String, Object>> publishRefused(InterfacePublishRefused refused) {
+        LOG.debug("a publish listener refused the publish; it was rolled back", refused);
+        return ResponseEntity.status(400).body(ConfigApiException.body("error", refused.reason()));
     }
 
     @ExceptionHandler(DuplicateKeyException.class)
