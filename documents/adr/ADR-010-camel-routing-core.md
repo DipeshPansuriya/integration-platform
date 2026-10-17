@@ -3,7 +3,7 @@ type: ADR
 title: "ADR-010 - Apache Camel as the routing core, inside one module, with exactly two retry layers"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): bulkhead-full backoff and re-drive cap, every state change takes the key lock first with 40001/40P01 retry, missing key uses no attempt, not-ready instance stops its consumers, broker-address check and egress policy. 2026-10-12 - amended with the approval of ADR-014 (sections 2 and 6: one delivery per message and route, unique on (message_id, route_id, created_at) with created_at = the message's accepted_at, message and payload day-partitioned) and ADR-015 (section 1: target adapters and the send-time destination check live in platform-routing; routing depends on platform-config's public API only), both approved by Dipesh 2026-10-12. 2026-10-17 - section 8: the dev/showcase-only exception to the destination check (T138; property platform.config.destinations.showcase-local-hosts, honoured only under the showcase profile, fail closed, never in production; AC approved by Dipesh 2026-10-17, memory m-b39c08). 2026-10-17 - section 3 amended for finding F16 (row 278): publish validates and never builds; routes are built lazily in stage 2, keyed by (target endpoint id, endpoint version = fingerprint of the row values a template is built from); the idle sweep is scheduled"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): bulkhead-full backoff and re-drive cap, every state change takes the key lock first with 40001/40P01 retry, missing key uses no attempt, not-ready instance stops its consumers, broker-address check and egress policy. 2026-10-12 - amended with the approval of ADR-014 (sections 2 and 6: one delivery per message and route, unique on (message_id, route_id, created_at) with created_at = the message's accepted_at, message and payload day-partitioned) and ADR-015 (section 1: target adapters and the send-time destination check live in platform-routing; routing depends on platform-config's public API only), both approved by Dipesh 2026-10-12. 2026-10-17 - section 8: the dev/showcase-only exception to the destination check (T138; property platform.config.destinations.showcase-local-hosts, honoured only under the showcase profile, fail closed, never in production; AC approved by Dipesh 2026-10-17, memory m-b39c08). 2026-10-17 - section 3 amended for finding F16 (row 278): publish validates and never builds; routes are built lazily in stage 2, keyed by (target endpoint id, endpoint version = fingerprint of the row values a template is built from); the idle sweep is scheduled. 2026-10-18 - section 8 re-pinned to main a2c76ff and the B21 port pin added (host AND port, ports required with hosts, 80/443 default, IP literals refused, refused under prod/production/staging/uat); section 3 gains a status line of what main implements"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -187,6 +187,12 @@ leaves live, cached routes behind (finding F14). Decision:
   and adds 0 routes. 2 deliveries for one key build 1 instance. A changed mapping version builds
   a 2nd instance and leaves the 1st untouched. An instance idle 31 minutes is removed (0 left);
   one touched at 29 minutes stays (1 left).
+- **Status on main `a2c76ff` (code facts, `platform-routing/.../templates/RouteInstanceFactory.java`).**
+  Landed (T106, `08fe511`): publish validates and builds nothing (`:78-82`), and the build is lazy
+  in `ensure` (`:89-112`). Not yet in code: the cache and the Camel route id are still keyed by
+  target endpoint id alone (`:50`, `:91`, `:100`, `:109`), so the (endpoint id, endpoint version)
+  key is open; `evictIdle` exists (`:151`) but nothing in `src/main` calls it on a schedule, so
+  the scheduled idle sweep is open.
 
 ### 4. Exactly two retry layers
 
@@ -359,39 +365,63 @@ Dipesh 2026-10-17, memory m-b39c08).** This is a named **exception** to the chec
 sentence "Loopback ... can never be allow-listed" and to the audited exact-range rule for private
 ranges - and it exists only so the showcase can reach a local test destination. It is **never
 enabled in production**, nor in any environment other than a dev or showcase run. Code paths below
-are on the T138 lane tip `f2b5e7b`; the line numbers move when it lands.
+are on main `a2c76ff` (T138 + B21 landed through seam `b7a23f3`). Paths: `DestinationGuard.java`
+is `platform-config/src/main/java/io/integrationplatform/config/destination/`,
+`SystemPersistenceConfiguration.java` is
+`platform-config/src/main/java/io/integrationplatform/config/internal/persistence/`,
+`config-systems.yml` is `platform-config/src/main/resources/config/`.
 
 - **Properties.** `platform.config.destinations.showcase-local-hosts` (a list of exact host
-  names) is honoured only while the Spring profile **`showcase`** is active
-  (`SystemPersistenceConfiguration.java:51-52`, `:80`). The shipped `config-systems.yml` does not
-  set it (`config-systems.yml:10-13`); it is set only for a showcase run.
-- **What it lifts - and nothing else.** For a name on that list, a resolved address in the
-  `loopback` or `private` range is not refused (`DestinationGuard.java:44`, `:101-104`, `:111`).
-  It never widens `platform.config.destinations.allowed-hosts`: the name must still pass the
-  allow-list first (`DestinationGuard.java:94-96`). It never lifts an IP literal (`:88`) and never
-  lifts link-local / cloud metadata, "this network", carrier-grade NAT, IPv6 unique-local,
-  multicast or broadcast.
-- **Exact names only.** An empty entry, a wildcard, an IP literal or a port is rejected when the
-  guard is built, so the application does not start (`DestinationGuard.java:116-128`).
-- **Fail closed.** The property set without the `showcase` profile -> `IllegalStateException`, the
-  application refuses to start (`SystemPersistenceConfiguration.java:80-82`). The property absent
-  or empty -> the guard is built exactly as before (`:77-78`), so removing the property restores
-  today's refusal. When the exception is active, a startup **WARN** names the property and the
-  hosts (`:85-87`).
+  names) and `platform.config.destinations.showcase-local-ports` (a list of exact ports) are
+  honoured only while the Spring profile **`showcase`** is active
+  (`SystemPersistenceConfiguration.java:55-57`, `:81-84`, `:88-91`). The shipped
+  `config-systems.yml` sets neither (`config-systems.yml:10-16`: `allowed-hosts: []` and comments
+  only); they are set only for a showcase run.
+- **What it lifts - and nothing else.** For a name on the hosts list, **on a port on the ports
+  list**, a resolved address in the `loopback` or `private` range is not refused
+  (`DestinationGuard.java:46-47`, `:113`, `:120-125`). It never widens
+  `platform.config.destinations.allowed-hosts`: the name must still pass the allow-list first
+  (`DestinationGuard.java:106-108`). It never lifts an IP literal: a literal is range-checked with
+  the exception off (`:98-100`). It never lifts link-local / cloud metadata, "this network",
+  carrier-grade NAT, IPv6 unique-local, multicast or broadcast.
+- **Port pin (B21; T137 F1, CWE-918).** The range is lifted only when the host **AND** the port
+  are listed (`DestinationGuard.java:113`), so a name that resolves to loopback does not reach
+  every port on that host (database, identity, broker). The port is the URI's explicit port, or
+  the scheme default **443** for `https` and **80** otherwise (`:94-95`). The ports are global to
+  the exception, not per host (`:34-36`). Each port must be an exact 1-65535 value; a null or
+  out-of-range entry is rejected when the guard is built (`:144-154`).
+- **Hosts need ports.** `showcase-local-ports` is required together with `showcase-local-hosts`:
+  hosts without ports -> `IllegalStateException`, the application refuses to start
+  (`SystemPersistenceConfiguration.java:97-100`); the guard refuses the same pairing on its own
+  (`DestinationGuard.java:72-74`).
+- **Exact names only.** An empty entry, a wildcard, an IP literal (including an all-digit or
+  `0x` hex last label, an IPv4 encoding; T137 F3) or a port is rejected when the guard is built,
+  so the application does not start (`DestinationGuard.java:128-142`).
+- **Fail closed.** The hosts property set without the `showcase` profile ->
+  `IllegalStateException`, the application refuses to start
+  (`SystemPersistenceConfiguration.java:88-91`). Set next to a production-like profile -
+  **`prod`, `production`, `staging` or `uat`** - -> refused at startup even when `showcase` is
+  also active (`:58`, `:92-96`). The hosts property absent or empty -> the guard is built exactly
+  as before (`:85-86`), so removing the property restores today's refusal. When the exception is
+  active, a startup **WARN** names both properties, the hosts and the ports (`:101-104`).
 - **Gates (counts).** Without the property: 1 loopback and 1 private resolution of an
-  allow-listed name are refused (2 of 2). With the property under `showcase`: those 2 are allowed,
-  and an IP literal, a link-local resolution and a name not on the allow-list are still refused
-  (3 of 3). Property without the profile: 1 startup refused; a wildcard or IP entry: 1 startup
-  refused each. Conformance tests on the lane: `DestinationGuardShowcaseLocalHostsTest`,
-  `SystemPersistenceShowcaseWiringTest`, `ShowcaseLocalHostsHostContainerTest` (counts follow
-  in the tracker when they run).
-- **What it gives up.** Under `showcase`, a listed name that resolves to loopback can reach any
-  service on that host's loopback - including the platform's own PostgreSQL, Kafka or Keycloak
-  when they share the host. The "platform's own hosts" refusal list of this section is not yet
-  in code, so it does not catch this. A showcase-local host must therefore be a name that
-  points only at the test destination, and a showcase run never holds real tenant data.
-- **Review.** karan-security, through kavita-release-manager (T137, ledger row 323), reviews the
-  change before it lands.
+  allow-listed name are refused (2 of 2). With hosts and ports under `showcase`: those 2 are
+  allowed on a listed port, and the same host on an unlisted port, an IP literal, a link-local
+  resolution and a name not on the allow-list are still refused (4 of 4). Startup refused, 1
+  each: hosts without the profile; hosts next to `prod`, `production`, `staging` or `uat`; hosts
+  without ports; a wildcard or IP host entry; a null or out-of-range port. Conformance tests on
+  main: `DestinationGuardShowcaseLocalHostsTest` (port cases `:115`, `:130`, `:138`, `:145`; IP
+  literal `:174`), `SystemPersistenceShowcaseWiringTest` (hosts without ports `:117`,
+  production-like profile `:134`), `ShowcaseLocalHostsHostContainerTest`. Lead gate on `b7a23f3`:
+  unit exit 0, `-Pcontainer` exit 0 (merge `a2c76ff`).
+- **What it gives up.** Under `showcase`, a listed name that resolves to loopback can still reach
+  any service on that host that listens on a **listed** port. The port pin narrows this from every
+  port to the listed ones, but the "platform's own hosts" refusal list of this section is not yet
+  in code, so a listed port shared with a platform service is not caught. A showcase-local port
+  must therefore be the test destination's own port, a showcase-local host a name that points
+  only at the test destination, and a showcase run never holds real tenant data.
+- **Review.** karan-security, through kavita-release-manager (T137, ledger row 323), reviewed the
+  change before it landed: T137 PASS (merge `a2c76ff`).
 
 ### 9. Nothing stays stuck (challenge B4)
 
