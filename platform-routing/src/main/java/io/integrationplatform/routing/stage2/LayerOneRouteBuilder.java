@@ -60,7 +60,7 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
     public void configure() {
         // only a TRANSIENT call failure redelivers (ADR-010 section 5); the wait cap is delay time only
         onException(TargetFaultException.TransientFaultException.class)
-                .maximumRedeliveries(waits.maxRedeliveries())
+                .maximumRedeliveries(0) // SCRATCH(row278 T145): layer-1 redelivery removed - proof only
                 .redeliveryDelay(waits.initialDelay().toMillis())
                 .useExponentialBackOff()
                 .backOffMultiplier(2.0)
