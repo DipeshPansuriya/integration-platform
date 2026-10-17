@@ -52,9 +52,9 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
     }
 
     /**
-     * T112 round 2 (row 328 M1 + row 329 M3): one delivery of a message joined to ONE of its attempts - a delivery
-     * with n attempts gives n rows, one with none gives one row with null attempt fields. The service derives the
-     * failing stage (any DEAD_LETTERED state) and the target response (the last attempt) from these rows.
+     * T112 round 2 (row 328 M1 + row 329 M3): one delivery of a message joined to its LAST attempt (picked in SQL,
+     * row 328 V4) - one row per delivery, with null attempt fields when it has none. The service derives the failing
+     * stage (any DEAD_LETTERED state) and the target response (that last attempt) from these rows.
      */
     record DeliveryAttemptRow(String deliveryId, String targetId, String state, Long attemptId, Instant startedAt,
             Instant finishedAt, String outcomeClass) {
@@ -81,7 +81,9 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
     }
 
     /**
-     * Every delivery of the message with each of its attempts. The base appends its tenant predicate to the outer
+     * Every delivery of the message with its last attempt - latest {@code finished_at}, then highest id, the same
+     * order as the dead-letter read below; one indexed probe per delivery, not every attempt of every daily partition
+     * (row 328 V4). The base appends its tenant predicate to the outer
      * statement, where {@code tenant_id} can only mean {@code d.tenant_id} (the lateral sub-select exposes no
      * tenant column); the attempts are pinned to the delivery's own tenant as well, and row-level security on both
      * tables is the second gate - an attempt another tenant wrote against this delivery id never joins.
@@ -91,7 +93,8 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
                         + " a.started_at, a.finished_at, a.outcome_class"
                         + " from public.delivery d left join lateral (select x.id as attempt_id, x.started_at,"
                         + "   x.finished_at, x.outcome_class from public.delivery_attempt x"
-                        + "   where x.delivery_id = d.id and x.tenant_id = d.tenant_id) a on true",
+                        + "   where x.delivery_id = d.id and x.tenant_id = d.tenant_id"
+                        + "   order by x.finished_at desc, x.id desc limit 1) a on true",
                 "d.message_id = :message_id::uuid", Map.of("message_id", messageId.toString()),
                 (rs, n) -> new DeliveryAttemptRow(rs.getString("delivery_id"), rs.getString("target_id"),
                         rs.getString("state"), rs.getObject("attempt_id", Long.class), instant(rs, "started_at"),
