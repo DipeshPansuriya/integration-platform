@@ -1,32 +1,31 @@
 package io.integrationplatform.e2e.harness;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.github.dockerjava.api.command.CreateContainerCmd;
-import com.github.dockerjava.api.model.ExposedPort;
-import com.github.dockerjava.api.model.Ports;
-import java.util.Arrays;
+import com.github.dockerjava.api.model.HostConfig;
+import com.github.dockerjava.api.model.PortBinding;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.shaded.com.github.dockerjava.core.command.CreateContainerCmdImpl;
 
 /**
  * Row 327 T151 (L-1, CWE-668), no Docker: the harness containers publish their ports on the loopback interface only,
  * so WireMock's {@code /__admin} API and the Artemis acceptor are not reachable from the LAN, and the Artemis web
- * console (8161) is not exposed at all. The containers' own create-command modifiers are applied to a docker-java
- * command that is never sent to a daemon.
+ * console (8161) is not exposed at all. The containers' create-command modifiers are applied to a mocked
+ * {@link CreateContainerCmd} and {@link HostConfig} (row 327 T155: no shaded Testcontainers internals).
  */
 class E2eContainersTest {
 
     private static final String LOOPBACK = "127.0.0.1";
-
-    /** The command is only inspected, never executed against a Docker daemon. */
-    private static final CreateContainerCmd.Exec NEVER_SENT = command -> {
-        throw new AssertionError("a unit test never sends a create command to Docker");
-    };
 
     @Test
     void artemisExposesOnlyItsAcceptorAndBindsItToLoopback() {
@@ -34,7 +33,7 @@ class E2eContainersTest {
 
         assertThat(artemis.getExposedPorts()).as("Artemis exposes the acceptor only (no 8161 console)")
                 .containsExactly(E2eContainers.ARTEMIS_PORT);
-        assertThat(hostIpsByPort(artemis)).as("Artemis host port bindings")
+        assertThat(hostIpsByPort(modifiersOf(artemis))).as("Artemis host port bindings")
                 .containsExactlyEntriesOf(Map.of(E2eContainers.ARTEMIS_PORT, LOOPBACK));
     }
 
@@ -43,23 +42,37 @@ class E2eContainersTest {
         GenericContainer<?> wiremock = E2eContainers.wiremock(Network.newNetwork());
 
         assertThat(wiremock.getExposedPorts()).containsExactly(E2eContainers.WIREMOCK_PORT);
-        assertThat(hostIpsByPort(wiremock)).as("WireMock host port bindings")
+        assertThat(hostIpsByPort(modifiersOf(wiremock))).as("WireMock host port bindings")
                 .containsExactlyEntriesOf(Map.of(E2eContainers.WIREMOCK_PORT, LOOPBACK));
     }
 
-    /** Container port -> host IP of every binding the container's modifiers put on a create command. */
-    private static Map<Integer, String> hostIpsByPort(GenericContainer<?> container) {
-        CreateContainerCmd cmd = new CreateContainerCmdImpl(NEVER_SENT, null, "harness-unit-test");
-        container.getCreateContainerCmdModifiers().forEach(modifier -> modifier.modify(cmd));
-        Ports ports = cmd.getHostConfig().getPortBindings();
-        assertThat(ports).as("the modifiers set host port bindings").isNotNull();
-        return ports.getBindings().entrySet().stream().collect(Collectors.toMap(
-                (Map.Entry<ExposedPort, Ports.Binding[]> entry) -> entry.getKey().getPort(),
-                entry -> {
-                    Ports.Binding[] bindings = entry.getValue();
-                    assertThat(bindings).as("one random host port per container port").hasSize(1);
-                    assertThat(bindings[0].getHostPortSpec()).as("host port left to Docker").isNull();
-                    return Arrays.stream(bindings).map(Ports.Binding::getHostIp).findFirst().orElseThrow();
+    @Test
+    void loopbackOnlyBindsEveryGivenPortTo127001OnARandomHostPort() {
+        assertThat(hostIpsByPort(E2eContainers.loopbackOnly(61616, 8080, 9000)))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(61616, LOOPBACK, 8080, LOOPBACK, 9000, LOOPBACK));
+    }
+
+    /** Applies every create-command modifier of the container to the command it is given. */
+    private static Consumer<CreateContainerCmd> modifiersOf(GenericContainer<?> container) {
+        return cmd -> container.getCreateContainerCmdModifiers().forEach(modifier -> modifier.modify(cmd));
+    }
+
+    /** Container port -> host IP of every binding the modifiers put on a mocked create command's host config. */
+    @SuppressWarnings("unchecked")
+    private static Map<Integer, String> hostIpsByPort(Consumer<CreateContainerCmd> modifiers) {
+        CreateContainerCmd cmd = mock(CreateContainerCmd.class);
+        HostConfig hostConfig = mock(HostConfig.class);
+        when(cmd.getHostConfig()).thenReturn(hostConfig);
+
+        modifiers.accept(cmd);
+
+        ArgumentCaptor<List<PortBinding>> bindings = ArgumentCaptor.forClass(List.class);
+        verify(hostConfig).withPortBindings(bindings.capture());
+        return bindings.getValue().stream().collect(Collectors.toMap(
+                binding -> binding.getExposedPort().getPort(),
+                binding -> {
+                    assertThat(binding.getBinding().getHostPortSpec()).as("host port left to Docker").isNull();
+                    return binding.getBinding().getHostIp();
                 }));
     }
 }
