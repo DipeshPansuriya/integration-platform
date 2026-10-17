@@ -11,6 +11,7 @@ import io.integrationplatform.config.internal.persistence.JdbcContractRepository
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemRow;
 import io.integrationplatform.config.system.application.SystemAdminService;
+import io.integrationplatform.tenancy.TenantContext;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -49,15 +51,24 @@ public class ContractAdminService {
 
     private final JdbcContractRepository contracts;
     private final JdbcSystemRepository systems;
+    private final ApplicationEventPublisher events;
+    private final TenantContext tenants;
     private final ContractDocumentImporter importer = new ContractDocumentImporter();
 
     /** One contract with its versions in label order (T-105 listing). */
     public record ContractWithVersions(ContractSummary contract, List<VersionDetail> versions) {
     }
 
-    public ContractAdminService(JdbcContractRepository contracts, JdbcSystemRepository systems) {
+    /**
+     * @param events  where a completed import or approval publishes its audit event (E12-F2-S1, T-134)
+     * @param tenants the bound tenant the audit event names
+     */
+    public ContractAdminService(JdbcContractRepository contracts, JdbcSystemRepository systems,
+            ApplicationEventPublisher events, TenantContext tenants) {
         this.contracts = Objects.requireNonNull(contracts, "contracts");
         this.systems = Objects.requireNonNull(systems, "systems");
+        this.events = Objects.requireNonNull(events, "events");
+        this.tenants = Objects.requireNonNull(tenants, "tenants");
     }
 
     // ------------------------------------------------------------------ E5 lane A (T-105)

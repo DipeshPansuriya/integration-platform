@@ -3,10 +3,12 @@ package io.integrationplatform.config.rule.application;
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.rule.internal.JdbcRuleSetRepository;
 import io.integrationplatform.config.rule.internal.JdbcRuleSetRepository.RuleSetRow;
+import io.integrationplatform.tenancy.TenantContext;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
@@ -23,10 +25,19 @@ public class RuleSetAdminService {
 
     private final JdbcRuleSetRepository ruleSets;
     private final DecisionEngine engine;
+    private final ApplicationEventPublisher events;
+    private final TenantContext tenants;
 
-    public RuleSetAdminService(JdbcRuleSetRepository ruleSets, DecisionEngine engine) {
+    /**
+     * @param events  where a completed create or update publishes its audit event (E12-F2-S1)
+     * @param tenants the bound tenant the audit event names
+     */
+    public RuleSetAdminService(JdbcRuleSetRepository ruleSets, DecisionEngine engine,
+            ApplicationEventPublisher events, TenantContext tenants) {
         this.ruleSets = Objects.requireNonNull(ruleSets, "ruleSets");
         this.engine = Objects.requireNonNull(engine, "engine");
+        this.events = Objects.requireNonNull(events, "events");
+        this.tenants = Objects.requireNonNull(tenants, "tenants");
     }
 
     @Transactional

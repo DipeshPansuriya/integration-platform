@@ -1,7 +1,10 @@
 package io.integrationplatform.config.credential.application;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.support.TransactionOperations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,6 +17,25 @@ import org.slf4j.LoggerFactory;
 public class CredentialAudit {
 
     private static final Logger LOG = LoggerFactory.getLogger(CredentialAudit.class);
+
+    private final ApplicationEventPublisher events;
+    private final TransactionOperations writeTransaction;
+
+    /**
+     * @param events           where a completed action publishes its audit event (E12-F2-S1, T-134)
+     * @param writeTransaction the write transaction the event is published in (joined when one is open), so the
+     *                         AFTER_COMMIT audit writer receives it - the source services make Keycloak calls and
+     *                         are deliberately not {@code @Transactional}
+     */
+    public CredentialAudit(ApplicationEventPublisher events, TransactionOperations writeTransaction) {
+        this.events = Objects.requireNonNull(events, "events");
+        this.writeTransaction = Objects.requireNonNull(writeTransaction, "writeTransaction");
+    }
+
+    /** ponytail: the log-line-only audit the E5 unit and container tests compose by hand (no event, no store). */
+    public CredentialAudit() {
+        this(event -> { }, TransactionOperations.withoutTransaction());
+    }
 
     public void sourceIssued(UUID tenant, UUID actor, UUID system, UUID credential, String clientId) {
         LOG.atInfo().addKeyValue("event", "credential.source_issued").addKeyValue("tenant", tenant)

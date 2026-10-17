@@ -7,6 +7,7 @@ import io.integrationplatform.config.mapping.application.MappingAdminService;
 import io.integrationplatform.config.mapping.application.MappingPublishPinCheck;
 import io.integrationplatform.tenancy.TenantContext;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -25,8 +26,11 @@ class MappingPersistenceConfiguration {
     }
 
     @Bean
-    MappingAdminService mappingAdminService(JdbcMappingRepository mappings) {
-        return new MappingAdminService(mappings);
+    MappingAdminService mappingAdminService(JdbcMappingRepository mappings, ApplicationEventPublisher events,
+            ObjectProvider<TenantContext> tenantContexts) {
+        // E12-F2-S1: the save's audit event names the bound tenant; none bound falls back fail-closed
+        return new MappingAdminService(mappings, events,
+                tenantContexts.getIfAvailable(() -> java.util.Optional::empty));
     }
 
     @Bean

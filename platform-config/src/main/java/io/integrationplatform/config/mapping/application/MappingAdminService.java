@@ -2,8 +2,10 @@ package io.integrationplatform.config.mapping.application;
 
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.mapping.internal.persistence.JdbcMappingRepository;
+import io.integrationplatform.tenancy.TenantContext;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
@@ -17,9 +19,18 @@ import tools.jackson.databind.JsonNode;
 public class MappingAdminService {
 
     private final JdbcMappingRepository mappings;
+    private final ApplicationEventPublisher events;
+    private final TenantContext tenants;
 
-    public MappingAdminService(JdbcMappingRepository mappings) {
+    /**
+     * @param events  where a completed save publishes its audit event (E12-F2-S1)
+     * @param tenants the bound tenant the audit event names
+     */
+    public MappingAdminService(JdbcMappingRepository mappings, ApplicationEventPublisher events,
+            TenantContext tenants) {
         this.mappings = Objects.requireNonNull(mappings, "mappings");
+        this.events = Objects.requireNonNull(events, "events");
+        this.tenants = Objects.requireNonNull(tenants, "tenants");
     }
 
     @Transactional(readOnly = true)

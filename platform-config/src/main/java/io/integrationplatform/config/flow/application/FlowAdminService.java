@@ -161,7 +161,7 @@ public class FlowAdminService {
     // ------------------------------------------------------------------ T-019: submit / approve
 
     @Transactional
-    public Map<String, Object> submit(String flowId, JsonNode body) {
+    public Map<String, Object> submit(String flowId, JsonNode body, UUID actorId) {
         InterfaceRow interfaceRow = requireInterface(flowId);
         String changeNote = SystemAdminService.required(body, "changeNote");
         VersionInfo draft = flows.findLatestVersionByStatus(flowId, "DRAFT")
@@ -206,6 +206,11 @@ public class FlowAdminService {
      * and the interface's pointer. Any write that fails mid-bundle rolls all of it back: the previous version
      * stays published with its bundle exactly live.
      */
+    @Transactional
+    public Map<String, Object> publish(String flowId, UUID actorId) {
+        return publish(flowId);
+    }
+
     @Transactional
     public Map<String, Object> publish(String flowId) {
         InterfaceRow interfaceRow = requireInterface(flowId);

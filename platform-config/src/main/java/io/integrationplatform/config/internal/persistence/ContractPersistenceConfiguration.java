@@ -5,6 +5,7 @@ import io.integrationplatform.config.contract.application.ContractAdminService;
 import io.integrationplatform.config.contract.application.ContractVersionResolver;
 import io.integrationplatform.tenancy.TenantContext;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -24,8 +25,11 @@ class ContractPersistenceConfiguration {
     }
 
     @Bean
-    ContractAdminService contractAdminService(JdbcContractRepository contracts, JdbcSystemRepository systems) {
-        return new ContractAdminService(contracts, systems);
+    ContractAdminService contractAdminService(JdbcContractRepository contracts, JdbcSystemRepository systems,
+            ApplicationEventPublisher events, ObjectProvider<TenantContext> tenantContexts) {
+        // E12-F2-S1 (T-134): the import and approval audit events name the bound tenant; none bound fails closed
+        return new ContractAdminService(contracts, systems, events,
+                tenantContexts.getIfAvailable(() -> java.util.Optional::empty));
     }
 
     /** T-106: the public port other modules ask "which contract version does a message use now". */
