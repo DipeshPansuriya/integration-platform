@@ -2,6 +2,7 @@ package io.integrationplatform.config.mapping.application;
 
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.mapping.internal.persistence.JdbcMappingRepository;
+import io.integrationplatform.domain.audit.ConfigAuditActions;
 import io.integrationplatform.tenancy.TenantContext;
 import java.util.Objects;
 import java.util.UUID;
@@ -94,6 +95,12 @@ public class MappingAdminService {
             versionId = existing.id();
             version = existing.version();
         }
+        // E12-F2-S1: one audit event per completed save - the mapping version before and after, never the content
+        events.publishEvent(ConfigAuditActions.event(ConfigAuditActions.MAPPING_SAVED, tenants.requireTenantId(),
+                actorId, java.util.List.of(ConfigAuditActions.target("route", routeId),
+                        ConfigAuditActions.target("mapping", live.id())),
+                ConfigAuditActions.state("mappingVersionId", live.mappingVersionId()),
+                ConfigAuditActions.state("mappingVersionId", versionId)));
         return ConfigApiException.body(
                 "routeId", routeId,
                 "mappingId", live.id(),

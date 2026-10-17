@@ -13,6 +13,7 @@ import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.Map
 import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.RouteRow;
 import io.integrationplatform.config.internal.persistence.JdbcFlowRepository.VersionInfo;
 import io.integrationplatform.config.system.application.SystemAdminService;
+import io.integrationplatform.domain.audit.ConfigAuditActions;
 import io.integrationplatform.tenancy.TenantContext;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -81,8 +82,10 @@ public class FlowAdminService {
 
         String sourceContractVersionId = contracts.getOrCreateSourceDraftVersion(sourceSystem, actorId);
         alignRoutes(interfaceId, endpointIds);
-        insertSnapshotVersion(created, businessKeyRule, sourceContractVersionId, 1, actorId);
+        String versionId = insertSnapshotVersion(created, businessKeyRule, sourceContractVersionId, 1, actorId);
         flows.updateInterfaceAfterDraft(interfaceId, 1);
+        audit(ConfigAuditActions.FLOW_CREATED, actorId, interfaceId, versionId, null,
+                ConfigAuditActions.state("status", "DRAFT", "version", 1));
         return created;
     }
 
@@ -108,8 +111,12 @@ public class FlowAdminService {
         VersionInfo latest = flows.findLatestVersion(current.id())
                 .orElseThrow(() -> new IllegalStateException("a flow always has at least one version"));
         int nextVersion = latest.version() + 1;
-        insertSnapshotVersion(current, businessKeyRule, latest.sourceContractVersionId(), nextVersion, actorId);
+        String versionId = insertSnapshotVersion(current, businessKeyRule, latest.sourceContractVersionId(),
+                nextVersion, actorId);
         flows.updateInterfaceAfterDraft(current.id(), nextVersion);
+        audit(ConfigAuditActions.FLOW_DRAFT_SAVED, actorId, current.id(), versionId,
+                ConfigAuditActions.state("version", latest.version()),
+                ConfigAuditActions.state("version", nextVersion));
         return ConfigApiException.body("id", current.id(), "version", nextVersion);
     }
 
@@ -169,6 +176,8 @@ public class FlowAdminService {
         if (flows.submitVersion(draft.id(), changeNote) != 1) {
             throw ConfigApiException.conflict("the draft version changed under the submit");
         }
+        audit(ConfigAuditActions.FLOW_SUBMITTED, actorId, interfaceRow.id(), draft.id(),
+                ConfigAuditActions.state("status", "DRAFT"), ConfigAuditActions.state("status", "PENDING_APPROVAL"));
         return ConfigApiException.body("id", interfaceRow.id(), "version", draft.version());
     }
 
@@ -188,8 +197,13 @@ public class FlowAdminService {
                 .orElseThrow(() -> ConfigApiException.conflict("the flow has no version pending approval"));
         String result = flows.approveVersion(pending.id(), approverId.toString());
         return switch (result) {
-            case "APPROVED" -> new ApprovalOutcome(200,
-                    ConfigApiException.body("id", interfaceRow.id(), "version", pending.version()));
+            case "APPROVED" -> {
+                audit(ConfigAuditActions.FLOW_APPROVED, approverId, interfaceRow.id(), pending.id(),
+                        ConfigAuditActions.state("status", "PENDING_APPROVAL"),
+                        ConfigAuditActions.state("status", "APPROVED"));
+                yield new ApprovalOutcome(200,
+                        ConfigApiException.body("id", interfaceRow.id(), "version", pending.version()));
+            }
             case "VERSION_NOT_FOUND" -> new ApprovalOutcome(404, ConfigApiException.notFound().body());
             case "REFUSED_AUTHOR_IS_APPROVER" -> new ApprovalOutcome(403,
                     ConfigApiException.refusal(403, "AUTHOR_IS_APPROVER").body());
@@ -208,11 +222,24 @@ public class FlowAdminService {
      */
     @Transactional
     public Map<String, Object> publish(String flowId, UUID actorId) {
-        return publish(flowId);
+        Published published = materialize(flowId);
+        audit(ConfigAuditActions.FLOW_PUBLISHED, actorId, published.interfaceId(), published.version().id(),
+                ConfigAuditActions.state("status", "APPROVED"),
+                ConfigAuditActions.state("status", "PUBLISHED", "version", published.version().version()));
+        return ConfigApiException.body("id", published.interfaceId(), "version", published.version().version());
     }
 
+    /** The same publish without an acting user - no audit event; only compositions without HTTP call it (tests). */
     @Transactional
     public Map<String, Object> publish(String flowId) {
+        Published published = materialize(flowId);
+        return ConfigApiException.body("id", published.interfaceId(), "version", published.version().version());
+    }
+
+    private record Published(String interfaceId, VersionInfo version) {
+    }
+
+    private Published materialize(String flowId) {
         InterfaceRow interfaceRow = requireInterface(flowId);
         VersionInfo approved = flows.findLatestVersionByStatus(flowId, "APPROVED")
                 .orElseThrow(() -> ConfigApiException.conflict("the flow has no approved version to publish"));
@@ -251,10 +278,18 @@ public class FlowAdminService {
         // a route it refuses rolls this publish back.
         events.publishEvent(new InterfacePublished(tenants.requireTenantId(), UUID.fromString(interfaceRow.id()),
                 approved.version()));
-        return ConfigApiException.body("id", interfaceRow.id(), "version", approved.version());
+        return new Published(interfaceRow.id(), approved);
     }
 
     // ------------------------------------------------------------------ shared steps
+
+    /** E12-F2-S1: one audit event per completed lifecycle step, inside its transaction (the writer is AFTER_COMMIT). */
+    private void audit(String action, UUID actorId, String interfaceId, String versionId, String before,
+            String after) {
+        events.publishEvent(ConfigAuditActions.event(action, tenants.requireTenantId(), actorId,
+                List.of(ConfigAuditActions.target("interface", interfaceId),
+                        ConfigAuditActions.target("interface_version", versionId)), before, after));
+    }
 
     private InterfaceRow requireInterface(String flowId) {
         return flows.findInterface(flowId).orElseThrow(ConfigApiException::notFound);

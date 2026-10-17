@@ -11,6 +11,7 @@ import io.integrationplatform.config.internal.persistence.JdbcContractRepository
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemRow;
 import io.integrationplatform.config.system.application.SystemAdminService;
+import io.integrationplatform.domain.audit.ConfigAuditActions;
 import io.integrationplatform.tenancy.TenantContext;
 import java.util.Comparator;
 import java.util.List;
@@ -114,8 +115,10 @@ public class ContractAdminService {
         String versionId = contracts.insertImportedVersion(contractId, label, imported.jsonSchema().toString(),
                 imported.openapiDocument() == null ? null : imported.openapiDocument().toString(), derivedFrom,
                 actorId.toString());
-        return contracts.findVersionDetail(versionId)
+        VersionDetail stored = contracts.findVersionDetail(versionId)
                 .orElseThrow(() -> new IllegalStateException("the imported contract version vanished after insert"));
+        audit(ConfigAuditActions.CONTRACT_VERSION_IMPORTED, actorId, stored, null);
+        return stored;
     }
 
     /** GET /api/v1/admin/contracts - every contract of the tenant with its versions side by side (RETIRED kept). */
@@ -153,8 +156,13 @@ public class ContractAdminService {
         String id = requireUuid(versionId).orElseThrow(ConfigApiException::notFound);
         String result = contracts.approveVersion(id, approverId.toString());
         return switch (result) {
-            case "APPROVED" -> contracts.findVersionDetail(id)
-                    .orElseThrow(() -> new IllegalStateException("the approved contract version vanished"));
+            case "APPROVED" -> {
+                VersionDetail approved = contracts.findVersionDetail(id)
+                        .orElseThrow(() -> new IllegalStateException("the approved contract version vanished"));
+                audit(ConfigAuditActions.CONTRACT_VERSION_APPROVED, approverId, approved,
+                        ConfigAuditActions.state("status", "PENDING_APPROVAL"));
+                yield approved;
+            }
             case "VERSION_NOT_FOUND" -> throw ConfigApiException.notFound();
             case "REFUSED_AUTHOR_IS_APPROVER" -> throw ConfigApiException.refusal(403, "AUTHOR_IS_APPROVER");
             default -> throw ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL");
@@ -169,6 +177,13 @@ public class ContractAdminService {
                 .flatMap(contract -> contracts.listVersionDetails(contract.id()).stream()
                         .filter(version -> version.status().equals("APPROVED"))
                         .max(Comparator.comparing(VersionDetail::versionLabel, ContractAdminService::compareLabels)));
+    }
+
+    /** E12-F2-S1 (T-134): one audit event per completed import or approval - status and label, never the schema. */
+    private void audit(String action, UUID actorId, VersionDetail version, String before) {
+        events.publishEvent(ConfigAuditActions.event(action, tenants.requireTenantId(), actorId,
+                List.of(ConfigAuditActions.target("contract_version", version.id())), before,
+                ConfigAuditActions.state("status", version.status(), "versionLabel", version.versionLabel())));
     }
 
     /** The source request contract keeps the E3 code (the system code); every other role is {@code code:ROLE}. */

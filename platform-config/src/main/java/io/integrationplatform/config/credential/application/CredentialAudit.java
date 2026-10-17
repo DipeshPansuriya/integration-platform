@@ -1,5 +1,7 @@
 package io.integrationplatform.config.credential.application;
 
+import io.integrationplatform.domain.audit.ConfigAuditActions;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -43,6 +45,10 @@ public class CredentialAudit {
                 .addKeyValue("clientId", clientId)
                 .log("event=credential.source_issued tenant={} system={} credential={} clientId={}", tenant, system,
                         credential, clientId);
+        publish(ConfigAuditActions.CREDENTIAL_SOURCE_ISSUED, tenant, actor,
+                List.of(ConfigAuditActions.target("system", system),
+                        ConfigAuditActions.target("credential", credential)),
+                ConfigAuditActions.state("status", "ACTIVE"));
     }
 
     public void sourceRotated(UUID tenant, UUID actor, UUID replaced, UUID replacement) {
@@ -51,6 +57,10 @@ public class CredentialAudit {
                 .addKeyValue("replacement", replacement)
                 .log("event=credential.source_rotated tenant={} credential={} replacement={}", tenant, replaced,
                         replacement);
+        publish(ConfigAuditActions.CREDENTIAL_SOURCE_ROTATED, tenant, actor,
+                List.of(ConfigAuditActions.target("credential", replaced),
+                        ConfigAuditActions.target("credential", replacement)),
+                ConfigAuditActions.state("replacement", replacement));
     }
 
     public void sourceRevoked(UUID tenant, UUID actor, UUID credential, String outcome) {
@@ -58,6 +68,9 @@ public class CredentialAudit {
                 .addKeyValue("actor", actor).addKeyValue("credential", credential).addKeyValue("outcome", outcome)
                 .log("event=credential.source_revoked tenant={} credential={} outcome={}", tenant, credential,
                         outcome);
+        publish(ConfigAuditActions.CREDENTIAL_SOURCE_REVOKED, tenant, actor,
+                List.of(ConfigAuditActions.target("credential", credential)),
+                ConfigAuditActions.state("status", "REVOKED", "outcome", outcome));
     }
 
     public void sourceRefused(UUID tenant, UUID actor, UUID system, String reason) {
@@ -72,5 +85,20 @@ public class CredentialAudit {
                 .addKeyValue("credentials", credentials).addKeyValue("fields", fields)
                 .log("event=credential.target_saved tenant={} endpoint={} credentials={} fields={}", tenant, endpoint,
                         credentials, fields);
+        List<String> targets = new ArrayList<>(List.of(ConfigAuditActions.target("endpoint", endpoint)));
+        credentials.forEach(id -> targets.add(ConfigAuditActions.target("credential", id)));
+        publish(ConfigAuditActions.CREDENTIAL_TARGET_SAVED, tenant, actor, targets,
+                ConfigAuditActions.state("fields", fields));
+    }
+
+    /**
+     * E12-F2-S1 (T-134): the completed action's audit event, published inside a write transaction - joined when the
+     * caller has one open (the target save), its own otherwise (the source actions, after the identity-provider call
+     * succeeded) - so the AFTER_COMMIT audit writer receives it with the request's tenant bound. Ids, statuses and
+     * field names only (R14).
+     */
+    private void publish(String action, UUID tenant, UUID actor, List<String> targets, String after) {
+        writeTransaction.executeWithoutResult(status -> events.publishEvent(
+                ConfigAuditActions.event(action, tenant, actor, targets, null, after)));
     }
 }

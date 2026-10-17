@@ -1,8 +1,11 @@
 package io.integrationplatform.domain.audit;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * E12-F2-S1 (T-068 + T-134, row 327 T117): the audit actions a completed configuration change, contract approval
@@ -36,12 +39,16 @@ public final class ConfigAuditActions {
     /** One event, stamped now: tenant, actor, action and every target reference are required. */
     public static AuditEvent event(String action, UUID tenantId, UUID actorId, List<String> targetIds,
             String before, String after) {
-        throw new UnsupportedOperationException("RED");
+        Objects.requireNonNull(action, "action");
+        Objects.requireNonNull(tenantId, "tenantId");
+        Objects.requireNonNull(actorId, "actorId");
+        return new AuditEvent(tenantId, actorId.toString(), action, List.copyOf(targetIds), before, after,
+                Instant.now());
     }
 
     /** A target reference {@code kind:id}. */
     public static String target(String kind, Object id) {
-        throw new UnsupportedOperationException("RED");
+        return kind + ":" + Objects.requireNonNull(id, kind);
     }
 
     /**
@@ -49,6 +56,36 @@ public final class ConfigAuditActions {
      * boolean, a list of strings or {@code null}; strings are JSON-escaped.
      */
     public static String state(Object... namesAndValues) {
-        throw new UnsupportedOperationException("RED");
+        StringBuilder json = new StringBuilder("{");
+        for (int i = 0; i < namesAndValues.length; i += 2) {
+            json.append(i == 0 ? "" : ",").append(quoted(String.valueOf(namesAndValues[i]))).append(':')
+                    .append(value(namesAndValues[i + 1]));
+        }
+        return json.append('}').toString();
+    }
+
+    private static String value(Object value) {
+        if (value == null || value instanceof Number || value instanceof Boolean) {
+            return String.valueOf(value);
+        }
+        if (value instanceof Collection<?> items) {
+            return items.stream().map(item -> quoted(String.valueOf(item))).collect(Collectors.joining(",", "[", "]"));
+        }
+        return quoted(value.toString());
+    }
+
+    private static String quoted(String text) {
+        StringBuilder out = new StringBuilder("\"");
+        for (char c : text.toCharArray()) {
+            switch (c) {
+                case '"' -> out.append("\\\"");
+                case '\\' -> out.append("\\\\");
+                case '\n' -> out.append("\\n");
+                case '\r' -> out.append("\\r");
+                case '\t' -> out.append("\\t");
+                default -> out.append(c < 0x20 ? String.format("\\u%04x", (int) c) : String.valueOf(c));
+            }
+        }
+        return out.append('"').toString();
     }
 }
