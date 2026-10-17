@@ -33,7 +33,8 @@ import org.springframework.transaction.support.TransactionOperations;
  *       CLAIMED/SENDING row; a failure here claims nothing and the stage base retries the record);</li>
  *   <li>the claim transaction (HELD or a duplicate returns the permit at once, acknowledged);</li>
  *   <li>{@code CLAIMED}: hand the send to the target's pool thread - the target call, the layer-1
- *       redelivery and the outcome path all live there; the permit returns when the send finishes.</li>
+ *       redelivery and the outcome path all live there, under the record's tenant bound on that thread and
+ *       unbound when the send ends (B19 F3); the permit returns when the send finishes.</li>
  * </ol>
  *
  * <p>No target call is reachable from this thread except by that hand-off (E9-F1-S4 "the partition thread
@@ -79,10 +80,10 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
             throw new IllegalArgumentException("the delivery.due dispatch handles DELIVERY work records only,"
                     + " got: " + record.type());
         }
-        binding.runAs(tenantId, () -> dispatch(record.id()));
+        binding.runAs(tenantId, () -> dispatch(tenantId, record.id()));
     }
 
-    private void dispatch(UUID deliveryId) {
+    private void dispatch(UUID tenantId, UUID deliveryId) {
         Optional<BulkheadFacts> read = facts.forDelivery(deliveryId);
         if (read.isEmpty()) {
             return; // no visible row: acknowledged with no effect
@@ -106,7 +107,9 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
                     delivery.targetEndpointId(), idempotent);
             Runnable task = () -> {
                 try {
-                    sends.dispatch(send);
+                    // B19 F3: the binding is thread-confined, so the pool thread binds the record's tenant itself;
+                    // runAs unbinds in its own finally, before the permit returns - nothing leaks to the next task
+                    binding.runAs(tenantId, () -> sends.dispatch(send));
                 } finally {
                     bulkhead.release();
                 }
