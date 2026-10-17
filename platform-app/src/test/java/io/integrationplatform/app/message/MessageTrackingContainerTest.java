@@ -199,6 +199,10 @@ class MessageTrackingContainerTest {
                     T0.plusSeconds(2));
             // and a tenant-B attempt naming tenant A's delivery, finishing LATER than A's own attempt
             attempt(owner, TENANT_B, DELIVERED_DELIVERY, "PERMANENT", T0.plusSeconds(5), "forged by tenant B");
+            // K2: a tenant-B attempt and DEAD_LETTER event naming tenant A's dead-lettered TARGET_DEAD, both LATER than
+            // A's own last attempt and event - only the dead-letter read's tenant pins keep them out of A's lastError
+            attempt(owner, TENANT_B, TARGET_DEAD, "PERMANENT", T0.plusSeconds(6), "forged attempt by tenant B");
+            event(owner, TENANT_B, TARGET_DEAD, "DEAD_LETTER", "forged dead letter by tenant B", T0.plusSeconds(6));
 
             // row 328 V4: one delivery, four attempts over yesterday's and today's attempt partitions. The last is
             // SUCCESS at T0+2s: it ties on finish with a TRANSIENT inserted before it (the higher id wins) and beats a
@@ -398,6 +402,13 @@ class MessageTrackingContainerTest {
                 .doesNotContain(B_ROUTE_FAILED.toString());
         assertThat(everyFailure).extracting(MessageTrackingService.Failure::deliveryId)
                 .doesNotContain(B_FORGED_DEAD.toString());
+        // ... A's dead letter keeps A's own last error, not B's later forged attempt or event (K2) ...
+        assertThat(flowToday).filteredOn(f -> TARGET_DEAD.toString().equals(f.deliveryId()))
+                .extracting(MessageTrackingService.Failure::lastError)
+                .containsExactly("HTTP 400 field orderId rejected");
+        assertThat(everyFailure).filteredOn(f -> TARGET_DEAD.toString().equals(f.deliveryId()))
+                .extracting(MessageTrackingService.Failure::lastError)
+                .containsExactly("HTTP 400 field orderId rejected");
         // ... and B's forged delivery (naming A's message) and later forged attempt (naming A's delivery) stay out
         Optional<MessageTrackingService.Timeline> mine = inTransaction(ownerTx, TENANT_A, () -> pinOnly.timeline(DELIVERED));
         assertThat(mine).isPresent();
