@@ -59,7 +59,7 @@ test('a negative, absent or inconsistent duration fails', () => {
   assert.ok(timelineProblems(open, ID).some((p) => /DELIVER has not finished/.test(p)));
   const off = good();
   off.stages[1].durationMs = 99; // 20..60 is 40 ms
-  assert.ok(timelineProblems(off, ID).some((p) => /ROUTE duration 99 ms .* 40 ms/.test(p)));
+  assert.ok(timelineProblems(off, ID).some((p) => /ROUTE duration 99 ms.* 40 ms/.test(p)));
 });
 
 test('finishing before starting fails even when the duration field says 0', () => {
