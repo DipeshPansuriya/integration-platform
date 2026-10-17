@@ -56,7 +56,7 @@ public final class SchedulerProofSupport {
     public static void migrateAsOwner(PostgreSQLContainer postgres) {
         Path basedir = Path.of(System.getProperty("basedir", ".")).toAbsolutePath().normalize();
         String[] locations = Stream.of("platform-tenancy", "platform-config", "platform-delivery",
-                        "platform-ingest", "platform-routing")
+                        "platform-ingest", "platform-routing", "platform-app")
                 .map(module -> basedir.getParent().resolve(module + "/src/main/resources/db/migration")
                         .normalize().toString().replace('\\', '/'))
                 .map(path -> "filesystem:" + path)
