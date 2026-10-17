@@ -252,6 +252,103 @@ class DipeshExampleEndToEndContainerTest {
         assertThat(deliveryStatesOf(messageA).values()).as("tenant A's flow is unharmed").containsOnly("DELIVERED");
     }
 
+    /**
+     * T-064 end to end (row 278 T107, E12-F1-S1 "One id end to end"): one POST carrying a W3C traceparent is
+     * followed to the target call. Its trace id is the correlation id of every log line the four stages write for
+     * the message - intake, route (stage 1), transform and deliver (the layer-1 target call) - each line carrying
+     * the tenant and the message or delivery id as log fields; and the traceparent is the Kafka header of the
+     * message's {@code platform.message.accepted} record and of each of its {@code platform.delivery.due} records.
+     */
+    @Test
+    @Order(4)
+    @DisplayName("one POST's correlation id is on every log line and Kafka header at intake, route, transform and deliver")
+    void onePostsCorrelationIdFollowsItToTheTargetCall() throws Exception {
+        String traceparent = "00-7d3e5f0a1b2c4d6e8f90a1b2c3d4e5f6-0123456789abcdef-01";
+        String correlationId = "7d3e5f0a1b2c4d6e8f90a1b2c3d4e5f6";
+        List<ch.qos.logback.classic.spi.ILoggingEvent> lines = new java.util.concurrent.CopyOnWriteArrayList<>();
+        ch.qos.logback.classic.Logger root = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
+                .getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+        // each line's log fields are read as it is written, on the stage's own thread (logback reads MDC lazily)
+        ch.qos.logback.core.AppenderBase<ch.qos.logback.classic.spi.ILoggingEvent> journey =
+                new ch.qos.logback.core.AppenderBase<>() {
+                    @Override
+                    protected void append(ch.qos.logback.classic.spi.ILoggingEvent line) {
+                        line.prepareForDeferredProcessing();
+                        lines.add(line);
+                    }
+                };
+        journey.setContext(root.getLoggerContext());
+        journey.start();
+        root.addAppender(journey);
+        UUID message;
+        Map<UUID, String> deliveries;
+        try {
+            message = post(sourceA, "{\"customerId\":\"CUST-A\",\"orderId\":\"ORD-A-T107\",\"amount\":7}",
+                    traceparent);
+            awaitPipeline(message, 2);
+            deliveries = deliveryStatesOf(message);
+        } finally {
+            root.detachAppender(journey);
+        }
+        List<String> ids = new ArrayList<>(List.of(message.toString()));
+        deliveries.keySet().forEach(id -> ids.add(id.toString()));
+
+        for (String stage : List.of("io.integrationplatform.ingest.internal.intake.IntakeService",
+                "io.integrationplatform.routing.stage1.Stage1FanOut",
+                "io.integrationplatform.app.composition.TransformedApiBody",
+                "io.integrationplatform.routing.stage2.LayerOneRouteBuilder")) {
+            List<ch.qos.logback.classic.spi.ILoggingEvent> ofThisMessage = lines.stream()
+                    .filter(line -> line.getLoggerName().equals(stage))
+                    .filter(line -> ids.stream().anyMatch(line.getFormattedMessage()::contains)).toList();
+            assertThat(ofThisMessage).as("%s writes a log line for the message's journey", stage).isNotEmpty()
+                    .allSatisfy(line -> {
+                        assertThat(line.getMDCPropertyMap()).as("%s: %s", stage, line.getFormattedMessage())
+                                .containsEntry("correlationId", correlationId)
+                                .containsEntry("tenantId", tenantA.id().toString());
+                        assertThat(ids).as("%s names its message or delivery as a log field", stage).contains(
+                                line.getMDCPropertyMap().getOrDefault("messageId",
+                                        line.getMDCPropertyMap().get("deliveryId")));
+                    });
+        }
+
+        Map<String, List<String>> headers = traceparentHeadersOf(ids);
+        assertThat(headers.get(message.toString())).as("the message.accepted record's Kafka header")
+                .containsOnly(traceparent);
+        for (UUID delivery : deliveries.keySet()) {
+            assertThat(headers.get(delivery.toString())).as("delivery %s's delivery.due record's Kafka header",
+                    delivery).isNotEmpty().containsOnly(traceparent);
+        }
+    }
+
+    /** Every traceparent header the two work topics carry for the given row ids, read from the start. */
+    private static Map<String, List<String>> traceparentHeadersOf(List<String> ids) {
+        Map<String, List<String>> headers = new java.util.HashMap<>();
+        try (org.apache.kafka.clients.consumer.KafkaConsumer<byte[], byte[]> consumer =
+                new org.apache.kafka.clients.consumer.KafkaConsumer<>(Map.of(
+                        org.apache.kafka.clients.consumer.ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                        KAFKA.getBootstrapServers(),
+                        org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_ID_CONFIG, "t107-" + UUID.randomUUID(),
+                        org.apache.kafka.clients.consumer.ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest",
+                        org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+                        org.apache.kafka.common.serialization.ByteArrayDeserializer.class,
+                        org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                        org.apache.kafka.common.serialization.ByteArrayDeserializer.class))) {
+            consumer.subscribe(List.of("platform.message.accepted", "platform.delivery.due"));
+            long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+            while (System.nanoTime() < deadline && !ids.stream().allMatch(headers::containsKey)) {
+                for (org.apache.kafka.clients.consumer.ConsumerRecord<byte[], byte[]> record
+                        : consumer.poll(Duration.ofMillis(500))) {
+                    String value = new String(record.value(), java.nio.charset.StandardCharsets.UTF_8);
+                    org.apache.kafka.common.header.Header header = record.headers().lastHeader("traceparent");
+                    ids.stream().filter(value::contains).forEach(id -> headers.computeIfAbsent(id,
+                            any -> new ArrayList<>()).add(header == null ? "<none>"
+                                    : new String(header.value(), java.nio.charset.StandardCharsets.UTF_8)));
+                }
+            }
+        }
+        return headers;
+    }
+
     // --- the pipeline, link by link (each wait names the link it waits on) ------------------------------------------
 
     private static void awaitPipeline(UUID messageId, int deliveries) throws Exception {
@@ -282,9 +379,17 @@ class DipeshExampleEndToEndContainerTest {
     }
 
     private static UUID post(ClientCredentials source, String body) throws Exception {
+        return post(source, body, null);
+    }
+
+    private static UUID post(ClientCredentials source, String body, String traceparent) throws Exception {
         String token = KEYCLOAK.clientCredentialsToken(source.clientId(), source.secret());
-        HttpResponse<String> answer = HTTP.send(HttpRequest.newBuilder(
-                        backend.resolve("/api/v1/interfaces/" + DipeshExampleSeed.INTERFACE_CODE + "/messages"))
+        HttpRequest.Builder request = HttpRequest.newBuilder(
+                        backend.resolve("/api/v1/interfaces/" + DipeshExampleSeed.INTERFACE_CODE + "/messages"));
+        if (traceparent != null) {
+            request.header("traceparent", traceparent);
+        }
+        HttpResponse<String> answer = HTTP.send(request
                 .timeout(Duration.ofSeconds(10))
                 .header("Authorization", "Bearer " + token)
                 .header("Content-Type", "application/json")
