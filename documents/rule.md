@@ -1,7 +1,7 @@
 ---
 type: Rule
 title: "Engineering rules - configuration-driven integration platform"
-status: "Recreated 2026-10-02 (phase 0) from surviving sources and the measured lessons of the deleted build"
+status: "Recreated 2026-10-02 (phase 0) from surviving sources and the measured lessons of the deleted build; 2026-10-16 (ledger row 325): R17 remote status, R21 six diagrams with status words"
 date: 2026-10-02
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
@@ -20,9 +20,9 @@ related:
 > `:211-216`). Each rule names its source. A rule marked **New** comes from the ADRs of
 > 2026-10-02.
 
-Source paths starting `ws/` are in the hub repository, project workspace
-`_personal/_project_ipass/integration-platform/`. Memory lines drift; the id (`m-xxxxxx`) is the
-stable key.
+Source paths starting `ws/` are in the planning workspace kept outside this repository; memory ids
+(`m-xxxxxx`) are its stable keys, because memory line numbers drift.
+See [README.md](README.md) for how to read these references.
 
 ## Every rule is a MUST; each names how it is checked
 
@@ -48,7 +48,7 @@ measured lessons `ws/_memory/shared.md:78` (m-d87df7), `:90` (m-af0e71), `:152` 
 | R14 | **Logs are structured JSON with tenant and message ids; fields declared masked never appear in logs or on screen; secrets are write-only after creation** | Masking test | `ws/_specs/project-plan.md:110`, `:117` |
 | R15 | **Audit, delivery attempts and published versions are append-only** - never updated or deleted | A test tries both and fails | `ws/_specs/project-plan.md:104`, `:117` |
 | R16 | **Pipeline runtime target: under 15 minutes to the DEV gate** (a proposal, verified at deployment). Beyond that, people stop running it locally and start batching commits | Pipeline timing | Deleted engineering-standards.md:547, quoted at `ws/_specs/f3-plan-brief.md:348` |
-| R17 | **No push, no remote, no pull request and no merge without Dipesh's typed word.** This repository has no remote; none is added without him | Git hooks and review | `ws/_specs/project-plan.md:98`, `:188` |
+| R17 | **No push, no remote, no pull request and no merge without Dipesh's typed word.** *Status 2026-10-16:* the repository now has one remote, `origin` (`git remote -v`), and `main` is pushed to it; every push, pull request and merge still needs his typed word | Git hooks and review | `ws/_specs/project-plan.md:98`, `:188` |
 | R18 | **No AI-agent folder (`.claude/`) in this repository.** Any agent guidance file that the build adds points at `documents/` and describes the Java/React stack from its first commit | Review | `ws/_memory/conventions.md:9-10`; `ws/_specs/project-plan.md:191` |
 | R19 | **No employer, client or product names in any file**; English only | Review; a grep in the release check | Hub rules `no-project-name-references`, `english-only-replies` |
 | R20 | **UI work uses the design skill named on the project's Skills line in the hub**; the look-and-feel redesign comes after all functionality | Review | `ws/_memory/overview.md:12`; `ws/_specs/project-plan.md:129` |
@@ -63,8 +63,8 @@ measured lessons `ws/_memory/shared.md:78` (m-d87df7), `:90` (m-af0e71), `:152` 
 sure if anything changes in the code during development, all diagrams are also updated."* This
 is a MUST, numbered R21 above.
 
-**The rule.** The five diagrams in [diagrams/](diagrams/README.md) are detail level and describe the
-code as built. Any change that alters **a module, a boundary, a table or state, a message flow
+**The rule.** The six diagrams in [diagrams/](diagrams/README.md) are detail level and describe the
+code as built, with a status word (**not wired**, **planned**) on every piece `platform-app` does not start yet. Any change that alters **a module, a boundary, a table or state, a message flow
 step, a retry or failure path, a target type or a user workflow step** MUST, in the **same
 change** (the same commit or lane diff):
 
@@ -84,9 +84,9 @@ it did not change.
 
 **Who enforces it.**
 
-- **arjun-fullstack** refuses to integrate a lane diff that changes any of the seven things above
+- **The development lead** (`arjun-fullstack` in the planning team) refuses to integrate a lane diff that changes any of the seven things above
   without the matching spec and re-rendered page in the same diff; it goes back to the lane.
-- **kavita-release-manager's per-phase judge** checks every diagram against the code as a
+- **The quality and release lead's per-phase judge** (`kavita-release-manager` in the planning team) checks every diagram against the code as a
   pass/fail criterion: every box, arrow and state has a code counterpart (module, class, table,
   topic, state value, route, screen), and every module, table, topic, state, flow step and
   workflow screen in the code has its box, arrow or state. One mismatch either way is a fail.
@@ -102,6 +102,7 @@ touch more than one):
 | End to end, part 1 (`end-to-end-flow.sequence.json`) | Section 4.1 steps 1-8 and 4.2: `platform-ingest` (common API, size caps, validation, idempotency, intake transaction, outbox relay), `platform-tenancy` bootstrap resolvers, `platform-routing` stage 1; tables `message`, `payload`, `outbox`, `ordering_key`, `idempotency_key`; topics `platform.message.accepted`, `platform.poison` | An intake or routing step added, removed or reordered; a transaction boundary moved; a message state (`ACCEPTED`/`ROUTED`/`ROUTE_FAILED`) added or changed; a failure path or HTTP status changed; the synchronous variant changed |
 | End to end, part 2 (`end-to-end-delivery.sequence.json`) | Section 4.1 steps 9-14: `platform-routing` stage 2 (bulkheads, circuit breakers, destination check, route templates, target adapters), `platform-transform`, `platform-delivery` (classifier, retry policy, hold and release, delivery-retry job, reconciler, replay); tables `delivery`, `delivery_attempt`, `delivery_event`; topic `platform.delivery.due` | A delivery step, retry layer, timeout, breaker, bulkhead, claim or reconciler rule changed; an outcome class added; a new target type's send path; replay changed |
 | Configuration workflow (`workflow.workflow.json`) | Section 4.3 and the PRD user journey: `platform-config` (systems, contracts, interfaces, routes, mappings, rules, lookups, lifecycle and publish, admin API), `platform-tenancy` console login and roles, `platform-audit` activity view, `platform-ledger` dashboard, the `ui/` screens | A screen or user step added, removed or reordered; an approval or publish rule changed; a new target type a user can register; monitor or replay steps changed |
+| Console UI shell (`ui-modernized-shell.architecture.json`) | The `ui/` shell: menu groups, routes, sign-in and session calls (`ui/src/App.tsx`), each screen group, and how the console reaches `platform-app` and Keycloak | A screen, route or menu group added, removed or renamed; a change to sign-in, session or sign-out; a new call path from the console |
 | Delivery states (`delivery-state.lifecycle.json`) | The Delivery state register in `platform-domain` (ADR-010 section 6), its transitions in `platform-delivery` and the stage-2 claim in `platform-routing`; the `delivery.state` `CHECK` values | A Delivery state or transition added, removed or renamed; a guard on a transition changed (hold, release, stale claim, bulkhead deferral, re-drive, replay) |
 
 Re-render command and folder conventions: [diagrams/README.md](diagrams/README.md).
