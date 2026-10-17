@@ -1,7 +1,7 @@
 ---
 type: ADR
-title: "ADR-016 - Retention enforcement: a fifth job type for audit partition maintenance run as the maintenance role; metrics and trace retention in the adopted stores' configuration; log retention placement for Dipesh"
-status: "Decisions 1-2 Accepted (team, 2026-10-17) - Dipesh may reverse; Decision 3 Proposed - needs Dipesh (it moves a figure out of its phase, project-plan.md:155)"
+title: "ADR-016 - Retention enforcement: a fifth job type for audit partition maintenance run as the maintenance role; metrics and trace retention in the adopted stores' configuration; log retention enforced by the deployment's log collector"
+status: "Decisions 1-2 Accepted (team, 2026-10-17) - Dipesh may reverse; Decision 3 Decided: A - decided by Dipesh 2026-10-17 (logs to stdout only, 30 days enforced by the deployment's log collector, a deployment-checklist item); B (Loki, 720h) rejected for now"
 date: 2026-10-17
 author: "mahesh-architect (ledger row 327, E12-F2-S3, questions raised by lane T118)"
 project: ipass/integration-platform
@@ -81,7 +81,7 @@ must, it lists every dependent list that changes (section "Register re-publicati
 | Audit 7 years | `audit_event` (lane) | PostgreSQL | a scheduled partition drop **and** creation | team (this ADR, Decision 1) |
 | Metrics 13 months | none | Prometheus | its TSDB retention flag | team (Decision 2) - store already adopted |
 | Traces 7 days | none | Tempo | its compactor block retention | team (Decision 2) - store already adopted |
-| Logs 30 days | stdout only | **none** | a log store's retention, or the host's | Dipesh (Decision 3) - a new store or moving the figure |
+| Logs 30 days | stdout only | **none** | a log store's retention, or the host's | Dipesh (Decision 3) - decided 2026-10-17: the deployment's log collector |
 
 ## Options - question 1: how the audit purge is scheduled
 
@@ -106,8 +106,8 @@ Who runs the DDL:
 |---|---|---|---|---|
 | D1. Declare only (today) | unenforced | unenforced | 0 | Rejected for metrics/traces: the stores are already adopted, so declaring without them leaves 2 owned figures unproven |
 | **D2. Ship the adopted stores' configuration with the figures, in an opt-in compose profile, read by the configuration test** | enforced in config, tested | n/a | 2 containers, off by default | **Chosen for metrics and traces** |
-| D3. Add a log store (Grafana Loki + a collector) in the same profile, retention 30 days | - | enforced in config, tested | 2 more containers; a component the plan never adopted; AGPL, internal only (Grafana precedent) | Fallback for logs (Decision 3) |
-| D4. The deployment environment's log platform keeps logs 30 days; the platform writes no log file | - | verified at deployment | 0 build cost | **Recommended for logs** - needs Dipesh (Decision 3) |
+| D3. Add a log store (Grafana Loki + a collector) in the same profile, retention 30 days | - | enforced in config, tested | 2 more containers; a component the plan never adopted; AGPL, internal only (Grafana precedent) | **Option B** - rejected for now (Dipesh, 2026-10-17; Decision 3) |
+| D4. The deployment environment's log platform keeps logs 30 days; the platform writes no log file | - | verified at deployment | 0 build cost | **Option A - chosen for logs** (Dipesh, 2026-10-17; Decision 3) |
 
 ## Decision
 
@@ -160,15 +160,24 @@ Who runs the DDL:
 - Production applies the same two values; the deployment checklist carries them (the reference
   configuration is the source). [Inferred]
 
-### 3. Log retention - Proposed, **needs Dipesh**
+### 3. Log retention - Decided: A (decided by Dipesh, 2026-10-17)
 
-Recommended **D4**: in Release 1 the platform writes logs to stdout only and keeps no log file
-(conformance: no file appender and no `logging.file.*` in any profile); the 30-day figure moves to the
-"verified at deployment" list (`ws/_specs/project-plan.md:186`), enforced by the log platform of the
-environment the platform is deployed to. Because no log store is adopted, which log platform
-production uses is a fact only Dipesh holds, and moving a figure out of its phase is his
-(`ws/_specs/project-plan.md:155`). Fallback **D3** (Loki + a collector in the `observability` profile,
-`retention_period: 720h`, read by the same configuration test) if production has no log platform.
+**Decided: A** - decided by Dipesh on 2026-10-17 (his reply "A", ledger row 327). Option A is D4 in the
+options table above; option B is D3.
+
+- In Release 1 the platform writes application logs to **stdout only**; no log store is added to the
+  platform and no log file is written. Conformance: no file appender and no `logging.file.*` in any
+  profile (test 9).
+- The **30-day figure is enforced by the log collector of the deployment** the platform runs in and is
+  **verified at deployment time**: it becomes a deployment-checklist item and joins the "verified at
+  deployment" list (`ws/_specs/project-plan.md:186`). Moving the figure out of its phase is Dipesh's
+  call (`ws/_specs/project-plan.md:155`); this decision makes it.
+- `RetentionPolicy.AGREED` keeps 30 days for logs as the declared figure that the deployment check
+  compares against; nothing in the platform enforces it. [Inferred]
+
+**Rejected alternative - B (D3), rejected for now:** Grafana Loki + a collector in the `observability`
+profile with `retention_period: 720h`, read by the same configuration test. Reason: no extra store to
+run before go-live, and no log store in the app stack.
 
 ## Register re-publication (every dependent list, in the change that lands Decision 1)
 
@@ -200,6 +209,8 @@ production uses is a fact only Dipesh holds, and moving a figure out of its phas
 7. Maintenance data source not configured: the run is `FAILED` (not skipped) with the named error class.
 8. Configuration test: Prometheus retention = 397d, Tempo block retention = 168h, audit = 7 years,
    each equal to `RetentionPolicy.AGREED`.
+9. Log output (Decision 3): 0 file appenders in the logging configuration and 0 `logging.file.*`
+   properties in any profile; logs go to stdout only.
 
 ## Process - one maintenance run, with failure paths
 
@@ -226,13 +237,15 @@ External calls: none; PostgreSQL only (ADR-012 section 8 unchanged).
 **What we give up:** the audit purge cannot run until the maintenance-role seam exists (a sequencing
 dependency the lane's `ipaas_app` grant avoided); a fifth register member and its re-publication;
 production retention for metrics and traces still depends on the deployed stores using the
-reference values; and in Release 1 under D4 the platform itself proves nothing about log retention.
+reference values; and in Release 1 under Decision 3 (A) the platform itself proves nothing about log
+retention - the 30 days rest on the deployment's log collector and its checklist item.
 
 ## Revisit if
 
 - A legal hold or regulator asks to keep specific audit partitions past 7 years (the purge then needs
   a hold list, and the cutoff stops being fixed).
 - The platform audit stream (ADR-012 Decision 5) lands with a partition grain other than month.
-- Dipesh names a production log platform, or chooses D3.
+- The deployment has no log collector that can keep 30 days, or a log store joins the app stack -
+  then option B (D3, Loki at 720h) is reopened with Dipesh.
 - A Prometheus at 397 days exceeds its disk budget once real series exist [TBD - measure at the
   Release 1 load test]; then remote storage or downsampling is designed.
