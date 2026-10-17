@@ -23,6 +23,9 @@ final class ModuleScopeGuard {
     /** Modules that hold no production classes (platform-e2e: E15 black-box harness, F17/T142). */
     static final Set<String> TEST_ONLY_MODULES = Set.of("arch-test", "platform-e2e");
 
+    /** RED stub (row 327 T157). */
+    static final Set<String> SEED_MARKERS = Set.of();
+
     private ModuleScopeGuard() {
     }
 
@@ -59,6 +62,16 @@ final class ModuleScopeGuard {
         return TEST_ONLY_MODULES.stream().sorted()
                 .filter(module -> Files.exists(root.resolve(module).resolve("src/main")))
                 .toList();
+    }
+
+    /** RED stub (row 327 T157). */
+    static List<String> modulesDependingOn(Path root, List<String> modules, String artifactId) {
+        return List.of();
+    }
+
+    /** RED stub (row 327 T157). */
+    static List<String> productionFilesNaming(Path root, List<String> modules, Set<String> markers) {
+        return List.of();
     }
 
     private static String text(Element parent, String tag) {
