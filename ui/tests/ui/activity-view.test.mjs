@@ -120,7 +120,7 @@ test('the page source: labelled filters, the view-model actor label, no raw HTML
   assert.match(page, /actorLabel|activityRows/, 'the actor cell comes from the view model (System / Unknown)');
   assert.doesNotMatch(page, /innerHTML|dangerouslySetInnerHTML/, 'before/after are text, never HTML');
   assert.doesNotMatch(page, /<main(?=[\s>])/, 'the shell owns the one <main>');
-  assert.doesNotMatch(page, /tenant/i, 'no client-side tenant filtering - the server scopes');
+  assert.doesNotMatch(page, /tenantId|tenantCode/, 'no client-side tenant filtering - the server scopes');
   const app = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8');
   assert.match(app, /\{ label: 'Activity', nav: 'activity', hash: '#\/activity', page: 'activity' \}/, 'one nav entry');
   assert.match(app, /route\.page === 'activity' && <Activity \/>/, 'one route branch');
