@@ -4,6 +4,7 @@ import io.integrationplatform.tenancy.TenantBoundaryCrossing;
 import io.integrationplatform.tenancy.port.SchedulerRegistry;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import javax.sql.DataSource;
@@ -54,6 +55,18 @@ public final class JdbcSchedulerRegistry implements SchedulerRegistry {
             insert into scheduler.job_alert (job_type, scheduled_for, kind, error_class, message)
             values (?, ?, ?, ?, ?)
             on conflict (job_type, scheduled_for, kind) do nothing""";
+
+    /** The run search (T-059): the base select, then only the constant fragments below - never caller text (R11). */
+    private static final String SELECT_RUNS =
+            "select id, job_type, scheduled_for, started, finished, instance, outcome, is_late,"
+                    + " error_class, counts::text as counts from scheduler.job_run where true";
+
+    private static final String AND_JOB_TYPE = " and job_type = ?";
+    private static final String AND_OUTCOME = " and outcome = ?";
+    /** A MISSED run never started; its due time stands in, so a date search still lists it. */
+    private static final String AND_FROM = " and coalesce(started, scheduled_for) >= ?";
+    private static final String AND_TO = " and coalesce(started, scheduled_for) < ?";
+    private static final String ORDER_RUNS = " order by coalesce(started, scheduled_for) desc nulls last, id limit ?";
 
     private final JdbcTemplate jdbc;
 
@@ -106,5 +119,30 @@ public final class JdbcSchedulerRegistry implements SchedulerRegistry {
         int inserted = jdbc.update(INSERT_ALERT,
                 jobType, Timestamp.from(scheduledFor), kind, errorClass, message);
         return inserted == 1;
+    }
+
+    @Override
+    public <T> List<T> searchRuns(RunQuery query, RowMapper<T> mapper) {
+        StringBuilder sql = new StringBuilder(SELECT_RUNS);
+        List<Object> args = new ArrayList<>();
+        if (query.jobType() != null) {
+            sql.append(AND_JOB_TYPE);
+            args.add(query.jobType());
+        }
+        if (query.outcome() != null) {
+            sql.append(AND_OUTCOME);
+            args.add(query.outcome());
+        }
+        if (query.from() != null) {
+            sql.append(AND_FROM);
+            args.add(Timestamp.from(query.from()));
+        }
+        if (query.to() != null) {
+            sql.append(AND_TO);
+            args.add(Timestamp.from(query.to()));
+        }
+        sql.append(ORDER_RUNS);
+        args.add(query.limit());
+        return jdbc.query(sql.toString(), mapper, args.toArray());
     }
 }
