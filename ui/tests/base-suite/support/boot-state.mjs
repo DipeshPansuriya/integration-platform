@@ -9,6 +9,7 @@ import { BS_STORAGE_STATE } from '../lib/suite-config.mjs';
 /** The environment names global-setup hands the workers. */
 export const BS_ENV = Object.freeze({
   consoleUrl: 'BS_CONSOLE_URL',
+  issuer: 'BS_ISSUER', // the realm issuer: a source system's client-credentials token comes from it
   tenantA: 'BS_TENANT_A_CODE',
   tenantB: 'BS_TENANT_B_CODE',
   pgContainer: 'BS_PG_CONTAINER',

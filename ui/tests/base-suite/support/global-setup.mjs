@@ -62,6 +62,7 @@ export default async function globalSetup() {
     // Workers inherit these names (R07: names; values in this run's memory). The IPASS_BS_EXCEPTION_*
     // names are already in the environment - the specs read the exception through settings.mjs.
     process.env[BS_ENV.consoleUrl] = consoleServer.url;
+    process.env[BS_ENV.issuer] = backend.issuer;
     process.env[BS_ENV.tenantA] = backend.tenantCode;
     process.env[BS_ENV.tenantB] = tenantB.code;
     process.env[BS_ENV.pgContainer] = backend.pgName;
