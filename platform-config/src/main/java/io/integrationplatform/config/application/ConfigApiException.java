@@ -24,6 +24,13 @@ public class ConfigApiException extends RuntimeException {
         this.body = Objects.requireNonNull(body, "body");
     }
 
+    /** A refusal whose message keeps the full detail for logs; the body stays the only thing the caller sees. */
+    protected ConfigApiException(int httpStatus, Map<String, Object> body, String message) {
+        super(message);
+        this.httpStatus = httpStatus;
+        this.body = Objects.requireNonNull(body, "body");
+    }
+
     public int httpStatus() {
         return httpStatus;
     }

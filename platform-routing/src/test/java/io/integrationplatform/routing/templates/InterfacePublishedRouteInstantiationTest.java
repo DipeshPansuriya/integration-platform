@@ -23,10 +23,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 /**
- * T-116 (row 278 T68, sanjay-developer; E9-F1-S1, ADR-010 section 3): publishing an interface on the running
- * system creates its route instances from the configuration rows - the config publish path's
- * {@link InterfacePublished} announcement reaches the routing module's listener, the factory instantiates each
- * active row through its target type's template, and a message sent to the instance's consumer runs that route.
+ * T-116 (row 278 T68, sanjay-developer; E9-F1-S1, ADR-010 section 3): a published interface on the running
+ * system runs its routes from the configuration rows - the config publish path's {@link InterfacePublished}
+ * announcement reaches the routing module's listener, which validates the rows and builds nothing (ADR-010 s3
+ * amendment, row 278 T106); stage 2 instantiates each active row lazily through its target type's template, and a
+ * message sent to the instance's consumer runs that route.
  * 0 deploys, 0 restarts: the one Camel context started before the publish is never stopped or started again.
  */
 @Tag("e9-t116")
@@ -43,6 +44,7 @@ class InterfacePublishedRouteInstantiationTest {
     private DefaultCamelContext camel;
     private FakeRouteConfigReader rows;
     private AnnotationConfigApplicationContext spring;
+    private RouteInstanceFactory factory;
 
     @BeforeEach
     void aRunningSystem() throws Exception {
@@ -70,7 +72,7 @@ class InterfacePublishedRouteInstantiationTest {
                 return exchange -> sent.add(row.targetEndpointId() + "<-" + exchange.getMessage().getBody(String.class));
             }
         };
-        RouteInstanceFactory factory = new RouteInstanceFactory(rows, camel, List.of(api), Set.of("https"),
+        factory = new RouteInstanceFactory(rows, camel, List.of(api), Set.of("https"),
                 Duration.ofMinutes(30), () -> Instant.parse("2026-10-15T12:00:00Z"));
 
         spring = new AnnotationConfigApplicationContext();
@@ -93,6 +95,8 @@ class InterfacePublishedRouteInstantiationTest {
 
         spring.publishEvent(new InterfacePublished(TENANT, INTERFACE_ID, 3));
 
+        assertThat(camel.getRoutes()).as("AC-1: the publish validates the rows and builds nothing").isEmpty();
+        rows.rows.values().forEach(factory::ensure); // stage 2 builds each row's instance lazily on first use
         assertThat(camel.getRoutes()).as("one live route instance per active configuration row").hasSize(2);
         try (ProducerTemplate producer = camel.createProducerTemplate()) {
             producer.sendBody("direct:e9-target-" + ENDPOINT_A, "m-1");
