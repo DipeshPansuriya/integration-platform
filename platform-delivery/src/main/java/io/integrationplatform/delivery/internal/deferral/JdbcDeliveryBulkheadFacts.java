@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -18,8 +20,14 @@ import org.springframework.transaction.support.TransactionOperations;
  * {@code null} for ordering {@code NONE}) and the current {@code bulkhead_deferrals}. A plain read - no row lock;
  * the claim and the conditional deferral stay the only writers. A row the tenant cannot see, or one already final,
  * answers empty. Opens its own transaction (or joins the caller's) and stamps the tenant (R11).
+ *
+ * <p>A delivery with no pinned target ({@code target_id} is nullable, V2_3_1) has no bulkhead to take a permit
+ * from: it answers empty with a logged reason, so the dispatch acknowledges it with no claim (B19 F4) - never an
+ * exception, which the stage base would retry forever and stall the partition with.
  */
 public final class JdbcDeliveryBulkheadFacts extends TenantScopedRepository implements DeliveryBulkheadFacts {
+
+    private static final Logger log = LoggerFactory.getLogger(JdbcDeliveryBulkheadFacts.class);
 
     private final TenantContext tenantContext;
     private final JdbcDeliveryRepository repository;
@@ -44,15 +52,19 @@ public final class JdbcDeliveryBulkheadFacts extends TenantScopedRepository impl
                     "d.id = :id::uuid and d.state not in ('DELIVERED', 'DEAD_LETTERED')",
                     Map.of("id", deliveryId.toString()),
                     (rs, n) -> {
+                        String targetId = rs.getString(1);
+                        if (targetId == null) {
+                            log.warn("delivery {} has no pinned target (target_id is null): no bulkhead, no claim -"
+                                    + " acknowledged with no effect", deliveryId);
+                            return Optional.<BulkheadFacts>empty();
+                        }
                         String interfaceId = rs.getString(2);
                         String businessKey = rs.getString(3);
                         String orderingKey = interfaceId != null && businessKey != null
                                 ? OrderingKey.recordKeyFor(tenantId, UUID.fromString(interfaceId), businessKey)
                                 : null;
-                        String targetId = rs.getString(1);
-                        return new BulkheadFacts(targetId == null ? null : UUID.fromString(targetId),
-                                orderingKey, rs.getInt(4));
-                    }).stream().findFirst();
+                        return Optional.of(new BulkheadFacts(UUID.fromString(targetId), orderingKey, rs.getInt(4)));
+                    }).stream().findFirst().flatMap(facts -> facts);
         });
     }
 }
