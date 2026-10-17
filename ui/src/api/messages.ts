@@ -16,6 +16,14 @@ export type StageTime = {
   sincePreviousMs: number | null;
 };
 
+/** One delivery of the message: the last attempt's sent-to-answered time and outcome (null: no attempt yet). */
+export type DeliveryTime = {
+  deliveryId: string;
+  targetId: string | null;
+  durationMs: number | null;
+  outcome: string | null;
+};
+
 export type Timeline = {
   trackingId: string;
   flowId: string;
@@ -23,6 +31,10 @@ export type Timeline = {
   acceptedAt: string | null;
   stages: StageTime[];
   totalMs: number | null;
+  /** Server-side (row 328 M1): ROUTE for ROUTE_FAILED, DELIVER for a DEAD_LETTERED delivery, else null. */
+  failingStage: string | null;
+  /** Row 329 M3: one entry per delivery of the message. */
+  deliveries: DeliveryTime[];
 };
 
 export type Failure = {

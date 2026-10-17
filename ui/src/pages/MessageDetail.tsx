@@ -3,8 +3,9 @@
 // the gap since the previous stage, and the total - read LIVE through the ONE typed client
 // (src/api/messages.ts, GET .../timeline, T110), no mock (E3-F3-S1). The failing stage is marked; a
 // stage after it reads "Not reached", never a zero duration (message-timeline.ts holds the rules).
-// Reached from the Failures screen (no menu entry); its link passes ?failed=<STAGE> because the
-// timeline carries the message state but no delivery state.
+// Reached from the Failures screen (no menu entry). The failing stage is the server's `failingStage`
+// only (row 328 M1); the link's ?failed=<STAGE> stays in the URL but never sets a status. The summary
+// adds one "Target response" per delivery - the last attempt's sent-to-answered time (row 329 M3).
 //
 // Masked fields: this screen shows NO payload field - the timeline answer has none. Only ids, stage
 // names, states and timestamps are rendered, all as React text children (escaped).
@@ -19,8 +20,9 @@ import {
   detailStateOf,
   failingStageOf,
   isTrackingId,
-  stageLabel,
+  stageName,
   statusWord,
+  targetResponses,
   timelineRows,
   totalText,
   utcText,
@@ -37,7 +39,8 @@ const TONES: Record<StageStatus, string> = {
   'not-recorded': 'badge badge-neutral'
 };
 
-export function MessageDetail({ trackingId, failedHint }: { trackingId: string; failedHint: string | null }) {
+// failedHint: still passed by the route (URLs unchanged), deliberately unread - the server decides (M1).
+export function MessageDetail({ trackingId }: { trackingId: string; failedHint: string | null }) {
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [load, setLoad] = useState<Load>('loading');
   const [refusal, setRefusal] = useState('');
@@ -71,8 +74,9 @@ export function MessageDetail({ trackingId, failedHint }: { trackingId: string; 
     };
   }, [trackingId]);
 
-  const failing = timeline ? failingStageOf(timeline.state, failedHint) : null;
-  const rows = timeline ? timelineRows(timeline, failing) : [];
+  const failing = timeline ? failingStageOf(timeline) : null;
+  const rows = timeline ? timelineRows(timeline) : [];
+  const responses = timeline ? targetResponses(timeline) : [];
 
   const statusText =
     load === 'loading'
@@ -113,10 +117,16 @@ export function MessageDetail({ trackingId, failedHint }: { trackingId: string; 
             <dd>{timeline.acceptedAt ? <time dateTime={timeline.acceptedAt}>{utcText(timeline.acceptedAt)}</time> : 'Not recorded'}</dd>
             <dt>Total</dt>
             <dd data-total-ms={timeline.totalMs === null ? '' : String(timeline.totalMs)}>{totalText(timeline.totalMs)}</dd>
+            {responses.map((r) => (
+              <div key={r.key} data-target-response={r.key}>
+                <dt>{r.label}</dt>
+                <dd data-response-ms={r.durationMs === null ? '' : String(r.durationMs)}>{r.text}</dd>
+              </div>
+            ))}
           </dl>
           {failing && (
             <p data-failing-stage={failing}>
-              Failed at the {stageLabel(failing)} stage.
+              Failed at the {stageName(failing)} stage.
             </p>
           )}
           <h2>Pipeline stages</h2>

@@ -55,7 +55,7 @@ class MessageTrackingControllerTest {
     void aVisibleTimelineIsAnsweredWith200AndTheTimelineBody() {
         UUID trackingId = UUID.randomUUID();
         MessageTrackingService.Timeline timeline = new MessageTrackingService.Timeline(trackingId.toString(),
-                UUID.randomUUID().toString(), "ROUTED", "2026-10-16T10:00:00Z", List.of(), null);
+                UUID.randomUUID().toString(), "ROUTED", "2026-10-16T10:00:00Z", List.of(), null, null, List.of());
         when(service.timeline(trackingId)).thenReturn(Optional.of(timeline));
 
         ResponseEntity<?> answer = controller.timeline(trackingId,

@@ -7,7 +7,7 @@
 // No DOM, no fetch - unit-tested under node.
 
 import type { Failure } from '../api/messages';
-import { messageHash, stageLabel, utcText } from './message-timeline';
+import { messageHash, stageName, utcText } from './message-timeline';
 
 export type FailureRow = {
   key: string;
@@ -44,7 +44,7 @@ export function failureRows(failures: readonly Failure[], labels: Record<string,
     flowLabel: labels[f.flowId] ?? f.flowId,
     detailHash: messageHash(f.trackingId, f.failingStage),
     failingStage: f.failingStage,
-    stageLabel: stageLabel(f.failingStage),
+    stageLabel: stageName(f.failingStage),
     errorClass: f.errorClass,
     lastErrorText: f.lastError ?? 'No error text recorded',
     hasLastError: f.lastError != null,
