@@ -58,7 +58,11 @@ public class MessageTrackingService {
             Long totalMs, String failingStage, List<DeliveryTime> deliveries) {
     }
 
-    /** One delivery of a message: its target and the last attempt's sent-to-answered time and outcome (null: none). */
+    /**
+     * One delivery of a message: its target and the last attempt's sent-to-answered time and outcome (null: none).
+     * Row 328 V2: deliberately the 4-field subset of the row 329 contract ({@code state, attemptCount, lastAttempt{..}});
+     * Mira decision 17-Oct - kept for the showcase, the seam's contract regeneration uses it, mahesh-architect widens it.
+     */
     public record DeliveryTime(String deliveryId, String targetId, Long durationMs, String outcome) {
     }
 
@@ -132,7 +136,7 @@ public class MessageTrackingService {
         return deliveries.stream().anyMatch(row -> "DEAD_LETTERED".equals(row.state())) ? "DELIVER" : null;
     }
 
-    /** One entry per delivery, ordered by target then delivery id, each with its last attempt (finish, then id). */
+    /** One entry per delivery, ordered by target then delivery id; the store already picked each last attempt. */
     private static List<DeliveryTime> deliveryTimes(List<JdbcMessageTrackingStore.DeliveryAttemptRow> rows) {
         Map<String, JdbcMessageTrackingStore.DeliveryAttemptRow> last = new LinkedHashMap<>();
         for (JdbcMessageTrackingStore.DeliveryAttemptRow row : rows) {
