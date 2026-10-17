@@ -315,8 +315,8 @@ class DeliveryDueDispatchTest {
 
         @Override
         public void dispatch(Stage2Send send) {
-            calls.add(send);
             onCall.accept(Thread.currentThread().getName());
+            calls.add(send); // published last: awaitOneSend returning means onCall already ran (T154)
         }
     }
 
