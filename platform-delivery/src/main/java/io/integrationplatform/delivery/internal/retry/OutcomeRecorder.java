@@ -70,10 +70,10 @@ public final class OutcomeRecorder {
             case SUCCESS -> {
                 // the classifier's move (SENDING -> DELIVERED); the recorder does nothing
             }
-            case PERMANENT -> store.deadLetter(deliveryId, claimToken, OutcomeClass.PERMANENT);
+            case PERMANENT -> deadLetter(deliveryId, claimToken, OutcomeClass.PERMANENT, now);
             case AMBIGUOUS -> {
                 if (!targetDeclaresIdempotentReceive) {
-                    store.deadLetter(deliveryId, claimToken, OutcomeClass.AMBIGUOUS);
+                    deadLetter(deliveryId, claimToken, OutcomeClass.AMBIGUOUS, now);
                 } else {
                     retryOrDie(deliveryId, claimToken, attemptsSoFar, outcome, now, retryAfter);
                 }
@@ -85,10 +85,20 @@ public final class OutcomeRecorder {
     private void retryOrDie(UUID deliveryId, UUID claimToken, int attemptsSoFar, OutcomeClass outcome,
             Instant now, Duration retryAfter) {
         if (attemptsSoFar >= policy.maxAttempts()) {
-            store.deadLetter(deliveryId, claimToken, outcome);
+            deadLetter(deliveryId, claimToken, outcome, now);
             return;
         }
         Instant next = policy.nextRetryAt(now, attemptsSoFar + 1, retryAfter, jitterSource.getAsDouble());
         store.scheduleRetry(deliveryId, claimToken, next);
+    }
+
+    /**
+     * The dead-letter move; when it matched, FAILED records on the DELIVER stage, finished at the failure, in this
+     * same transaction (T105). A stale claim moved nothing, so nothing is timed.
+     */
+    private void deadLetter(UUID deliveryId, UUID claimToken, OutcomeClass reasonClass, Instant now) {
+        if (store.deadLetter(deliveryId, claimToken, reasonClass) && timings != null) {
+            timings.recordDeliverFinished(deliveryId, now);
+        }
     }
 }
