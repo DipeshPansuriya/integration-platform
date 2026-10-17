@@ -2,6 +2,7 @@ package io.integrationplatform.e2e;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.integrationplatform.e2e.harness.E2eContainers;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,7 +42,9 @@ class ComposeE2eProfileTest {
         assertThat(artemis.value("image")).as("compose artemis image").isEqualTo(E2eImages.ARTEMIS);
         assertThat(artemis.nestedMap("environment")).containsEntry("TZ", "Etc/UTC");
         assertThat(artemis.nestedList("ports")).containsExactly("\"127.0.0.1:61616:61616\"", "\"127.0.0.1:8161:8161\"");
-        assertThat(artemis.nestedMap("healthcheck")).as("artemis has a healthcheck").containsKey("test");
+        assertThat(artemis.nestedMap("healthcheck").get("test"))
+                .as("compose and the harness agree on ready: the same artemis check node --up probe")
+                .contains(E2eContainers.ARTEMIS_CLI + " check node --up");
         assertThat(Duration.parse("PT" + artemis.nestedMap("healthcheck").get("start_period").toUpperCase()))
                 .as("the broker gets at least 30 s to boot before failed checks count").isGreaterThanOrEqualTo(Duration.ofSeconds(30));
     }

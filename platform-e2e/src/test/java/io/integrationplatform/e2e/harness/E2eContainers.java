@@ -45,7 +45,7 @@ public final class E2eContainers {
     private static final String LOOPBACK = "127.0.0.1";
 
     /** Artemis CLI inside the image (the compose healthcheck calls the same binary). */
-    static final String ARTEMIS_CLI = "/var/lib/artemis-instance/bin/artemis";
+    public static final String ARTEMIS_CLI = "/var/lib/artemis-instance/bin/artemis";
 
     /** Readiness probe; the shell inside the container expands the login from the env set below. */
     private static final String ARTEMIS_CHECK_NODE_UP =
