@@ -82,7 +82,8 @@ it. Routing keeps a refusal type of its own, with no HTTP status in it.
 3. **Routing's type becomes routing's own.** `RouteBuildRefusedException extends RuntimeException`
    and imports nothing from config. It drops `httpStatus` and `body`. It keeps the `scheme(...)` and
    `targetType(...)` factories and their client-safe text, now exposed as `answer()`. `getMessage()`
-   stays the log and dead-letter detail. The route-id clash gets its own factory with no status. [Inferred]
+   stays the log detail, including the stage 2 WARN line (`DueDeliverySend.java:146` at `6fc6975`);
+   the dead-letter itself records no reason text (`recordFailure`, `:147-148`). The route-id clash gets its own factory with no status. [Inferred]
 4. **The listener is the translation point.** `InterfacePublishedRouteListener.onInterfacePublished`
    catches `RouteBuildRefusedException` from `publishInterface` and throws
    `new InterfacePublishRefused(refused.answer(), refused)`. The factory stays pure routing. [Inferred]
@@ -129,8 +130,10 @@ here runs in one process and one transaction.
 ### Gates (counts, checked at the lead gate on the C2 commit)
 
 1. Import lines matching `import io.integrationplatform.config.application` in `platform-routing/src/main`: **0**.
-2. `PublishRefusalAnswerTest`: **2 of 2** pass with their assertions unchanged (400, names `'exec'` / `'FTP'`,
-   no `SECRET_URI`, no `s3cret`). The test now publishes **through the listener**, not by calling the factory directly.
+2. `PublishRefusalAnswerTest`: **5 of 5** (the count at `6fc6975`, B22) pass with their assertions unchanged:
+   400 on every test; names `'exec'` / `'FTP'`, no `SECRET_URI`, no `s3cret` (the two original tests); and the
+   fixed texts `(not a URI scheme)` / `(not a target type)` with no `token@host`, `LONG_TYPE` or `X-Injected`
+   (the three B22 tests). Every test now publishes **through the listener**, not by calling the factory directly.
 3. New arch rule: **0** violations on production classes; **1** violation on the planted fixture;
    exception list size **1**.
 4. Full gate: unit and `-Pcontainer` with **0** failures and **0** errors. The test count is at
@@ -141,7 +144,7 @@ here runs in one process and one transaction.
 - Gains: routing no longer imports config's application layer. Stage 2 catches a routing type.
   Config decides the HTTP status of its own publish, and the boundary that ADR-015 D2 only described
   is now tested.
-- The publish answer and the dead-letter reason both come from the same routing factory, so one
+- The publish answer and the stage 2 WARN line both come from the same routing factory, so one
   sanitiser (Arjun's L1) covers both.
 - **Gives up:** one more public type and one translation step. Ownership is split: config owns the
   status (400), routing owns the reason text. A second listener that needs a different status (409,
