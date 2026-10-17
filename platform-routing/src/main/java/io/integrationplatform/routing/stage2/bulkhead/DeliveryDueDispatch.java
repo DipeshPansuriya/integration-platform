@@ -9,12 +9,14 @@ import io.integrationplatform.routing.adapter.api.TargetEndpointViews;
 import io.integrationplatform.routing.stage.WorkKind;
 import io.integrationplatform.routing.stage.WorkRecord;
 import io.integrationplatform.routing.stage2.Stage2Send;
+import io.integrationplatform.tenancy.WorkerTenantBinding;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.DoubleSupplier;
 import java.util.function.Supplier;
+import org.springframework.transaction.support.TransactionOperations;
 
 /**
  * The {@code platform.delivery.due} handler on the partition thread (T-177, E9-F1-S4, ADR-010 section 2
@@ -40,6 +42,8 @@ import java.util.function.Supplier;
  */
 public final class DeliveryDueDispatch implements io.integrationplatform.routing.stage.StageConsumer.Handler {
 
+    private final WorkerTenantBinding binding;
+    private final TransactionOperations transactions;
     private final DeliveryBulkheadFacts facts;
     private final BulkheadRegistry bulkheads;
     private final Stage2Claim claims;
@@ -49,9 +53,12 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
     private final Supplier<Instant> clock;
     private final DoubleSupplier jitter;
 
-    public DeliveryDueDispatch(DeliveryBulkheadFacts facts, BulkheadRegistry bulkheads, Stage2Claim claims,
+    public DeliveryDueDispatch(WorkerTenantBinding binding, TransactionOperations transactions,
+            DeliveryBulkheadFacts facts, BulkheadRegistry bulkheads, Stage2Claim claims,
             BulkheadDeferrals deferrals, Stage2SendDispatch sends, TargetEndpointViews targets,
             Supplier<Instant> clock, DoubleSupplier jitter) {
+        this.binding = Objects.requireNonNull(binding, "binding");
+        this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.facts = Objects.requireNonNull(facts, "facts");
         this.bulkheads = Objects.requireNonNull(bulkheads, "bulkheads");
         this.claims = Objects.requireNonNull(claims, "claims");
