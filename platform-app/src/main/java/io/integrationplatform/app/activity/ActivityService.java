@@ -27,6 +27,8 @@ public class ActivityService {
 
     static final int DEFAULT_SIZE = 50;
     static final int MAX_SIZE = 200;
+    /** RED stub: the ceiling exists, nothing clamps to it yet. */
+    static final int MAX_OFFSET = 10_000;
 
     /** One audit event as the activity view shows it; {@code at} is the event time as a UTC instant. */
     public record Activity(String id, String actor, String action, List<String> targetIds, String before,

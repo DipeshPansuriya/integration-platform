@@ -68,6 +68,32 @@ class ActivityServiceTest {
     }
 
     @Test
+    void thePageIsClampedSoOffsetPlusSizeNeverPassesTheCeiling() {
+        when(store.page(any(), any(), any(), anyInt(), anyLong())).thenReturn(List.of());
+
+        ActivityService.ActivityPage maxSize = service.list(null, null, null, Integer.MAX_VALUE, 200);
+        ActivityService.ActivityPage defaultSize = service.list(null, null, null, Integer.MAX_VALUE, null);
+
+        assertThat(ActivityService.MAX_OFFSET).isEqualTo(10_000);
+        assertThat(maxSize.page()).isEqualTo(49);
+        verify(store).page(null, null, null, 201, 9_800L);
+        assertThat(defaultSize.page()).isEqualTo(199);
+        verify(store).page(null, null, null, ActivityService.DEFAULT_SIZE + 1, 9_950L);
+    }
+
+    @Test
+    void theLastReachablePageNeverSaysThereIsMore() {
+        List<JdbcActivityStore.ActivityRow> rows = LongStream.rangeClosed(1, 201)
+                .mapToObj(id -> row(id, "2026-10-11T10:00:00Z")).toList();
+        when(store.page(null, null, null, 201, 9_800L)).thenReturn(rows);
+
+        ActivityService.ActivityPage last = service.list(null, null, null, 49, 200);
+
+        assertThat(last.items()).hasSize(200);
+        assertThat(last.hasMore()).as("the next page would clamp back to this one").isFalse();
+    }
+
+    @Test
     void eventsAreNewestFirstAndOneRowBeyondThePageMeansMore() {
         List<JdbcActivityStore.ActivityRow> rows = LongStream.rangeClosed(1, 3)
                 .mapToObj(id -> row(id, "2026-10-1" + id + "T10:00:00Z")).toList();
