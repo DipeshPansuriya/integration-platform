@@ -77,6 +77,10 @@ class ApiOperationRulesCompletenessTest {
                 // F10-narrow lane D (row278 plan step 8): the queue summary is a read of message/delivery
                 // state, so it rides the same operation the message timeline reads on
                 Map.entry("GET /api/v1/admin/queue/summary", Operation.READ_MESSAGE_TIMELINE),
+                // row327 T118 (E12-F2-S2, T-069): the tenant's activity view reads the audit ledger, an operational
+                // read like the message timeline - same operation, no new one in RolePolicy
+                Map.entry("GET /api/v1/activity", Operation.READ_MESSAGE_TIMELINE),
+                Map.entry("GET /api/v1/activity/{eventId}", Operation.READ_MESSAGE_TIMELINE),
                 Map.entry("POST /api/v1/admin/contracts/versions", Operation.EDIT_CONFIGURATION),
                 Map.entry("GET /api/v1/admin/contracts/versions/{versionId}", Operation.READ_CONFIGURATION),
                 Map.entry("POST /api/v1/admin/contracts/versions/{versionId}/submit", Operation.SUBMIT_FOR_APPROVAL)));
