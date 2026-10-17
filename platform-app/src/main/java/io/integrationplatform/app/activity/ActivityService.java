@@ -53,6 +53,8 @@ public class ActivityService {
                 from == null ? null : from.atStartOfDay(ZoneOffset.UTC).toInstant(),
                 to == null ? null : to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant(),
                 boundedSize + 1, (long) boundedPage * boundedSize);
+        // the store's ORDER BY sits in a derived table, which SQL does not promise to keep past the outer select:
+        // the page (at most MAX_SIZE + 1 rows) is put newest first here
         List<Activity> items = rows.stream()
                 .sorted(Comparator.comparing(JdbcActivityStore.ActivityRow::at)
                         .thenComparingLong(JdbcActivityStore.ActivityRow::id).reversed())
