@@ -54,7 +54,6 @@ class RoutingConfigBoundaryRuleTest {
     void theRuleHasExactlyOneNamedException() {
         assertThat(RoutingConfigBoundaryRule.NAMED_EXCEPTIONS)
                 .containsExactly("io.integrationplatform.config.flow.application.FlowBundle");
-        assertThat(RoutingConfigBoundaryRule.NAMED_EXCEPTIONS).hasSize(1);
     }
 
     @Test
