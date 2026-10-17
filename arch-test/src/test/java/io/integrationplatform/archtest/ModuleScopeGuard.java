@@ -20,7 +20,7 @@ final class ModuleScopeGuard {
     private static final String PROJECT_GROUP = "io.integrationplatform";
 
     /** Modules that hold no production classes (platform-e2e: E15 black-box harness, F17/T142). */
-    private static final Set<String> TEST_ONLY_MODULES = Set.of("arch-test", "platform-e2e");
+    static final Set<String> TEST_ONLY_MODULES = Set.of("arch-test", "platform-e2e");
 
     private ModuleScopeGuard() {
     }

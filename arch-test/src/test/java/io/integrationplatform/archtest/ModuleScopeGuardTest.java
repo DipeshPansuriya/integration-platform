@@ -39,6 +39,18 @@ class ModuleScopeGuardTest {
     }
 
     @Test
+    void everyTestOnlyModuleHoldsNoProductionSources() {
+        // Row 327 T151: the guard skips TEST_ONLY_MODULES, which is safe only while none of them grows a src/main
+        // (moved here from platform-e2e's own TestOnlyModuleTest so one place checks every test-only module).
+        assertThat(ModuleScopeGuard.TEST_ONLY_MODULES).contains("arch-test", "platform-e2e");
+        for (String module : ModuleScopeGuard.TEST_ONLY_MODULES) {
+            Path moduleDir = Path.of("..", module);
+            assertThat(moduleDir.resolve("pom.xml")).as(module + " is a module of this build").exists();
+            assertThat(moduleDir.resolve("src/main")).as(module + " holds test sources only").doesNotExist();
+        }
+    }
+
+    @Test
     void aBrandNewModuleMissingFromArchTestFailsTheGuard() {
         List<String> modules = List.of("platform-routing", "platform-tenancy", "platform-brandnew", "arch-test");
         Set<String> dependencies = Set.of("platform-routing", "platform-tenancy");
