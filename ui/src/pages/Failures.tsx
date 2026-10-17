@@ -15,13 +15,22 @@
 
 import { useEffect, useState } from 'react';
 import { listFlows, type FlowSummary } from '../api/flows';
-import { messageFailures } from '../api/messages';
-import { emptyText, failureRows, failuresCaption, failuresQuery, todayUtc, type FailureRow } from './failures-view';
+import { messageFailures, type Failure } from '../api/messages';
+import {
+  emptyText,
+  failureColumns,
+  failureRows,
+  failuresCaption,
+  failuresQuery,
+  flowLabels,
+  todayUtc,
+  type FailureRow
+} from './failures-view';
 
 type Load = 'loading' | 'ready' | 'refused' | 'error';
 
-/** One failure row; T111 adds its replay action as one more cell here. */
-function FailureRowView({ row }: { row: FailureRow }) {
+/** One failure row; T111 adds its replay action as one more cell here. The Flow cell shows only in the All-flows view. */
+function FailureRowView({ row, showFlow }: { row: FailureRow; showFlow: boolean }) {
   return (
     <tr data-failure-row={row.trackingId} data-failing-stage={row.failingStage} data-origin={row.origin}>
       <td>
@@ -29,6 +38,7 @@ function FailureRowView({ row }: { row: FailureRow }) {
           {row.trackingId}
         </a>
       </td>
+      {showFlow && <td data-flow-cell>{row.flowLabel}</td>}
       <td>{row.stageLabel}</td>
       <td data-error-class>{row.errorClass}</td>
       <td data-last-error={row.hasLastError ? 'text' : 'none'}>{row.lastErrorText}</td>
@@ -44,7 +54,7 @@ export function Failures() {
   const [flows, setFlows] = useState<FlowSummary[]>([]);
   const [flowId, setFlowId] = useState('');
   const [date, setDate] = useState(() => todayUtc(new Date()));
-  const [rows, setRows] = useState<FailureRow[]>([]);
+  const [answered, setAnswered] = useState<Failure[]>([]);
   const [load, setLoad] = useState<Load>('loading');
   const [refusal, setRefusal] = useState('');
   const [reloads, setReloads] = useState(0);
@@ -63,17 +73,17 @@ export function Failures() {
       .then((answer) => {
         if (!current) return;
         if (answer.ok) {
-          setRows(failureRows(answer.data));
+          setAnswered(answer.data);
           setLoad('ready');
         } else {
-          setRows([]);
+          setAnswered([]);
           setRefusal(answer.refusal ?? answer.error ?? 'failures list refused');
           setLoad('refused');
         }
       })
       .catch(() => {
         if (!current) return;
-        setRows([]);
+        setAnswered([]);
         setLoad('error');
       });
     return () => {
@@ -85,6 +95,9 @@ export function Failures() {
   const flow = flows.find((f) => f.id === query.flowId);
   const flowLabel = query.flowId ? flow?.code ?? query.flowId : null;
   const day = query.date ?? null;
+  const showFlow = !query.flowId; // the Flow column: All-flows view only
+  // Labelled at render time, so a flow list answering after the failures still names every row.
+  const rows = failureRows(answered, flowLabels(flows));
 
   const statusText =
     load === 'loading'
@@ -129,17 +142,16 @@ export function Failures() {
         <caption>{failuresCaption(flowLabel, day)}</caption>
         <thead>
           <tr>
-            <th scope="col">Tracking id</th>
-            <th scope="col">Failing stage</th>
-            <th scope="col">Error class</th>
-            <th scope="col">Last error</th>
-            <th scope="col">Origin</th>
-            <th scope="col">Failed at (UTC)</th>
+            {failureColumns(!showFlow).map((column) => (
+              <th scope="col" key={column}>
+                {column}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <FailureRowView key={row.key} row={row} />
+            <FailureRowView key={row.key} row={row} showFlow={showFlow} />
           ))}
         </tbody>
       </table>

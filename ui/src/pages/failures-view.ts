@@ -12,6 +12,7 @@ import { messageHash, stageLabel, utcText } from './message-timeline';
 export type FailureRow = {
   key: string;
   trackingId: string;
+  flowLabel: string;
   detailHash: string;
   failingStage: string;
   stageLabel: string;
@@ -30,10 +31,17 @@ export function originWord(origin: string): string {
   return ORIGINS[origin] ?? origin;
 }
 
-export function failureRows(failures: readonly Failure[]): FailureRow[] {
+/** Flow id -> flow code, from the listFlows() answer the filter already holds. */
+export function flowLabels(flows: readonly { id: string; code: string }[]): Record<string, string> {
+  return Object.fromEntries(flows.map((f) => [f.id, f.code]));
+}
+
+/** `labels` names each row's flow (the All-flows view's Flow column); an unlisted flow shows its raw id. */
+export function failureRows(failures: readonly Failure[], labels: Record<string, string> = {}): FailureRow[] {
   return failures.map((f) => ({
     key: f.deliveryId ?? `${f.trackingId}|${f.failingStage}`,
     trackingId: f.trackingId,
+    flowLabel: labels[f.flowId] ?? f.flowId,
     detailHash: messageHash(f.trackingId, f.failingStage),
     failingStage: f.failingStage,
     stageLabel: stageLabel(f.failingStage),
@@ -45,6 +53,12 @@ export function failureRows(failures: readonly Failure[]): FailureRow[] {
     failedAt: f.failedAt,
     failedAtText: utcText(f.failedAt)
   }));
+}
+
+/** The table's column headers; Flow only in the All-flows view (a selected flow is named in the caption). */
+export function failureColumns(flowSelected: boolean): string[] {
+  const flow = flowSelected ? [] : ['Flow'];
+  return ['Tracking id', ...flow, 'Failing stage', 'Error class', 'Last error', 'Origin', 'Failed at (UTC)'];
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
