@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -208,6 +209,22 @@ class ApiTargetCallTest {
         assertThatThrownBy(() -> target.call(send()))
                 .isInstanceOf(TargetFaultException.TransientFaultException.class);
         assertThat(sent).as("no credential is held, so no call is attempted").isEmpty();
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("T-124: a 3xx redirect answer is PERMANENT and never followed - the guard checked one destination,"
+            + " the redirect target (even a refused one) is never dialled")
+    void redirectIsPermanentAndNeverRefollowed() {
+        RecordingHttpSend sender = answering(() -> new Response(302,
+                "Location: http://169.254.169.254/latest/meta-data".getBytes(StandardCharsets.UTF_8)));
+        ApiTargetCall target = target(view("http://target.e5.test:8080/api", "POST", 1500, "NO_AUTH", false,
+                Map.of()), sender);
+
+        assertThatThrownBy(() -> target.call(send()))
+                .isInstanceOfSatisfying(TargetFaultException.class, fault ->
+                        assertThat(fault.outcomeClass()).isEqualTo(OutcomeClass.PERMANENT));
+        assertThat(sent).as("one send, never a second dial of the redirect target").hasSize(1);
     }
 
     // ---------------------------------------------------------------- the seams
