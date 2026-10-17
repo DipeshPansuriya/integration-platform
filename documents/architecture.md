@@ -166,6 +166,15 @@ dies mid-call, the stale-claim rule recovers the delivery (ADR-011 Decision 5).
   Release 1 security review (T-147). T5 stays at four definer functions: jobs loop
   `ipaas_active_tenants` and resolve known rows with `ipaas_work_tenant`.
 
+**Amended 2026-10-17 (ADR-016, team - Dipesh may reverse):**
+
+- **Partition maintenance through two narrow functions (T6).** `audit_ensure_partitions()` and
+  `audit_purge_expired()` are no-argument definer functions with a pinned `search_path` and a
+  5-second lock timeout; `EXECUTE` goes to the maintenance role `ipaas_maintenance` **only** - the
+  application role holds none (grant-inspection test; a call as the application role fails with
+  42501). They are not T5 functions: they neither resolve nor return a tenant. They run in the job
+  `AUDIT_PARTITION_MAINTENANCE`, the fifth member of ADR-012's job-type register.
+
 ## 6. Deployment view (development compose today: section 9)
 
 *Sources: `ws/_specs/project-plan.md:71`, `:79`, `:85-92`, `:192`; ADR-005, ADR-007.*
