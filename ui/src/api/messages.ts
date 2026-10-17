@@ -16,7 +16,11 @@ export type StageTime = {
   sincePreviousMs: number | null;
 };
 
-/** One delivery of the message: the last attempt's sent-to-answered time and outcome (null: no attempt yet). */
+/**
+ * One delivery of the message: the last attempt's sent-to-answered time and outcome (null: no attempt yet).
+ * Row 328 V2: deliberately the 4-field subset of the row 329 contract ({state, attemptCount, lastAttempt{...}});
+ * Mira decision 17-Oct - kept for the showcase, the seam's contract regeneration uses it, mahesh-architect widens it.
+ */
 export type DeliveryTime = {
   deliveryId: string;
   targetId: string | null;
