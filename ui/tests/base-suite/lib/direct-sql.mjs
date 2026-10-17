@@ -33,3 +33,9 @@ export const outboxAggregatesSql = (code) => "select o.aggregate_id::text from p
 /** Rows: the message id of every INTAKE stage timing row of the tenant. */
 export const intakeTimingSql = (code) => "select s.message_id::text from public.message_stage_timing s"
   + ` where s.stage = 'INTAKE' and s.tenant_id = ${tenantOf(code)} order by s.message_id`;
+
+// T131 (row 323, F21 BS-C) RED stubs - implemented in the GREEN commit.
+export const deliveryOfMessageSql = () => { throw new Error("T131 RED: not implemented"); };
+export const attemptRowsSql = () => { throw new Error("T131 RED: not implemented"); };
+export const eventTypesSql = () => { throw new Error("T131 RED: not implemented"); };
+export const auditRowsSql = () => { throw new Error("T131 RED: not implemented"); };
