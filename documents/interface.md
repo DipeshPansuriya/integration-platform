@@ -1,7 +1,7 @@
 ---
 type: Design
 title: "Interface - the common API and the admin API (configuration-driven integration platform)"
-status: "Recreated 2026-10-12 (E5, T-107). Section 2 restates ADR-011 Decision 4 with 0 differences; the common API itself is built in E11. Sections 4-6 describe the admin API as built at row278-integration 4e9de1d."
+status: "Recreated 2026-10-12 (E5, T-107). Section 2 restates ADR-011 Decision 4 with 0 differences; the common API itself is built in E11. Sections 4-6 describe the admin API as built at row278-integration 4e9de1d. Re-checked 2026-10-16 at main 90c1ddd (ledger row 325): section 2 gains the intake endpoint as built, section 7 the endpoints added since; every other cited file is unchanged since 4e9de1d."
 date: 2026-10-12
 author: "mahesh-architect (ledger row 278, T-107)"
 project: ipass/integration-platform
@@ -25,10 +25,14 @@ related:
 
 **Grades.** Every statement carries one: **[Verified]** - read on 2026-10-12 in the file cited;
 **[Inferred]** - deduced from the neighbour named; **[TBD]** - not decided or not built yet, with
-the phase or person that settles it. Source paths starting `ws/` are in the hub repository,
-project workspace `_personal/_project_ipass/integration-platform/`; all other paths are in this
-repository at row278-integration `4e9de1d`. ADR-011 means
+the phase or person that settles it. Source paths starting `ws/` are in the planning workspace kept
+outside this repository (see [README.md](README.md)); all other paths are in this repository at
+row278-integration `4e9de1d`. ADR-011 means
 `documents/adr/ADR-011-targets-contracts-bulk-ordering.md`.
+
+**Re-checked 2026-10-16 at main `90c1ddd`.** Of the code files cited in sections 4-7 only `FlowAdminController.java`
+changed since `4e9de1d` (`git diff --stat 4e9de1d 90c1ddd -- <file>`); its lines are re-cited in section 7. The
+common API now has its first endpoint - section 2, "As built".
 
 ## 1. Two APIs, one version rule
 
@@ -49,10 +53,21 @@ credential, immediate async reply), `:143` (payloads under 1 MB), `:180` (intake
 `ws/_reports/2026-10-01-t10-figure-reconciliation.md:52` (the deleted path had a tenant segment);
 ADR-011 `:139-176` (Decision 4, restated here with 0 differences).*
 
-**Status:** designed, not built. The endpoints arrive in E11 (`ws/_specs/backlog.md:2807`, the one
-common API); no intake controller exists at `4e9de1d` - the only `/api/v1` controllers are the
-admin ones of sections 4-6 and `/api/v1/me`. [Verified] (search for `@PostMapping` in every
-module's `src/main`, 2026-10-12.)
+**Status 2026-10-12:** designed, not built (no intake controller existed at `4e9de1d`).
+
+**As built at main `90c1ddd` (2026-10-16)** - the single-record endpoint exists; the rest of Decision 4 below is
+still the target. [Verified] unless marked.
+
+| Statement | Grade | Source |
+|---|---|---|
+| `POST /api/v1/interfaces/{interfaceCode}/messages` exists; `:bulk` does not | [Verified] | `platform-ingest/src/main/java/io/integrationplatform/ingest/adapter/in/IntakeController.java:53`; `git grep -n ':bulk' main -- '*/src/main/*'` finds no mapping |
+| The unversioned path is not mapped and answers 404 | [Verified] | `IntakeController.java:26-27` |
+| Required headers: `X-Source-Contract-Version` (the interface pin check, ADR-013) and `Idempotency-Key` (presence only - it is not stored or compared yet) | [Verified] | `IntakeController.java:27-28`, `:57-58`, `:64-70` |
+| Cap: one record over 1 MB (1,048,576 bytes) is refused with 413 before the transaction runs | [Verified] | `IntakeController.java:33-34`, `:40` |
+| Answers: 202 with the tracking id; 400 missing header or malformed JSON; 415 missing or wrong Content-Type; 413 over the cap; 404 unknown or unpublished interface; 422 off-pin version or unresolved business key; 503 the transaction did not commit (no tracking id; the cause is logged at ERROR) | [Verified] | `IntakeController.java:30-33` |
+| Checks run today: published interface, source-contract pin, business key; then one transaction writes message, payload and outbox row | [Verified] | `platform-ingest/src/main/java/io/integrationplatform/ingest/internal/intake/IntakeService.java:38-66` |
+| Not yet: bulk and per-record results, JSON Schema and rules validation at intake, the idempotency store (24 h, body hash, `IDEMPOTENCY_KEY_REUSED`), the per-key sequence | [TBD] | E11 (`ws/_specs/backlog.md:2807`); the `PayloadValidationService` class exists but intake does not call it |
+| After the commit nothing reads the outbox yet: the relay is not wired, so an accepted message is stored and not delivered | [Verified] | [architecture.md](architecture.md) section 9 |
 
 | Statement | Grade | Source |
 |---|---|---|
@@ -150,6 +165,10 @@ has one index; their contracts belong to E3 and E6.*
 
 | Path | Grade | Source |
 |---|---|---|
-| `/api/v1/admin/flows` - create, list, read, edit, version edit, submit, approve, publish | [Verified] | `platform-config/src/main/java/io/integrationplatform/config/flow/adapter/in/FlowAdminController.java:34`, `:52-150` |
+| `/api/v1/admin/flows` - create, list, read, the current version's routes (`GET /{flowId}/routes`), edit, version edit, submit, approve, publish. There is no reject endpoint yet [TBD] | [Verified] at `90c1ddd` | `platform-config/src/main/java/io/integrationplatform/config/flow/adapter/in/FlowAdminController.java:33`, `:56-172` (routes `:95`) |
+| `GET` and `PUT /api/v1/admin/routes/{routeId}/mapping` - read and save a route's mapping draft | [Verified] at `90c1ddd` | `platform-config/src/main/java/io/integrationplatform/config/mapping/adapter/in/MappingAdminController.java:27`, `:46`, `:67` |
+| `POST /api/v1/admin/mappings/{id}/test` - the recorded sample run publish requires | [Verified] at `90c1ddd` | `platform-config/src/main/java/io/integrationplatform/config/mapping/adapter/in/MappingTestController.java:27`, `:51` |
+| `GET /api/v1/admin/lookups/{lookupId}/entries` and `PUT .../entries/{entryId}` | [Verified] at `90c1ddd` | `platform-config/src/main/java/io/integrationplatform/config/rule/adapter/in/LookupAdminController.java:31-32`, `:49`, `:66` |
+| `GET /api/v1/admin/queue/summary` - the queue dashboard's counts per flow and day | [Verified] at `90c1ddd` | `platform-app/src/main/java/io/integrationplatform/app/queue/QueueSummaryController.java:35`, `:51` |
 | `/api/v1/admin/flows/{flowId}/rule-sets`, `/api/v1/admin/rule-sets/{ruleSetId}` and its `/evaluate` | [Verified] | `platform-config/src/main/java/io/integrationplatform/config/rule/adapter/in/RuleSetAdminController.java:35-36`; `RuleEvaluationController.java:46` |
 | `GET /api/v1/me` - the signed-in user and tenant | [Verified] | `platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/web/MeController.java:18`, `:27` |

@@ -7,12 +7,13 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
- * T-116 (ADR-010 section 3, E9-C1/E9-C2): the config publish path's {@link InterfacePublished} announcement turns
- * into route instances on the running system - the factory reads the interface's active configuration rows and
- * instantiates each through its target type's template. Runs inside the publish transaction just before it commits:
- * a refused row (unapproved scheme, unknown target type) throws the factory's {@link RouteBuildRefusedException},
- * which rolls the publish back - the publish fails with a clear error (E9-F1-S2 @negative @security). A publish
- * outside a transaction is still delivered.
+ * T-116 (ADR-010 section 3, E9-C1/E9-C2): the config publish path's {@link InterfacePublished} announcement is
+ * validated against the routing module - the factory reads the interface's active configuration rows and checks
+ * each one's scheme and target type; it validates, never builds: routes are built lazily in stage 2 (ADR-010 s3
+ * amendment, F16 verdict c), so a refused publish or a failed commit leaves no live or cached route. Runs inside the
+ * publish transaction just before it commits: a refused row (unapproved scheme, unknown target type) throws the
+ * factory's {@link RouteBuildRefusedException}, which rolls the publish back - the publish fails with a clear error
+ * (E9-F1-S2 @negative @security). A publish outside a transaction is still delivered.
  *
  * <p>The factory is optional until the composition supplies it (the real {@link RouteConfigReader} adapter and the
  * per-type templates arrive with integration wiring and E10, ADR-015): without one the announcement is a no-op and

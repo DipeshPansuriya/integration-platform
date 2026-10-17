@@ -1,7 +1,7 @@
 ---
 type: PRD
 title: "Product requirements - configuration-driven integration platform"
-status: "Recreated 2026-10-02 (phase 0) from surviving sources; scope and acceptance criteria as approved in the plan of 2026-10-02"
+status: "Recreated 2026-10-02 (phase 0) from surviving sources; scope and acceptance criteria as approved in the plan of 2026-10-02; build-status table added 2026-10-16 at main 90c1ddd in section 10 (ledger row 325), requirements unchanged"
 date: 2026-10-02
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
@@ -22,8 +22,8 @@ related:
 > recreation**). **The acceptance criteria are the plan's done-when, unchanged; where this file
 > and the approved plan differ, the plan wins.**
 
-Source paths starting `ws/` are in the hub repository, project workspace
-`_personal/_project_ipass/integration-platform/`. Memory lines drift; the id (`m-xxxxxx`) is the
+Source paths starting `ws/` are in the planning workspace kept outside this repository (see
+[README.md](README.md)). Memory lines drift; the id (`m-xxxxxx`) is the
 stable key.
 
 ## 1. Purpose and premise
@@ -97,7 +97,7 @@ both targets were configured through the application with 0 deploys and 0 migrat
 `ws/_specs/f3-plan-brief.md:52-58`.*
 
 Each requirement's acceptance criteria are the done-when of the plan phase named; every item is
-test-first (a failing test before the code).
+test-first (a failing test before the code). How far the code has got: section 10.
 
 | # | Requirement | Acceptance criteria (source) |
 |---|---|---|
@@ -186,7 +186,34 @@ payloads; self-service tenant signup.
 | What "File" target means (shared folder or SFTP) | The File adapter (Release 2) | Shared folder |
 | A description of reference design C | The look-and-feel redesign | `design.md` carries a TBD line |
 | Whether multi-factor login is mandatory, and for whom | The login phase | Recommended: mandatory for tenant admins |
-| Payload retention (must exceed the two-week replay window) | The scheduler's purge job | **Team default:** 30 days |
+| Payload retention (must exceed the two-week replay window) | The scheduler's purge job | **Answered:** 30 days (Dipesh, 2026-10-12, with ADR-014; [architecture.md](architecture.md) section 3) |
 | The reading of "customer" (section 4) | The login phase | As read |
 | The bulk caps (section 6) | The ingest phase | As stated |
 | The `APPROVER` role - a team addition to the plan's four human roles (section 3; ADR-007 Decision 5) | The login phase | **Team default:** added; tenant admins may also approve |
+
+## 10. Build status at main `90c1ddd` (2026-10-16)
+
+The requirements and acceptance criteria above are unchanged. This table only says how far the code has got, using
+the status words of [architecture.md](architecture.md) section 9: **built** (runs in `platform-app`), **built, not
+wired** (code and tests exist, nothing starts them), **planned**. A requirement is met only when its acceptance
+criteria pass; none is declared met here.
+
+| # | Status | Evidence |
+|---|---|---|
+| FR-01, FR-02 | Controls partly built (row-level security, tenant binding, the outbox in the intake transaction); not end to end while delivery is not wired [TBD - release gates] | [architecture.md](architecture.md) sections 0 and 5 |
+| FR-03 | Built: draft, submit, approve, publish; reject **planned** | `platform-config/src/main/java/io/integrationplatform/config/flow/adapter/in/FlowAdminController.java:56-172` |
+| FR-04 | Built: console login (BFF) and source credentials | `platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/web/ConsoleSecurityConfiguration.java:84-88`; [interface.md](interface.md) section 5 |
+| FR-05 | Built for API systems; test-connection for other types answers `NOT_AVAILABLE_YET` | [fetch.md](fetch.md) sections 2-5 |
+| FR-06 | Built in the console and the admin API; intake does not run the rules yet | [design.md](design.md) section 4; [interface.md](interface.md) section 2, "As built" |
+| FR-07 | Built: mapping designer and recorded sample run, required before publish | `platform-config/src/main/java/io/integrationplatform/config/mapping/adapter/in/MappingTestController.java:51`; `platform-config/src/main/java/io/integrationplatform/config/mapping/application/MappingPublishPinCheck.java:28-30` |
+| FR-08, FR-09 | Built, not wired (relay, stage consumers) | [architecture.md](architecture.md) section 9 |
+| FR-10 | API adapter built, not wired; MQ-CSV **planned** | `platform-routing/src/main/java/io/integrationplatform/routing/adapter/api/ApiTargetCall.java:48` |
+| FR-11 | Single-record endpoint built; bulk and synchronous **planned** | [interface.md](interface.md) section 2, "As built" |
+| FR-12 | Audit **planned** (no `audit_event` table) | [architecture.md](architecture.md) section 9 |
+| FR-13 | **Planned**: no tracking or report screen; stage timings are recorded in `message_stage_timing` | [design.md](design.md) section 4; `platform-routing/src/main/resources/db/migration/V2_1_1110__message_stage_timing.sql:26` |
+| FR-14 | Scheduler shell runs 4 jobs; their bodies are no-ops or skipped | `platform-app/src/main/java/io/integrationplatform/app/scheduler/SchedulerJobTasks.java:37-53`; `platform-app/src/main/java/io/integrationplatform/app/scheduler/JobRunWrapper.java:32-34` |
+| FR-15 | Retry and dead letter built, not wired; replay **planned** (SQL only) | `platform-delivery/src/main/java/io/integrationplatform/delivery/internal/JdbcDeliveryRepository.java:202` |
+| FR-16 | **Planned** | - |
+| FR-17 | Built: queue dashboard and its summary API | `platform-app/src/main/java/io/integrationplatform/app/queue/QueueSummaryController.java:51`; `ui/src/pages/QueueDashboard.tsx:14` |
+| FR-18 | Screen suites exist (12 specs in `ui/tests/screens/`); the `platform-e2e` module is **planned** | `pom.xml:23-38` |
+| FR-19 | **Planned** (last phase) | [design.md](design.md) section 1 |

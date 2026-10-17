@@ -1,7 +1,7 @@
 ---
 type: Design
 title: "Design - the console's look and feel (configuration-driven integration platform)"
-status: "Recreated 2026-10-07 (E3, T-095). Reference design C has no surviving description in words - two TBD lines wait for Dipesh. The console as built in E3 is described from the code. The redesign itself is the last phase (Release 2)."
+status: "Recreated 2026-10-07 (E3, T-095). Reference design C has no surviving description in words - two TBD lines wait for Dipesh. The console as built in E3 is described from the code. The redesign itself is the last phase (Release 2). 2026-10-16 (ledger row 325): section 5 lists the six diagrams, including the console UI shell."
 date: 2026-10-07
 author: "mahesh-architect (ledger row 278, T-095)"
 project: ipass/integration-platform
@@ -26,8 +26,8 @@ related:
 
 **Grades.** Every statement carries one: **[Verified]** - read this session in the file cited;
 **[Inferred]** - deduced from the neighbour named; **[TBD]** - a fact only Dipesh holds, one line
-naming the question. Source paths starting `ws/` are in the hub repository, project workspace
-`_personal/_project_ipass/integration-platform/`; all others are in this repository. Hub files
+naming the question. Source paths starting `ws/` are in the planning workspace kept outside this
+repository (see [README.md](README.md)); all others are in this repository. Workspace files
 rotate, so a `ws/` source is cited by section, story or task id, or memory entry id (`m-xxxxxx`) -
 never by line number; sources in this repository keep `path:line`. Rule R19 applies: no product or organisation name
 appears here, so the design skill is named only by where it is recorded.
@@ -161,7 +161,8 @@ build-order note). [Verified]
 |---|---|
 | [Configuration workflow](diagrams/workflow.archify.html) | The user journey the screens serve: log in, register systems, contract versions, interface and rules, mapping, submit, approve, publish, monitor and replay |
 | [Architecture](diagrams/architecture.archify.html) | Where `ui/` sits: static console calling only the admin API |
-| [Diagram index](diagrams/README.md) | All five diagrams with their sources |
+| [Console UI shell](diagrams/ui-modernized-shell.archify.html) | The shell of section 3.1 and the screens of section 4: menu groups, `#/login`, the session calls to `platform-app` and the redirect to the identity provider's sign-in page |
+| [Diagram index](diagrams/README.md) | All six diagrams, drawn against main `90c1ddd`, with their status words |
 
 This file adds no module, flow or state, so no diagram changes with it (rule R21). [Inferred]
 
@@ -172,7 +173,7 @@ This file adds no module, flow or state, so no diagram changes with it (rule R21
 | Hub repository, every tracked text file (`git grep` for "design C", "API-design-tool", "schema-editor screenshot", "direction C") | Only the memory and ledger lines cited in section 2 - none describes the look | [Verified] |
 | Project memory (`ws/_memory/`) and ledger row 276 | The lines cited in section 2 - none describes the look | [Verified] |
 | Project workspace (`ws/`) | No `_mockups/` folder, no image, no token file | [Verified] |
-| This repository (`documents/`, `ui/`) | No earlier design document, no stylesheet; images are never committed here (hub rule) | [Verified] |
+| This repository (`documents/`, `ui/`) | No earlier design document, no stylesheet (true on 2026-10-07; stylesheets arrived later - section 3, 9 files on 2026-10-16); images are never committed here | [Verified] |
 | Scratch screenshot folder named in memory (m-a5cf0d) | The folder no longer exists | [Verified] |
 
 ## Changing this file

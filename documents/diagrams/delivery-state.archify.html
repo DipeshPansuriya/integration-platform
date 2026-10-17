@@ -5157,32 +5157,32 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
         <!-- Lifecycle bands -->
         <path d="M 72 112 L 968 112" class="a-default" stroke-width="0.8" stroke-dasharray="3,8"/>
-        <text x="72" y="100" class="t-dim" font-size="10" font-weight="600">01 / Claim and send</text>
+        <text x="72" y="100" class="t-dim" font-size="10" font-weight="600">01 / Claim and send (not wired)</text>
         <path d="M 72 264 L 968 264" class="a-default" stroke-width="0.8" stroke-dasharray="3,8"/>
-        <text x="72" y="252" class="t-dim" font-size="10" font-weight="600">02 / Wait and ready</text>
+        <text x="72" y="252" class="t-dim" font-size="10" font-weight="600">02 / Wait and ready (not wired)</text>
         <path d="M 72 436 L 968 436" class="a-default" stroke-width="0.8" stroke-dasharray="3,8"/>
-        <text x="72" y="424" class="t-dim" font-size="10" font-weight="600">03 / Held for order</text>
+        <text x="72" y="424" class="t-dim" font-size="10" font-weight="600">03 / Held for order (not wired)</text>
 
         <!-- Primary lifecycle rail -->
         <path d="M 154 157 L 748 157" class="a-emphasis" stroke-width="2.2" marker-end="url(#arrowhead-emphasis)"/>
 
         <!-- Transition paths -->
         <path data-edge-from="pending" data-edge-to="sending" data-edge-label="claim + token" data-edge-key="0" data-edge-id="t-claim-first" data-composition-points="142,157;354,157" d="M 142 157 L 354 157" class="a-emphasis" stroke-width="2" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="pending" data-edge-to="retry" data-edge-label="bulkhead full" data-edge-key="1" data-edge-id="t-bulkhead-pending" data-composition-points="94,188;94,307;200,307" d="M 94 188 L 94 297 Q 94 307 104 307 L 200 307" class="a-dashed" stroke-width="1.1" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="pending" data-edge-to="retry" data-edge-label="bulkhead full (not wired)" data-edge-key="1" data-edge-id="t-bulkhead-pending" data-composition-points="94,188;94,307;200,307" d="M 94 188 L 94 297 Q 94 307 104 307 L 200 307" class="a-dashed" stroke-width="1.1" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="pending" data-edge-to="held" data-edge-label="hold applies" data-edge-key="2" data-edge-id="t-hold" data-composition-points="46,157;30,157;30,479;354,479" d="M 46 157 L 38 157 Q 30 157 30 165 L 30 469 Q 30 479 40 479 L 354 479" class="a-default" stroke-width="1.1" marker-end="url(#arrowhead)"/>
         <path data-edge-from="due" data-edge-to="sending" data-edge-label="claim" data-edge-key="3" data-edge-id="t-claim" data-composition-points="402,278;402,188" d="M 402 278 L 402 188" class="a-emphasis" stroke-width="2" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="sending" data-edge-to="delivered" data-edge-label="success" data-edge-key="4" data-edge-id="t-delivered" data-composition-points="450,157;662,157" d="M 450 157 L 662 157" class="a-emphasis" stroke-width="2" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="sending" data-edge-to="retry" data-edge-label="retryable or stale claim" data-edge-key="5" data-edge-id="t-retry" data-composition-points="388,188;388,232;248,232;248,276" d="M 388 188 L 388 222 Q 388 232 378 232 L 258 232 Q 248 232 248 242 L 248 276" class="a-security" stroke-width="1.1" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="sending" data-edge-to="retry" data-edge-label="retryable; stale claim planned" data-edge-key="5" data-edge-id="t-retry" data-composition-points="388,188;388,232;248,232;248,276" d="M 388 188 L 388 222 Q 388 232 378 232 L 258 232 Q 248 232 248 242 L 248 276" class="a-security" stroke-width="1.1" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="retry" data-edge-to="due" data-edge-label="re-drive" data-edge-key="6" data-edge-id="t-redrive" data-composition-points="296,300;354,300" d="M 296 300 L 354 300" class="a-default" stroke-width="1.1" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="due" data-edge-to="retry" data-edge-label="bulkhead full" data-edge-key="7" data-edge-id="t-wait-bulkhead" data-composition-points="354,314;296,314" d="M 354 314 L 296 314" class="a-dashed" stroke-width="1.1" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="sending" data-edge-to="dead" data-edge-label="permanent or stale claim" data-edge-key="8" data-edge-id="t-to-dead" data-composition-points="416,188;416,233;556,233;556,278" d="M 416 188 L 416 223 Q 416 233 426 233 L 546 233 Q 556 233 556 243 L 556 278" class="a-security" stroke-width="1.1" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="dead" data-edge-to="due" data-edge-label="replay" data-edge-key="9" data-edge-id="t-replay" data-composition-points="508,307;450,307" d="M 508 307 L 450 307" class="a-dashed" stroke-width="1.1" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="due" data-edge-to="retry" data-edge-label="bulkhead full (not wired)" data-edge-key="7" data-edge-id="t-wait-bulkhead" data-composition-points="354,314;296,314" d="M 354 314 L 296 314" class="a-dashed" stroke-width="1.1" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="sending" data-edge-to="dead" data-edge-label="permanent; stale claim planned" data-edge-key="8" data-edge-id="t-to-dead" data-composition-points="416,188;416,233;556,233;556,278" d="M 416 188 L 416 223 Q 416 233 426 233 L 546 233 Q 556 233 556 243 L 556 278" class="a-security" stroke-width="1.1" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="dead" data-edge-to="due" data-edge-label="replay (planned)" data-edge-key="9" data-edge-id="t-replay" data-composition-points="508,307;450,307" d="M 508 307 L 450 307" class="a-dashed" stroke-width="1.1" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="due" data-edge-to="held" data-edge-label="hold applies" data-edge-key="10" data-edge-id="t-hold-due" data-composition-points="395,336;395,450" d="M 395 336 L 395 450" class="a-default" stroke-width="1.1" marker-end="url(#arrowhead)"/>
         <path data-edge-from="held" data-edge-to="due" data-edge-label="release" data-edge-key="11" data-edge-id="t-release" data-composition-points="409,450;409,336" d="M 409 450 L 409 336" class="a-default" stroke-width="1.1" marker-end="url(#arrowhead)"/>
 
         <!-- States -->
-        <g id="node-pending" data-node-id="pending" data-node-label="PENDING" tabindex="0" role="button" aria-label="Focus PENDING, created, Claim and send" aria-pressed="false" data-node-kind="start" data-node-sublabel="created" data-node-context="Claim and send">
-          <title>PENDING · created · Claim and send</title>
+        <g id="node-pending" data-node-id="pending" data-node-label="PENDING" tabindex="0" role="button" aria-label="Focus PENDING, created, Claim and send (not wired)" aria-pressed="false" data-node-kind="start" data-node-sublabel="created" data-node-context="Claim and send (not wired)">
+          <title>PENDING · created · Claim and send (not wired)</title>
           <rect x="46" y="126" width="96" height="62" rx="7" class="c-mask"/>
           <rect x="46" y="126" width="96" height="62" rx="7" class="c-frontend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="start" class="semantic-sigil s-frontend" transform="translate(125 132) scale(0.6875)">
@@ -5194,8 +5194,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="94" y="163" class="t-muted" font-size="7" text-anchor="middle">created</text>
         </g>
 
-        <g id="node-retry" data-node-id="retry" data-node-label="RETRY_WAIT" tabindex="0" role="button" aria-label="Focus RETRY_WAIT, waits in DB, Claim and send" aria-pressed="false" data-node-kind="failure" data-node-sublabel="waits in DB" data-node-context="Claim and send">
-          <title>RETRY_WAIT · waits in DB · Claim and send</title>
+        <g id="node-retry" data-node-id="retry" data-node-label="RETRY_WAIT" tabindex="0" role="button" aria-label="Focus RETRY_WAIT, waits in DB, Claim and send (not wired)" aria-pressed="false" data-node-kind="failure" data-node-sublabel="waits in DB" data-node-context="Claim and send (not wired)">
+          <title>RETRY_WAIT · waits in DB · Claim and send (not wired)</title>
           <rect x="200" y="276" width="96" height="62" rx="7" class="c-mask"/>
           <rect x="200" y="276" width="96" height="62" rx="7" class="c-security" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="failure" class="semantic-sigil s-security" transform="translate(279 282) scale(0.6875)">
@@ -5206,8 +5206,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="248" y="313" class="t-muted" font-size="7" text-anchor="middle">waits in DB</text>
         </g>
 
-        <g id="node-sending" data-node-id="sending" data-node-label="SENDING" tabindex="0" role="button" aria-label="Focus SENDING, claimed, Claim and send" aria-pressed="false" data-node-kind="active" data-node-sublabel="claimed" data-node-context="Claim and send">
-          <title>SENDING · claimed · Claim and send</title>
+        <g id="node-sending" data-node-id="sending" data-node-label="SENDING" tabindex="0" role="button" aria-label="Focus SENDING, claimed, Claim and send (not wired)" aria-pressed="false" data-node-kind="active" data-node-sublabel="claimed" data-node-context="Claim and send (not wired)">
+          <title>SENDING · claimed · Claim and send (not wired)</title>
           <rect x="354" y="126" width="96" height="62" rx="7" class="c-mask"/>
           <rect x="354" y="126" width="96" height="62" rx="7" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="active" class="semantic-sigil s-backend" transform="translate(433 132) scale(0.6875)">
@@ -5218,8 +5218,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="402" y="163" class="t-muted" font-size="7" text-anchor="middle">claimed</text>
         </g>
 
-        <g id="node-delivered" data-node-id="delivered" data-node-label="DELIVERED" tabindex="0" role="button" aria-label="Focus DELIVERED, terminal, Claim and send" aria-pressed="false" data-node-kind="success" data-node-sublabel="terminal" data-node-context="Claim and send">
-          <title>DELIVERED · terminal · Claim and send</title>
+        <g id="node-delivered" data-node-id="delivered" data-node-label="DELIVERED" tabindex="0" role="button" aria-label="Focus DELIVERED, terminal, Claim and send (not wired)" aria-pressed="false" data-node-kind="success" data-node-sublabel="terminal" data-node-context="Claim and send (not wired)">
+          <title>DELIVERED · terminal · Claim and send (not wired)</title>
           <rect x="662" y="126" width="96" height="62" rx="7" class="c-mask"/>
           <rect x="662" y="126" width="96" height="62" rx="7" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="success" class="semantic-sigil s-database" transform="translate(741 132) scale(0.6875)">
@@ -5231,8 +5231,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="710" y="163" class="t-muted" font-size="7" text-anchor="middle">terminal</text>
         </g>
 
-        <g id="node-due" data-node-id="due" data-node-label="DUE" tabindex="0" role="button" aria-label="Focus DUE, ready, Wait and ready" aria-pressed="false" data-node-kind="active" data-node-sublabel="ready" data-node-context="Wait and ready">
-          <title>DUE · ready · Wait and ready</title>
+        <g id="node-due" data-node-id="due" data-node-label="DUE" tabindex="0" role="button" aria-label="Focus DUE, ready, Wait and ready (not wired)" aria-pressed="false" data-node-kind="active" data-node-sublabel="ready" data-node-context="Wait and ready (not wired)">
+          <title>DUE · ready · Wait and ready (not wired)</title>
           <rect x="354" y="278" width="96" height="58" rx="7" class="c-mask"/>
           <rect x="354" y="278" width="96" height="58" rx="7" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="active" class="semantic-sigil s-backend" transform="translate(433 284) scale(0.6875)">
@@ -5242,8 +5242,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="402" y="315" class="t-muted" font-size="7" text-anchor="middle">ready</text>
         </g>
 
-        <g id="node-dead" data-node-id="dead" data-node-label="DEAD_LETTERED" tabindex="0" role="button" aria-label="Focus DEAD_LETTERED, until replay, Wait and ready" aria-pressed="false" data-node-kind="failure" data-node-sublabel="until replay" data-node-context="Wait and ready">
-          <title>DEAD_LETTERED · until replay · Wait and ready</title>
+        <g id="node-dead" data-node-id="dead" data-node-label="DEAD_LETTERED" tabindex="0" role="button" aria-label="Focus DEAD_LETTERED, until replay, Wait and ready (not wired)" aria-pressed="false" data-node-kind="failure" data-node-sublabel="until replay" data-node-context="Wait and ready (not wired)">
+          <title>DEAD_LETTERED · until replay · Wait and ready (not wired)</title>
           <rect x="508" y="278" width="96" height="58" rx="7" class="c-mask"/>
           <rect x="508" y="278" width="96" height="58" rx="7" class="c-security" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="failure" class="semantic-sigil s-security" transform="translate(587 284) scale(0.6875)">
@@ -5254,8 +5254,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="556" y="315" class="t-muted" font-size="7" text-anchor="middle">until replay</text>
         </g>
 
-        <g id="node-held" data-node-id="held" data-node-label="HELD" tabindex="0" role="button" aria-label="Focus HELD, same key open, Held for order" aria-pressed="false" data-node-kind="waiting" data-node-sublabel="same key open" data-node-context="Held for order">
-          <title>HELD · same key open · Held for order</title>
+        <g id="node-held" data-node-id="held" data-node-label="HELD" tabindex="0" role="button" aria-label="Focus HELD, same key open, Held for order (not wired)" aria-pressed="false" data-node-kind="waiting" data-node-sublabel="same key open" data-node-context="Held for order (not wired)">
+          <title>HELD · same key open · Held for order (not wired)</title>
           <rect x="354" y="450" width="96" height="58" rx="7" class="c-mask"/>
           <rect x="354" y="450" width="96" height="58" rx="7" class="c-cloud" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="waiting" class="semantic-sigil s-cloud" transform="translate(433 456) scale(0.6875)">
@@ -5270,9 +5270,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="210.15" y="136" width="75.7" height="16" rx="4" class="c-mask"/>
           <text x="248" y="147" class="t-backend" font-size="8" text-anchor="middle">claim + token</text>
         </g>
-        <g data-detail="context" data-edge-from="pending" data-edge-to="retry" data-edge-label="bulkhead full" data-edge-key="1" data-edge-id="t-bulkhead-pending">
-          <rect x="109.15" y="286" width="75.7" height="16" rx="4" class="c-mask"/>
-          <text x="147" y="297" class="t-messagebus" font-size="8" text-anchor="middle">bulkhead full</text>
+        <g data-detail="context" data-edge-from="pending" data-edge-to="retry" data-edge-label="bulkhead full (not wired)" data-edge-key="1" data-edge-id="t-bulkhead-pending">
+          <rect x="79.75" y="341" width="134.5" height="16" rx="4" class="c-mask"/>
+          <text x="147" y="352" class="t-messagebus" font-size="8" text-anchor="middle">bulkhead full (not wired)</text>
         </g>
         <g data-detail="context" data-edge-from="pending" data-edge-to="held" data-edge-label="hold applies" data-edge-key="2" data-edge-id="t-hold">
           <rect x="-5.400000000000006" y="297" width="70.80000000000001" height="16" rx="4" class="c-mask"/>
@@ -5286,25 +5286,25 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="532.85" y="136" width="46.300000000000004" height="16" rx="4" class="c-mask"/>
           <text x="556" y="147" class="t-backend" font-size="8" text-anchor="middle">success</text>
         </g>
-        <g data-detail="context" data-edge-from="sending" data-edge-to="retry" data-edge-label="retryable or stale claim" data-edge-key="5" data-edge-id="t-retry">
-          <rect x="253.2" y="211" width="129.60000000000002" height="16" rx="4" class="c-mask"/>
-          <text x="318" y="222" class="t-security" font-size="8" text-anchor="middle">retryable or stale claim</text>
+        <g data-detail="context" data-edge-from="sending" data-edge-to="retry" data-edge-label="retryable; stale claim planned" data-edge-key="5" data-edge-id="t-retry">
+          <rect x="238.5" y="211" width="159" height="16" rx="4" class="c-mask"/>
+          <text x="318" y="222" class="t-security" font-size="8" text-anchor="middle">retryable; stale claim planned</text>
         </g>
         <g data-detail="context" data-edge-from="retry" data-edge-to="due" data-edge-label="re-drive" data-edge-key="6" data-edge-id="t-redrive">
           <rect x="299.4" y="257" width="51.2" height="16" rx="4" class="c-mask"/>
           <text x="325" y="268" class="t-muted" font-size="8" text-anchor="middle">re-drive</text>
         </g>
-        <g data-detail="context" data-edge-from="due" data-edge-to="retry" data-edge-label="bulkhead full" data-edge-key="7" data-edge-id="t-wait-bulkhead">
-          <rect x="287.15" y="343" width="75.7" height="16" rx="4" class="c-mask"/>
-          <text x="325" y="354" class="t-messagebus" font-size="8" text-anchor="middle">bulkhead full</text>
+        <g data-detail="context" data-edge-from="due" data-edge-to="retry" data-edge-label="bulkhead full (not wired)" data-edge-key="7" data-edge-id="t-wait-bulkhead">
+          <rect x="249.75" y="343" width="134.5" height="16" rx="4" class="c-mask"/>
+          <text x="317" y="354" class="t-messagebus" font-size="8" text-anchor="middle">bulkhead full (not wired)</text>
         </g>
-        <g data-detail="context" data-edge-from="sending" data-edge-to="dead" data-edge-label="permanent or stale claim" data-edge-key="8" data-edge-id="t-to-dead">
-          <rect x="421.2" y="212" width="129.60000000000002" height="16" rx="4" class="c-mask"/>
-          <text x="486" y="223" class="t-security" font-size="8" text-anchor="middle">permanent or stale claim</text>
+        <g data-detail="context" data-edge-from="sending" data-edge-to="dead" data-edge-label="permanent; stale claim planned" data-edge-key="8" data-edge-id="t-to-dead">
+          <rect x="406.5" y="212" width="159" height="16" rx="4" class="c-mask"/>
+          <text x="486" y="223" class="t-security" font-size="8" text-anchor="middle">permanent; stale claim planned</text>
         </g>
-        <g data-detail="context" data-edge-from="dead" data-edge-to="due" data-edge-label="replay" data-edge-key="9" data-edge-id="t-replay">
-          <rect x="458.3" y="286" width="41.400000000000006" height="16" rx="4" class="c-mask"/>
-          <text x="479" y="297" class="t-messagebus" font-size="8" text-anchor="middle">replay</text>
+        <g data-detail="context" data-edge-from="dead" data-edge-to="due" data-edge-label="replay (planned)" data-edge-key="9" data-edge-id="t-replay">
+          <rect x="433.8" y="339" width="90.4" height="16" rx="4" class="c-mask"/>
+          <text x="479" y="350" class="t-messagebus" font-size="8" text-anchor="middle">replay (planned)</text>
         </g>
         <g data-detail="context" data-edge-from="due" data-edge-to="held" data-edge-label="hold applies" data-edge-key="10" data-edge-id="t-hold-due">
           <rect x="313.6" y="385" width="70.80000000000001" height="16" rx="4" class="c-mask"/>
@@ -5528,33 +5528,34 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
-          <h3>Main path</h3>
+          <h3>Register (in code)</h3>
         </div>
         <ul>
+          <li>&bull; 12 legal moves in code; none driven by platform-app yet (E11)</li>
+          <li>&bull; Claim token on every change</li>
           <li>&bull; Claim: key lock, hold check, HELD or SENDING</li>
-          <li>&bull; State changes need the claim token</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot orange"></div>
-          <h3>To RETRY_WAIT</h3>
+          <h3>To RETRY_WAIT (not wired)</h3>
         </div>
         <ul>
-          <li>&bull; Transient, circuit open, bulkhead full, missing key</li>
-          <li>&bull; Stale claim: 3 x timeout + 65 s</li>
+          <li>&bull; Transient, missing key, bulkhead full</li>
+          <li>&bull; Stale claim (3 x timeout + 65 s): sweeper planned</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot rose"></div>
-          <h3>To DEAD_LETTERED</h3>
+          <h3>To DEAD_LETTERED (not wired)</h3>
         </div>
         <ul>
-          <li>&bull; Permanent, exhausted, ambiguous or stale</li>
-          <li>&bull; Final state releases the next HELD</li>
+          <li>&bull; Permanent, ambiguous or 8 tries; releases next HELD</li>
+          <li>&bull; Replay: planned (no API yet); stage 1 not wired yet</li>
         </ul>
       </div>
     </div>
