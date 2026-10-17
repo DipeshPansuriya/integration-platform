@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.DoubleSupplier;
 import org.junit.jupiter.api.DisplayName;
@@ -274,6 +276,43 @@ class DeliveryDueDispatchTest {
     }
 
     @Test
+    @DisplayName("B19 F3: the send runs on the pool thread under the record's tenant, unbound after - nothing"
+            + " leaks to that thread's next task")
+    void poolThreadRunsUnderTheRecordsTenantAndNothingLeaks() throws Exception {
+        UUID delivery = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1); // one pool thread: the next task reuses it
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            AtomicReference<String> sendThread = new AtomicReference<>();
+            send.onCall = sendThread::set;
+            send.tenant = binding::currentTenantId;
+
+            dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
+            assertThat(binding.currentTenantId()).as("the partition thread is unbound after the record").isEmpty();
+
+            // queued behind the send on the same single thread, so it runs only once the send's task has ended
+            AtomicReference<String> nextThread = new AtomicReference<>();
+            AtomicReference<Optional<UUID>> nextTenant = new AtomicReference<>();
+            CountDownLatch nextRan = new CountDownLatch(1);
+            assertThat(registry.of(target).execute(() -> {
+                nextThread.set(Thread.currentThread().getName());
+                nextTenant.set(binding.currentTenantId());
+                nextRan.countDown();
+            })).isTrue();
+            assertThat(nextRan.await(5, TimeUnit.SECONDS)).as("the next task ran").isTrue();
+
+            assertThat(send.tenants).as("the send ran with the record's tenant bound on the pool thread")
+                    .containsExactly(Optional.of(TENANT));
+            assertThat(nextThread.get()).as("the same pool thread").isEqualTo(sendThread.get());
+            assertThat(nextTenant.get()).as("no tenant leaks to the thread's next task").isEmpty();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("this handler is the delivery consumer - a message record is refused, never half-handled")
     void messageRecordsAreRefused() {
         BulkheadRegistry registry = new BulkheadRegistry(1);
@@ -352,10 +391,13 @@ class DeliveryDueDispatchTest {
     private static final class RecordingSend implements Stage2SendDispatch {
 
         final List<Stage2Send> calls = java.util.Collections.synchronizedList(new ArrayList<>());
+        final List<Optional<UUID>> tenants = java.util.Collections.synchronizedList(new ArrayList<>());
         java.util.function.Consumer<String> onCall = thread -> { };
+        java.util.function.Supplier<Optional<UUID>> tenant = Optional::empty;
 
         @Override
         public void dispatch(Stage2Send send) {
+            tenants.add(tenant.get());
             calls.add(send);
             onCall.accept(Thread.currentThread().getName());
         }
