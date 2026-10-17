@@ -42,6 +42,8 @@ import org.springframework.web.bind.annotation.RestController;
 class PublishRefusalAnswerTest {
 
     private static final String SECRET_URI = "exec://admin:s3cret@host/bin/echo";
+    private static final String LONG_TYPE = "FTP" + "X".repeat(40);
+    private static final String CRLF_TYPE = "FTP\r\nX-Injected: yes";
 
     private DefaultCamelContext camel;
     private MockMvc mvc;
@@ -78,6 +80,30 @@ class PublishRefusalAnswerTest {
                 .andExpect(jsonPath("$.error").value(containsString("'FTP'")));
     }
 
+    @Test
+    void textBeforeTheColonThatIsNotASchemeIsNeverEchoed() throws Exception {
+        mvc.perform(post("/publish/malformed-scheme"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(containsString("(not a URI scheme)")))
+                .andExpect(content().string(not(containsString("token@host"))));
+    }
+
+    @Test
+    void anOverLongTypeAnswersTheFixedText() throws Exception {
+        mvc.perform(post("/publish/long-type"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(containsString("(not a target type)")))
+                .andExpect(content().string(not(containsString(LONG_TYPE))));
+    }
+
+    @Test
+    void aCrLfTypeAnswersTheFixedText() throws Exception {
+        mvc.perform(post("/publish/crlf-type"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(containsString("(not a target type)")))
+                .andExpect(content().string(not(containsString("X-Injected"))));
+    }
+
     /** A publish endpoint of the configuration API whose routing check refuses the interface's row. */
     @RestController
     static class RefusingPublishController {
@@ -96,6 +122,24 @@ class PublishRefusalAnswerTest {
         @PostMapping("/publish/type")
         String refusedType() {
             return publish(new RouteConfigRow(seed("route-ftp"), seed("endpoint-ftp"), "FTP",
+                    "https://target.example/v1", null, null));
+        }
+
+        @PostMapping("/publish/malformed-scheme")
+        String refusedMalformedScheme() {
+            return publish(new RouteConfigRow(seed("route-at"), seed("endpoint-at"), "API", "token@host:8443/x",
+                    null, null));
+        }
+
+        @PostMapping("/publish/long-type")
+        String refusedLongType() {
+            return publish(new RouteConfigRow(seed("route-long"), seed("endpoint-long"), LONG_TYPE,
+                    "https://target.example/v1", null, null));
+        }
+
+        @PostMapping("/publish/crlf-type")
+        String refusedCrLfType() {
+            return publish(new RouteConfigRow(seed("route-crlf"), seed("endpoint-crlf"), CRLF_TYPE,
                     "https://target.example/v1", null, null));
         }
 

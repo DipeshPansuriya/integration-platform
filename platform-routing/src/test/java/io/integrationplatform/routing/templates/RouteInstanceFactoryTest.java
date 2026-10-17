@@ -150,8 +150,38 @@ class RouteInstanceFactoryTest {
         assertThatThrownBy(() -> factory.publishInterface(TENANT, INTERFACE_ID))
                 .as("T-120 machinery at route build: configuration cannot reach an unapproved component")
                 .isInstanceOf(RouteBuildRefusedException.class)
-                .hasMessageContaining("exec:");
+                .hasMessageContaining("'exec'");
         assertThat(factory.instanceOf(ENDPOINT_A)).as("the refused route is never registered").isEmpty();
+    }
+
+    @Test
+    void aRefusalDetailNamesTheSchemeEndpointAndRouteButNeverTheEndpointUri() {
+        UUID route = instanceId("route-5");
+        reader.add(new RouteConfigRow(route, ENDPOINT_A, "API",
+                "exec://user:pw@host/bin/echo?token=s3cret\r\nX-Injected: yes", null, MAPPING_M3));
+
+        assertThatThrownBy(() -> factory.publishInterface(TENANT, INTERFACE_ID))
+                .as("row 278 B22, Kavita M1: the detail reaches the send-path log")
+                .isInstanceOf(RouteBuildRefusedException.class)
+                .satisfies(refused -> assertThat(refused.getMessage())
+                        .contains("'exec'", ENDPOINT_A.toString(), route.toString())
+                        .doesNotContain("user:pw", "s3cret", "token=", "\r", "\n"));
+    }
+
+    @Test
+    void aRefusalDetailNeverEchoesTextThatIsNotASchemeOrAType() {
+        reader.add(new RouteConfigRow(instanceId("route-6"), ENDPOINT_A, "API", "token@host:8443/x", null, MAPPING_M3));
+        assertThatThrownBy(() -> factory.publishInterface(TENANT, INTERFACE_ID))
+                .isInstanceOf(RouteBuildRefusedException.class)
+                .satisfies(refused -> assertThat(refused.getMessage())
+                        .contains("(not a URI scheme)").doesNotContain("token@host"));
+
+        reader.replace(instanceId("route-6"), new RouteConfigRow(instanceId("route-6"), ENDPOINT_A,
+                "FTP\r\nX-Injected: yes", "https://target-a.example/v1", null, MAPPING_M3));
+        assertThatThrownBy(() -> factory.publishInterface(TENANT, INTERFACE_ID))
+                .isInstanceOf(RouteBuildRefusedException.class)
+                .satisfies(refused -> assertThat(refused.getMessage())
+                        .contains("(not a target type)").doesNotContain("X-Injected", "\r", "\n"));
     }
 
     @Test
