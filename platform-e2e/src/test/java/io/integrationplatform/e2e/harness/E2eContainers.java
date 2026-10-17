@@ -44,10 +44,21 @@ public final class E2eContainers {
 
     private static final String LOOPBACK = "127.0.0.1";
 
+    /** Artemis CLI inside the image (the compose healthcheck calls the same binary). */
+    static final String ARTEMIS_CLI = "/var/lib/artemis-instance/bin/artemis";
+
+    /** Readiness probe; the shell inside the container expands the login from the env set below. */
+    private static final String ARTEMIS_CHECK_NODE_UP =
+            ARTEMIS_CLI + " check node --up --user \"$ARTEMIS_USER\" --password \"$ARTEMIS_PASSWORD\"";
+
     private E2eContainers() {
     }
 
-    /** The JMS broker, anonymous login off, ready once its embedded web server has started. */
+    /**
+     * The JMS broker, anonymous login off, ready once {@code artemis check node --up} succeeds with the run's login -
+     * the same probe as compose's {@code e2e}-profile healthcheck, so the harness and compose agree on "ready" (the
+     * console's startup log line no longer applies: the console is not exposed).
+     */
     public static GenericContainer<?> artemis(Network network) {
         return new GenericContainer<>(DockerImageName.parse(E2eImages.ARTEMIS))
                 .withNetwork(network)
@@ -58,7 +69,7 @@ public final class E2eContainers {
                 .withEnv("TZ", "Etc/UTC")
                 .withExposedPorts(ARTEMIS_PORT)
                 .withCreateContainerCmdModifier(loopbackOnly(ARTEMIS_PORT))
-                .waitingFor(Wait.forLogMessage(".*HTTP Server started.*", 1).withStartupTimeout(STARTUP_TIMEOUT));
+                .waitingFor(Wait.forSuccessfulCommand(ARTEMIS_CHECK_NODE_UP).withStartupTimeout(STARTUP_TIMEOUT));
     }
 
     /** The stand-in HTTP destination, ready once its admin health answers 200. */
