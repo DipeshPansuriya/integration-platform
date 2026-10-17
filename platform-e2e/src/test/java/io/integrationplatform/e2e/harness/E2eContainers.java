@@ -84,7 +84,7 @@ public final class E2eContainers {
     }
 
     /** Publishes each container port on a random host port bound to 127.0.0.1 only (not 0.0.0.0). */
-    static Consumer<CreateContainerCmd> loopbackOnly(int... containerPorts) {
+    public static Consumer<CreateContainerCmd> loopbackOnly(int... containerPorts) {
         return cmd -> cmd.getHostConfig().withPortBindings(Arrays.stream(containerPorts)
                 .mapToObj(port -> new PortBinding(Ports.Binding.bindIp(LOOPBACK), new ExposedPort(port)))
                 .toList());
