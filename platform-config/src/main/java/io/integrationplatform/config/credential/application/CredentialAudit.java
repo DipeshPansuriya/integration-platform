@@ -5,16 +5,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.transaction.support.TransactionOperations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.support.TransactionOperations;
 
 /**
  * The audit of every credential action (T-103; R14): one structured event per action, ids only - tenant, actor, system
  * or endpoint, credential ids, field names and outcome; never a secret, a ciphertext, a wrapped key or a client secret.
- * The platform audit store (platform-audit) does not exist yet, so the log line is the record (the TestConnectionAudit
- * style).
+ * Each completed action also publishes one {@code AuditEvent} (E12-F2-S1, T-134) that the append-only writer persists
+ * in {@code audit_event}; a refusal is not an action and stays the log line only.
  */
 public class CredentialAudit {
 
