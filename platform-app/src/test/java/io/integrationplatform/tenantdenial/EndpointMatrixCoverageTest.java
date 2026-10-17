@@ -3,6 +3,8 @@ package io.integrationplatform.tenantdenial;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import io.integrationplatform.app.activity.ActivityController;
+import io.integrationplatform.app.activity.ActivityService;
 import io.integrationplatform.app.message.MessageTrackingController;
 import io.integrationplatform.app.message.MessageTrackingService;
 import io.integrationplatform.app.queue.QueueSummaryController;
@@ -202,6 +204,10 @@ class EndpointMatrixCoverageTest {
                 // row 278 T110 lane C (T-137 API + E12 failure diagnosis read side): the message timeline and
                 // failures reads, covered by E13TimelineMatrix; mocked service and providers, nothing is invoked
                 new MessageTrackingController(mock(MessageTrackingService.class), mock(ConfigActors.class),
+                        mock(ObjectProvider.class), mock(ObjectProvider.class)),
+                // row 327 E12 seam (T118): the activity read, covered by E12ActivityMatrix; mocked service and
+                // providers, nothing is invoked
+                new ActivityController(mock(ActivityService.class), mock(ConfigActors.class),
                         mock(ObjectProvider.class), mock(ObjectProvider.class))};
     }
 
