@@ -1,13 +1,18 @@
 package io.integrationplatform.delivery.internal.trigger;
 
+import io.integrationplatform.delivery.internal.retry.RetryPolicy;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
+import io.integrationplatform.delivery.port.DeliveryReconcileStore;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.delivery.port.InstanceReadiness;
 import io.integrationplatform.delivery.port.RetryCandidate;
 import io.integrationplatform.delivery.port.TargetRedriveCap;
+import io.integrationplatform.delivery.port.TargetSendFacts;
 import io.integrationplatform.ingest.port.OutboxEntry;
 import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.ingest.port.OutboxWriter;
+import io.integrationplatform.domain.delivery.OutcomeClass;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -15,6 +20,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import org.springframework.transaction.support.TransactionOperations;
 
 /**
@@ -41,6 +47,9 @@ public final class DeliveryRetryTrigger {
     private final InstanceReadiness readiness;
     private final DeliveryBulkheadFacts bulkheadFacts;
     private final TargetRedriveCap redriveCap;
+    private final DeliveryReconcileStore reconcileStore;
+    private final TargetSendFacts targetFacts;
+    private final RetryPolicy policy;
     private final int batchSize;
 
     public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
@@ -69,6 +78,20 @@ public final class DeliveryRetryTrigger {
             TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
             int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
             TargetRedriveCap redriveCap) {
+        this(tenants, tenantContext, transactions, store, outboxWriter, batchSize, readiness, bulkheadFacts,
+                redriveCap, DeliveryReconcileStore.none(), TargetSendFacts.unknown(), RetryPolicy.defaults());
+    }
+
+    /**
+     * T-180 (E9-F3-S1): with the delivery side of the reconciler sweep - in each tenant's transaction, before the
+     * re-drive, stale {@code SENDING} claims are settled and held deliveries whose predecessors are final are
+     * released.
+     */
+    public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
+            TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
+            int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
+            TargetRedriveCap redriveCap, DeliveryReconcileStore reconcileStore, TargetSendFacts targetFacts,
+            RetryPolicy policy) {
         if (batchSize < 1) {
             throw new IllegalArgumentException("batchSize must be at least 1");
         }
@@ -80,6 +103,9 @@ public final class DeliveryRetryTrigger {
         this.readiness = Objects.requireNonNull(readiness, "readiness");
         this.bulkheadFacts = Objects.requireNonNull(bulkheadFacts, "bulkheadFacts");
         this.redriveCap = Objects.requireNonNull(redriveCap, "redriveCap");
+        this.reconcileStore = Objects.requireNonNull(reconcileStore, "reconcileStore");
+        this.targetFacts = Objects.requireNonNull(targetFacts, "targetFacts");
+        this.policy = Objects.requireNonNull(policy, "policy");
         this.batchSize = batchSize;
     }
 
@@ -93,7 +119,10 @@ public final class DeliveryRetryTrigger {
         for (UUID tenant : tenants.activeTenantIds()) {
             tenantContext.bind(tenant);
             try {
-                Integer moved = transactions.execute(status -> redriveDue(tenant));
+                Integer moved = transactions.execute(status -> {
+                    settleStaleClaims(tenant);
+                    return releaseHeld() + redriveDue(tenant);
+                });
                 reDriven += moved == null ? 0 : moved;
             } finally {
                 tenantContext.unbind();
@@ -127,4 +156,49 @@ public final class DeliveryRetryTrigger {
         }
         return moved;
     }
+
+    /**
+     * T-180 (ADR-011 D6): a HELD delivery whose predecessors are all final but whose release was missed is
+     * released here, writing its due record in the same transaction.
+     */
+    private int releaseHeld() {
+        int released = 0;
+        for (UUID held : reconcileStore.lockReleasableHeld(batchSize)) {
+            if (!reconcileStore.release(held)) {
+                continue; // 0 rows: no longer HELD - nothing to re-drive
+            }
+            outboxWriter.append(new OutboxEntry(OutboxTopic.DELIVERY_DUE, held, "delivery:" + held, null, null));
+            released++;
+        }
+        return released;
+    }
+
+    /**
+     * T-180 (ADR-010 section 6): a SENDING claim past {@code staleClaimLimit(target timeout)} is settled as an
+     * AMBIGUOUS outcome - never re-sent straight away: a non-idempotent target dead-letters, an idempotent one
+     * schedules a retry (or dead-letters once out of attempts).
+     */
+    private void settleStaleClaims(UUID tenant) {
+        Instant now = Instant.now();
+        Instant cutoff = now.minus(policy.staleClaimLimit(Duration.ZERO)); // the shortest limit any target has
+        for (DeliveryReconcileStore.SendingClaim claim : reconcileStore.sendingClaimedBefore(cutoff, batchSize)) {
+            // ponytail: unknown target facts assume the longest timeout (300 s, the config max) and no idempotency
+            TargetSendFacts.Facts facts = targetFacts.forTarget(claim.targetId())
+                    .orElse(new TargetSendFacts.Facts(UNKNOWN_TARGET_TIMEOUT, false));
+            if (claim.claimedAt().plus(policy.staleClaimLimit(facts.timeout())).isAfter(now)) {
+                continue; // still inside this target's limit: the send may yet report
+            }
+            boolean settled = facts.idempotentReceive() && claim.attempts() < policy.maxAttempts()
+                    ? store.scheduleRetry(claim.deliveryId(), claim.claimToken(), policy.nextRetryAt(now,
+                            claim.attempts() + 1, null, ThreadLocalRandom.current().nextDouble()))
+                    : store.deadLetter(claim.deliveryId(), claim.claimToken(), OutcomeClass.AMBIGUOUS);
+            if (settled) {
+                LOG.log(System.Logger.Level.INFO, "stale claim settled as AMBIGUOUS: tenant {0}, delivery {1}",
+                        tenant, claim.deliveryId());
+            }
+        }
+    }
+
+    private static final Duration UNKNOWN_TARGET_TIMEOUT = Duration.ofSeconds(300);
+    private static final System.Logger LOG = System.getLogger(DeliveryRetryTrigger.class.getName());
 }
