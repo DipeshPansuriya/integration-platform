@@ -56,7 +56,10 @@ async function freshFlow(page, scenario) {
   const created = await inBrowser(page, 'POST', '/api/v1/admin/flows',
     { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' });
   expect(created?.data?.id, `scenario ${scenario} onboards a flow: ${JSON.stringify(created?.data ?? created)}`).toBeTruthy();
-  return { id: created.data.id, code: created.data.code, scenario };
+  // the 201 carries only {id} (FlowAdminController.create); the code comes from the read
+  const read = await inBrowser(page, 'GET', `/api/v1/admin/flows/${created.data.id}`);
+  expect(read?.data?.code, `scenario ${scenario} reads its flow back: ${JSON.stringify(read?.data ?? read)}`).toBeTruthy();
+  return { id: created.data.id, code: read.data.code, scenario };
 }
 
 /** A message row with a known id (the tracking id); state ROUTED or ROUTE_FAILED. */
@@ -205,7 +208,7 @@ test('All flows: the Flow column heads the table and each row names its own flow
   await expect(page.locator(`[data-failure-row="${one}"] [data-flow-cell]`)).toHaveText(first.code);
   await expect(page.locator(`[data-failure-row="${two}"] [data-flow-cell]`)).toHaveText(second.code);
   // the Flow cell sits in the header's position (second cell of the row)
-  await expect(page.locator(`[data-failure-row="${one}"] > td`).nth(1)).toHaveAttribute('data-flow-cell', '');
+  await expect(page.locator(`[data-failure-row="${one}"] > td`).nth(1)).toHaveAttribute('data-flow-cell'); // presence: React renders the boolean as "true"
 
   // one flow selected: no Flow column, no Flow cell
   await pickFlow(page, first.id);
