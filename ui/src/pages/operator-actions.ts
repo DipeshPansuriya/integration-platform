@@ -1,6 +1,6 @@
 // T112 (E13 base N3, row 278 lane B): the retry/replay buttons' pure view model over the T111 endpoints.
 // Replay: a DEAD_LETTERED delivery (the failures screen lists exactly those) -> DUE. Retry now: a delivery
-// waiting to retry (last outcome TRANSIENT or AMBIGUOUS, shown on the detail screen) -> DUE now. Both re-send
+// in RETRY_WAIT (keyed on state, T165 M2; shown on the detail screen) -> DUE now. Both re-send
 // with the delivery's pinned mapping and contract versions; the server decides, the screen only words it.
 // No DOM, no fetch - unit-tested under node (tests/ui/operator-actions.test.mjs).
 
@@ -11,16 +11,17 @@ export type ActionKind = 'replay' | 'retry';
 export type OperatorAction = { kind: ActionKind; deliveryId: string; label: string };
 
 const LABELS: Record<ActionKind, string> = { replay: 'Replay', retry: 'Retry now' };
-const RETRYABLE = new Set(['TRANSIENT', 'AMBIGUOUS']);
 
 export function failureAction(f: Pick<Failure, 'deliveryId' | 'failingStage'>): OperatorAction | null {
   if (f.failingStage !== 'DELIVER' || !f.deliveryId) return null;
   return { kind: 'replay', deliveryId: f.deliveryId, label: LABELS.replay };
 }
 
-export function deliveryAction(d: Pick<DeliveryTime, 'deliveryId' | 'outcome'>): OperatorAction | null {
-  if (!RETRYABLE.has(d.outcome ?? '')) return null;
-  return { kind: 'retry', deliveryId: d.deliveryId, label: LABELS.retry };
+// T165 M2 (ADR-010 section 6): keyed on the delivery state, never the attempt outcome; any other state -> 409.
+export function deliveryAction(d: Pick<DeliveryTime, 'deliveryId' | 'state'>): OperatorAction | null {
+  if (d.state === 'RETRY_WAIT') return { kind: 'retry', deliveryId: d.deliveryId, label: LABELS.retry };
+  if (d.state === 'DEAD_LETTERED') return { kind: 'replay', deliveryId: d.deliveryId, label: LABELS.replay };
+  return null;
 }
 
 export function actionPath(kind: ActionKind): string {

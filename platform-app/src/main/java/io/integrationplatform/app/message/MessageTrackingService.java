@@ -1,5 +1,7 @@
 package io.integrationplatform.app.message;
 
+import io.integrationplatform.domain.delivery.DeliveryState;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.integrationplatform.config.flow.api.MaskedFields;
 import java.time.Duration;
 import java.time.Instant;
@@ -62,10 +64,11 @@ public class MessageTrackingService {
 
     /**
      * One delivery of a message: its target and the last attempt's sent-to-answered time and outcome (null: none).
-     * Row 328 V2: deliberately the 4-field subset of the row 329 contract ({@code state, attemptCount, lastAttempt{..}});
-     * Mira decision 17-Oct - kept for the showcase, the seam's contract regeneration uses it, mahesh-architect widens it.
+     * T165 M1 (ADR-010 section 6): {@code state} is the delivery's own state, never null - the operator actions key on
+     * it, {@code outcome} is display only. Still a subset of the row 329 contract (no attemptCount, lastAttempt{..}).
      */
-    public record DeliveryTime(String deliveryId, String targetId, Long durationMs, String outcome) {
+    public record DeliveryTime(String deliveryId, String targetId, Long durationMs, String outcome,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) DeliveryState state) {
     }
 
     /** One failed or dead-lettered message: where it failed, the error class and the last error text. */
@@ -152,7 +155,8 @@ public class MessageTrackingService {
                         .thenComparing(JdbcMessageTrackingStore.DeliveryAttemptRow::deliveryId))
                 .map(row -> new DeliveryTime(row.deliveryId(), row.targetId(),
                         row.attemptId() == null ? null : millis(row.startedAt(), row.finishedAt()),
-                        row.attemptId() == null ? null : row.outcomeClass()))
+                        row.attemptId() == null ? null : row.outcomeClass(),
+                        DeliveryState.valueOf(row.state())))
                 .toList();
     }
 

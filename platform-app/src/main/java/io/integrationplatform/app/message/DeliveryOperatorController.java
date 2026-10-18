@@ -1,5 +1,6 @@
 package io.integrationplatform.app.message;
 
+import io.integrationplatform.domain.delivery.DeliveryState;
 import io.integrationplatform.config.adapter.in.ConfigActors;
 import io.integrationplatform.config.adapter.in.ConfigErrorBody;
 import io.integrationplatform.delivery.replay.DeliveryOperatorActions;
@@ -56,7 +57,7 @@ public class DeliveryOperatorController {
         @ApiResponse(responseCode = "404", description = "No delivery with this id for the bound tenant",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
         @ApiResponse(responseCode = "409", description = "Not DEAD_LETTERED, or not pinned to both versions",
-                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = DeliveryConflict.class)))})
     @PostMapping("/{deliveryId}/replay")
     public ResponseEntity<?> replay(@PathVariable("deliveryId") UUID deliveryId, HttpServletRequest request) {
         String actor = actors.requireActor().userId().toString();
@@ -66,12 +67,12 @@ public class DeliveryOperatorController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Moved to DUE now; sent again with the pinned versions",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = Result.class))),
-        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or ROLE_NOT_GRANTED: a dead-letter replay",
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or ROLE_NOT_GRANTED: a delivery retry",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
         @ApiResponse(responseCode = "404", description = "No delivery with this id for the bound tenant",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
         @ApiResponse(responseCode = "409", description = "Not RETRY_WAIT, or not pinned to both versions",
-                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = DeliveryConflict.class)))})
     @PostMapping("/{deliveryId}/retry")
     public ResponseEntity<?> retry(@PathVariable("deliveryId") UUID deliveryId, HttpServletRequest request) {
         String actor = actors.requireActor().userId().toString();
@@ -101,5 +102,11 @@ public class DeliveryOperatorController {
         UUID bound = tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId().orElse(null);
         recorder.record(new DeniedTenantAttempt(bound, DeniedTenantAttempt.Channel.PATH_ID, request.getMethod(),
                 request.getRequestURI(), Instant.now()));
+    }
+
+    /** The 409 body (T165 M5, ADR-010 section 6): which conflict ("wrong state" | "not pinned") and the delivery's state now. */
+    public record DeliveryConflict(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String error,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) DeliveryState state) {
     }
 }

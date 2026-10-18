@@ -18,14 +18,18 @@ export type StageTime = {
 
 /**
  * One delivery of the message: the last attempt's sent-to-answered time and outcome (null: no attempt yet).
- * Row 328 V2: deliberately the 4-field subset of the row 329 contract ({state, attemptCount, lastAttempt{...}});
- * Mira decision 17-Oct - kept for the showcase, the seam's contract regeneration uses it, mahesh-architect widens it.
+ * T165 M1 (ADR-010 section 6): state is the delivery's own state, never null - the operator actions key on it,
+ * outcome is display only. Still a subset of the row 329 contract (no attemptCount, lastAttempt{...}).
  */
+export type DeliveryState = 'PENDING' | 'HELD' | 'SENDING' | 'RETRY_WAIT' | 'DUE' | 'DELIVERED' | 'DEAD_LETTERED';
+
 export type DeliveryTime = {
   deliveryId: string;
   targetId: string | null;
   durationMs: number | null;
   outcome: string | null;
+  /** T165 M1: the delivery's own state, never null; the operator actions key on it (outcome is display only). */
+  state: DeliveryState;
 };
 
 export type Timeline = {

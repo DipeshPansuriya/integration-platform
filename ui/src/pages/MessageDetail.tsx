@@ -138,7 +138,7 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
             ))}
           </dl>
           {(timeline.deliveries ?? []).map((d) => {
-            // T112: a delivery waiting to retry (last outcome TRANSIENT/AMBIGUOUS) offers Retry now; the server's 409 guards the state.
+            // T165 M2: the action follows the delivery state - RETRY_WAIT offers Retry now, DEAD_LETTERED Replay; the 409 still guards.
             const action = deliveryAction(d);
             return action ? (
               <p key={d.deliveryId} data-delivery-action={d.deliveryId}>
