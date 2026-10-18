@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.RequestDispatcher;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
@@ -162,5 +164,17 @@ class TokenValidationTest {
                 .singleElement().satisfies(line -> org.assertj.core.api.Assertions.assertThat(line)
                         .contains("channel=NO_IDENTITY", "boundTenant=null"));
         org.assertj.core.api.Assertions.assertThat(output.getAll()).doesNotContain("tenant-b");
+    }
+
+    /** R1: a 5xx's error dispatch is not authenticated again, so the caller sees the 5xx, never a 401. */
+    @Test
+    void anUnauthenticatedErrorDispatchKeepsItsStatusAndIsNot401() throws Exception {
+        mvc.perform(get("/error").with(request -> {
+                    request.setDispatcherType(DispatcherType.ERROR);
+                    request.setAttribute(RequestDispatcher.ERROR_STATUS_CODE, 500);
+                    request.setAttribute(RequestDispatcher.ERROR_REQUEST_URI, "/api/v1/me");
+                    return request;
+                }))
+                .andExpect(status().isInternalServerError());
     }
 }
