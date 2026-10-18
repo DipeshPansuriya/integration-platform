@@ -53,6 +53,7 @@ points apply decisions already accepted; nothing new is chosen except which side
    read-only API over published versions anyway - `architecture.md:48`, ADR-013 item 7). The
    arch-test module rules must allow routing -> config api only, never config internals.
    [Inferred; TBD - the arch-test rule is written in the E10 seam]
+   **Amended 2026-10-17 by [ADR-017](ADR-017-publish-refusal-contract.md):** the first enforced step is a deny rule (routing must not depend on config `.application` / `.adapter` packages, one named exception `FlowBundle`); a refused publish crosses as config's public `flow.api.InterfacePublishRefused`. The full api-only allowlist stays with the E10 seam.
 3. **The code changes, not the ADR**, in **E10** (the epic that builds the MQ-CSV adapter), in
    Arjun's wave-0 seam, before lane work:
    - one config migration (E10 seam range `V2_2_1000-1009`): `UPDATE public.system SET type =
