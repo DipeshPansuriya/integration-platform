@@ -3,6 +3,7 @@ package io.integrationplatform.tenantdenial;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import io.integrationplatform.app.message.DeliveryOperatorController;
 import io.integrationplatform.app.message.MessageTrackingController;
 import io.integrationplatform.app.message.MessageTrackingService;
 import io.integrationplatform.app.queue.QueueSummaryController;
@@ -29,6 +30,7 @@ import io.integrationplatform.config.rule.application.LookupEntryService;
 import io.integrationplatform.config.rule.application.RuleSetAdminService;
 import io.integrationplatform.config.system.adapter.in.SystemAdminController;
 import io.integrationplatform.config.system.application.SystemAdminService;
+import io.integrationplatform.delivery.replay.DeliveryOperatorActions;
 import io.integrationplatform.ingest.adapter.in.IntakeController;
 import io.integrationplatform.ingest.port.IntakeTransaction;
 import io.integrationplatform.tenancy.port.DeniedTenantAttempt.Channel;
@@ -202,6 +204,10 @@ class EndpointMatrixCoverageTest {
                 // row 278 T110 lane C (T-137 API + E12 failure diagnosis read side): the message timeline and
                 // failures reads, covered by E13TimelineMatrix; mocked service and providers, nothing is invoked
                 new MessageTrackingController(mock(MessageTrackingService.class), mock(ConfigActors.class),
+                        mock(ObjectProvider.class), mock(ObjectProvider.class)),
+                // row 278 gate fix (T111): the operator replay/retry actions, covered by T111DeliveryOperatorMatrix;
+                // mocked actions and providers, nothing is invoked
+                new DeliveryOperatorController(mock(DeliveryOperatorActions.class), mock(ConfigActors.class),
                         mock(ObjectProvider.class), mock(ObjectProvider.class))};
     }
 
