@@ -117,7 +117,9 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
      * The try this processor invocation performs: 1 on the first try, one more on every redelivery. Counted from
      * the exchange's own {@link #LAST_TRY} - the count of performed tries - because that is what the hand-off
      * reports to layer 2 as {@code attemptsSoFar}, and it must equal the number of recorded attempt rows (the
-     * report equals the rows); Camel's internal redelivery counter is not this processor's register to read.
+     * report equals the rows); Camel's internal redelivery counter is not this processor's register to read. That
+     * {@code attemptsSoFar} is advisory only: the attempt budget is counted from the attempt rows since the latest
+     * {@code REPLAY} (see {@code SendOutcomes#recordFailure} and {@code JdbcSendOutcomes}).
      */
     private int tryNumber(Exchange exchange) {
         Integer previous = exchange.getProperty(LAST_TRY, Integer.class);
