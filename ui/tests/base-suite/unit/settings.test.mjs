@@ -23,15 +23,17 @@ import {
 const VALID = Object.freeze({
   IPASS_BS_EXCEPTION_PROFILE: 'showcase',
   IPASS_BS_EXCEPTION_HOST: 'target.showcase.test',
-  IPASS_BS_EXCEPTION_HOST_VAR: 'SHOWCASE_TARGET_HOST'
+  IPASS_BS_EXCEPTION_HOST_VAR: 'SHOWCASE_TARGET_HOST',
+  IPASS_BS_EXCEPTION_PORT: '32768'
 });
 const withEnv = (overrides) => ({ ...VALID, ...overrides });
 
-test('the exception is read from exactly three environment names', () => {
+test('the exception is read from exactly four environment names', () => {
   assert.deepEqual({ ...EXCEPTION_ENV }, {
     profile: 'IPASS_BS_EXCEPTION_PROFILE',
     host: 'IPASS_BS_EXCEPTION_HOST',
-    hostVar: 'IPASS_BS_EXCEPTION_HOST_VAR'
+    hostVar: 'IPASS_BS_EXCEPTION_HOST_VAR',
+    port: 'IPASS_BS_EXCEPTION_PORT'
   });
   assert.equal(NOT_CONFIGURED, 'dev-only exception not configured - waits for row 278');
 });
@@ -45,7 +47,7 @@ test('unset: not configured, the reason waits for row 278 and names every missin
 });
 
 test('blank values count as unset', () => {
-  const settings = exceptionSettings({ IPASS_BS_EXCEPTION_PROFILE: '  ', IPASS_BS_EXCEPTION_HOST: '', IPASS_BS_EXCEPTION_HOST_VAR: '\t' });
+  const settings = exceptionSettings({ IPASS_BS_EXCEPTION_PROFILE: '  ', IPASS_BS_EXCEPTION_HOST: '', IPASS_BS_EXCEPTION_HOST_VAR: '\t', IPASS_BS_EXCEPTION_PORT: ' ' });
   assert.equal(settings.configured, false);
   assert.ok(settings.reason.startsWith(NOT_CONFIGURED));
 });
@@ -53,14 +55,15 @@ test('blank values count as unset', () => {
 test('partly set: only the missing names are listed', () => {
   const settings = exceptionSettings({ IPASS_BS_EXCEPTION_PROFILE: 'showcase' });
   assert.equal(settings.configured, false);
-  assert.deepEqual(settings.missing, ['IPASS_BS_EXCEPTION_HOST', 'IPASS_BS_EXCEPTION_HOST_VAR']);
+  assert.deepEqual(settings.missing, ['IPASS_BS_EXCEPTION_HOST', 'IPASS_BS_EXCEPTION_HOST_VAR', 'IPASS_BS_EXCEPTION_PORT']);
   assert.ok(!settings.reason.includes('IPASS_BS_EXCEPTION_PROFILE'));
 });
 
 test('the TBD(row278) placeholder is never a configuration: a still-TBD value fails, naming row 278', () => {
   assert.equal(PLACEHOLDER, 'TBD(row278)');
   const allTbd = exceptionSettings({
-    IPASS_BS_EXCEPTION_PROFILE: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST_VAR: PLACEHOLDER
+    IPASS_BS_EXCEPTION_PROFILE: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST_VAR: PLACEHOLDER,
+    IPASS_BS_EXCEPTION_PORT: PLACEHOLDER
   });
   const named = (reason) => reason.match(/IPASS_BS_EXCEPTION_[A-Z_]+/g);
   assert.equal(allTbd.configured, false);
@@ -68,7 +71,7 @@ test('the TBD(row278) placeholder is never a configuration: a still-TBD value fa
   assert.deepEqual(named(allTbd.reason), Object.values(EXCEPTION_ENV));
   assert.equal(allTbd.appEnv, undefined, 'no app environment from a placeholder');
   for (const [name, value] of [['IPASS_BS_EXCEPTION_PROFILE', 'tbd'], ['IPASS_BS_EXCEPTION_HOST', 'tbd.showcase.test'],
-    ['IPASS_BS_EXCEPTION_HOST_VAR', 'TBD_ROW278_HOST']]) {
+    ['IPASS_BS_EXCEPTION_HOST_VAR', 'TBD_ROW278_HOST'], ['IPASS_BS_EXCEPTION_PORT', 'tbd']]) {
     const settings = exceptionSettings(withEnv({ [name]: value }));
     assert.equal(settings.configured, false, `${name}=${value}`);
     assert.deepEqual(settings.missing, [], 'a TBD value is set - still TBD, not missing');
@@ -81,7 +84,19 @@ test('configured: the app gets the named profile and the one host through the va
   assert.equal(settings.configured, true);
   assert.equal(settings.profile, 'showcase');
   assert.equal(settings.host, 'target.showcase.test', 'trimmed and lower-cased like the guard normalises');
+  assert.equal(settings.port, 32768, 'the exception port as a number');
   assert.deepEqual(settings.appEnv, { SPRING_PROFILES_ACTIVE: 'showcase', SHOWCASE_TARGET_HOST: 'target.showcase.test' });
+});
+
+test('the exception port is one integer 1-65535 - anything else is misconfigured, not unset', () => {
+  for (const port of ['0', '65536', 'abc', '8080x', '-1', '1.5', '0x50', '80 80']) {
+    const settings = exceptionSettings(withEnv({ IPASS_BS_EXCEPTION_PORT: port }));
+    assert.equal(settings.configured, false, port);
+    assert.match(settings.reason, /IPASS_BS_EXCEPTION_PORT/, port);
+    assert.ok(!settings.reason.startsWith(NOT_CONFIGURED), `${port}: misconfigured, not unset`);
+  }
+  assert.equal(exceptionSettings(withEnv({ IPASS_BS_EXCEPTION_PORT: ' 1 ' })).port, 1);
+  assert.equal(exceptionSettings(withEnv({ IPASS_BS_EXCEPTION_PORT: '65535' })).port, 65535);
 });
 
 test('an IP literal is never the exception host - the unnamed loopback must stay refused', () => {
