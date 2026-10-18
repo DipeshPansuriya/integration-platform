@@ -44,10 +44,10 @@ async function summaryGroups(deliveries) {
 
 for (const [name, deliveries] of [
   ['no delivery', []],
-  ['one delivery', [{ deliveryId: D1, targetId: 't-1', durationMs: 50, outcome: 'SUCCESS' }]],
+  ['one delivery', [{ deliveryId: D1, targetId: 't-1', durationMs: 50, outcome: 'SUCCESS', state: 'DELIVERED' }]],
   ['two deliveries', [
-    { deliveryId: D1, targetId: 't-1', durationMs: 50, outcome: 'SUCCESS' },
-    { deliveryId: D2, targetId: 't-2', durationMs: null, outcome: null }
+    { deliveryId: D1, targetId: 't-1', durationMs: 50, outcome: 'SUCCESS', state: 'DELIVERED' },
+    { deliveryId: D2, targetId: 't-2', durationMs: null, outcome: null, state: 'PENDING' }
   ]]
 ]) {
   test(`V1 @a11y the summary <dl> groups are all one form - <div><dt/><dd/></div> (${name})`, async () => {
@@ -61,7 +61,7 @@ for (const [name, deliveries] of [
 }
 
 test('V1 the summary keeps every data hook the screen specs read (dd values, one group per delivery)', async () => {
-  const groups = await summaryGroups([{ deliveryId: D1, targetId: 't-1', durationMs: 50, outcome: 'SUCCESS' }]);
+  const groups = await summaryGroups([{ deliveryId: D1, targetId: 't-1', durationMs: 50, outcome: 'SUCCESS', state: 'DELIVERED' }]);
   const dds = findAll(groups, (n) => n.type === 'dd');
   assert.equal(dds.length, 6);
   for (const hook of ['data-tracking-id', 'data-flow-id', 'data-message-state']) {
@@ -106,4 +106,44 @@ test('V3 @negative a new filter clears the old rows while its answer is still he
   assert.equal(calls.length, 2, 'the new filter started a second fetch');
   assert.equal(page().props['data-load'], 'loading');
   assert.equal(rows().length, 0, "the old filter's row never stays under the new filter's caption and columns");
+});
+
+test('T165 M2 the detail screen offers Replay for a dead-lettered delivery and Retry now only while it waits to retry', async () => {
+  const screen = await mount('pages/MessageDetail.tsx', 'MessageDetail', { trackingId: M1, failedHint: null }, {
+    messageTimeline: async () => ({ ok: true, data: timeline([
+      { deliveryId: D1, targetId: 't-1', durationMs: 50, outcome: 'TRANSIENT', state: 'DEAD_LETTERED' },
+      { deliveryId: D2, targetId: 't-2', durationMs: 20, outcome: 'TRANSIENT', state: 'RETRY_WAIT' }
+    ]) })
+  }, [...API, '../api/operator']);
+  await screen.settle();
+  const actions = findAll(screen.tree(), byData('data-delivery-id')).map((b) => [b.props['data-delivery-id'], b.props['data-action']]);
+  assert.deepEqual(actions, [[D1, 'replay'], [D2, 'retry']]);
+});
+
+test('T165 M4 @a11y a busy or finished action keeps keyboard focus: aria-disabled, never disabled, one POST only', async () => {
+  let calls = 0;
+  let release;
+  const screen = await mount('pages/OperatorActionButton.tsx', 'OperatorActionButton', {
+    action: { kind: 'replay', deliveryId: D1, label: 'Replay' }
+  }, {
+    replayDelivery: () => { calls++; return new Promise((r) => { release = r; }); },
+    retryDelivery: async () => assert.fail('retry was not pressed')
+  }, ['../api/operator']);
+  const button = () => findAll(screen.tree(), byData('data-action'))[0];
+  const press = async () => { button().props.onClick(); await screen.settle(); };
+  assert.equal(button().props['aria-disabled'], undefined, 'ready: a plain button');
+
+  await press();
+  assert.equal(calls, 1);
+  assert.equal(button().props.disabled, undefined, 'native disabled drops the focused button out of the tab order');
+  assert.equal(button().props['aria-disabled'], 'true', 'in flight');
+  await press();
+  assert.equal(calls, 1, 'a press while in flight sends nothing');
+
+  release({ ok: true, status: 200, data: { outcome: 'MOVED_TO_DUE', deliveryId: D1, state: 'DUE' } });
+  await screen.settle();
+  assert.equal(button().props.disabled, undefined);
+  assert.equal(button().props['aria-disabled'], 'true', 'moved: it cannot be sent twice');
+  await press();
+  assert.equal(calls, 1, 'a press after the move sends nothing');
 });

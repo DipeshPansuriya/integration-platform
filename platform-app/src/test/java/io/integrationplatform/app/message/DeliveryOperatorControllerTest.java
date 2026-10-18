@@ -133,4 +133,48 @@ class DeliveryOperatorControllerTest {
                 new Rule("POST", "/api/v1/admin/messages/deliveries/{deliveryId}/replay", Operation.REPLAY_DEAD_LETTER),
                 new Rule("POST", "/api/v1/admin/messages/deliveries/{deliveryId}/retry", Operation.REPLAY_DEAD_LETTER));
     }
+
+    // ------------------------------------------------------------------ T165 M2 / M5: the 409 contract
+
+    @Test
+    void everyDisallowedCellOfTheStateTableIs409WithTheStateInTheBody() {
+        for (DeliveryState state : DeliveryState.values()) {
+            UUID id = UUID.randomUUID();
+            when(actions.retry(id, USER.toString())).thenReturn(new Result(Outcome.WRONG_STATE, id, state, null, null));
+            when(actions.replay(id, USER.toString())).thenReturn(new Result(Outcome.WRONG_STATE, id, state, null, null));
+            if (state != DeliveryState.RETRY_WAIT) {
+                ResponseEntity<?> retry = controller.retry(id, post("/api/v1/admin/messages/deliveries/" + id + "/retry"));
+                assertThat(retry.getStatusCode().value()).as("retry from %s", state).isEqualTo(409);
+                assertThat(retry.getBody()).isEqualTo(Map.of("error", "wrong state", "state", state.name()));
+            }
+            if (state != DeliveryState.DEAD_LETTERED) {
+                ResponseEntity<?> replay = controller.replay(id, post("/api/v1/admin/messages/deliveries/" + id + "/replay"));
+                assertThat(replay.getStatusCode().value()).as("replay from %s", state).isEqualTo(409);
+                assertThat(replay.getBody()).isEqualTo(Map.of("error", "wrong state", "state", state.name()));
+            }
+        }
+        verify(recorder, never()).record(any());
+    }
+
+    @Test
+    void bothEndpointsDeclareThe409BodyAsErrorPlusARequiredDeliveryState() throws Exception {
+        for (String endpoint : new String[] {"replay", "retry"}) {
+            java.lang.reflect.Method method = DeliveryOperatorController.class.getMethod(endpoint, UUID.class,
+                    jakarta.servlet.http.HttpServletRequest.class);
+            io.swagger.v3.oas.annotations.responses.ApiResponse conflict = java.util.Arrays.stream(
+                            method.getAnnotation(io.swagger.v3.oas.annotations.responses.ApiResponses.class).value())
+                    .filter(r -> r.responseCode().equals("409")).findFirst().orElseThrow();
+            Class<?> body = conflict.content()[0].schema().implementation();
+            assertThat(body.isRecord()).as("%s 409 body %s is a record", endpoint, body.getSimpleName()).isTrue();
+            assertThat(java.util.Arrays.stream(body.getRecordComponents()).map(c -> c.getName()))
+                    .as("%s 409 body", endpoint).containsExactly("error", "state");
+            java.lang.reflect.Field state = body.getDeclaredField("state");
+            assertThat(state.getType()).isEqualTo(DeliveryState.class);
+            for (String name : new String[] {"error", "state"}) {
+                assertThat(body.getDeclaredField(name).getAnnotation(io.swagger.v3.oas.annotations.media.Schema.class)
+                        .requiredMode()).as("%s.%s required", endpoint, name)
+                        .isEqualTo(io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED);
+            }
+        }
+    }
 }

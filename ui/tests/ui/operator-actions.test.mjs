@@ -24,13 +24,19 @@ test('a dead-lettered delivery on the failures screen offers Replay; a route fai
   assert.equal(failureAction({ ...deadLettered, deliveryId: null }), null);
 });
 
-test('on the detail screen a delivery waiting to retry (transient/ambiguous) offers Retry now; others nothing', () => {
-  const d = (outcome) => ({ deliveryId: D1, targetId: 't-1', durationMs: 10, outcome });
-  assert.deepEqual(deliveryAction(d('TRANSIENT')), { kind: 'retry', deliveryId: D1, label: 'Retry now' });
-  assert.deepEqual(deliveryAction(d('AMBIGUOUS')), { kind: 'retry', deliveryId: D1, label: 'Retry now' });
-  assert.equal(deliveryAction(d('SUCCESS')), null);
-  assert.equal(deliveryAction(d('PERMANENT')), null, 'permanent is dead-lettered: replayed from the failures screen');
-  assert.equal(deliveryAction(d(null)), null, 'no attempt yet');
+test('T165 M2 the detail action keys on the delivery state: RETRY_WAIT retries, DEAD_LETTERED replays, every other state nothing', () => {
+  const d = (state, outcome) => ({ deliveryId: D1, targetId: 't-1', durationMs: 10, outcome, state });
+  const retry = { kind: 'retry', deliveryId: D1, label: 'Retry now' };
+  const replay = { kind: 'replay', deliveryId: D1, label: 'Replay' };
+  assert.deepEqual(deliveryAction(d('RETRY_WAIT', 'TRANSIENT')), retry);
+  assert.deepEqual(deliveryAction(d('RETRY_WAIT', 'AMBIGUOUS')), retry);
+  assert.deepEqual(deliveryAction(d('DEAD_LETTERED', 'PERMANENT')), replay);
+  assert.deepEqual(deliveryAction(d('DEAD_LETTERED', 'TRANSIENT')), replay, 'outcome is display only: retries ran out, so it is replayed');
+  for (const state of ['PENDING', 'HELD', 'SENDING', 'DUE', 'DELIVERED']) {
+    for (const outcome of [null, 'TRANSIENT', 'AMBIGUOUS', 'SUCCESS', 'PERMANENT']) {
+      assert.equal(deliveryAction(d(state, outcome)), null, `${state} / ${outcome}: the server would answer 409`);
+    }
+  }
 });
 
 test('each action posts to its T111 path', () => {

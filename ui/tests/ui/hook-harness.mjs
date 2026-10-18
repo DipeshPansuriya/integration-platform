@@ -39,7 +39,7 @@ async function load(page, apiSpecifiers) {
           b.onResolve({ filter: api }, (a) => ({ path: a.path, namespace: 'api' }));
           b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: STUBS[a.path], loader: 'js' }));
           b.onLoad({ filter: /.*/, namespace: 'api' }, () => ({
-            contents: 'export default null;\n' + ['messageTimeline', 'messageFailures', 'listFlows']
+            contents: 'export default null;\n' + ['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery']
               .map((n) => `export const ${n} = (...a) => globalThis.__hookHarness.api.${n}(...a);`).join('\n'),
             loader: 'js'
           }));
