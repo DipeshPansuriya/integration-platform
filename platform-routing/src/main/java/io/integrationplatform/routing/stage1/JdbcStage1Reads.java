@@ -42,4 +42,9 @@ public class JdbcStage1Reads extends TenantScopedRepository {
                 (rs, n) -> rs.getString("snapshot"));
         return rows.stream().findFirst();
     }
+
+    /** T-180 RED stub. */
+    public List<UUID> acceptedBefore(Instant cutoff) {
+        return List.of();
+    }
 }
