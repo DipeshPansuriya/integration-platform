@@ -5,7 +5,8 @@
 # while holding the lock; it refuses to start unless the lock's owner file names the caller.
 #
 # Usage: LOCK_OWNER=<owner written by lock.sh take> bash run-tue.sh <candidate-sha> [--with-base-suite]
-#   T129 steps (BS-01..BS-06) always; --with-base-suite then runs BS-07..BS-12 (needs IPASS_BS_EXCEPTION_*).
+#   T129 steps (BS-01..BS-06) always; --with-base-suite then checks BS-11 is listed and runs BS-07..BS-12
+#   (needs all four IPASS_BS_EXCEPTION_PROFILE / _HOST_VAR / _HOST / _PORT).
 # Logs: <evidence>/t129-run/t129-<short>-<step>.log + t129-<short>-summary.txt. Exit 0 = every step rc=0.
 set -u
 SHA_IN=${1:-}
@@ -72,7 +73,9 @@ step bs06-intake-shape 20m "$EXPORT" ./mvnw -B -pl platform-ingest -am test -Dte
 # ---------- 4. optional: the base suite BS-07..BS-12 (fixme specs report as fixme, never pass) ----------
 if [ "$WITH_BS" = --with-base-suite ]; then
   MISSING=""
-  for v in IPASS_BS_EXCEPTION_PROFILE IPASS_BS_EXCEPTION_HOST_VAR IPASS_BS_EXCEPTION_HOST; do
+  # BS-11 (T133): the spec is in the base-suite config already - this step only proves it is listed (no docker)
+  step bs11-listed 5m "$EXPORT/ui" bash -c 'npx playwright test --config playwright.base-suite.config.mjs --list | tee /dev/stderr | grep -q "bs-11\.docker\.spec\.mjs"'
+  for v in IPASS_BS_EXCEPTION_PROFILE IPASS_BS_EXCEPTION_HOST_VAR IPASS_BS_EXCEPTION_HOST IPASS_BS_EXCEPTION_PORT; do
     [ -n "${!v:-}" ] || MISSING="$MISSING $v"
   done
   if [ -n "$MISSING" ]; then

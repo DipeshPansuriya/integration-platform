@@ -19,7 +19,8 @@ import { STUB_IDS, WIREMOCK_IMAGE, stubMapping } from '../lib/wiremock.mjs';
 const CONFIGURED = exceptionSettings({
   IPASS_BS_EXCEPTION_PROFILE: 'showcase',
   IPASS_BS_EXCEPTION_HOST: 'target.showcase.test',
-  IPASS_BS_EXCEPTION_HOST_VAR: 'SHOWCASE_TARGET_HOST'
+  IPASS_BS_EXCEPTION_HOST_VAR: 'SHOWCASE_TARGET_HOST',
+  IPASS_BS_EXCEPTION_PORT: '32768'
 });
 
 test('WireMock is DECLARED here, never started: the pinned image and one 200 stub per path', () => {
@@ -34,7 +35,8 @@ test('WireMock is DECLARED here, never started: the pinned image and one 200 stu
 test('not configured or still TBD(row278): no options at all - the run stops before any build, lock or container', () => {
   assert.throws(() => baseSuiteBootOptions(exceptionSettings({}), { lockHolder: 'x' }), (e) => e.message.startsWith(NOT_CONFIGURED));
   const tbd = exceptionSettings({
-    IPASS_BS_EXCEPTION_PROFILE: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST_VAR: PLACEHOLDER
+    IPASS_BS_EXCEPTION_PROFILE: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST_VAR: PLACEHOLDER,
+    IPASS_BS_EXCEPTION_PORT: PLACEHOLDER
   });
   assert.throws(() => baseSuiteBootOptions(tbd, { lockHolder: 'x' }), /TBD\(row278\)/);
 });

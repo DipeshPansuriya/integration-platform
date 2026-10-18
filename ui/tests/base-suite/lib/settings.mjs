@@ -4,8 +4,9 @@
 // through the dev-only exception row 278 builds - a named dev/showcase profile, one exact host, no
 // wildcard, the app's REAL host resolver (plan section 2; karan reviews it as BS-17 / T137 before it
 // lands). Its profile name, its host and the name of the app variable that carries the host are row
-// 278's - TBD(row278) until row 278's build lands; they are read from the three names in EXCEPTION_ENV and
-// nowhere else, and a value still reading TBD is refused (PLACEHOLDER).
+// 278's - TBD(row278) until row 278's build lands; they are read from the four names in EXCEPTION_ENV and
+// nowhere else, and a value still reading TBD is refused (PLACEHOLDER). The fourth, the port the target
+// listens on behind the exception host, is one integer 1-65535 (Kavita, row 323 follow-up 18-Oct).
 //
 // Unset -> not configured: every BS scenario FAILS with NOT_CONFIGURED (never a skip). There is no
 // default host and no fallback: the unnamed loopback stays what the guard refuses
@@ -15,12 +16,13 @@
 export const EXCEPTION_ENV = Object.freeze({
   profile: 'IPASS_BS_EXCEPTION_PROFILE',
   host: 'IPASS_BS_EXCEPTION_HOST',
-  hostVar: 'IPASS_BS_EXCEPTION_HOST_VAR'
+  hostVar: 'IPASS_BS_EXCEPTION_HOST_VAR',
+  port: 'IPASS_BS_EXCEPTION_PORT'
 });
 
 export const NOT_CONFIGURED = 'dev-only exception not configured - waits for row 278';
 /**
- * Step 5: the placeholder the suite's docs show for the three names until row 278's build lands.
+ * Step 5: the placeholder the suite's docs show for the four names until row 278's build lands.
  * Any value still reading "tbd" (any case) is refused - fail closed, never a guessed name that looks final.
  */
 export const PLACEHOLDER = 'TBD(row278)';
@@ -52,6 +54,13 @@ function hostProblem(host) {
   return null;
 }
 
+function portProblem(port) {
+  if (!/^[0-9]{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+    return `${EXCEPTION_ENV.port} "${port}" is not ONE TCP port (an integer 1-65535)`;
+  }
+  return null;
+}
+
 function hostVarProblem(name) {
   if (!/^[A-Z][A-Z0-9_]*$/.test(name)) return `app variable "${name}" is not an environment name`;
   if (RESERVED_VARS.has(name)) return `app variable "${name}" is the profile switch or a JVM setting, never the exception host`;
@@ -59,7 +68,7 @@ function hostVarProblem(name) {
 }
 
 /**
- * The exception as configured in `env`: `{ configured: true, profile, host, hostVar, appEnv }`, where
+ * The exception as configured in `env`: `{ configured: true, profile, host, hostVar, port, appEnv }`, where
  * `appEnv` is what the app process gets on top of the harness's own settings - or
  * `{ configured: false, missing, reason }`. Values are trimmed; the host is lower-cased as the guard
  * normalises it (AllowList.normalise, DestinationGuard.java:58).
@@ -69,26 +78,29 @@ export function exceptionSettings(env = process.env) {
   const values = {
     profile: read(EXCEPTION_ENV.profile),
     host: read(EXCEPTION_ENV.host).toLowerCase(),
-    hostVar: read(EXCEPTION_ENV.hostVar)
+    hostVar: read(EXCEPTION_ENV.hostVar),
+    port: read(EXCEPTION_ENV.port)
   };
   const missing = Object.entries(EXCEPTION_ENV).filter(([key]) => values[key] === '').map(([, name]) => name);
   if (missing.length > 0) {
     return {
       configured: false,
       missing,
-      reason: `${NOT_CONFIGURED}: set ${missing.join(', ')} (the named profile, the one exact host and the app`
-        + " variable name row 278's build defines)"
+      reason: `${NOT_CONFIGURED}: set ${missing.join(', ')} (the named profile, the one exact host, the app`
+        + " variable name row 278's build defines and the target port)"
     };
   }
   const tbd = Object.entries(EXCEPTION_ENV).filter(([key]) => /tbd/i.test(values[key])).map(([, name]) => name);
   if (tbd.length > 0) {
     return { configured: false, missing: [], reason: `${STILL_TBD}: ${tbd.join(', ')} - set them to the names row 278's build defines` };
   }
-  const problems = [profileProblem(values.profile), hostProblem(values.host), hostVarProblem(values.hostVar)].filter(Boolean);
+  const problems = [profileProblem(values.profile), hostProblem(values.host), hostVarProblem(values.hostVar),
+    portProblem(values.port)].filter(Boolean);
   if (problems.length > 0) return { configured: false, missing: [], reason: `${MISCONFIGURED}: ${problems.join('; ')}` };
   return Object.freeze({
     configured: true,
     ...values,
+    port: Number(values.port),
     appEnv: Object.freeze({ SPRING_PROFILES_ACTIVE: values.profile, [values.hostVar]: values.host })
   });
 }
