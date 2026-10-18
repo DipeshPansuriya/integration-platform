@@ -18,7 +18,7 @@ public interface RouteTemplate {
 
     /**
      * Builds this row's route-instance send: the processor the factory anchors at the instance's direct
-     * consumer endpoint ({@code direct:e9-target-<endpointId>}, ADR-010 section 3's toD-dispatchable scheme)
+     * consumer endpoint ({@code direct:e9-target-<endpointId>-<endpointVersion>}, ADR-010 section 3's toD-dispatchable scheme)
      * and registers under the instance's route id in the running context. Called only for a row whose scheme
      * passed the {@code allowedSchemes} guard; the factory holds the build-once bookkeeping (ensure, eviction).
      * The target type's adapter behaviour (the call itself, its six controls) lands here with E10 (ADR-015).

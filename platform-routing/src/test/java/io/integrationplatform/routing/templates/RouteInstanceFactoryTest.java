@@ -204,7 +204,7 @@ class RouteInstanceFactoryTest {
     void aRouteIdAlreadyInTheContextIsRefusedWithItsOwnAnswer() throws Exception {
         RouteConfigRow row = new RouteConfigRow(instanceId("route-8"), ENDPOINT_A, "API",
                 "https://target-a.example/v1", null, MAPPING_M3);
-        String routeId = RouteInstanceFactory.ROUTE_ID_PREFIX + row.routeId();
+        String routeId = RouteInstanceFactory.routeIdOf(row);
         context.addRoutes(new org.apache.camel.builder.RouteBuilder() {
             @Override
             public void configure() {
