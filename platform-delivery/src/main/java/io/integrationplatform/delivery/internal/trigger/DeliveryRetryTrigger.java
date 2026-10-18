@@ -1,14 +1,17 @@
 package io.integrationplatform.delivery.internal.trigger;
 
+import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.delivery.port.InstanceReadiness;
 import io.integrationplatform.delivery.port.RetryCandidate;
+import io.integrationplatform.delivery.port.TargetRedriveCap;
 import io.integrationplatform.ingest.port.OutboxEntry;
 import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.ingest.port.OutboxWriter;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -34,6 +37,8 @@ public final class DeliveryRetryTrigger {
     private final DeliveryRetryStore store;
     private final OutboxWriter outboxWriter;
     private final InstanceReadiness readiness;
+    private final DeliveryBulkheadFacts bulkheadFacts;
+    private final TargetRedriveCap redriveCap;
     private final int batchSize;
 
     public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
@@ -49,6 +54,19 @@ public final class DeliveryRetryTrigger {
     public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
             TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
             int batchSize, InstanceReadiness readiness) {
+        this(tenants, tenantContext, transactions, store, outboxWriter, batchSize, readiness,
+                deliveryId -> Optional.empty(), TargetRedriveCap.unlimited());
+    }
+
+    /**
+     * T-199 (ADR-010 section 2): with the per-target re-drive cap - at most {@code redriveCap} bulkhead-deferred
+     * deliveries of one target move to {@code DUE} per run; the rest stay in {@code RETRY_WAIT} for the next run.
+     * Deliveries that were never bulkhead-deferred are not counted against the cap.
+     */
+    public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
+            TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
+            int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
+            TargetRedriveCap redriveCap) {
         if (batchSize < 1) {
             throw new IllegalArgumentException("batchSize must be at least 1");
         }
@@ -58,6 +76,8 @@ public final class DeliveryRetryTrigger {
         this.store = Objects.requireNonNull(store, "store");
         this.outboxWriter = Objects.requireNonNull(outboxWriter, "outboxWriter");
         this.readiness = Objects.requireNonNull(readiness, "readiness");
+        this.bulkheadFacts = Objects.requireNonNull(bulkheadFacts, "bulkheadFacts");
+        this.redriveCap = Objects.requireNonNull(redriveCap, "redriveCap");
         this.batchSize = batchSize;
     }
 
