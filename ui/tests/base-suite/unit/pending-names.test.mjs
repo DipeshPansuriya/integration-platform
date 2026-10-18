@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { NAMES, fill, isPending, nameOf, pendingNames } from '../lib/pending-names.mjs';
+import { NAMES, ON_MAIN, fill, isPending, nameOf, pendingNames, waitsOn } from '../lib/pending-names.mjs';
 
 test('the screens and reads measured on lane t112 / T110 are provisional values, not placeholders', () => {
   assert.equal(nameOf('detailRoute'), '#/messages/{trackingId}');
@@ -16,10 +16,37 @@ test('the screens and reads measured on lane t112 / T110 are provisional values,
   assert.equal(nameOf('failuresApi'), '/api/v1/admin/messages/failures');
 });
 
+test('the T107 log fields measured on seam-row278-t107 78792e4 are provisional (CorrelationContext.java:25-28)', () => {
+  assert.equal(nameOf('logFieldTenant'), 'tenantId');
+  assert.equal(nameOf('logFieldMessage'), 'messageId');
+  assert.equal(nameOf('logFieldCorrelation'), 'correlationId');
+});
+
 test('a TBD name fails the step, naming the key and the item it waits for', () => {
   assert.throws(() => nameOf('replayApi'), /replayApi is still TBD\(T111\).*pending-names\.mjs/);
-  assert.throws(() => nameOf('logFieldCorrelation'), /TBD\(T107\)/);
-  assert.throws(() => nameOf('kafkaContainerEnv'), /TBD\(T106\)/);
+  assert.throws(() => nameOf('logFieldStage'), /TBD\(T107\)/);
+  assert.throws(() => nameOf('auditActor'), /TBD\(T111\)/, 'T109 is on main; the replay writer T111 sets the actor');
+});
+
+test('the Kafka harness names wait on the base-suite harness item T130, not on T106 (T106 is on main)', () => {
+  assert.throws(() => nameOf('kafkaContainerEnv'), /TBD\(T130\)/);
+  assert.throws(() => nameOf('kafkaConsumer'), /TBD\(T130\)/);
+});
+
+test('ON_MAIN: one boolean per T-item, frozen, measured on main 596eecb', () => {
+  assert.equal(Object.isFrozen(ON_MAIN), true);
+  for (const item of ['T106', 'T109', 'T110', 'T138']) assert.equal(ON_MAIN[item], true, item);
+  for (const item of ['T105', 'T107', 'T111', 'T112', 'T113']) assert.equal(ON_MAIN[item], false, item);
+});
+
+test('waitsOn: null when every item is on main, else one reason naming each missing item and the flag to flip', () => {
+  assert.equal(waitsOn('T110'), null);
+  assert.equal(waitsOn('T106', 'T109'), null);
+  const reason = waitsOn('T110', 'T112', 'T105');
+  assert.match(reason, /waits on T112, T105/);
+  assert.match(reason, /ON_MAIN.*pending-names\.mjs/);
+  assert.throws(() => waitsOn('T999'), /unknown item T999/, 'a typo never reads as landed');
+  assert.throws(() => waitsOn(), /at least one item/);
 });
 
 test('an unknown key is refused - a typo never reads as a name', () => {
@@ -35,7 +62,7 @@ test('isPending: any value reading TBD( - any case - is a placeholder', () => {
 
 test('pendingNames lists every placeholder still open - the handoff list comes from here', () => {
   const open = pendingNames();
-  assert.ok(open.length >= 10, `at least the T106/T107/T109/T111 names: ${JSON.stringify(open)}`);
+  assert.ok(open.length >= 7, `at least the T107/T111/T130 names: ${JSON.stringify(open)}`);
   for (const [key, value] of open) {
     assert.ok(isPending(value), key);
     assert.match(value, /^TBD\(T\d{3}(\|T\d{3})*\)$/, `${key}: one item-named placeholder`);
