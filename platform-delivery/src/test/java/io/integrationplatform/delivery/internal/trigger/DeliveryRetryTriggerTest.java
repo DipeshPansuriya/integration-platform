@@ -19,6 +19,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.assertj.core.groups.Tuple;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
@@ -115,7 +116,8 @@ class DeliveryRetryTriggerTest {
         assertThat(outbox.committedEntries()).hasSize(2);
     }
 
-    @Test
+    // B24 guard: a race in the shared fake shows only under repetition; one pass hid it (flaked in the reactor).
+    @RepeatedTest(200)
     void twoTriggerInstancesNeverRedriveTheSameDeliveryTwice() throws Exception {
         store.seed(TENANT_A, D1, DeliveryState.RETRY_WAIT, 1, BASE, null);
         store.seed(TENANT_A, D2, DeliveryState.RETRY_WAIT, 1, BASE.plusSeconds(1), null);
