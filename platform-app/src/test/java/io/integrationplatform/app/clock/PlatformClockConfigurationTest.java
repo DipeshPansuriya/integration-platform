@@ -86,4 +86,19 @@ class PlatformClockConfigurationTest {
             assertThat(output).doesNotContain(E2E_WARNING);
         });
     }
+
+    @Test
+    void theE2eClockTogetherWithAProdProfileRefusesToStart() {
+        runner.withPropertyValues("spring.profiles.active=e2e,prod").run(context -> assertThat(context).hasFailed()
+                .getFailure().hasRootCauseInstanceOf(IllegalStateException.class)
+                .hasRootCauseMessage("the e2e AdjustableClock must never run with the prod profile"));
+    }
+
+    @Test
+    void theProdProfileAloneStartsWithTheSystemUtcClock() {
+        runner.withPropertyValues("spring.profiles.active=prod").run(context -> {
+            assertThat(context).hasNotFailed().hasSingleBean(Clock.class).doesNotHaveBean(AdjustableClock.class);
+            assertThat(context.getBean(Clock.class)).isEqualTo(Clock.systemUTC());
+        });
+    }
 }
