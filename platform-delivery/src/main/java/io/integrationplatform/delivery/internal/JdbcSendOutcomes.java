@@ -41,7 +41,10 @@ public final class JdbcSendOutcomes implements SendOutcomes {
     @Override
     public void recordFailure(UUID deliveryId, UUID claimToken, int attemptsSoFar, OutcomeClass outcome,
             boolean targetDeclaresIdempotentReceive) {
-        recorder.record(deliveryId, claimToken, attemptsSoFar, outcome, Instant.now(), null,
+        // T165-B (ADR-010 s6 M5): the budget is the ledger's current-series count, not the caller's value - the
+        // layer-1 route hands over its per-exchange try count, which neither spans re-drives nor resets on replay.
+        // recordAttempt writes this call's row before the failure is recorded, so the count includes it.
+        recorder.record(deliveryId, claimToken, repository.countAttempts(deliveryId), outcome, Instant.now(), null,
                 targetDeclaresIdempotentReceive);
     }
 }

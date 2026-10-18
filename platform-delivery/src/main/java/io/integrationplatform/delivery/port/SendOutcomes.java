@@ -27,7 +27,9 @@ public interface SendOutcomes {
     /**
      * Layer 1 ended without success: the recorder's move - {@code RETRY_WAIT} with the backoff while attempts remain,
      * else {@code DEAD_LETTERED} with the reason class; {@code PERMANENT} and a non-idempotent {@code AMBIGUOUS}
-     * dead-letter at once (ADR-010 section 5).
+     * dead-letter at once (ADR-010 section 5). The attempt budget is the ledger's current-series count (attempt rows
+     * after the latest {@code REPLAY}, ADR-010 section 6 addendum M5); {@code attemptsSoFar} is advisory only - the
+     * lane C implementation reads the count from the database.
      */
     void recordFailure(UUID deliveryId, UUID claimToken, int attemptsSoFar, OutcomeClass outcome,
             boolean targetDeclaresIdempotentReceive);
