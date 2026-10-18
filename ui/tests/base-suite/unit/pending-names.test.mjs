@@ -28,9 +28,10 @@ test('a TBD name fails the step, naming the key and the item it waits for', () =
   assert.throws(() => nameOf('auditActor'), /TBD\(T111\)/, 'T109 is on main; the replay writer T111 sets the actor');
 });
 
-test('the Kafka harness names wait on the base-suite harness item T130, not on T106 (T106 is on main)', () => {
-  assert.throws(() => nameOf('kafkaContainerEnv'), /TBD\(T130\)/);
-  assert.throws(() => nameOf('kafkaConsumer'), /TBD\(T130\)/);
+test('the Kafka harness names are set by T130: the boot names its broker container and the in-container consumer', () => {
+  assert.equal(nameOf('kafkaContainerEnv'), 'BS_KAFKA_CONTAINER');
+  assert.equal(nameOf('kafkaConsumer'), '/opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:19092');
+  assert.throws(() => nameOf('kafkaStageTopics'), /TBD\(T107\)/, 'the stage topics still wait on T107');
 });
 
 test('ON_MAIN: one boolean per T-item, frozen, measured on main 596eecb', () => {
@@ -62,7 +63,7 @@ test('isPending: any value reading TBD( - any case - is a placeholder', () => {
 
 test('pendingNames lists every placeholder still open - the handoff list comes from here', () => {
   const open = pendingNames();
-  assert.ok(open.length >= 7, `at least the T107/T111/T130 names: ${JSON.stringify(open)}`);
+  assert.ok(open.length >= 5, `at least the T107/T111 names: ${JSON.stringify(open)}`);
   for (const [key, value] of open) {
     assert.ok(isPending(value), key);
     assert.match(value, /^TBD\(T\d{3}(\|T\d{3})*\)$/, `${key}: one item-named placeholder`);

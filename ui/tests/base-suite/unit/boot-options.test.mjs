@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { HARNESS_APP_ENV, HARNESS_LOGINS, extraTenantPlan, mergeAppEnv, servicePlan } from '../../../scripts/boot-backend.mjs';
-import { BS_CONSOLE_LOGINS, BS_WIREMOCK, baseSuiteBootOptions } from '../lib/boot-options.mjs';
+import { BS_CONSOLE_LOGINS, BS_KAFKA, BS_WIREMOCK, KAFKA_IMAGE, baseSuiteBootOptions } from '../lib/boot-options.mjs';
 import { NOT_CONFIGURED, PLACEHOLDER, exceptionSettings } from '../lib/settings.mjs';
 import { TENANT_B_PLAN } from '../lib/tenants.mjs';
 import { STUB_IDS, WIREMOCK_IMAGE, stubMapping } from '../lib/wiremock.mjs';
@@ -32,6 +32,16 @@ test('WireMock is DECLARED here, never started: the pinned image and one 200 stu
   assert.ok(plan.runArgs.includes('127.0.0.1::8080'), 'the boot publishes it on loopback only');
 });
 
+test('Kafka is DECLARED here, never started: the pinned broker image and the three main topics (OutboxTopic.java)', () => {
+  assert.match(KAFKA_IMAGE, /^apache\/kafka:[0-9.]+@sha256:[0-9a-f]{64}$/);
+  assert.equal(BS_KAFKA.image, KAFKA_IMAGE);
+  assert.deepEqual([...BS_KAFKA.topics], ['platform.message.accepted', 'platform.delivery.due', 'platform.poison']);
+  assert.ok(Object.isFrozen(BS_KAFKA) && Object.isFrozen(BS_KAFKA.topics));
+  const [plan] = servicePlan({ kafka: BS_KAFKA }, '0a1b2c3d', { kafkaPort: 41234 });
+  assert.ok(plan.runArgs.includes('127.0.0.1:41234:9092'), 'the boot publishes it on loopback only');
+  for (const name of Object.keys(plan.appEnv)) assert.ok(HARNESS_APP_ENV.includes(name), `${name} is harness-owned - appEnv cannot replace it`);
+});
+
 test('not configured or still TBD(row278): no options at all - the run stops before any build, lock or container', () => {
   assert.throws(() => baseSuiteBootOptions(exceptionSettings({}), { lockHolder: 'x' }), (e) => e.message.startsWith(NOT_CONFIGURED));
   const tbd = exceptionSettings({
@@ -45,7 +55,7 @@ test('configured: tenant B, the declared WireMock, the exception through mergeAp
   const options = baseSuiteBootOptions(CONFIGURED, { lockHolder: 'aditya-qa-automation base-suite' });
   assert.deepEqual(options, {
     extraTenants: [TENANT_B_PLAN],
-    services: { wiremock: BS_WIREMOCK },
+    services: { wiremock: BS_WIREMOCK, kafka: BS_KAFKA },
     appEnv: { SPRING_PROFILES_ACTIVE: 'showcase', SHOWCASE_TARGET_HOST: 'target.showcase.test' },
     sourceCredentials: true,
     lockHolder: 'aditya-qa-automation base-suite'
