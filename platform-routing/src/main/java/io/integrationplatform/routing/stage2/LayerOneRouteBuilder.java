@@ -7,6 +7,8 @@ import java.util.function.Supplier;
 import org.apache.camel.Exchange;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.model.OnExceptionDefinition;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The layer-1 send route (T-119; ADR-010 section 4): one Camel route whose error handler redelivers ONLY
@@ -35,6 +37,8 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
 
     /** Exchange property: the classified outcome of the last performed call. */
     static final String LAST_OUTCOME = "stage2.lastOutcome";
+
+    private static final Logger log = LoggerFactory.getLogger(LayerOneRouteBuilder.class);
 
     private final TargetCall targetCall;
     private final Stage2AttemptWriter attempts;
@@ -90,10 +94,12 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
             targetCall.call(send);
             attempts.record(send.deliveryId(), 1, OutcomeClass.SUCCESS, started, clock.get(),
                     "layer-1 try " + tryNumber + ": success");
+            log.info("stage 2: delivery {} - layer-1 try {}: SUCCESS", send.deliveryId(), tryNumber);
         } catch (TargetFaultException fault) {
             exchange.setProperty(LAST_OUTCOME, fault.outcomeClass());
             attempts.record(send.deliveryId(), 1, fault.outcomeClass(), started, clock.get(),
                     "layer-1 try " + tryNumber + ": " + fault.getMessage());
+            log.info("stage 2: delivery {} - layer-1 try {}: {}", send.deliveryId(), tryNumber, fault.outcomeClass());
             throw fault; // redelivery follows the class: TRANSIENT redelivers, AMBIGUOUS/PERMANENT never
         }
     }

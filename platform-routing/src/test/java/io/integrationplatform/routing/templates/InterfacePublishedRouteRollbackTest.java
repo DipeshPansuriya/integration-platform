@@ -3,6 +3,7 @@ package io.integrationplatform.routing.templates;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.integrationplatform.config.flow.api.InterfacePublishRefused;
 import io.integrationplatform.config.flow.api.InterfacePublished;
 import io.integrationplatform.routing.templates.RouteInstanceFactoryTest.FakeRouteConfigReader;
 import java.nio.charset.StandardCharsets;
@@ -76,7 +77,8 @@ class InterfacePublishedRouteRollbackTest {
 
         assertThatThrownBy(this::publishInsideATransaction)
                 .as("the refused exec: row fails the publish at BEFORE_COMMIT")
-                .isInstanceOf(RouteBuildRefusedException.class);
+                .isInstanceOf(InterfacePublishRefused.class) // ADR-017 B2: config's refusal, routing's cause
+                .hasCauseInstanceOf(RouteBuildRefusedException.class);
 
         assertThat(transactions.rolledBack).as("the publish transaction was rolled back").isEqualTo(1);
         assertThat(transactions.committed).as("nothing committed").isZero();

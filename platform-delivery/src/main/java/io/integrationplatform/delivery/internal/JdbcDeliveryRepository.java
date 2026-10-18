@@ -5,6 +5,7 @@ import io.integrationplatform.delivery.port.Stage1Delivery;
 import io.integrationplatform.delivery.ordering.OrderingKey;
 import io.integrationplatform.domain.delivery.DeliveryState;
 import io.integrationplatform.domain.delivery.OutcomeClass;
+import io.integrationplatform.ingest.port.CorrelationContext;
 import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.TenantScopedRepository;
@@ -460,13 +461,17 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                 "with src as ("
                         + " select d.id, d.tenant_id from public.delivery d where d.id = :delivery_id::uuid"
                         + "), ins as ("
-                        + " insert into public.outbox (tenant_id, topic, aggregate_id, record_key, key_bucket)"
-                        + " select src.tenant_id, :topic, src.id, :record_key, :key_bucket from src"
+                        + " insert into public.outbox (tenant_id, topic, aggregate_id, record_key, key_bucket,"
+                        + "   traceparent)"
+                        + " select src.tenant_id, :topic, src.id, :record_key, :key_bucket,"
+                        + "   cast(:traceparent as text) from src"
                         + " returning id, tenant_id)"
                         + " select ins.id, ins.tenant_id from ins",
                 null,
                 params("delivery_id", deliveryId.toString(), "topic", OutboxTopic.DELIVERY_DUE.topicName(),
-                        "record_key", "delivery:" + deliveryId, "key_bucket", keyBucket("delivery:" + deliveryId)),
+                        "record_key", "delivery:" + deliveryId, "key_bucket", keyBucket("delivery:" + deliveryId),
+                        // T107: the deliver hop continues the journey that wrote it (the relay restores the header)
+                        "traceparent", CorrelationContext.currentTraceparent()),
                 (rs, n) -> rs.getString(1)).size();
         requireSingle(rows, "append due record for delivery " + deliveryId);
     }

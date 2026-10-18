@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.integrationplatform.config.adapter.in.ConfigApiExceptionHandler;
+import io.integrationplatform.config.flow.api.InterfacePublished;
+import io.integrationplatform.routing.templates.InterfacePublishedRouteListener;
 import io.integrationplatform.routing.templates.RouteConfigReader;
 import io.integrationplatform.routing.templates.RouteConfigRow;
 import io.integrationplatform.routing.templates.RouteInstanceFactory;
@@ -35,13 +37,16 @@ import org.springframework.web.bind.annotation.RestController;
  * Row 278 T106, Kavita F15: a publish refused by the routing module (an unapproved endpoint URI scheme, an unknown
  * target type) answers through the REAL configuration API error seam as a 400 that names the refused scheme or type
  * - never the catch-all 500, and never the endpoint URI (a URI can carry userinfo). The stub controller lives in an
- * {@code io.integrationplatform.config.*} package so the advice's {@code basePackages} applies, and it drives the
- * real {@link RouteInstanceFactory#publishInterface} (MockMvc standaloneSetup + setControllerAdvice).
+ * {@code io.integrationplatform.config.*} package so the advice's {@code basePackages} applies, and it publishes
+ * through the real {@link InterfacePublishedRouteListener} over the real {@link RouteInstanceFactory#publishInterface}
+ * (MockMvc standaloneSetup + setControllerAdvice; row 278 C2, ADR-017 Gate 2).
  */
 @Tag("e9-t116")
 class PublishRefusalAnswerTest {
 
     private static final String SECRET_URI = "exec://admin:s3cret@host/bin/echo";
+    private static final String LONG_TYPE = "FTP" + "X".repeat(40);
+    private static final String CRLF_TYPE = "FTP\r\nX-Injected: yes";
 
     private DefaultCamelContext camel;
     private MockMvc mvc;
@@ -78,6 +83,30 @@ class PublishRefusalAnswerTest {
                 .andExpect(jsonPath("$.error").value(containsString("'FTP'")));
     }
 
+    @Test
+    void textBeforeTheColonThatIsNotASchemeIsNeverEchoed() throws Exception {
+        mvc.perform(post("/publish/malformed-scheme"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(containsString("(not a URI scheme)")))
+                .andExpect(content().string(not(containsString("token@host"))));
+    }
+
+    @Test
+    void anOverLongTypeAnswersTheFixedText() throws Exception {
+        mvc.perform(post("/publish/long-type"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(containsString("(not a target type)")))
+                .andExpect(content().string(not(containsString(LONG_TYPE))));
+    }
+
+    @Test
+    void aCrLfTypeAnswersTheFixedText() throws Exception {
+        mvc.perform(post("/publish/crlf-type"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(containsString("(not a target type)")))
+                .andExpect(content().string(not(containsString("X-Injected"))));
+    }
+
     /** A publish endpoint of the configuration API whose routing check refuses the interface's row. */
     @RestController
     static class RefusingPublishController {
@@ -99,6 +128,24 @@ class PublishRefusalAnswerTest {
                     "https://target.example/v1", null, null));
         }
 
+        @PostMapping("/publish/malformed-scheme")
+        String refusedMalformedScheme() {
+            return publish(new RouteConfigRow(seed("route-at"), seed("endpoint-at"), "API", "token@host:8443/x",
+                    null, null));
+        }
+
+        @PostMapping("/publish/long-type")
+        String refusedLongType() {
+            return publish(new RouteConfigRow(seed("route-long"), seed("endpoint-long"), LONG_TYPE,
+                    "https://target.example/v1", null, null));
+        }
+
+        @PostMapping("/publish/crlf-type")
+        String refusedCrLfType() {
+            return publish(new RouteConfigRow(seed("route-crlf"), seed("endpoint-crlf"), CRLF_TYPE,
+                    "https://target.example/v1", null, null));
+        }
+
         private String publish(RouteConfigRow row) {
             RouteConfigReader reader = (tenant, iface) -> List.of(row);
             RouteTemplate api = new RouteTemplate() {
@@ -112,8 +159,13 @@ class PublishRefusalAnswerTest {
                     return exchange -> { };
                 }
             };
-            new RouteInstanceFactory(reader, camel, List.of(api), Set.of("https"), Duration.ofMinutes(30),
-                    () -> Instant.parse("2026-10-17T12:00:00Z")).publishInterface(seed("tenant"), seed("iface"));
+            RouteInstanceFactory factory = new RouteInstanceFactory(reader, camel, List.of(api), Set.of("https"),
+                    Duration.ofMinutes(30), () -> Instant.parse("2026-10-17T12:00:00Z"));
+            StaticListableBeanFactory beans = new StaticListableBeanFactory();
+            beans.addBean("routeInstanceFactory", factory);
+            // ADR-017 Gate 2: the publish goes through the BEFORE_COMMIT listener, the translation point
+            new InterfacePublishedRouteListener(beans.getBeanProvider(RouteInstanceFactory.class))
+                    .onInterfacePublished(new InterfacePublished(seed("tenant"), seed("iface"), 1));
             return "published";
         }
     }

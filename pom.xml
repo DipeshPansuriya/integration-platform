@@ -138,12 +138,13 @@
         <artifactId>swagger-core-jakarta</artifactId>
         <version>${swagger-annotations.version}</version>
       </dependency>
-      <!-- dependencyConvergence: camel-kafka asks for 1.11.1, kafka-clients 4.3.1 for 1.10.2; Maven already
-           resolves 1.11.1 (nearest wins), this entry only makes that one version explicit. -->
+      <!-- Security fix: pinned to 1.11.4, above both transitive asks (camel-kafka 1.11.1, kafka-clients 4.3.1
+           1.10.2), closing Dependabot alerts #1-#5 (GHSA-mcr4-qmvw-px4g High and four lower lz4-java advisories);
+           the pin also keeps dependencyConvergence satisfied. -->
       <dependency>
         <groupId>at.yawk.lz4</groupId>
         <artifactId>lz4-java</artifactId>
-        <version>1.11.1</version>
+        <version>1.11.4</version>
       </dependency>
       <dependency>
         <groupId>io.integrationplatform</groupId>

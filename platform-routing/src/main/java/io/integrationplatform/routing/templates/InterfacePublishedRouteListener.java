@@ -1,5 +1,6 @@
 package io.integrationplatform.routing.templates;
 
+import io.integrationplatform.config.flow.api.InterfacePublishRefused;
 import io.integrationplatform.config.flow.api.InterfacePublished;
 import java.util.Objects;
 import org.springframework.beans.factory.ObjectProvider;
@@ -12,8 +13,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * each one's scheme and target type; it validates, never builds: routes are built lazily in stage 2 (ADR-010 s3
  * amendment, F16 verdict c), so a refused publish or a failed commit leaves no live or cached route. Runs inside the
  * publish transaction just before it commits: a refused row (unapproved scheme, unknown target type) throws the
- * factory's {@link RouteBuildRefusedException}, which rolls the publish back - the publish fails with a clear error
- * (E9-F1-S2 @negative @security). A publish outside a transaction is still delivered.
+ * factory's {@link RouteBuildRefusedException}, which this listener translates into config's
+ * {@link InterfacePublishRefused} (row 278 C2, ADR-017 Decision 4) - the publish rolls back and fails with a clear
+ * error (E9-F1-S2 @negative @security). A publish outside a transaction is still delivered.
  *
  * <p>The factory is optional until the composition supplies it (the real {@link RouteConfigReader} adapter and the
  * per-type templates arrive with integration wiring and E10, ADR-015): without one the announcement is a no-op and
@@ -30,8 +32,13 @@ public final class InterfacePublishedRouteListener {
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT, fallbackExecution = true)
     public void onInterfacePublished(InterfacePublished published) {
         RouteInstanceFactory factory = factories.getIfAvailable();
-        if (factory != null) {
+        if (factory == null) {
+            return;
+        }
+        try {
             factory.publishInterface(published.tenantId(), published.interfaceId());
+        } catch (RouteBuildRefusedException refused) {
+            throw new InterfacePublishRefused(refused.answer(), refused);
         }
     }
 }

@@ -1,6 +1,7 @@
 package io.integrationplatform.ingest.internal.intake;
 
 import io.integrationplatform.ingest.port.AcceptedMessage;
+import io.integrationplatform.ingest.port.CorrelationContext;
 import io.integrationplatform.ingest.port.IntakeRefusedException;
 import io.integrationplatform.ingest.port.IntakeTransaction;
 import io.integrationplatform.ingest.port.OutboxEntry;
@@ -10,6 +11,8 @@ import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.tenancy.TenantContext;
 import java.time.Instant;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,12 +27,16 @@ import org.springframework.transaction.annotation.Transactional;
  */
 public class IntakeService implements IntakeTransaction {
 
+    private static final Logger log = LoggerFactory.getLogger(IntakeService.class);
+
+    private final TenantContext tenantContext;
     private final IntakeStore store;
     private final OutboxWriter outbox;
     private final StageTimings timings;
 
     public IntakeService(JdbcClient jdbcClient, TenantContext tenantContext, OutboxWriter outbox,
             StageTimings timings) {
+        this.tenantContext = tenantContext;
         this.store = new IntakeStore(jdbcClient, tenantContext);
         this.outbox = outbox;
         this.timings = timings;
@@ -55,13 +62,17 @@ public class IntakeService implements IntakeTransaction {
         }
         String businessKey = BusinessKeyRule.resolve(version.businessKeyRule(), request.payload());
         UUID messageId = UUID.randomUUID();
+        CorrelationContext.tag(CorrelationContext.TENANT_ID, tenantContext.requireTenantId());
+        CorrelationContext.tag(CorrelationContext.MESSAGE_ID, messageId);
         Instant startedAt = Instant.now();
         store.accept(messageId, published.interfaceId(), version.interfaceVersionId(),
                 version.sourceContractVersionId(), businessKey, request.payload().toString());
-        // ADR-011 Decision 5: the record that sets stage 1 in motion is part of the same commit.
+        // ADR-011 Decision 5: the record that sets stage 1 in motion is part of the same commit; it carries the
+        // request's journey (T107) - the relay restores the traceparent as the record's Kafka header.
         long outboxId = outbox.append(new OutboxEntry(OutboxTopic.MESSAGE_ACCEPTED, messageId, businessKey,
-                null, null, version.sourceContractVersionId()));
+                CorrelationContext.currentTraceparent(), null, version.sourceContractVersionId()));
         timings.record(messageId, StageTimings.Stage.INTAKE, startedAt, Instant.now());
+        log.info("intake: message {} accepted on interface {}", messageId, request.interfaceCode());
         return new AcceptedMessage(messageId, outboxId);
     }
 }
