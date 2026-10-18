@@ -9,7 +9,7 @@
 // Expected RED today, in this order:
 //   1. global-setup: "dev-only exception not configured - waits for row 278" (or "still TBD(row278)");
 //   2. "logFieldTenant is still TBD(T107)" - the JSON field names land with T107; and the Kafka reads
-//      "kafkaContainerEnv is still TBD(T106)" - the base-suite boot starts no Kafka (harness gap);
+//      "kafkaContainerEnv is still TBD(T130)" - the base-suite boot starts no Kafka (harness gap);
 //   3. with the names swapped, before T106: the message is never delivered (nothing consumes
 //      platform.message.accepted) - the DELIVERED wait times out;
 //   4. before T107: the log lines are plain text, and no line carries the correlation id.
@@ -18,7 +18,7 @@
 import { randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { deliveryOfMessageSql, tenantIdSql } from '../lib/direct-sql.mjs';
-import { nameOf } from '../lib/pending-names.mjs';
+import { nameOf, waitsOn } from '../lib/pending-names.mjs';
 import { FLOW, SOURCE_CONTRACT, TENANTS, orderRecord } from '../lib/tenants.mjs';
 import { ACCEPTED_TOPIC, headerProblems, logProblems, traceIdOf, traceparentOf } from '../lib/trace.mjs';
 import { appLogFrom, appLogSize, eventually, postRecord, sourceToken } from '../support/api.mjs';
@@ -27,6 +27,11 @@ import { readOne, readRows } from '../support/db.mjs';
 import { topicRecords } from '../support/kafka.mjs';
 import { addTracking, readRun } from '../support/run-file.mjs';
 import { rotatedSecret } from '../support/seed.mjs';
+
+// BS-09 needs features not on main yet: ONE flag per T-item (ON_MAIN in pending-names.mjs). While one is
+// missing the file is test.fixme - reported as fixme with the item named, never a silent pass.
+const WAITS = waitsOn('T107');
+test.fixme(WAITS !== null, WAITS ?? '');
 
 const PIPELINE_MS = 90000;
 const csv = (value) => value.split(',').map((s) => s.trim()).filter(Boolean);

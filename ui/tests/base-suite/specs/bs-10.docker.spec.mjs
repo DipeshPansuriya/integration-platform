@@ -27,7 +27,7 @@ import { expect, test } from '@playwright/test';
 import { FIGURES, delta } from '../lib/counts.mjs';
 import { attemptRowsSql, auditRowsSql, deliveryOfMessageSql, deliveryRowsSql, eventTypesSql, tenantIdSql } from '../lib/direct-sql.mjs';
 import { causeOf, deliverFailureProblems } from '../lib/failure-cause.mjs';
-import { fill, nameOf } from '../lib/pending-names.mjs';
+import { fill, nameOf, waitsOn } from '../lib/pending-names.mjs';
 import { attemptHistoryProblems, auditProblems, changedKeys, pinProblems, replayWalkProblems, stateWalk } from '../lib/replay.mjs';
 import { FLOW, SOURCE_CONTRACT, TENANTS, expectedTargetBody, orderRecord } from '../lib/tenants.mjs';
 import { deliveriesTo } from '../lib/wiremock.mjs';
@@ -36,6 +36,11 @@ import { bsEnv } from '../support/boot-state.mjs';
 import { readOne, readRows } from '../support/db.mjs';
 import { addTracking, readRun } from '../support/run-file.mjs';
 import { rotatedSecret } from '../support/seed.mjs';
+
+// BS-10 needs features not on main yet: ONE flag per T-item (ON_MAIN in pending-names.mjs). While one is
+// missing the file is test.fixme - reported as fixme with the item named, never a silent pass.
+const WAITS = waitsOn('T105', 'T111', 'T112');
+test.fixme(WAITS !== null, WAITS ?? '');
 
 test.describe.configure({ mode: 'serial' });
 

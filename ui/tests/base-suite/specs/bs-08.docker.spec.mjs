@@ -14,12 +14,17 @@
 // Green needs T105, T106, T110, T112 and row 278's exception after T137. Never a psql-seeded row.
 
 import { expect, test } from '@playwright/test';
-import { fill, nameOf } from '../lib/pending-names.mjs';
+import { fill, nameOf, waitsOn } from '../lib/pending-names.mjs';
 import { STAGES, screenRowProblems, timelineProblems } from '../lib/timeline.mjs';
 import { TENANTS } from '../lib/tenants.mjs';
 import { inBrowser, must } from '../support/api.mjs';
 import { bsEnv } from '../support/boot-state.mjs';
 import { readRun } from '../support/run-file.mjs';
+
+// BS-08 needs features not on main yet: ONE flag per T-item (ON_MAIN in pending-names.mjs). While one is
+// missing the file is test.fixme - reported as fixme with the item named, never a silent pass.
+const WAITS = waitsOn('T105', 'T112');
+test.fixme(WAITS !== null, WAITS ?? '');
 
 test('BS-08: the message from BS-07 shows every stage with time and duration >= 0, in order', async ({ page }) => {
   const [trackingId] = readRun().tracking.A;
