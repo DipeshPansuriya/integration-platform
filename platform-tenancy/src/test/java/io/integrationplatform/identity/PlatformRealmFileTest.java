@@ -8,7 +8,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
@@ -91,6 +93,37 @@ class PlatformRealmFileTest {
     }
 
     @Test
+    void everyRealmFileUnderComposeKeycloakHoldsOnlyPlaceholderSecrets() throws IOException { // T162
+        List<String> findings = new ArrayList<>();
+        for (Path file : realmFiles()) {
+            collectSecrets(KeycloakRealmContainer.read(Files.readString(file)), file.getFileName().toString(), findings);
+        }
+        assertThat(findings).isEmpty();
+        assertThat(client("operator-agent").get("secret").asString()).isEqualTo("${OPERATOR_AGENT_CLIENT_SECRET}");
+    }
+
+    @Test
+    void everyRealmPlaceholderIsPassedToKeycloakByComposeAndNamedInTheEnvExample() throws IOException { // T162
+        Path composeDir = KeycloakRealmContainer.realmFile().getParent().getParent();
+        String compose = Files.readString(composeDir.resolve("compose.yaml"));
+        List<String> envExample = Files.readAllLines(composeDir.resolve("compose.env.example"));
+        List<String> missing = new ArrayList<>();
+        for (Path file : realmFiles()) {
+            Matcher m = PLACEHOLDER.matcher(Files.readString(file));
+            while (m.find()) {
+                String name = m.group().substring(2, m.group().length() - 1);
+                if (!compose.contains(name + ": ${" + name + ":?")) {
+                    missing.add(file.getFileName() + ": " + name + " not passed to keycloak in compose.yaml");
+                }
+                if (!envExample.contains(name + "=")) {
+                    missing.add(file.getFileName() + ": " + name + " not named (empty) in compose.env.example");
+                }
+            }
+        }
+        assertThat(missing).isEmpty();
+    }
+
+    @Test
     void plantedLiteralSecretIsFlagged() { // R02: the check fails on a planted violation (in memory only)
         List<String> findings = new ArrayList<>();
         collectSecrets(KeycloakRealmContainer.read("{\"clients\":[{\"secret\":\"s3cr3t\"}],"
@@ -106,6 +139,12 @@ class PlatformRealmFileTest {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
+
+    private static List<Path> realmFiles() throws IOException {
+        try (Stream<Path> files = Files.list(KeycloakRealmContainer.realmFile().getParent())) {
+            return files.filter(f -> f.getFileName().toString().endsWith(".json")).sorted().toList();
+        }
+    }
 
     private static String readRealm() {
         try {
