@@ -1,6 +1,7 @@
 package io.integrationplatform.config.system.application;
 
 import io.integrationplatform.config.application.ConfigApiException;
+import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemDetail;
 import io.integrationplatform.tenancy.port.LoginBinding;
@@ -31,10 +32,14 @@ public class SystemAdminService {
 
     private final JdbcSystemRepository systems;
     private final TestConnectionService testConnection;
+    private final DestinationGuard guard;
 
-    public SystemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection) {
+    /** @param guard T-124: the ONE destination guard, run on every type's host field at save (no DNS) */
+    public SystemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
+            DestinationGuard guard) {
         this.systems = Objects.requireNonNull(systems, "systems");
         this.testConnection = Objects.requireNonNull(testConnection, "testConnection");
+        this.guard = Objects.requireNonNull(guard, "guard");
     }
 
     /** Registers a system; type and settings are optional together (an E3 untyped registration stays valid). */
@@ -46,7 +51,7 @@ public class SystemAdminService {
         String direction = direction(body, errors);
         JsonNode type = field(body, "type");
         JsonNode settings = field(body, "settings");
-        errors.addAll(SystemSettings.validate(type, settings));
+        errors.addAll(settingsErrors(type, settings));
         if (!errors.isEmpty()) {
             throw new SystemValidationException(errors);
         }
@@ -100,7 +105,7 @@ public class SystemAdminService {
         if (hasTypeOrSettings) {
             JsonNode typeNode = field(body, "type");
             JsonNode settingsNode = field(body, "settings");
-            errors.addAll(SystemSettings.validate(typeNode, settingsNode));
+            errors.addAll(settingsErrors(typeNode, settingsNode));
             type = SystemSettings.typeOf(typeNode);
             settings = type == null ? null : settingsNode.toString();
         }
@@ -178,6 +183,14 @@ public class SystemAdminService {
         body.put("type", system.type());
         body.put("settings", system.settings() == null ? null : JSON.readTree(system.settings()));
         return body;
+    }
+
+    /** The type's schema errors; a schema-valid host field then goes through the destination guard (T-124). */
+    private List<String> settingsErrors(JsonNode type, JsonNode settings) {
+        List<String> schema = SystemSettings.validate(type, settings);
+        String typeName = SystemSettings.typeOf(type);
+        return !schema.isEmpty() || typeName == null ? schema
+                : DestinationSettingsCheck.errors(typeName, settings, guard);
     }
 
     private static JsonNode field(JsonNode body, String name) {
