@@ -270,6 +270,33 @@ class AuditWriterContainerTest {
         assertThat(forcesRowLevelSecurity("public.audit_event"))
                 .as("audit_event is FORCE ROW LEVEL SECURITY")
                 .isTrue();
+        assertThat(forcesRowLevelSecurity("public.audit_outbox"))
+                .as("the audit outbox is FORCE ROW LEVEL SECURITY too")
+                .isTrue();
+    }
+
+    @Test
+    void theAuditWriteRidesTheBusinessTransactionThroughTheOutbox() throws SQLException {
+        // row278 D2/M3: the outbox row commits with the business; the after-commit relay marks it relayed
+        AuditEvent committed = new AuditEvent(TENANT_A, "admin-outbox-commit", "LOOKUP_ENTRY_CHANGED",
+                List.of("lookup:1", "entry:outbox"), null, null, Instant.now());
+        AuditEvent rolledBack = new AuditEvent(TENANT_A, "admin-outbox-rollback", "LOOKUP_ENTRY_CHANGED",
+                List.of("lookup:1", "entry:outbox-rb"), null, null, Instant.now());
+
+        publishInTenantTransaction(TENANT_A, committed);
+        publishInTenantTransactionFailingAfter(TENANT_A, rolledBack);
+
+        assertThat(countUnderActor(TENANT_A, "admin-outbox-commit")).isEqualTo(1);
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement()) {
+            sql.execute("set app.tenant_id = '" + TENANT_A + "'");
+            try (var rows = sql.executeQuery("select actor, relayed_at is not null from public.audit_outbox"
+                    + " where actor like 'admin-outbox-%' order by id")) {
+                assertThat(rows.next()).as("the committed event left one outbox row").isTrue();
+                assertThat(rows.getString(1)).isEqualTo("admin-outbox-commit");
+                assertThat(rows.getBoolean(2)).as("the after-commit relay moved it").isTrue();
+                assertThat(rows.next()).as("the rolled-back event left no outbox row").isFalse();
+            }
+        }
     }
 
     private static boolean forcesRowLevelSecurity(String table) throws SQLException {
