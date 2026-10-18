@@ -9,7 +9,9 @@ import io.integrationplatform.ingest.port.OutboxEntry;
 import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.ingest.port.OutboxWriter;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -103,15 +105,24 @@ public final class DeliveryRetryTrigger {
     private int redriveDue(UUID tenant) {
         List<RetryCandidate> due = store.lockDue(Instant.now(), batchSize);
         int moved = 0;
+        Map<UUID, Integer> deferredMovedPerTarget = new HashMap<>();
         for (RetryCandidate candidate : due) {
             if (!readiness.ready(tenant, candidate.deliveryId())) {
                 continue; // readiness stub: never false today; E10 T-201 fills the rule
+            }
+            Optional<UUID> deferredTarget = bulkheadFacts.forDelivery(candidate.deliveryId())
+                    .filter(facts -> facts.bulkheadDeferrals() > 0)
+                    .map(DeliveryBulkheadFacts.BulkheadFacts::targetEndpointId);
+            if (deferredTarget.isPresent() && deferredMovedPerTarget.getOrDefault(deferredTarget.get(), 0)
+                    >= redriveCap.maxDeferredRedrives(deferredTarget.get())) {
+                continue; // T-199: over this target's cap - stays RETRY_WAIT for the next run
             }
             if (!store.markDue(candidate.deliveryId())) {
                 continue; // 0 rows: the delivery is not ours to move anymore - the store never throws on this
             }
             outboxWriter.append(new OutboxEntry(OutboxTopic.DELIVERY_DUE, candidate.deliveryId(),
                     "delivery:" + candidate.deliveryId(), null, null));
+            deferredTarget.ifPresent(target -> deferredMovedPerTarget.merge(target, 1, Integer::sum));
             moved++;
         }
         return moved;
