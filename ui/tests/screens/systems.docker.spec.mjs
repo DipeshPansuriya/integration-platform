@@ -160,9 +160,9 @@ test('a refused edit shows every validation error and keeps the stored settings'
 
 // V-3 (row 306 defect batch, lane C): the Test connection button on the systems screen calls the
 // real POST /api/v1/admin/systems/{systemId}/test-connection and shows what the endpoint answers.
-// The suite's backend boots with an EMPTY destination allow-list (config-systems.yml - the
-// allow-list refuses every destination, fail closed), so an API system's test answers REFUSED
-// deterministically; result REFUSED is a 200 answer, shown as the endpoint names it.
+// The screens harness allow-list (screen-hosts.mjs) covers the seed host, so the test call reaches
+// the network; the reserved .test TLD (RFC 6761) never resolves, so the answer is FAILED
+// deterministically; result FAILED is a 200 answer, shown as the endpoint names it.
 test('the row Test connection button tests an API system and shows the endpoint answer', async ({ page }) => {
   await page.goto(consoleUrl());
   const code = `sys-testconn-${RUN}`;
@@ -179,7 +179,7 @@ test('the row Test connection button tests an API system and shows the endpoint 
   const answer = row.locator('[data-test-connection-result]'); // T101: the answer sits in its row cell
   await expect(answer).toBeVisible();
   await expect(answer).toHaveAttribute('role', 'status');
-  await expect(answer).toHaveAttribute('data-test-connection-result', 'REFUSED');
+  await expect(answer).toHaveAttribute('data-test-connection-result', 'FAILED');
   await expect(answer).toContainText(code);
 });
 
