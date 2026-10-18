@@ -80,6 +80,8 @@ class TargetCredentialContainerTest {
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
         E5CredentialFixture.wire(registry);
+        // T-124: a target's host is checked at save, so the suite's partner host must be on the allow-list
+        registry.add("platform.config.destinations.allowed-hosts", () -> "partner.example,*.partner.example");
     }
 
     private UUID apiTarget(String admin) {

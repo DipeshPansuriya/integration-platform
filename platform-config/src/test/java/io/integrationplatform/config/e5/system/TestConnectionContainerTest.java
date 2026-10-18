@@ -144,7 +144,6 @@ class TestConnectionContainerTest {
 
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', value = {
-        "is not on the allow-list                    | http://outside.example.org:8080/  | NOT_ON_ALLOW_LIST",
         "resolves by DNS to 127.0.0.1                | http://loop.e5.test:8080/         | REFUSED_ADDRESS",
         "resolves by DNS to 10/8                     | http://ten.e5.test:8080/          | REFUSED_ADDRESS",
         "resolves by DNS to 172.16/12                | http://sixteen.e5.test/           | REFUSED_ADDRESS",
@@ -160,6 +159,30 @@ class TestConnectionContainerTest {
 
         assertRefusedAndAudited(answer, systemId, reason);
         assertThat(WIREMOCK.dialled()).as("nothing was dialled: no data sent").isEmpty();
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("Scenario: a host off the allow-list is refused (at save since T-124, and at test time)")
+    void aHostOffTheAllowListIsRefused() {
+        String subject = configuratorOfA();
+        Response atSave = call(port, "POST", SYSTEMS, subject,
+                systemBody(randomCode("sys-out"), "OUTBOUND", "API", "{\"baseUrl\":\"http://outside.example.org:8080/\"}"));
+        assertThat(atSave.status()).as("the save-time guard refuses it").isEqualTo(400);
+        assertThat(atSave.body()).contains("settings.baseUrl is refused: the host is not on the destination allow-list");
+
+        // a row that bypassed the API (an import, a row saved before T-124) is still refused by the guard at test time
+        String systemId = UUID.randomUUID().toString();
+        E5SystemFixture.execute("INSERT INTO public.system (id, tenant_id, code, name, direction, type, settings)"
+                + " VALUES (?::uuid, ?::uuid, ?, 'legacy outside', 'TARGET', 'API', ?::jsonb)", systemId,
+                E5SystemFixture.tenantA().id().toString(), randomCode("sys-out-row"),
+                "{\"baseUrl\":\"http://outside.example.org:8080/\"}");
+
+        Response answer = testConnection(subject, systemId);
+
+        assertRefusedAndAudited(answer, systemId, "NOT_ON_ALLOW_LIST");
+        assertThat(WIREMOCK.dialled()).isEmpty();
     }
 
     @ParameterizedTest(name = "redirects to {0}")
