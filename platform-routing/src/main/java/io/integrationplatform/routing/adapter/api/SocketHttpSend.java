@@ -11,6 +11,11 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -102,6 +107,7 @@ public class SocketHttpSend implements HttpSend {
         List<String> head = readHead(in);
         int status = parseStatus(head.get(0));
         Integer contentLength = null;
+        Duration retryAfter = null;
         for (String line : head.subList(1, head.size())) {
             int colon = line.indexOf(':');
             if (colon <= 0) {
@@ -111,11 +117,29 @@ public class SocketHttpSend implements HttpSend {
             String value = line.substring(colon + 1).trim();
             if (name.equals("content-length")) {
                 contentLength = Integer.parseInt(value);
+            } else if (name.equals("retry-after")) {
+                retryAfter = retryAfter(value);
             } else if (name.equals("transfer-encoding") && value.toLowerCase(Locale.ROOT).contains("chunked")) {
                 throw new IOException("the target answered chunked - the endpoint contract sends Content-Length");
             }
         }
-        return new Response(status, contentLength == null ? readToClose(in) : readBounded(in, contentLength));
+        return new Response(status, contentLength == null ? readToClose(in) : readBounded(in, contentLength),
+                retryAfter);
+    }
+
+    /** RFC 9110 section 10.2.3: delta-seconds or an HTTP-date; anything else is ignored, never a failure. */
+    static Duration retryAfter(String value) {
+        try {
+            return Duration.ofSeconds(Math.max(0, Long.parseLong(value)));
+        } catch (NumberFormatException notSeconds) {
+            try {
+                Duration until = Duration.between(Instant.now(),
+                        ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant());
+                return until.isNegative() ? Duration.ZERO : until;
+            } catch (DateTimeParseException notADate) {
+                return null;
+            }
+        }
     }
 
     private static byte[] readBounded(InputStream in, int contentLength) throws IOException {

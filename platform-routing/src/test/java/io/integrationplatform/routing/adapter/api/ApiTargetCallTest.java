@@ -3,6 +3,8 @@ package io.integrationplatform.routing.adapter.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.integrationplatform.config.destination.AllowList;
 import io.integrationplatform.config.destination.CheckedDestination;
 import io.integrationplatform.config.destination.DestinationGuard;
@@ -17,6 +19,7 @@ import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -227,6 +230,39 @@ class ApiTargetCallTest {
         assertThat(sent).as("one send, never a second dial of the redirect target").hasSize(1);
     }
 
+    @Test
+    @DisplayName("T96: a half-open breaker re-drives at most its trial-call count per target; the rest raise"
+            + " TRANSIENT and never reach the socket, and another target's breaker is untouched")
+    void halfOpenBreakerReDrivesAtMostItsTrialCallsPerTarget() {
+        int trialCalls = 2;
+        CircuitBreakerRegistry breakers = CircuitBreakerRegistry.of(CircuitBreakerConfig.custom()
+                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+                .slidingWindowSize(2).minimumNumberOfCalls(2).failureRateThreshold(50)
+                .waitDurationInOpenState(Duration.ofMinutes(5))
+                .permittedNumberOfCallsInHalfOpenState(trialCalls).build());
+        ApiTargetCall target = new ApiTargetCall(views(view("http://target.e5.test:8080/api", "POST", 1500,
+                "NO_AUTH", false, Map.of())), guard(), bodyPort,
+                answering(() -> new Response(503, new byte[0])), breakers);
+        UUID endpoint = UUID.randomUUID();
+
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> target.call(sendTo(endpoint)))
+                    .isInstanceOf(TargetFaultException.TransientFaultException.class);
+        }
+        assertThat(sent).as("the breaker opens after its window of 2 failures").hasSize(2);
+
+        breakers.circuitBreaker(endpoint.toString()).transitionToHalfOpenState();
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> target.call(sendTo(endpoint)))
+                    .isInstanceOf(TargetFaultException.TransientFaultException.class);
+        }
+        assertThat(sent).as("half-open lets exactly its trial calls through").hasSize(2 + trialCalls);
+
+        assertThatThrownBy(() -> target.call(sendTo(UUID.randomUUID())))
+                .isInstanceOf(TargetFaultException.TransientFaultException.class);
+        assertThat(sent).as("one breaker per target: another target still sends").hasSize(3 + trialCalls);
+    }
+
     // ---------------------------------------------------------------- the seams
 
     /** The adapter under proof over a recording seam: the real socket send is the container test's business. */
@@ -256,7 +292,11 @@ class ApiTargetCallTest {
     }
 
     private static Stage2Send send() {
-        return new Stage2Send(DELIVERY, UUID.randomUUID(), "CUST-1", UUID.randomUUID(), false);
+        return sendTo(UUID.randomUUID());
+    }
+
+    private static Stage2Send sendTo(UUID endpoint) {
+        return new Stage2Send(DELIVERY, UUID.randomUUID(), "CUST-1", endpoint, false);
     }
 
     private interface Answer {
