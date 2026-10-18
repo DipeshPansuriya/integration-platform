@@ -91,7 +91,7 @@ async function openFailures(page) {
 }
 
 async function pickFlow(page, flowId) {
-  await page.getByLabel('Flow', { exact: true }).selectOption(flowId);
+  await page.getByRole('combobox', { name: 'Flow', exact: true }).selectOption(flowId);
   await expect(page.locator(`${PAGE}[data-failures-loaded="true"]`)).toBeVisible();
 }
 
@@ -198,7 +198,7 @@ test('All flows: the Flow column heads the table and each row names its own flow
   const two = seedMessage(tenantId, second.id, 'ROUTE_FAILED', `${DAY} 00:02:00+00`);
 
   await openFailures(page);
-  await expect(page.getByLabel('Flow', { exact: true })).toHaveValue('');
+  await expect(page.getByRole('combobox', { name: 'Flow', exact: true })).toHaveValue('');
   const headers = page.locator('table[data-failures] th[scope="col"]');
   await expect(headers).toHaveCount(8); // T112: + Action
   await expect(headers.nth(1)).toHaveText('Flow');

@@ -118,7 +118,7 @@ async function openFailures(page, flowId) {
   await page.goto(consoleUrl());
   await page.click('[data-nav="failures"]');
   await expect(page.locator(`${FAILURES}[data-failures-loaded="true"]`)).toBeVisible();
-  await page.getByLabel('Flow', { exact: true }).selectOption(flowId);
+  await page.getByRole('combobox', { name: 'Flow', exact: true }).selectOption(flowId);
   await expect(page.locator(`${FAILURES}[data-failures-loaded="true"]`)).toBeVisible();
 }
 
