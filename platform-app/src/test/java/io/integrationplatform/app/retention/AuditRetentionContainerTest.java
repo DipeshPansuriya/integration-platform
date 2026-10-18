@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -47,6 +48,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Tag("container")
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// a surefire rerun starts a new container; a cached context would still point at the old, migrated one
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AuditRetentionContainerTest {
 
     @Container
@@ -56,7 +59,8 @@ class AuditRetentionContainerTest {
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("yyyyMM");
 
     private static PlatformTestWiring.RestrictedLogin login;
-    private static boolean granted;
+    /** JDBC URL of the container already granted and seeded, so a rerun against a new container seeds again. */
+    private static String grantedFor;
 
     /** The month that starts 7 years 1 month ago: every row in it is older than 7 years. */
     private final LocalDate expired = LocalDate.now(ZoneOffset.UTC).minusYears(7).minusMonths(1).withDayOfMonth(1);
@@ -74,8 +78,8 @@ class AuditRetentionContainerTest {
     @BeforeEach
     void agedPartitionsWithOneRowEach() throws SQLException {
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement()) {
-            if (!granted) {
-                granted = true;
+            if (!POSTGRES.getJdbcUrl().equals(grantedFor)) {
+                grantedFor = POSTGRES.getJdbcUrl();
                 PlatformTestWiring.grantApplicationRole(POSTGRES, login);
                 sql.execute("insert into public.tenant (id, code, status, time_zone) values ('" + TENANT
                         + "', 'retention-tenant', 'ACTIVE', 'Etc/UTC') on conflict (id) do nothing");
@@ -158,7 +162,9 @@ class AuditRetentionContainerTest {
         assertThatThrownBy(() -> application.queryForObject("select public.audit_purge_expired()", Integer.class))
                 .as("the application's own login is refused: permission denied")
                 .isInstanceOf(DataAccessException.class)
-                .hasMessageContaining("permission denied");
+                // Spring 7 keeps the driver text off the translated message; the refusal is on the PSQLException
+                .rootCause()
+                .hasMessageContaining("permission denied for function audit_purge_expired");
         assertThat(exists(partition(expired))).as("nothing was dropped by the refused call").isTrue();
     }
 
