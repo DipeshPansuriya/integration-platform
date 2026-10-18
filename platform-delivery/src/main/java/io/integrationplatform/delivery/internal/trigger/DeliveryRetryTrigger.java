@@ -115,6 +115,9 @@ public final class DeliveryRetryTrigger {
      * @return how many deliveries moved to {@code DUE} and were re-driven
      */
     public int runOnce() {
+        if (!readiness.ready(null, null)) {
+            return 0; // T-201: a not-ready instance skips the whole pass - no tenant bound, no transaction opened
+        }
         int reDriven = 0;
         for (UUID tenant : tenants.activeTenantIds()) {
             tenantContext.bind(tenant);
