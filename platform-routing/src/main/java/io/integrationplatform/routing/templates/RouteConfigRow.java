@@ -28,4 +28,27 @@ public record RouteConfigRow(UUID routeId, UUID targetEndpointId, String targetT
         }
         return uri.substring(0, colon).toLowerCase(java.util.Locale.ROOT).trim();
     }
+
+    /**
+     * The endpoint version of ADR-010 section 3 (F16): a deterministic fingerprint of the values a route instance
+     * is built from - target type, endpoint URI, pinned contract and mapping versions. Equal rows give the same
+     * version on every consuming instance; any change gives a new one. The first 16 hex characters of a SHA-256,
+     * so the route id and the direct consumer that carry it never expose the endpoint URI.
+     */
+    public String endpointVersion() {
+        String material = targetType + '\u001f' + endpointUri + '\u001f' + contractVersionId + '\u001f'
+                + mappingVersionId;
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(material.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest, 0, 8);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is required of every Java platform", e);
+        }
+    }
+
+    /** The cache key this row's route instance is held under (target endpoint, endpoint version). */
+    public RouteKey key() {
+        return new RouteKey(targetEndpointId, endpointVersion());
+    }
 }

@@ -220,7 +220,9 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
     }
 
     private List<String> routeIds() {
-        return camel.getRoutes().stream().map(org.apache.camel.Route::getRouteId).toList();
+        // F16: a live id is the configuration route plus "-<endpointVersion>"; compare on the configuration route
+        return camel.getRoutes().stream().map(org.apache.camel.Route::getRouteId)
+                .map(id -> id.substring(0, id.lastIndexOf('-'))).toList();
     }
 
     private static String camelRouteId(RouteRow route) {
@@ -229,7 +231,7 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
 
     private void send(UUID endpoint, String body) {
         try (ProducerTemplate producer = camel.createProducerTemplate()) {
-            producer.sendBody(RouteInstanceFactory.CONSUMER_PREFIX + endpoint, body);
+            producer.sendBody(factory.instanceOf(endpoint).orElseThrow().consumerUri(), body);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

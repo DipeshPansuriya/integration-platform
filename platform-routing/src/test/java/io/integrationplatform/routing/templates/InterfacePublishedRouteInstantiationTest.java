@@ -99,8 +99,8 @@ class InterfacePublishedRouteInstantiationTest {
         rows.rows.values().forEach(factory::ensure); // stage 2 builds each row's instance lazily on first use
         assertThat(camel.getRoutes()).as("one live route instance per active configuration row").hasSize(2);
         try (ProducerTemplate producer = camel.createProducerTemplate()) {
-            producer.sendBody("direct:e9-target-" + ENDPOINT_A, "m-1");
-            producer.sendBody("direct:e9-target-" + ENDPOINT_B, "m-2");
+            producer.sendBody(factory.instanceOf(ENDPOINT_A).orElseThrow().consumerUri(), "m-1");
+            producer.sendBody(factory.instanceOf(ENDPOINT_B).orElseThrow().consumerUri(), "m-2");
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

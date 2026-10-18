@@ -204,7 +204,7 @@ class RouteInstanceFactoryTest {
     void aRouteIdAlreadyInTheContextIsRefusedWithItsOwnAnswer() throws Exception {
         RouteConfigRow row = new RouteConfigRow(instanceId("route-8"), ENDPOINT_A, "API",
                 "https://target-a.example/v1", null, MAPPING_M3);
-        String routeId = RouteInstanceFactory.ROUTE_ID_PREFIX + row.routeId();
+        String routeId = RouteInstanceFactory.routeIdOf(row);
         context.addRoutes(new org.apache.camel.builder.RouteBuilder() {
             @Override
             public void configure() {
@@ -267,6 +267,63 @@ class RouteInstanceFactoryTest {
                 .hasMessageContaining("'FTP'");
         assertThat(context.getRoutes()).as("0 routes registered by a refused publish").isEmpty();
         assertThat(factory.instanceOf(ENDPOINT_A)).isEmpty();
+    }
+
+    // row278 D3/F16: the cache key is (target endpoint id, endpoint version), ADR-010 section 3
+
+    @Test
+    void twoDeliveriesForOneEndpointVersionShareOneInstance() {
+        RouteConfigRow m3 = new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API",
+                "https://target-a.example/v1", null, MAPPING_M3);
+
+        RouteInstance first = factory.ensure(m3);
+        RouteInstance second = factory.ensure(m3);
+
+        assertThat(second).as("the same (endpoint, version) key re-uses the instance").isSameAs(first);
+        assertThat(template.builds).isEqualTo(1);
+        assertThat(first.key()).isEqualTo(new RouteKey(ENDPOINT_A, m3.endpointVersion()));
+    }
+
+    @Test
+    void aNewEndpointVersionBuildsASecondInstanceAndLeavesTheFirstRunning() throws Exception {
+        RouteConfigRow m3 = new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API",
+                "https://target-a.example/v1", null, MAPPING_M3);
+        RouteConfigRow m4 = new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API",
+                "https://target-a.example/v1", null, MAPPING_M4);
+
+        RouteInstance onM3 = factory.ensure(m3);
+        RouteInstance onM4 = factory.ensure(m4);
+
+        assertThat(onM4).as("a new version is a new key: its own instance").isNotSameAs(onM3);
+        assertThat(template.builds).isEqualTo(2);
+        assertThat(onM3.pinnedMappingVersionId()).as("the in-flight version is untouched").isEqualTo(MAPPING_M3);
+        assertThat(onM4.pinnedMappingVersionId()).isEqualTo(MAPPING_M4);
+        assertThat(onM3.camelRouteId()).isNotEqualTo(onM4.camelRouteId());
+        assertThat(onM3.consumerUri()).isNotEqualTo(onM4.consumerUri());
+        assertThat(context.getRoute(onM3.camelRouteId())).as("both versions live side by side").isNotNull();
+        assertThat(context.getRoute(onM4.camelRouteId())).isNotNull();
+        try (org.apache.camel.ProducerTemplate producer = context.createProducerTemplate()) {
+            producer.sendBody(onM3.consumerUri(), "old");
+            producer.sendBody(onM4.consumerUri(), "new");
+        }
+        assertThat(factory.instanceOf(ENDPOINT_A)).as("the endpoint's newest instance").contains(onM4);
+    }
+
+    @Test
+    void theIdleWindowIsPerVersionAnOldVersionGoesWhileTheUsedOneStays() {
+        RouteConfigRow m3 = new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API",
+                "https://target-a.example/v1", null, MAPPING_M3);
+        RouteConfigRow m4 = new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API",
+                "https://target-a.example/v1", null, MAPPING_M4);
+        RouteInstance onM3 = factory.ensure(m3); // built 12:00, never used again
+        RouteInstance onM4 = factory.ensure(m4);
+        factory.touch(onM4, Instant.parse("2026-10-12T12:29:00Z"));
+
+        factory.evictIdle(Instant.parse("2026-10-12T12:31:00Z"));
+
+        assertThat(context.getRoute(onM3.camelRouteId())).as("31 minutes idle: removed").isNull();
+        assertThat(context.getRoute(onM4.camelRouteId())).as("used 2 minutes ago: stays").isNotNull();
+        assertThat(factory.instanceOf(ENDPOINT_A)).contains(onM4);
     }
 
     private UUID instanceId(String seed) {

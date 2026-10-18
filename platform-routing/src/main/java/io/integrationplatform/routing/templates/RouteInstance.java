@@ -28,9 +28,19 @@ public final class RouteInstance {
         return pinned.routeId();
     }
 
-    /** The Camel route id the factory registers for this instance (deterministic per configuration route). */
+    /** The Camel route id the factory registers for this instance (configuration route plus endpoint version). */
     public String camelRouteId() {
-        return RouteInstanceFactory.ROUTE_ID_PREFIX + pinned.routeId();
+        return RouteInstanceFactory.routeIdOf(pinned);
+    }
+
+    /** The (target endpoint, endpoint version) pair this instance is held under (ADR-010 section 3, F16). */
+    public RouteKey key() {
+        return pinned.key();
+    }
+
+    /** The direct consumer this instance answers on; stage 2 sends a delivery here (direct-only dispatch). */
+    public String consumerUri() {
+        return RouteInstanceFactory.consumerOf(pinned);
     }
 
     public UUID targetEndpointId() {

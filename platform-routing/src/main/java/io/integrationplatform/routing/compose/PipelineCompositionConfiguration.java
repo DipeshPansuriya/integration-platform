@@ -115,6 +115,12 @@ class PipelineCompositionConfiguration {
                 ROUTE_IDLE, Instant::now);
     }
 
+    /** The scheduled idle removal of ADR-010 section 3 (F16): every minute, instances idle past 30 minutes go. */
+    @Bean
+    RouteIdleSweep routeIdleSweep(RouteInstanceFactory routeInstanceFactory) {
+        return new RouteIdleSweep(routeInstanceFactory, Instant::now);
+    }
+
     /**
      * The T-120 seam (amit's T71 owns the allowedSchemes rule; this is only where its list is read): the operator's
      * {@code ROUTING_CORE_ALLOWED_SCHEMES} (comma separated, e.g. {@code http,https}). Unset means no scheme is

@@ -47,7 +47,9 @@ public final class RouteInstanceFactory {
     private final RouteConfigReader reader;
     private final CamelContext context;
     private final Map<String, RouteTemplate> templatesByType;
-    private final Map<UUID, RouteInstance> instancesByEndpoint = new ConcurrentHashMap<>();
+    private final Map<RouteKey, RouteInstance> instancesByKey = new ConcurrentHashMap<>();
+    /** The newest instance built per endpoint - what {@link #instanceOf} answers; older versions stay cached. */
+    private final Map<UUID, RouteInstance> newestByEndpoint = new ConcurrentHashMap<>();
     private final Set<String> allowedSchemes;
     private final Duration idleTimeout;
     private final Supplier<Instant> clock;
@@ -88,16 +90,17 @@ public final class RouteInstanceFactory {
      */
     public RouteInstance ensure(RouteConfigRow row) {
         RouteTemplate template = approvedTemplate(Objects.requireNonNull(row, "row"));
-        RouteInstance existing = instancesByEndpoint.get(row.targetEndpointId());
+        RouteKey key = row.key();
+        RouteInstance existing = instancesByKey.get(key);
         if (existing != null) {
             return existing; // lazy re-use: the pinned versions stayed, no rebuild from current configuration
         }
         synchronized (this) {
-            existing = instancesByEndpoint.get(row.targetEndpointId());
+            existing = instancesByKey.get(key);
             if (existing != null) {
                 return existing;
             }
-            String routeId = ROUTE_ID_PREFIX + row.routeId();
+            String routeId = routeIdOf(row);
             if (context.getRoute(routeId) != null) {
                 throw RouteBuildRefusedException.routeIdClash("route id '" + routeId
                         + "' is already in the Camel context without a held instance - refusing to rebuild over it");
@@ -105,7 +108,8 @@ public final class RouteInstanceFactory {
             org.apache.camel.Processor send = template.build(row);
             registerRouteInstance(routeId, consumerOf(row), send);
             RouteInstance built = new RouteInstance(row, clock.get());
-            instancesByEndpoint.put(row.targetEndpointId(), built);
+            instancesByKey.put(key, built);
+            newestByEndpoint.put(row.targetEndpointId(), built);
             return built;
         }
     }
@@ -132,14 +136,19 @@ public final class RouteInstanceFactory {
         return template;
     }
 
-    /** The live instance of an endpoint, if this consuming instance holds one. */
+    /** The newest live instance of an endpoint, if this consuming instance holds one. */
     public Optional<RouteInstance> instanceOf(UUID targetEndpointId) {
-        return Optional.ofNullable(instancesByEndpoint.get(targetEndpointId));
+        return Optional.ofNullable(newestByEndpoint.get(targetEndpointId));
     }
 
-    /** Marks an instance used now (the consuming send path calls this on each delivery it dispatches). */
+    /** Marks this instance used now - its own idle window (the send path calls this on each delivery it sends). */
+    public void touch(RouteInstance instance, Instant at) {
+        Objects.requireNonNull(instance, "instance").touch(Objects.requireNonNull(at, "at"));
+    }
+
+    /** Marks an endpoint's newest instance used now. */
     public void touch(UUID targetEndpointId, Instant at) {
-        RouteInstance instance = instancesByEndpoint.get(targetEndpointId);
+        RouteInstance instance = newestByEndpoint.get(targetEndpointId);
         if (instance != null) {
             instance.touch(at);
         }
@@ -151,18 +160,24 @@ public final class RouteInstanceFactory {
      * removed instance is re-created from the row whenever work arrives, so nothing is lost.
      */
     public void evictIdle(Instant now) {
-        for (Map.Entry<UUID, RouteInstance> entry : instancesByEndpoint.entrySet()) {
+        for (Map.Entry<RouteKey, RouteInstance> entry : instancesByKey.entrySet()) {
             RouteInstance instance = entry.getValue();
-            if (Duration.between(instance.lastUsedAt(), now).compareTo(idleTimeout) > 0) {
-                instancesByEndpoint.remove(entry.getKey());
-                stopRouteSilently(ROUTE_ID_PREFIX + instance.routeId());
+            if (Duration.between(instance.lastUsedAt(), now).compareTo(idleTimeout) > 0
+                    && instancesByKey.remove(entry.getKey(), instance)) {
+                newestByEndpoint.remove(instance.targetEndpointId(), instance); // only if no newer version took over
+                stopRouteSilently(instance.camelRouteId());
             }
         }
     }
 
     /** The direct consumer endpoint a route instance answers on (stage 2 dispatches to it, direct-only). */
     static String consumerOf(RouteConfigRow row) {
-        return CONSUMER_PREFIX + row.targetEndpointId();
+        return CONSUMER_PREFIX + row.targetEndpointId() + "-" + row.endpointVersion();
+    }
+
+    /** The Camel route id of a row's instance: the configuration route plus the endpoint version (F16). */
+    static String routeIdOf(RouteConfigRow row) {
+        return ROUTE_ID_PREFIX + row.routeId() + "-" + row.endpointVersion();
     }
 
     /** Anchors one instance's send at its direct consumer and registers it under its route id in the context. */

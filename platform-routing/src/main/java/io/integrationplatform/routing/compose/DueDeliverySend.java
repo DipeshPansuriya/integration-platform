@@ -42,9 +42,6 @@ import org.springframework.transaction.support.TransactionOperations;
  */
 public final class DueDeliverySend implements StageConsumer.Handler {
 
-    /** ponytail: {@code RouteInstanceFactory.CONSUMER_PREFIX} is package-private (T-116's file, read-only here). */
-    static final String ROUTE_INSTANCE_ENDPOINT = "direct:e9-target-";
-
     private static final Logger log = LoggerFactory.getLogger(DueDeliverySend.class);
 
     private final WorkerTenantBinding binding;
@@ -111,8 +108,8 @@ public final class DueDeliverySend implements StageConsumer.Handler {
             refusedRoute(send, refused);
             return;
         }
-        routes.touch(due.targetEndpointId(), clock.get());
-        Exchange done = producer.send(ROUTE_INSTANCE_ENDPOINT + instance.targetEndpointId(),
+        routes.touch(instance, clock.get());
+        Exchange done = producer.send(instance.consumerUri(),
                 exchange -> exchange.getIn().setBody(send));
         if (done.getException() != null) {
             // not a classified call failure (layer 1 records those itself): the hand-off or the ledger write failed.
