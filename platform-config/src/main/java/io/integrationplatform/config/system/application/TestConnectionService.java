@@ -4,6 +4,7 @@ import io.github.resilience4j.ratelimiter.RateLimiter;
 import io.github.resilience4j.ratelimiter.RateLimiterConfig;
 import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
 import io.integrationplatform.config.application.ConfigApiException;
+import io.integrationplatform.config.destination.MqConnectionCheck;
 import io.integrationplatform.config.destination.OutboundHttpCheck;
 import io.integrationplatform.config.destination.OutboundHttpCheck.Result;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
@@ -23,7 +24,8 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * T-104 test-connection: is a registered system reachable? Only API systems are tested in this phase - through the one
  * outbound destination guard and the R13-controlled HTTP check ({@link OutboundHttpCheck}); the other types answer that
- * their test arrives with their adapter (MQ in E10; DB, File and Kafka topic in E16).
+ * their test arrives with their adapter (MQ through {@link MqConnectionCheck} when wired, E10; DB, File and Kafka topic
+ * in E16).
  *
  * <p>Order: the system is read in a short read-only transaction (404 when the bound tenant cannot see it - never a
  * hint whose row it is), then the per tenant + user rate limit (429 {@code TEST_CONNECTION_RATE_LIMITED}), then the
@@ -41,12 +43,20 @@ public class TestConnectionService {
     private final OutboundHttpCheck check;
     private final RateLimiterRegistry rateLimiters;
     private final TestConnectionAudit audit;
+    private final MqConnectionCheck mq;
 
     /**
      * @param limit  test-connection attempts allowed per tenant + user in each {@code window}
      */
     public TestConnectionService(JdbcSystemRepository systems, TransactionOperations readOnly, OutboundHttpCheck check,
             int limit, Duration window, TestConnectionAudit audit) {
+        this(systems, readOnly, check, limit, window, audit, null);
+    }
+
+    /** @param mq the MQ adapter's check (T-126); {@code null} when no MQ adapter is wired - MQ is then not available */
+    public TestConnectionService(JdbcSystemRepository systems, TransactionOperations readOnly, OutboundHttpCheck check,
+            int limit, Duration window, TestConnectionAudit audit, MqConnectionCheck mq) {
+        this.mq = mq;
         this.systems = Objects.requireNonNull(systems, "systems");
         this.readOnly = Objects.requireNonNull(readOnly, "readOnly");
         this.check = Objects.requireNonNull(check, "check");

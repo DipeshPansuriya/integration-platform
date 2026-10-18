@@ -1,0 +1,71 @@
+package io.integrationplatform.config.system.application;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import io.integrationplatform.config.destination.MqConnectionCheck;
+import io.integrationplatform.config.destination.OutboundHttpCheck;
+import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
+import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemDetail;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionOperations;
+
+/** T-126: an MQ system's test-connection is answered by the MQ port, audited, never NOT_AVAILABLE_YET. */
+class TestConnectionServiceTest {
+
+    private static final UUID TENANT = UUID.randomUUID();
+    private static final UUID ACTOR = UUID.randomUUID();
+    private static final String ID = UUID.randomUUID().toString();
+    private static final String SETTINGS = "{\"host\":\"broker.example\",\"port\":61616,\"queue\":\"q\"}";
+
+    private final JdbcSystemRepository systems = mock(JdbcSystemRepository.class);
+    private final OutboundHttpCheck http = mock(OutboundHttpCheck.class);
+    private final TestConnectionAudit audit = mock(TestConnectionAudit.class);
+
+    TestConnectionServiceTest() {
+        when(systems.findSystem(ID)).thenReturn(Optional.of(new SystemDetail(ID, "C", "N", "TARGET", "MQ", SETTINGS)));
+    }
+
+    @Test
+    void mqSystemIsAnsweredByThePortAndAudited() {
+        Map<String, Object> port = new LinkedHashMap<>();
+        port.put("systemId", ID);
+        port.put("type", "MQ");
+        port.put("result", "FAILED");
+        port.put("httpStatus", null);
+        port.put("responseTimeMs", 3L);
+        port.put("reason", "BROKER_UNREACHABLE");
+        port.put("detail", null);
+        port.put("message", "the broker did not answer");
+        MqConnectionCheck mq = mock(MqConnectionCheck.class);
+        when(mq.test(UUID.fromString(ID), SETTINGS)).thenReturn(port);
+
+        Map<String, Object> answer = service(mq).test(ID, TENANT, ACTOR);
+
+        assertThat(answer).isEqualTo(port);
+        verify(audit).record(TENANT, ACTOR, ID, "MQ", "FAILED", "BROKER_UNREACHABLE", null);
+        verifyNoInteractions(http);
+    }
+
+    @Test
+    void withoutAnMqPortTheAnswerStaysNotAvailableYet() {
+        Map<String, Object> answer = service(null).test(ID, TENANT, ACTOR);
+
+        assertThat(answer.get("result")).isEqualTo("NOT_AVAILABLE_YET");
+        verify(audit).record(TENANT, ACTOR, ID, "MQ", "NOT_AVAILABLE_YET", null, null);
+    }
+
+    private TestConnectionService service(MqConnectionCheck mq) {
+        return new TestConnectionService(systems, TransactionOperations.withoutTransaction(), http, 10,
+                Duration.ofMinutes(1), audit, mq);
+    }
+}
