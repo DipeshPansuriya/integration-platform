@@ -9,6 +9,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.convert.ApplicationConversionService;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -87,16 +89,25 @@ class PlatformClockConfigurationTest {
         });
     }
 
-    @Test
-    void theE2eClockTogetherWithAProdProfileRefusesToStart() {
-        runner.withPropertyValues("spring.profiles.active=e2e,prod").run(context -> assertThat(context).hasFailed()
+    @ParameterizedTest
+    @ValueSource(strings = {"prod", "production", "staging", "uat"})
+    void theE2eClockTogetherWithAProductionLikeProfileRefusesToStart(String profile) {
+        runner.withPropertyValues("spring.profiles.active=e2e," + profile).run(context -> assertThat(context).hasFailed()
                 .getFailure().hasRootCauseInstanceOf(IllegalStateException.class)
-                .hasRootCauseMessage("the e2e AdjustableClock must never run with the prod profile"));
+                .hasRootCauseMessage("the e2e AdjustableClock must never run with a production-like profile"
+                        + " (prod | production | staging | uat)"));
     }
 
     @Test
-    void theProdProfileAloneStartsWithTheSystemUtcClock() {
-        runner.withPropertyValues("spring.profiles.active=prod").run(context -> {
+    void theE2eClockStartsBesideANonProductionProfile() {
+        runner.withPropertyValues("spring.profiles.active=e2e,dev").run(context ->
+                assertThat(context).hasNotFailed().hasSingleBean(AdjustableClock.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"prod", "production", "staging", "uat"})
+    void aProductionLikeProfileAloneStartsWithTheSystemUtcClock(String profile) {
+        runner.withPropertyValues("spring.profiles.active=" + profile).run(context -> {
             assertThat(context).hasNotFailed().hasSingleBean(Clock.class).doesNotHaveBean(AdjustableClock.class);
             assertThat(context.getBean(Clock.class)).isEqualTo(Clock.systemUTC());
         });

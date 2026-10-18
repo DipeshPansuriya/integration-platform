@@ -101,7 +101,11 @@ public final class KeycloakRealmUsers {
         if (basic.isEmpty()) {
             throw new IllegalStateException("the realm has no basic client scope - sub cannot reach a token");
         }
-        String clientId = JsonPath.read(clients.body(), "$[0].id");
+        List<String> clientIds = JsonPath.read(clients.body(), "$[*].id");
+        if (clientIds.isEmpty()) {
+            throw new IllegalStateException("the realm has no admin-cli client - its lightweight token cannot be turned off");
+        }
+        String clientId = clientIds.get(0);
         DocumentContext client = JsonPath.parse(clients.body());
         client.put("$[0].attributes", "client.use.lightweight.access.token.enabled", "false");
         HttpResponse<String> updated = send(HttpRequest.newBuilder(URI.create(realmAdmin + "/clients/" + clientId))

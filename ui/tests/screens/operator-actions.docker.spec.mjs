@@ -199,7 +199,11 @@ test('failures: the button is disabled while its POST is in flight and stays dis
   await expect(answerOf(page, delivery)).toHaveText(TEXT.replayed);
   // T165 M4 (OperatorActionButton.tsx:3-4): once the delivery moved the button stays aria-disabled and ignores presses
   await expect(button).toHaveAttribute('aria-disabled', 'true');
+  // a POST could leave after the click resolves, so the proof is that none arrives within 1.5 s (waitForRequest times out)
+  const replayed = page.waitForRequest((r) => r.method() === 'POST' && r.url().includes(`/deliveries/${delivery}/replay`), { timeout: 1500 })
+    .then(() => true, (e) => { if (e.name === 'TimeoutError') return false; throw e; });
   await button.click({ force: true }); // Playwright waits on aria-disabled; force sends the press the button must ignore
+  expect(await replayed, 'no replay POST within 1.5 s of the ignored press').toBe(false);
   await expect(answerOf(page, delivery)).toHaveText(TEXT.replayed);
   expect(posts, 'a press on the moved delivery sends no second POST').toBe(1);
   await page.unroute(`**/deliveries/${delivery}/replay`);
