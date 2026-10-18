@@ -11,6 +11,10 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
@@ -63,6 +67,47 @@ class SocketHttpSendTest {
             assertThat(answer.status()).isEqualTo(200);
             assertThat(requestLine.get()).isEqualTo("POST /orders HTTP/1.1");
             assertThat(hostHeader.get()).isEqualTo("rebind.example:" + server.getLocalPort());
+        }
+    }
+
+    @Test
+    @DisplayName("T96: a Retry-After in delta-seconds or as an HTTP-date is carried on the answer; none is null")
+    void retryAfterIsCarriedOnTheAnswer() throws Exception {
+        assertThat(answerWith("Retry-After: 7\r\n").retryAfter()).isEqualTo(Duration.ofSeconds(7));
+        String date = DateTimeFormatter.RFC_1123_DATE_TIME.format(Instant.now().plusSeconds(120).atOffset(ZoneOffset.UTC));
+        assertThat(answerWith("Retry-After: " + date + "\r\n").retryAfter())
+                .isBetween(Duration.ofSeconds(100), Duration.ofSeconds(121));
+        assertThat(answerWith("Retry-After: soon\r\n").retryAfter()).as("unparseable is ignored").isNull();
+        assertThat(answerWith("").retryAfter()).isNull();
+    }
+
+    private static HttpSend.Response answerWith(String extraHead) throws Exception {
+        try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            server.setSoTimeout(5000);
+            Thread serving = new Thread(() -> {
+                try (Socket accepted = server.accept()) {
+                    BufferedReader in = new BufferedReader(
+                            new InputStreamReader(accepted.getInputStream(), StandardCharsets.ISO_8859_1));
+                    String line;
+                    while ((line = in.readLine()) != null && !line.isEmpty()) {
+                        // drain the request head
+                    }
+                    accepted.getOutputStream().write(("HTTP/1.1 503 Service Unavailable\r\n" + extraHead
+                            + "Content-Length: 0\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1));
+                    accepted.getOutputStream().flush();
+                } catch (Exception e) {
+                    // the caller's assertion shows the miss
+                }
+            });
+            serving.start();
+            CheckedDestination destination = new CheckedDestination(
+                    URI.create("http://rebind.example:" + server.getLocalPort() + "/orders"),
+                    "rebind.example", server.getLocalPort(), false, InetAddress.getLoopbackAddress());
+            HttpSend.Response answer = new SocketHttpSend(SocketDialer.plain()).send(destination, "POST",
+                    Map.of(), new byte[0], 2000);
+            serving.join(5000);
+            assertThat(answer.status()).isEqualTo(503);
+            return answer;
         }
     }
 }
