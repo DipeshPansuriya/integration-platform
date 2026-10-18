@@ -3,6 +3,7 @@ package io.integrationplatform.config.flow.application;
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.contract.application.ContractAdminService;
 import io.integrationplatform.config.flow.api.InterfacePublished;
+import io.integrationplatform.config.flow.api.MaskedFields;
 import io.integrationplatform.config.flow.application.FlowBundle.Parsed;
 import io.integrationplatform.config.flow.application.FlowBundle.SnapshotMapping;
 import io.integrationplatform.config.flow.application.FlowBundle.SnapshotRoute;
@@ -69,6 +70,7 @@ public class FlowAdminService {
         String sourceSystem = SystemAdminService.required(body, "sourceSystem");
         List<String> destinations = destinations(body);
         String ordering = ordering(body, "PER_KEY");
+        Optional<List<String>> maskedFields = maskedFields(body);
         if (!systems.systemExists(sourceSystem)) {
             throw ConfigApiException.validation("unknown source system " + sourceSystem);
         }
@@ -78,6 +80,7 @@ public class FlowAdminService {
         String name = nameFromBody(body, code); // F-1: the typed interface name is born on the flow; no name -> the code
         String interfaceId = flows.insertInterface(code, name, ordering);
         InterfaceRow created = new InterfaceRow(interfaceId, code, name, ordering, "DRAFT");
+        maskedFields.ifPresent(paths -> flows.updateMaskedFields(interfaceId, MaskedFields.toJson(paths)));
 
         String sourceContractVersionId = contracts.getOrCreateSourceDraftVersion(sourceSystem, actorId);
         alignRoutes(interfaceId, endpointIds);
@@ -94,6 +97,7 @@ public class FlowAdminService {
         String sourceSystem = SystemAdminService.required(body, "sourceSystem");
         List<String> destinations = destinations(body);
         String ordering = ordering(body, stored.ordering());
+        Optional<List<String>> maskedFields = maskedFields(body);
         if (!systems.systemExists(sourceSystem)) {
             throw ConfigApiException.validation("unknown source system " + sourceSystem);
         }
@@ -101,6 +105,7 @@ public class FlowAdminService {
         if (!ordering.equals(stored.ordering())) {
             flows.updateInterfaceOrdering(stored.id(), ordering);
         }
+        maskedFields.ifPresent(paths -> flows.updateMaskedFields(stored.id(), MaskedFields.toJson(paths)));
         InterfaceRow current = new InterfaceRow(stored.id(), stored.code(), stored.name(), ordering,
                 stored.status());
 
@@ -130,6 +135,7 @@ public class FlowAdminService {
                 "destinations", destinationCodes,
                 "businessKeyRule", latest.businessKeyRule(),
                 "ordering", interfaceRow.ordering(),
+                "maskedFields", MaskedFields.fromJson(flows.findMaskedFields(flowId).orElse(null)),
                 "status", interfaceRow.status());
     }
 
@@ -330,8 +336,18 @@ public class FlowAdminService {
         List<RouteRow> routes = flows.findRoutes(interfaceRow.id());
         List<MappingRow> mappings = flows.findMappings(interfaceRow.id());
         String snapshot = FlowBundle.serialize(interfaceRow.code(), interfaceRow.name(),
-                interfaceRow.ordering(), businessKeyRule, routes, mappings);
+                interfaceRow.ordering(), businessKeyRule,
+                MaskedFields.fromJson(flows.findMaskedFields(interfaceRow.id()).orElse(null)), routes, mappings);
         return flows.insertVersion(interfaceRow.id(), version, businessKeyRule, snapshot,
                 sourceContractVersionId, actorId.toString());
+    }
+
+    /** T108: the optional masked-field list of a create/update body; a malformed one is a 400. */
+    private static Optional<List<String>> maskedFields(JsonNode body) {
+        try {
+            return MaskedFields.parse(body);
+        } catch (IllegalArgumentException invalid) {
+            throw ConfigApiException.validation(invalid.getMessage());
+        }
     }
 }

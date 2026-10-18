@@ -199,6 +199,56 @@
         },
         "type": "object"
       },
+      "DeliveryTime": {
+        "properties": {
+          "deliveryId": {
+            "type": "string"
+          },
+          "durationMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Failure": {
+        "properties": {
+          "deliveryId": {
+            "type": "string"
+          },
+          "errorClass": {
+            "type": "string"
+          },
+          "failedAt": {
+            "type": "string"
+          },
+          "failingStage": {
+            "type": "string"
+          },
+          "flowId": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "string"
+          },
+          "trackingId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "JsonNode": {
         "properties": {
           "array": {
@@ -307,6 +357,80 @@
         },
         "type": "object"
       },
+      "MediaType": {
+        "properties": {
+          "charset": {
+            "type": "string"
+          },
+          "concrete": {
+            "type": "boolean"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "qualityValue": {
+            "format": "double",
+            "type": "number"
+          },
+          "subtype": {
+            "type": "string"
+          },
+          "subtypeSuffix": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "wildcardSubtype": {
+            "type": "boolean"
+          },
+          "wildcardType": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "Result": {
+        "properties": {
+          "contractVersionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "deliveryId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "mappingVersionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "MOVED_TO_DUE",
+              "NOT_FOUND",
+              "WRONG_STATE",
+              "NOT_PINNED"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "PENDING",
+              "HELD",
+              "SENDING",
+              "RETRY_WAIT",
+              "DUE",
+              "DELIVERED",
+              "DEAD_LETTERED"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "RuleTableCell": {
         "properties": {
           "column": {
@@ -335,6 +459,64 @@
           },
           "reason": {
             "description": "Why the table is refused (the engine's own reason)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "StageTime": {
+        "properties": {
+          "durationMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "finishedAt": {
+            "type": "string"
+          },
+          "sincePreviousMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Timeline": {
+        "properties": {
+          "acceptedAt": {
+            "type": "string"
+          },
+          "deliveries": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryTime"
+            },
+            "type": "array"
+          },
+          "failingStage": {
+            "type": "string"
+          },
+          "flowId": {
+            "type": "string"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/StageTime"
+            },
+            "type": "array"
+          },
+          "state": {
+            "type": "string"
+          },
+          "totalMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "trackingId": {
             "type": "string"
           }
         },
@@ -611,7 +793,7 @@
     },
     "/api/v1/admin/contracts/versions/{versionId}/submit": {
       "post": {
-        "operationId": "submit_1",
+        "operationId": "submit_2",
         "parameters": [
           {
             "in": "path",
@@ -1279,7 +1461,7 @@
     },
     "/api/v1/admin/flows/{flowId}/submit": {
       "post": {
-        "operationId": "submit",
+        "operationId": "submit_1",
         "parameters": [
           {
             "in": "path",
@@ -1613,6 +1795,232 @@
         },
         "tags": [
           "mapping-test-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/messages/deliveries/{deliveryId}/replay": {
+      "post": {
+        "operationId": "replay",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deliveryId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "Moved to DUE; sent again with the pinned versions"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: a dead-letter replay"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "No delivery with this id for the bound tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not DEAD_LETTERED, or not pinned to both versions"
+          }
+        },
+        "tags": [
+          "delivery-operator-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/messages/deliveries/{deliveryId}/retry": {
+      "post": {
+        "operationId": "retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deliveryId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "Moved to DUE now; sent again with the pinned versions"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: a dead-letter replay"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "No delivery with this id for the bound tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not RETRY_WAIT, or not pinned to both versions"
+          }
+        },
+        "tags": [
+          "delivery-operator-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/messages/failures": {
+      "get": {
+        "operationId": "failures",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "flowId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Failure"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: a message-timeline read"
+          }
+        },
+        "tags": [
+          "message-tracking-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/messages/{trackingId}/timeline": {
+      "get": {
+        "operationId": "timeline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trackingId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Timeline"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: a message-timeline read"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "No message with this tracking id for the bound tenant"
+          }
+        },
+        "tags": [
+          "message-tracking-controller"
         ]
       }
     },
@@ -2728,6 +3136,72 @@
         ]
       }
     },
+    "/api/v1/interfaces/{interfaceCode}/messages": {
+      "post": {
+        "operationId": "submit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interfaceCode",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Content-Type",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MediaType"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Source-Contract-Version",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "format": "byte",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "intake-controller"
+        ]
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "me",
@@ -2752,7 +3226,7 @@
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:50975"
+      "url": "http://127.0.0.1:55562"
     }
   ]
 }

@@ -15,6 +15,7 @@ import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -23,7 +24,6 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -43,8 +43,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * while the {@code showcase} profile is active (a WARN is logged at startup); set without that profile the
  * application refuses to start. Absent or empty, the guard is unchanged. B21 (T137 F1/F2): it needs
  * {@code platform.config.destinations.showcase-local-ports} - the exact ports of the local test destination (a range
- * is lifted only on host AND port); hosts without ports, or the exception next to a production-like profile
- * ({@value #PRODUCTION_LIKE}), refuse to start.
+ * is lifted only on host AND port); hosts without ports, or the exception next to any profile outside
+ * {@link #SHOWCASE_COMPANIONS} (M1, CWE-184: an allow-list, so {@code preprod}, {@code live} or {@code prod-eu} refuse
+ * as {@code prod} does), refuse to start.
  */
 @Configuration(proxyBeanMethods = false)
 class SystemPersistenceConfiguration {
@@ -55,7 +56,8 @@ class SystemPersistenceConfiguration {
     static final String SHOWCASE_LOCAL_HOSTS = "platform.config.destinations.showcase-local-hosts";
     static final String SHOWCASE_LOCAL_PORTS = "platform.config.destinations.showcase-local-ports";
     static final String SHOWCASE_PROFILE = "showcase";
-    static final String PRODUCTION_LIKE = "prod | production | staging | uat";
+    /** The only profiles the local-host exception may run next to; any other active profile refuses to start. */
+    static final Set<String> SHOWCASE_COMPANIONS = Set.of(SHOWCASE_PROFILE, "local", "dev", "test");
 
     private static final Logger LOG = LoggerFactory.getLogger(SystemPersistenceConfiguration.class);
 
@@ -85,13 +87,14 @@ class SystemPersistenceConfiguration {
         if (showcaseLocal.isEmpty()) {
             return new DestinationGuard(AllowList.of(allowed), resolver);
         }
-        if (!environment.acceptsProfiles(Profiles.of(SHOWCASE_PROFILE))) {
+        List<String> active = Arrays.asList(environment.getActiveProfiles());
+        if (!active.contains(SHOWCASE_PROFILE)) {
             throw new IllegalStateException(SHOWCASE_LOCAL_HOSTS + " is set but the '" + SHOWCASE_PROFILE
                     + "' profile is not active - refusing to start: the local-host exception is showcase-only");
         }
-        if (environment.acceptsProfiles(Profiles.of(PRODUCTION_LIKE))) {
-            throw new IllegalStateException(SHOWCASE_LOCAL_HOSTS + " is set next to a production-like profile "
-                    + Arrays.toString(environment.getActiveProfiles())
+        if (!SHOWCASE_COMPANIONS.containsAll(active)) {
+            throw new IllegalStateException(SHOWCASE_LOCAL_HOSTS + " is set next to a profile outside "
+                    + SHOWCASE_COMPANIONS + " (active: " + active + ")"
                     + " - refusing to start: the local-host exception is showcase-only");
         }
         if (showcasePorts.isEmpty()) {

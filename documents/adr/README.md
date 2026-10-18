@@ -30,6 +30,7 @@ owner; author lines name planning-team roles ([../README.md](../README.md) expla
 | [ADR-013](ADR-013-mapping-versions.md) | Mapping versions: immutable, content-addressed `mapping_version` rows created at draft save, referenced from the snapshot, pinned on deliveries | **Accepted (Dipesh, 2026-10-12)** - unblocks E7 lane C1 and E9 T-117 | New |
 | [ADR-014](ADR-014-message-store-and-delivery-uniqueness.md) | Message store and delivery uniqueness: day-partitioned message and payload, deliveries on their message's day, unique (message_id, route_id, created_at) | **Accepted (Dipesh, 2026-10-12)** - payload retention 30 days; ADR-010 sections 2 and 6 amended; unblocks E8 lane A and E9 lane C | New |
 | [ADR-015](ADR-015-target-type-register-and-adapter-placement.md) | Target adapters in platform-routing; system-type register aligned to ADR-011 (MQ_CSV, KAFKA_TOPIC) in E10 | **Accepted (Dipesh, 2026-10-12)** - ADR-010 section 1 and architecture.md section 2 amended; code rename in E10 | New |
+| [ADR-017](ADR-017-publish-refusal-contract.md) | A refused publish crosses routing -> config as the config-owned public `InterfacePublishRefused`; routing keeps its own refusal type; first enforced rule of ADR-015 Decision 2 | Accepted (team, 2026-10-17) - Dipesh may reverse; amends ADR-015 Decision 2 (review finding C2, row 278) | New |
 
 ## Status against the code at main `90c1ddd` (2026-10-16)
 

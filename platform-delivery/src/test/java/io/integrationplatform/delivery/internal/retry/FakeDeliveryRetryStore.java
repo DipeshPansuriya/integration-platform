@@ -29,6 +29,9 @@ import java.util.UUID;
  *       foreign claim token also records a {@code LATE_OUTCOME} event (#lateOutcomes()).</li>
  * </ul>
  *
+ * <p>Thread-safe for the two-instance race test: every read and write of shared state (rows, the tenant log,
+ * the late-outcome count, refusals, staged commit ops) holds the one {@code rows} monitor (B24).
+ *
  * <p>Test-only seam stand-in; the real store is proven on the real tables by lane C's container test.
  */
 public final class FakeDeliveryRetryStore implements DeliveryRetryStore {
@@ -79,12 +82,16 @@ public final class FakeDeliveryRetryStore implements DeliveryRetryStore {
 
     public void seed(UUID tenant, UUID deliveryId, DeliveryState state, int attempts, Instant nextAttemptAt,
             UUID claimToken) {
-        rows.add(new Row(tenant, deliveryId, state, attempts, nextAttemptAt, claimToken));
+        synchronized (rows) {
+            rows.add(new Row(tenant, deliveryId, state, attempts, nextAttemptAt, claimToken));
+        }
     }
 
     /** Makes {@link #markDue} return {@code false} for that delivery - the "0 rows changed" case. */
     public void refuseMarkDue(UUID deliveryId) {
-        markDueRefusals.add(deliveryId);
+        synchronized (rows) {
+            markDueRefusals.add(deliveryId);
+        }
     }
 
     /** Opens the caller's transaction for this thread, bound to the tenant in {@link TenantContext} (R08, R11). */
@@ -97,35 +104,49 @@ public final class FakeDeliveryRetryStore implements DeliveryRetryStore {
 
     public void commitTransaction() {
         Transaction txn = requireTransaction();
-        txn.commitOps.forEach(Runnable::run);
-        txn.heldLocks.forEach(id -> row(id).ifPresent(row -> row.lockedBy = null));
+        synchronized (rows) {
+            txn.commitOps.forEach(Runnable::run);
+            txn.heldLocks.forEach(id -> row(id).ifPresent(row -> row.lockedBy = null));
+        }
         current.remove();
     }
 
     public void rollbackTransaction() {
         Transaction txn = requireTransaction();
-        txn.heldLocks.forEach(id -> row(id).ifPresent(row -> row.lockedBy = null));
+        synchronized (rows) {
+            txn.heldLocks.forEach(id -> row(id).ifPresent(row -> row.lockedBy = null));
+        }
         current.remove();
     }
 
     public DeliveryState stateOf(UUID deliveryId) {
-        return row(deliveryId).orElseThrow().state;
+        synchronized (rows) {
+            return row(deliveryId).orElseThrow().state;
+        }
     }
 
     public OutcomeClass deadLetterReasonOf(UUID deliveryId) {
-        return row(deliveryId).orElseThrow().deadLetterReason;
+        synchronized (rows) {
+            return row(deliveryId).orElseThrow().deadLetterReason;
+        }
     }
 
     public Instant nextAttemptAtOf(UUID deliveryId) {
-        return row(deliveryId).orElseThrow().nextAttemptAt;
+        synchronized (rows) {
+            return row(deliveryId).orElseThrow().nextAttemptAt;
+        }
     }
 
     public int lateOutcomes() {
-        return lateOutcomes;
+        synchronized (rows) {
+            return lateOutcomes;
+        }
     }
 
     public List<UUID> tenantsSeen() {
-        return List.copyOf(tenantsSeen);
+        synchronized (rows) {
+            return List.copyOf(tenantsSeen);
+        }
     }
 
     // ---------- the contract ----------
@@ -133,8 +154,8 @@ public final class FakeDeliveryRetryStore implements DeliveryRetryStore {
     @Override
     public List<RetryCandidate> lockDue(Instant now, int limit) {
         Transaction txn = requireTransaction();
-        tenantsSeen.add(txn.tenant);
         synchronized (rows) {
+            tenantsSeen.add(txn.tenant);
             List<RetryCandidate> claimed = rowsOf(txn.tenant).stream()
                     .filter(row -> row.state == DeliveryState.RETRY_WAIT)
                     .filter(row -> row.lockedBy == null)
@@ -154,52 +175,58 @@ public final class FakeDeliveryRetryStore implements DeliveryRetryStore {
     @Override
     public boolean markDue(UUID deliveryId) {
         Transaction txn = requireTransaction();
-        Optional<Row> found = rowOf(txn.tenant, deliveryId);
-        if (found.isEmpty() || !txn.heldLocks.contains(deliveryId)
-                || found.get().state != DeliveryState.RETRY_WAIT || markDueRefusals.contains(deliveryId)) {
-            return false; // 0 rows: never in RETRY_WAIT anymore, not ours, or hidden from this tenant
+        synchronized (rows) {
+            Optional<Row> found = rowOf(txn.tenant, deliveryId);
+            if (found.isEmpty() || !txn.heldLocks.contains(deliveryId)
+                    || found.get().state != DeliveryState.RETRY_WAIT || markDueRefusals.contains(deliveryId)) {
+                return false; // 0 rows: never in RETRY_WAIT anymore, not ours, or hidden from this tenant
+            }
+            Row row = found.get();
+            txn.commitOps.add(() -> {
+                row.state = DeliveryState.DUE;
+                row.nextAttemptAt = null;
+            });
+            return true;
         }
-        Row row = found.get();
-        txn.commitOps.add(() -> {
-            row.state = DeliveryState.DUE;
-            row.nextAttemptAt = null;
-        });
-        return true;
     }
 
     @Override
     public boolean scheduleRetry(UUID deliveryId, UUID claimToken, Instant nextAttemptAt) {
         Transaction txn = requireTransaction();
-        Optional<Row> found = rowOf(txn.tenant, deliveryId);
-        if (found.isEmpty() || !conditionalSend(found.get(), claimToken)) {
-            lateOutcomes++; // stale or foreign token: the store records LATE_OUTCOME (ADR-010 section 6)
-            return false;
+        synchronized (rows) {
+            Optional<Row> found = rowOf(txn.tenant, deliveryId);
+            if (found.isEmpty() || !conditionalSend(found.get(), claimToken)) {
+                lateOutcomes++; // stale or foreign token: the store records LATE_OUTCOME (ADR-010 section 6)
+                return false;
+            }
+            Row row = found.get();
+            txn.commitOps.add(() -> {
+                row.state = DeliveryState.RETRY_WAIT;
+                row.nextAttemptAt = nextAttemptAt;
+                row.attempts++;
+                row.claimToken = null;
+            });
+            return true;
         }
-        Row row = found.get();
-        txn.commitOps.add(() -> {
-            row.state = DeliveryState.RETRY_WAIT;
-            row.nextAttemptAt = nextAttemptAt;
-            row.attempts++;
-            row.claimToken = null;
-        });
-        return true;
     }
 
     @Override
     public boolean deadLetter(UUID deliveryId, UUID claimToken, OutcomeClass reasonClass) {
         Transaction txn = requireTransaction();
-        Optional<Row> found = rowOf(txn.tenant, deliveryId);
-        if (found.isEmpty() || !conditionalSend(found.get(), claimToken)) {
-            lateOutcomes++;
-            return false;
+        synchronized (rows) {
+            Optional<Row> found = rowOf(txn.tenant, deliveryId);
+            if (found.isEmpty() || !conditionalSend(found.get(), claimToken)) {
+                lateOutcomes++;
+                return false;
+            }
+            Row row = found.get();
+            txn.commitOps.add(() -> {
+                row.state = DeliveryState.DEAD_LETTERED;
+                row.deadLetterReason = reasonClass;
+                row.claimToken = null;
+            });
+            return true;
         }
-        Row row = found.get();
-        txn.commitOps.add(() -> {
-            row.state = DeliveryState.DEAD_LETTERED;
-            row.deadLetterReason = reasonClass;
-            row.claimToken = null;
-        });
-        return true;
     }
 
     // ---------- helpers ----------

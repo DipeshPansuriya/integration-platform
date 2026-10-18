@@ -31,8 +31,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -48,7 +53,17 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  *       with the failing stage, the error class and the last error text - the platform's own (our-side) errors
  *       included and marked {@code PLATFORM}, a target's answer marked {@code TARGET};</li>
  *   <li>tenant B sees nothing of tenant A: no timeline (the endpoint's 404) and none of A's failures;</li>
- *   <li>with no tenant bound, no read runs at all.</li>
+ *   <li>the timeline names its failing stage from server-side state (T112 round 2, row 328 M1): ROUTE for a
+ *       route-failed message, DELIVER for one with a DEAD_LETTERED delivery, null otherwise - and another tenant's
+ *       dead-lettered delivery, even one naming this tenant's message id, never marks it failed;</li>
+ *   <li>the timeline lists every delivery of the message with the target's response time - the LAST attempt's
+ *       sent-to-answered duration and outcome, null without an attempt (row 329 M3) - and another tenant's
+ *       deliveries and attempts never appear in it;</li>
+ *   <li>with no tenant bound, no read runs at all;</li>
+ *   <li>row 328 V4: the store picks each delivery's last attempt in SQL - one row per delivery, even when the
+ *       attempts span two daily partitions (finish time first, then attempt id, as the dead-letter read);</li>
+ *   <li>row 328 K1: with row-level security BYPASSED (the owner connection) and a tenant bound in the app context,
+ *       the app's own tenant predicates alone still hide tenant B's message, failures, deliveries and attempts.</li>
  * </ol>
  */
 @Tag("container")
@@ -79,6 +94,11 @@ class MessageTrackingContainerTest {
     private static final UUID DELIVERED_DELIVERY = UUID.randomUUID();
     // tenant B
     private static final UUID B_ROUTE_FAILED = UUID.randomUUID();
+    /** T112 round 2: tenant B's DEAD_LETTERED delivery that names tenant A's DELIVERED message id (forged reference). */
+    private static final UUID B_FORGED_DEAD = UUID.randomUUID();
+    /** Row 328 V4: tenant A's message whose one delivery was attempted across two daily partitions. */
+    private static final UUID RETRIED = UUID.randomUUID();
+    private static final UUID RETRIED_DELIVERY = UUID.randomUUID();
 
     /** Whole milliseconds, a few seconds back: every seeded instant stays inside today's UTC day partitions. */
     private static final Instant T0 = Instant.now().truncatedTo(ChronoUnit.MILLIS).minusSeconds(10);
@@ -92,6 +112,12 @@ class MessageTrackingContainerTest {
 
     @Autowired
     private TestBoundTenantContext boundTenant;
+
+    @Autowired
+    private JdbcMessageTrackingStore store;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
@@ -168,6 +194,29 @@ class MessageTrackingContainerTest {
 
             message(owner, TENANT_B, B_ROUTE_FAILED, FLOW, "ROUTE_FAILED", T0, T0.plusSeconds(1));
             stage(owner, TENANT_B, B_ROUTE_FAILED, T0, "INTAKE", T0, T0.plusMillis(25));
+            // OTHER_FLOW on purpose: B's failures for FLOW (asserted exactly above) stay B_ROUTE_FAILED alone
+            delivery(owner, TENANT_B, B_FORGED_DEAD, DELIVERED, OTHER_FLOW, "DEAD_LETTERED", "PERMANENT", T0,
+                    T0.plusSeconds(2));
+            // and a tenant-B attempt naming tenant A's delivery, finishing LATER than A's own attempt
+            attempt(owner, TENANT_B, DELIVERED_DELIVERY, "PERMANENT", T0.plusSeconds(5), "forged by tenant B");
+            // K2: a tenant-B attempt and DEAD_LETTER event naming tenant A's dead-lettered TARGET_DEAD, both LATER than
+            // A's own last attempt and event - only the dead-letter read's tenant pins keep them out of A's lastError
+            attempt(owner, TENANT_B, TARGET_DEAD, "PERMANENT", T0.plusSeconds(6), "forged attempt by tenant B");
+            event(owner, TENANT_B, TARGET_DEAD, "DEAD_LETTER", "forged dead letter by tenant B", T0.plusSeconds(6));
+
+            // row 328 V4: one delivery, four attempts over yesterday's and today's attempt partitions. The last is
+            // SUCCESS at T0+2s: it ties on finish with a TRANSIENT inserted before it (the higher id wins) and beats a
+            // TRANSIENT inserted after it that finished earlier (finish time decides before the id).
+            message(owner, TENANT_A, RETRIED, FLOW, "ROUTED", yesterday, T0.plusSeconds(2));
+            delivery(owner, TENANT_A, RETRIED_DELIVERY, RETRIED, FLOW, "DELIVERED", null, yesterday,
+                    T0.plusSeconds(2));
+            attempt(owner, TENANT_A, RETRIED_DELIVERY, "TRANSIENT", yesterday.plusSeconds(1), "HTTP 503 night",
+                    yesterday.plusSeconds(1));
+            attempt(owner, TENANT_A, RETRIED_DELIVERY, "TRANSIENT", T0.plusSeconds(2), "HTTP 503 tie",
+                    T0.plusSeconds(2));
+            attempt(owner, TENANT_A, RETRIED_DELIVERY, "SUCCESS", T0.plusSeconds(2), "HTTP 200", T0.plusSeconds(2));
+            attempt(owner, TENANT_A, RETRIED_DELIVERY, "TRANSIENT", T0.plusSeconds(1), "HTTP 503 morning",
+                    T0.plusSeconds(1));
         }
     }
 
@@ -248,9 +297,134 @@ class MessageTrackingContainerTest {
     }
 
     @Test
+    void theTimelineNamesTheFailingStageFromServerSideState() {
+        assertThat(timelineOf(TENANT_A, TIMED).failingStage()).isEqualTo("DELIVER"); // the target refused it
+        assertThat(timelineOf(TENANT_A, CREDENTIAL).failingStage()).isEqualTo("DELIVER"); // our side refused it
+        assertThat(timelineOf(TENANT_A, ROUTE_FAILED).failingStage()).isEqualTo("ROUTE");
+    }
+
+    @Test
+    void anotherTenantsDeadLetterNeverMarksThisTenantsMessageFailed() {
+        // tenant B holds a DEAD_LETTERED delivery whose message_id is tenant A's DELIVERED message
+        Optional<MessageTrackingService.Timeline> mine = boundTenant.as(TENANT_A, () -> tracking.timeline(DELIVERED));
+        assertThat(mine).isPresent();
+        assertThat(mine.get().failingStage()).isNull();
+        // and A's message stays invisible to B (the endpoint's 404)
+        assertThat(boundTenant.as(TENANT_B, () -> tracking.timeline(DELIVERED))).isEmpty();
+    }
+
+    @Test
+    void theTimelineListsEachDeliveryWithItsLastAttemptsResponseTime() {
+        // TIMED's delivery: two target answers, the last (PERMANENT, 50 ms sent-to-answered) is the response
+        assertThat(timelineOf(TENANT_A, TIMED).deliveries()).containsExactly(new MessageTrackingService.DeliveryTime(
+                TARGET_DEAD.toString(), TARGET.toString(), 50L, "PERMANENT"));
+        // CREDENTIAL's delivery dead-lettered before any send: no attempt, no duration
+        assertThat(timelineOf(TENANT_A, CREDENTIAL).deliveries()).containsExactly(
+                new MessageTrackingService.DeliveryTime(PLATFORM_DEAD.toString(), TARGET.toString(), null, null));
+        // a route-failed message never reached a delivery
+        assertThat(timelineOf(TENANT_A, ROUTE_FAILED).deliveries()).isEmpty();
+    }
+
+    @Test
+    void anotherTenantsDeliveriesAndAttemptsNeverAppearInThisTenantsTimeline() {
+        // B's forged delivery (naming A's DELIVERED message) and B's later forged attempt (naming A's delivery)
+        Optional<MessageTrackingService.Timeline> mine = boundTenant.as(TENANT_A, () -> tracking.timeline(DELIVERED));
+        assertThat(mine).isPresent();
+        assertThat(mine.get().deliveries()).containsExactly(new MessageTrackingService.DeliveryTime(
+                DELIVERED_DELIVERY.toString(), TARGET.toString(), 50L, "SUCCESS"));
+        assertThat(boundTenant.as(TENANT_B, () -> tracking.timeline(DELIVERED))).isEmpty();
+    }
+
+    @Test
     void noReadRunsWithoutABoundTenant() {
         assertThatThrownBy(() -> tracking.timeline(TIMED)).isInstanceOf(NoTenantBoundException.class);
         assertThatThrownBy(() -> tracking.failures(FLOW, TODAY)).isInstanceOf(NoTenantBoundException.class);
+    }
+
+    @Test
+    void theStorePicksEachDeliverysLastAttemptInSqlAcrossDailyPartitions() {
+        // V4: one row per delivery, not one per attempt - the pick happens in SQL, not in Java
+        TransactionTemplate appTx = new TransactionTemplate(transactionManager);
+        List<JdbcMessageTrackingStore.DeliveryAttemptRow> rows = inTransaction(appTx, TENANT_A,
+                () -> store.deliveries(RETRIED));
+        assertThat(rows).hasSize(1);
+        JdbcMessageTrackingStore.DeliveryAttemptRow last = rows.get(0);
+        assertThat(last.deliveryId()).isEqualTo(RETRIED_DELIVERY.toString());
+        assertThat(last.outcomeClass()).isEqualTo("SUCCESS");
+        assertThat(last.finishedAt()).isEqualTo(T0.plusSeconds(2));
+        // TIMED's delivery had two attempts: still one row, the later one
+        List<JdbcMessageTrackingStore.DeliveryAttemptRow> timed = inTransaction(appTx, TENANT_A,
+                () -> store.deliveries(TIMED));
+        assertThat(timed)
+                .extracting(JdbcMessageTrackingStore.DeliveryAttemptRow::outcomeClass).containsExactly("PERMANENT");
+        // and the endpoint's answer carries that last attempt
+        assertThat(timelineOf(TENANT_A, RETRIED).deliveries()).containsExactly(new MessageTrackingService.DeliveryTime(
+                RETRIED_DELIVERY.toString(), TARGET.toString(), 50L, "SUCCESS"));
+    }
+
+    @Test
+    void withRowLevelSecurityBypassedTheAppsOwnTenantPinStillHidesTenantBsRows() {
+        // K1: the container's owner user (the Flyway owner, a superuser) bypasses RLS - the app's predicates alone
+        DriverManagerDataSource ownerDb = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+        JdbcClient ownerClient = JdbcClient.create(ownerDb);
+        TransactionTemplate ownerTx = new TransactionTemplate(new DataSourceTransactionManager(ownerDb));
+        MessageTrackingService pinOnly = new MessageTrackingService(new JdbcMessageTrackingStore(ownerClient,
+                boundTenant));
+
+        // precondition: RLS really is off on this connection - tenant B's rows are visible unfiltered, A bound or not
+        Long bAttempts = inTransaction(ownerTx, TENANT_A, () -> ownerClient
+                .sql("select count(*) from public.delivery_attempt where tenant_id = :b::uuid")
+                .param("b", TENANT_B.toString()).query(Long.class).single());
+        Long bMessage = inTransaction(ownerTx, TENANT_A, () -> ownerClient
+                .sql("select count(*) from public.message where id = :id::uuid")
+                .param("id", B_ROUTE_FAILED.toString()).query(Long.class).single());
+        assertThat(bAttempts).isPositive();
+        assertThat(bMessage).isEqualTo(1L);
+
+        // positive control: the same pin-only reads find the bound tenant's own rows
+        Optional<MessageTrackingService.Timeline> own = inTransaction(ownerTx, TENANT_B,
+                () -> pinOnly.timeline(B_ROUTE_FAILED));
+        assertThat(own).isPresent();
+
+        // bound to A: B's message is not found (the endpoint's 404) ...
+        Optional<MessageTrackingService.Timeline> foreign = inTransaction(ownerTx, TENANT_A,
+                () -> pinOnly.timeline(B_ROUTE_FAILED));
+        assertThat(foreign).isEmpty();
+        // ... none of B's failures is listed, for the flow and day or across all flows and days ...
+        List<MessageTrackingService.Failure> flowToday = inTransaction(ownerTx, TENANT_A,
+                () -> pinOnly.failures(FLOW, TODAY));
+        assertThat(flowToday)
+                .extracting(MessageTrackingService.Failure::trackingId).containsExactlyInAnyOrder(
+                        ROUTE_FAILED.toString(), TIMED.toString(), CREDENTIAL.toString());
+        List<MessageTrackingService.Failure> everyFailure = inTransaction(ownerTx, TENANT_A, () -> pinOnly.failures(null, null));
+        assertThat(everyFailure).extracting(MessageTrackingService.Failure::trackingId)
+                .doesNotContain(B_ROUTE_FAILED.toString());
+        assertThat(everyFailure).extracting(MessageTrackingService.Failure::deliveryId)
+                .doesNotContain(B_FORGED_DEAD.toString());
+        // ... A's dead letter keeps A's own last error, not B's later forged attempt or event (K2) ...
+        assertThat(flowToday).filteredOn(f -> TARGET_DEAD.toString().equals(f.deliveryId()))
+                .extracting(MessageTrackingService.Failure::lastError)
+                .containsExactly("HTTP 400 field orderId rejected");
+        assertThat(everyFailure).filteredOn(f -> TARGET_DEAD.toString().equals(f.deliveryId()))
+                .extracting(MessageTrackingService.Failure::lastError)
+                .containsExactly("HTTP 400 field orderId rejected");
+        // ... and B's forged delivery (naming A's message) and later forged attempt (naming A's delivery) stay out
+        Optional<MessageTrackingService.Timeline> mine = inTransaction(ownerTx, TENANT_A, () -> pinOnly.timeline(DELIVERED));
+        assertThat(mine).isPresent();
+        assertThat(mine.get().failingStage()).isNull();
+        assertThat(mine.get().deliveries()).containsExactly(new MessageTrackingService.DeliveryTime(
+                DELIVERED_DELIVERY.toString(), TARGET.toString(), 50L, "SUCCESS"));
+    }
+
+    /** Runs {@code read} in {@code tx} with {@code tenant} bound in the app context. */
+    private <T> T inTransaction(TransactionTemplate tx, UUID tenant, Supplier<T> read) {
+        return boundTenant.as(tenant, () -> tx.execute(status -> read.get()));
+    }
+
+    /** The bound tenant's own timeline, which must exist. */
+    private MessageTrackingService.Timeline timelineOf(UUID tenant, UUID trackingId) {
+        return boundTenant.as(tenant, () -> tracking.timeline(trackingId)).orElseThrow();
     }
 
     // ------------------------------------------------------------------ owner-side seeding (RLS bypassed)
@@ -284,6 +458,15 @@ class MessageTrackingContainerTest {
         run(owner, "insert into public.delivery_attempt (tenant_id, delivery_id, layer, outcome_class, started_at,"
                 + " finished_at, detail) values (?::uuid, ?::uuid, 1, ?, ?, ?, ?)",
                 tenant, delivery, outcomeClass, at(finishedAt.minusMillis(50)), at(finishedAt), detail);
+    }
+
+    /** An attempt stored in the daily partition of {@code createdAt} (the partition key; the default is now()). */
+    private static void attempt(Connection owner, UUID tenant, UUID delivery, String outcomeClass,
+            Instant finishedAt, String detail, Instant createdAt) throws SQLException {
+        run(owner, "insert into public.delivery_attempt (tenant_id, delivery_id, layer, outcome_class, started_at,"
+                + " finished_at, detail, created_at) values (?::uuid, ?::uuid, 1, ?, ?, ?, ?, ?)",
+                tenant, delivery, outcomeClass, at(finishedAt.minusMillis(50)), at(finishedAt), detail,
+                at(createdAt));
     }
 
     private static void event(Connection owner, UUID tenant, UUID delivery, String type, String detail,

@@ -59,6 +59,7 @@ final class TransformedApiBody implements ApiTargetBody {
             log.warn("delivery {}: the pinned mapping version answered {}", send.deliveryId(), result.status());
             return Optional.empty();
         }
+        log.info("delivery {}: transformed through its pinned mapping version", send.deliveryId());
         return Optional.of(new ApiWireBody("application/json", result.outputJson().getBytes(StandardCharsets.UTF_8)));
     }
 

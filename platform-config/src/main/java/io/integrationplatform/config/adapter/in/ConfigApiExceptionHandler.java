@@ -1,6 +1,7 @@
 package io.integrationplatform.config.adapter.in;
 
 import io.integrationplatform.config.application.ConfigApiException;
+import io.integrationplatform.config.flow.api.InterfacePublishRefused;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.port.DeniedTenantAttempt;
 import io.integrationplatform.tenancy.port.TenantDenialRecorder;
@@ -36,6 +37,14 @@ public class ConfigApiExceptionHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ConfigApiExceptionHandler.class);
 
+    /**
+     * The longest publish-refusal reason answered. Config-local (config never imports routing): routing's
+     * RefusalText bounds each echoed value to 32 characters, and its longest whole answer is 104, so 128 cuts no
+     * routing answer and still bounds any other thrower. Cut plainly, no marker - RefusalText adds none either.
+     */
+    static final int REASON_CAP = 128;
+    static final String REFUSED = "the publish was refused";
+
     private final ObjectProvider<TenantDenialRecorder> recorders;
     private final ObjectProvider<TenantContext> tenantContexts;
 
@@ -53,6 +62,21 @@ public class ConfigApiExceptionHandler {
         return ResponseEntity.status(refused.httpStatus()).body(refused.body());
     }
 
+    /**
+     * ADR-017 Decision 2: a publish listener refused the publish (it rolled back). 400 with the listener's reason;
+     * a validation refusal, not a cross-tenant attempt - no denial record, nothing logged above DEBUG.
+     * Row 278 T160 (K-C2-1, CWE-209 defence in depth): the thrower sanitises, and this seam does not trust it - the
+     * reason loses every ISO control character (CR, LF, TAB, NUL, ESC, DEL ...) and, T160 L-5 (CWE-451/CWE-117),
+     * every line or paragraph separator (U+2028, U+2029) and format character (Cf: bidi embeddings and isolates,
+     * zero-width characters, BOM, soft hyphen), and is cut to {@value #REASON_CAP} code points - L-4 (CWE-176),
+     * never a split surrogate pair; a reason blank after that answers {@value #REFUSED}, never an empty string.
+     */
+    @ExceptionHandler(InterfacePublishRefused.class)
+    public ResponseEntity<Map<String, Object>> publishRefused(InterfacePublishRefused refused) {
+        LOG.debug("a publish listener refused the publish; it was rolled back", refused);
+        return ResponseEntity.status(400).body(ConfigApiException.body("error", answerable(refused.reason())));
+    }
+
     @ExceptionHandler(DuplicateKeyException.class)
     public ResponseEntity<Map<String, Object>> duplicate(DuplicateKeyException clash) {
         LOG.debug("a unique-value clash refused the configuration write", clash);
@@ -65,6 +89,20 @@ public class ConfigApiExceptionHandler {
         LOG.error("the configuration write failed; the transaction was rolled back", failure);
         return ResponseEntity.status(500).body(ConfigApiException.body(
                 "error", "the configuration write failed and the transaction was rolled back"));
+    }
+
+    /** The reason without control, separator or format characters, at most {@value #REASON_CAP} code points. */
+    private static String answerable(String reason) {
+        String kept = reason.codePoints().filter(ConfigApiExceptionHandler::answerable).limit(REASON_CAP)
+                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString();
+        return kept.isBlank() ? REFUSED : kept;
+    }
+
+    /** Not an ISO control (Cc), a line or paragraph separator (Zl, Zp) or a format character (Cf). */
+    private static boolean answerable(int codePoint) {
+        int type = Character.getType(codePoint);
+        return !Character.isISOControl(codePoint) && type != Character.FORMAT
+                && type != Character.LINE_SEPARATOR && type != Character.PARAGRAPH_SEPARATOR;
     }
 
     /** The one denied-attempt record a path-named foreign row earns: bound tenant, method, path - never the id. */

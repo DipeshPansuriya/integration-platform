@@ -1,0 +1,163 @@
+package io.integrationplatform.config.adapter.in;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.aMapWithSize;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import io.integrationplatform.config.flow.api.InterfacePublishRefused;
+import io.integrationplatform.tenancy.TenantContext;
+import io.integrationplatform.tenancy.port.DeniedTenantAttempt;
+import io.integrationplatform.tenancy.port.TenantDenialRecorder;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * Row 278 C2 (ADR-017 Decision 2): a publish a {@code BEFORE_COMMIT} listener refused with
+ * {@link InterfacePublishRefused} answers through the configuration API's error seam as a 400 carrying the
+ * listener's (already sanitised) reason as {@code {"error": reason}} - not the catch-all 500. It is a validation
+ * refusal, not a cross-tenant attempt: no denied-attempt record, and nothing logged above DEBUG.
+ *
+ * <p>Row 278 T160 (Kavita K-C2-1, CWE-209 defence in depth): the handler does not trust the thrower. It strips
+ * control characters from the reason and caps its length before answering; a reason that is blank after stripping
+ * answers a fixed text, never an empty string.
+ */
+class ConfigApiExceptionHandlerTest {
+
+    private static final String REASON = "the publish was refused: endpoint URI scheme 'exec' is not in allowedSchemes";
+
+    /** The handler's config-local reason cap (RefusalText bounds each echoed value; this bounds the whole reason). */
+    private static final int REASON_CAP = ConfigApiExceptionHandler.REASON_CAP;
+
+    private final RefusedPublishController controller = new RefusedPublishController();
+    private final List<DeniedTenantAttempt> denials = new ArrayList<>();
+    private final ListAppender<ILoggingEvent> logged = new ListAppender<>();
+    private Logger handlerLog;
+    private MockMvc mvc;
+
+    @BeforeEach
+    void theConfigApi() {
+        StaticListableBeanFactory beans = new StaticListableBeanFactory();
+        beans.addBean("recorder", (TenantDenialRecorder) denials::add);
+        beans.addBean("tenantContext", (TenantContext) () -> Optional.of(UUID.randomUUID()));
+        ConfigApiExceptionHandler handler = new ConfigApiExceptionHandler(
+                beans.getBeanProvider(TenantDenialRecorder.class), beans.getBeanProvider(TenantContext.class));
+        mvc = MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(handler).build();
+
+        handlerLog = (Logger) LoggerFactory.getLogger(ConfigApiExceptionHandler.class);
+        logged.start();
+        handlerLog.addAppender(logged);
+    }
+
+    @AfterEach
+    void detach() {
+        handlerLog.detachAppender(logged);
+    }
+
+    @Test
+    void aRefusedPublishAnswers400WithTheReasonAsTheErrorBody() throws Exception {
+        mvc.perform(post("/publish/refused"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$", aMapWithSize(1)))
+                .andExpect(jsonPath("$.error").value(REASON));
+    }
+
+    @Test
+    void aRefusedPublishRecordsNoTenantDenialAndLogsNothingAboveDebug() throws Exception {
+        mvc.perform(post("/publish/refused")).andExpect(status().isBadRequest());
+
+        assertThat(denials).as("a validation refusal is not a cross-tenant attempt").isEmpty();
+        assertThat(logged.list).as("the reason is never logged above DEBUG")
+                .noneMatch(event -> event.getLevel().isGreaterOrEqual(Level.INFO));
+    }
+
+    @Test
+    void controlCharactersInTheReasonAreStrippedBeforeTheAnswer() throws Exception {
+        controller.reason = "the publish\r\n was refused\t\u0000: scheme\u001b 'exec'\u007f";
+
+        mvc.perform(post("/publish/refused"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$", aMapWithSize(1)))
+                .andExpect(jsonPath("$.error").value("the publish was refused: scheme 'exec'"));
+    }
+
+    @Test
+    void anOverLongReasonIsCutToExactlyTheCap() throws Exception {
+        controller.reason = "x".repeat(REASON_CAP) + "TAIL-NEVER-ANSWERED";
+
+        mvc.perform(post("/publish/refused"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("x".repeat(REASON_CAP)));
+    }
+
+    @Test
+    void aReasonBlankAfterStrippingAnswersTheFixedText() throws Exception {
+        controller.reason = "\r\n\t\u0000 \u001b";
+
+        mvc.perform(post("/publish/refused"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("the publish was refused"));
+    }
+
+    @Test
+    void lineSeparatorsBidiControlsAndFormatCharactersAreStrippedBeforeTheAnswer() throws Exception {
+        // T160 L-5 (CWE-451/CWE-117): U+2028/U+2029 (Zl/Zp), bidi embeddings and isolates U+202A-202E and
+        // U+2066-2069, and other Cf characters (zero-width space, BOM, soft hyphen) are not ISO controls.
+        controller.reason = "the\u2028 publish\u2029 was\u202a\u202b\u202c\u202d\u202e refused"
+                + "\u2066\u2067\u2068\u2069:\u200b scheme\ufeff\u00ad 'exec'";
+
+        mvc.perform(post("/publish/refused"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("the publish was refused: scheme 'exec'"));
+    }
+
+    @Test
+    void theCapCountsCodePointsAndNeverSplitsASurrogatePair() throws Exception {
+        // T160 L-4 (CWE-176): an emoji (two UTF-16 units) at code point 128 is kept whole, never cut to a lone
+        // high surrogate; the answer is exactly REASON_CAP code points.
+        String emoji = new String(Character.toChars(0x1F600));
+        controller.reason = "x".repeat(REASON_CAP - 1) + emoji + "TAIL-NEVER-ANSWERED";
+
+        mvc.perform(post("/publish/refused"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("x".repeat(REASON_CAP - 1) + emoji));
+    }
+
+    @Test
+    void aReasonOfOnlyNonBmpCharactersIsCutAtTheCapInCodePoints() throws Exception {
+        String emoji = new String(Character.toChars(0x1F600));
+        controller.reason = emoji.repeat(REASON_CAP + 5);
+
+        mvc.perform(post("/publish/refused"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(emoji.repeat(REASON_CAP)));
+    }
+
+    /** A configuration publish whose BEFORE_COMMIT listener refused it, with the reason the test sets. */
+    @RestController
+    static class RefusedPublishController {
+
+        String reason = REASON;
+
+        @PostMapping("/publish/refused")
+        String publish() {
+            throw new InterfacePublishRefused(reason, new IllegalStateException("routing detail, never answered"));
+        }
+    }
+}
