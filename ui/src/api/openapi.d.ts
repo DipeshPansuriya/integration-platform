@@ -287,6 +287,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/messages/deliveries/{deliveryId}/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["replay"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/messages/deliveries/{deliveryId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/messages/failures": {
         parameters: {
             query?: never;
@@ -670,6 +702,18 @@ export interface components {
             type?: string;
             wildcardSubtype?: boolean;
             wildcardType?: boolean;
+        };
+        Result: {
+            /** Format: uuid */
+            contractVersionId?: string;
+            /** Format: uuid */
+            deliveryId?: string;
+            /** Format: uuid */
+            mappingVersionId?: string;
+            /** @enum {string} */
+            outcome?: "MOVED_TO_DUE" | "NOT_FOUND" | "WRONG_STATE" | "NOT_PINNED";
+            /** @enum {string} */
+            state?: "PENDING" | "HELD" | "SENDING" | "RETRY_WAIT" | "DUE" | "DELIVERED" | "DEAD_LETTERED";
         };
         RuleTableCell: {
             column?: string;
@@ -1732,6 +1776,104 @@ export interface operations {
             };
             /** @description Not found: the mapping is unknown, not a uuid, or not visible to the bound tenant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    replay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deliveryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Moved to DUE; sent again with the pinned versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Result"];
+                };
+            };
+            /** @description NO_BOUND_USER, or ROLE_NOT_GRANTED: a dead-letter replay */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description No delivery with this id for the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not DEAD_LETTERED, or not pinned to both versions */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    retry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deliveryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Moved to DUE now; sent again with the pinned versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Result"];
+                };
+            };
+            /** @description NO_BOUND_USER, or ROLE_NOT_GRANTED: a dead-letter replay */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description No delivery with this id for the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not RETRY_WAIT, or not pinned to both versions */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

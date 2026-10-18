@@ -393,6 +393,44 @@
         },
         "type": "object"
       },
+      "Result": {
+        "properties": {
+          "contractVersionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "deliveryId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "mappingVersionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "MOVED_TO_DUE",
+              "NOT_FOUND",
+              "WRONG_STATE",
+              "NOT_PINNED"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "PENDING",
+              "HELD",
+              "SENDING",
+              "RETRY_WAIT",
+              "DUE",
+              "DELIVERED",
+              "DEAD_LETTERED"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "RuleTableCell": {
         "properties": {
           "column": {
@@ -1757,6 +1795,128 @@
         },
         "tags": [
           "mapping-test-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/messages/deliveries/{deliveryId}/replay": {
+      "post": {
+        "operationId": "replay",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deliveryId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "Moved to DUE; sent again with the pinned versions"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: a dead-letter replay"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "No delivery with this id for the bound tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not DEAD_LETTERED, or not pinned to both versions"
+          }
+        },
+        "tags": [
+          "delivery-operator-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/messages/deliveries/{deliveryId}/retry": {
+      "post": {
+        "operationId": "retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deliveryId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "Moved to DUE now; sent again with the pinned versions"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: a dead-letter replay"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "No delivery with this id for the bound tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not RETRY_WAIT, or not pinned to both versions"
+          }
+        },
+        "tags": [
+          "delivery-operator-controller"
         ]
       }
     },
