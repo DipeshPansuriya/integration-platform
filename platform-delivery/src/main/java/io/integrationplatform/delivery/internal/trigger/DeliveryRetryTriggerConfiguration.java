@@ -51,10 +51,11 @@ class DeliveryRetryTriggerConfiguration {
     DeliveryRetryTrigger deliveryRetryTrigger(ActiveTenantDirectory activeTenants,
             TriggerTenantContext deliveryTriggerTenantContext, PlatformTransactionManager transactionManager,
             DeliveryRetryStore deliveryRetryStore, OutboxWriter outboxWriter,
-            DeliveryReconcileStore deliveryReconcileStore, ObjectProvider<TargetSendFacts> targetSendFacts) {
+            DeliveryReconcileStore deliveryReconcileStore, ObjectProvider<TargetSendFacts> targetSendFacts,
+            ObjectProvider<InstanceReadiness> instanceReadiness) {
         return new DeliveryRetryTrigger(activeTenants::activeTenantIds, deliveryTriggerTenantContext,
                 new TransactionTemplate(transactionManager), deliveryRetryStore, outboxWriter, BATCH_SIZE,
-                InstanceReadiness.alwaysReady(), deliveryId -> Optional.empty(), TargetRedriveCap.unlimited(),
+                instanceReadiness.getIfAvailable(InstanceReadiness::alwaysReady), deliveryId -> Optional.empty(), TargetRedriveCap.unlimited(),
                 deliveryReconcileStore, targetSendFacts.getIfAvailable(TargetSendFacts::unknown),
                 RetryPolicy.defaults());
     }

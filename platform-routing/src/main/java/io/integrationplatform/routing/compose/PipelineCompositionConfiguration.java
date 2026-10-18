@@ -48,6 +48,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import io.integrationplatform.config.credential.readiness.InstanceKeyReadiness;
+import io.integrationplatform.delivery.port.InstanceReadiness;
+import java.util.function.BooleanSupplier;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -183,25 +186,39 @@ class PipelineCompositionConfiguration {
     @Bean
     StageConsumerLoop stage1Consumer(@Value("${platform.routing.kafka.bootstrap-servers}") String bootstrap,
             ProtectedWorkRows protectedWorkRows, Stage1FanOut stage1FanOut, Producer<byte[], byte[]> poisonProducer,
-            ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations) {
+            ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
+            ObjectProvider<InstanceKeyReadiness> keyReadiness) {
         return loop(bootstrap, "platform-stage1", Topics.MESSAGE_ACCEPTED, protectedWorkRows, stage1FanOut,
-                poisonProducer, meters, observations);
+                poisonProducer, meters, observations, keyReadiness);
     }
 
     @Bean
     StageConsumerLoop stage2Consumer(@Value("${platform.routing.kafka.bootstrap-servers}") String bootstrap,
             ProtectedWorkRows protectedWorkRows, DueDeliverySend dueDeliverySend,
             Producer<byte[], byte[]> poisonProducer, ObjectProvider<MeterRegistry> meters,
-            ObjectProvider<ObservationRegistry> observations) {
+            ObjectProvider<ObservationRegistry> observations, ObjectProvider<InstanceKeyReadiness> keyReadiness) {
         return loop(bootstrap, "platform-stage2", Topics.DELIVERY_DUE, protectedWorkRows, dueDeliverySend,
-                poisonProducer, meters, observations);
+                poisonProducer, meters, observations, keyReadiness);
     }
 
     private static StageConsumerLoop loop(String bootstrap, String group, String topic,
             StageConsumer.ProtectedRows rows, StageConsumer.Handler handler, Producer<byte[], byte[]> poisonProducer,
-            ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations) {
+            ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
+            ObjectProvider<InstanceKeyReadiness> keyReadiness) {
         return new StageConsumerLoop(bootstrap, group, topic, rows, handler, new PoisonTopic(poisonProducer),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
-                observations.getIfAvailable(() -> ObservationRegistry.NOOP));
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP), ready(keyReadiness));
+    }
+
+    /** T-201: the delivery retry pass asks the same key readiness as the stage consumers. */
+    @Bean
+    InstanceReadiness instanceReadiness(ObjectProvider<InstanceKeyReadiness> keyReadiness) {
+        BooleanSupplier ready = ready(keyReadiness);
+        return (tenantId, deliveryId) -> ready.getAsBoolean();
+    }
+
+    private static BooleanSupplier ready(ObjectProvider<InstanceKeyReadiness> keyReadiness) {
+        InstanceKeyReadiness keys = keyReadiness.getIfAvailable();
+        return keys != null ? keys : () -> true;
     }
 }
