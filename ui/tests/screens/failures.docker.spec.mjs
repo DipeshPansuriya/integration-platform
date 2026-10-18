@@ -5,8 +5,8 @@
 // A console user opens Failures (menu, beside Queue) and sees the bound tenant's failed and dead-lettered
 // messages per flow and UTC day, newest first: tracking id (a link to the detail screen), failing stage,
 // error class, last error text, origin (PLATFORM = our side, TARGET = the target's answer), failed at.
-// Read LIVE through GET /api/v1/admin/messages/failures (T110). No retry/replay button exists (T111 is not
-// built) - not even a disabled one.
+// Read LIVE through GET /api/v1/admin/messages/failures (T110). T112: a DELIVER failure carries a Replay
+// button in the Action column (flow tested in operator-actions.docker.spec.mjs).
 //
 // Seeding (queue-dashboard.docker.spec.mjs's pattern): each scenario onboards its OWN fresh flow through the
 // real API from the signed-in page, then inserts message/delivery state rows straight into the suite's own
@@ -134,8 +134,9 @@ test('failed and dead-lettered messages show per flow and day with stage, class,
 
   await expect(page.locator(`[data-message-link="${targetMsg}"]`)).toHaveAttribute('href', `#/messages/${targetMsg}?failed=DELIVER`);
 
-  // retry/replay is not built (T111): no button for it at all - not a disabled one
-  await expect(page.getByRole('button', { name: /retry|replay/i })).toHaveCount(0);
+  // T112: a DELIVER failure with a delivery offers Replay; a route failure has no delivery, so no button at all
+  await expect(target.locator('[data-action-cell] button[data-action="replay"]')).toHaveText('Replay');
+  await expect(route.getByRole('button', { name: /retry|replay/i })).toHaveCount(0);
 });
 
 test('the date filter narrows to one UTC day; clearing it shows all days', async ({ page }) => {
@@ -166,7 +167,8 @@ test('keyboard: the filters are labelled, the tracking id link is reachable by T
   await pickFlow(page, flow.id);
 
   await expect(page.locator('table[data-failures] caption')).toContainText(flow.code);
-  await expect(page.locator('table[data-failures] th[scope="col"]')).toHaveCount(6);
+  // T112 added the Action column: 7 with one flow selected
+  await expect(page.locator('table[data-failures] th[scope="col"]')).toHaveCount(7);
 
   await page.getByLabel(/Day \(UTC/).focus();
   const link = page.locator(`[data-message-link="${msg}"]`);
@@ -198,7 +200,7 @@ test('All flows: the Flow column heads the table and each row names its own flow
   await openFailures(page);
   await expect(page.getByLabel('Flow', { exact: true })).toHaveValue('');
   const headers = page.locator('table[data-failures] th[scope="col"]');
-  await expect(headers).toHaveCount(7);
+  await expect(headers).toHaveCount(8); // T112: + Action
   await expect(headers.nth(1)).toHaveText('Flow');
   await expect(page.locator(`[data-failure-row="${one}"] [data-flow-cell]`)).toHaveText(first.code);
   await expect(page.locator(`[data-failure-row="${two}"] [data-flow-cell]`)).toHaveText(second.code);
@@ -207,7 +209,7 @@ test('All flows: the Flow column heads the table and each row names its own flow
 
   // one flow selected: no Flow column, no Flow cell
   await pickFlow(page, first.id);
-  await expect(headers).toHaveCount(6);
+  await expect(headers).toHaveCount(7); // T112: + Action
   await expect(page.locator('[data-flow-cell]')).toHaveCount(0);
 });
 
