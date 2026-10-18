@@ -63,6 +63,16 @@ public final class DestinationGuard {
      * @throws IllegalArgumentException a host entry is empty, a wildcard, an IP literal or anything but a host name;
      *                                  a port is null or outside 1-65535; hosts are listed with no port
      */
+    /** RED stub (row 327 T97): the platform hosts are not honoured yet. */
+    public DestinationGuard(AllowList allowList, HostResolver resolver, Collection<String> showcaseLocalHosts,
+            Collection<Integer> showcaseLocalPorts, Collection<String> platformHosts) {
+        this(allowList, resolver, showcaseLocalHosts, showcaseLocalPorts);
+    }
+
+    /** RED stub (row 327 T97): the save-time check of a bare host does nothing yet. */
+    public void checkHost(String host) throws DestinationRefusedException {
+    }
+
     public DestinationGuard(AllowList allowList, HostResolver resolver, Collection<String> showcaseLocalHosts,
             Collection<Integer> showcaseLocalPorts) {
         this.allowList = Objects.requireNonNull(allowList, "allowList");
