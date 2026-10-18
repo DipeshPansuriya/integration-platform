@@ -116,9 +116,9 @@ class PipelineCompositionConfiguration {
     }
 
     /** The scheduled idle removal of ADR-010 section 3 (F16): every minute, instances idle past 30 minutes go. */
-    @Bean(initMethod = "start", destroyMethod = "stop")
+    @Bean
     RouteIdleSweep routeIdleSweep(RouteInstanceFactory routeInstanceFactory) {
-        return new RouteIdleSweep(routeInstanceFactory, Instant::now, Duration.ofMinutes(1));
+        return new RouteIdleSweep(routeInstanceFactory, Instant::now);
     }
 
     /**

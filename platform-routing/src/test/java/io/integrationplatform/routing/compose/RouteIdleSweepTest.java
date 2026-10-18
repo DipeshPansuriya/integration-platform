@@ -57,7 +57,7 @@ class RouteIdleSweepTest {
     void aSweepRemovesTheInstanceIdlePastThirtyMinutesAndKeepsAFreshOne() {
         RouteInstance instance = factory.ensure(new RouteConfigRow(UUID.randomUUID(), ENDPOINT, "API",
                 "https://target-a.example/v1", null, UUID.randomUUID()));
-        RouteIdleSweep sweep = new RouteIdleSweep(factory, now::get, Duration.ofMinutes(1));
+        RouteIdleSweep sweep = new RouteIdleSweep(factory, now::get);
 
         now.set(Instant.parse("2026-10-12T12:29:00Z"));
         sweep.sweepOnce();
@@ -67,26 +67,5 @@ class RouteIdleSweepTest {
         sweep.sweepOnce();
         assertThat(context.getRoute(instance.camelRouteId())).as("31 minutes idle: the sweep removed it").isNull();
         assertThat(factory.instanceOf(ENDPOINT)).isEmpty();
-    }
-
-    @Test
-    void theSweepRunsOnItsOwnThreadUntilStopped() throws Exception {
-        factory.ensure(new RouteConfigRow(UUID.randomUUID(), ENDPOINT, "API", "https://target-a.example/v1", null,
-                UUID.randomUUID()));
-        now.set(Instant.parse("2026-10-12T13:00:00Z"));
-        RouteIdleSweep sweep = new RouteIdleSweep(factory, now::get, Duration.ofMillis(20));
-
-        sweep.start();
-        try {
-            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-            while (factory.instanceOf(ENDPOINT).isPresent() && System.nanoTime() < deadline) {
-                Thread.sleep(10);
-            }
-            assertThat(sweep.isRunning()).isTrue();
-        } finally {
-            sweep.stop();
-        }
-        assertThat(factory.instanceOf(ENDPOINT)).as("the running sweep evicted the idle instance").isEmpty();
-        assertThat(sweep.isRunning()).isFalse();
     }
 }
