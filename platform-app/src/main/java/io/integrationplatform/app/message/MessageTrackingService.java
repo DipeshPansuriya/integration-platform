@@ -120,11 +120,15 @@ public class MessageTrackingService {
             failures.add(Map.entry(row.failedAt(), new Failure(row.id(), null, row.flowId(), null, "ROUTE",
                     "ROUTE_FAILED", null, PLATFORM, text(row.failedAt()))));
         }
-        for (JdbcMessageTrackingStore.DeadLetterRow row : store.deadLetters(flowId, dayStart, dayEnd)) {
+        List<JdbcMessageTrackingStore.DeadLetterRow> deadLetters = store.deadLetters(flowId, dayStart, dayEnd);
+        // row 278 M6: one masked-source read for the whole page, not one per dead letter
+        Map<String, JdbcMessageTrackingStore.MaskedSource> sources = store.maskedSources(deadLetters.stream()
+                .map(JdbcMessageTrackingStore.DeadLetterRow::messageId).filter(Objects::nonNull).distinct().toList());
+        for (JdbcMessageTrackingStore.DeadLetterRow row : deadLetters) {
             boolean namedReason = row.deadLetterDetail() != null
                     && !row.deadLetterDetail().equals(row.deadLetterClass());
             boolean targetAnswer = !namedReason && row.attemptDetail() != null;
-            String lastError = masked(row.messageId(), targetAnswer ? row.attemptDetail() : row.deadLetterDetail());
+            String lastError = masked(sources.get(row.messageId()), targetAnswer ? row.attemptDetail() : row.deadLetterDetail());
             failures.add(Map.entry(row.failedAt(), new Failure(row.messageId(), row.id(), row.flowId(),
                     row.targetId(), "DELIVER", row.deadLetterClass(), lastError, targetAnswer ? TARGET : PLATFORM,
                     text(row.failedAt()))));
@@ -176,14 +180,14 @@ public class MessageTrackingService {
     }
 
     /** T-066 (T108): an error text with the message's own masked values (and any registered one) replaced. */
-    private String masked(String messageId, String text) {
+    private static String masked(JdbcMessageTrackingStore.MaskedSource source, String text) {
         if (text == null) {
             return null;
         }
-        String redacted = store.maskedSource(messageId)
-                .filter(source -> source.bodyJson() != null && source.maskedFieldsJson() != null)
-                .map(source -> MaskedFields.redact(text, MaskedFields.valuesOf(JSON.readTree(source.bodyJson()),
-                        MaskedFields.fromJson(source.maskedFieldsJson()))))
+        String redacted = Optional.ofNullable(source)
+                .filter(s -> s.bodyJson() != null && s.maskedFieldsJson() != null)
+                .map(s -> MaskedFields.redact(text, MaskedFields.valuesOf(JSON.readTree(s.bodyJson()),
+                        MaskedFields.fromJson(s.maskedFieldsJson()))))
                 .orElse(text);
         return MaskedFields.scrub(redacted);
     }

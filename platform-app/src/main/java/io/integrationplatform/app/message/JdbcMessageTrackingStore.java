@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,14 +69,22 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
         super(jdbcClient, tenantContext);
     }
 
-    /** T108: what a failure's error text is redacted from; empty when the tenant cannot see the message. */
-    Optional<MaskedSource> maskedSource(String messageId) {
-        return query("select (select p.body::text from public.payload p where p.message_id = m.id) as body,"
+    /**
+     * T108 / row 278 M6: what each failure's error text is redacted from, keyed by message id, read in one query for a
+     * whole page of failures; a message the tenant cannot see is absent.
+     */
+    Map<String, MaskedSource> maskedSources(Collection<String> messageIds) {
+        if (messageIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, MaskedSource> sources = new LinkedHashMap<>();
+        query("select m.id::text as id, (select p.body::text from public.payload p where p.message_id = m.id) as body,"
                         + " (select (iv.snapshot->'interface'->'maskedFields')::text from public.interface_version iv"
                         + " where iv.id = m.interface_version_id) as masked from public.message m",
-                "m.id = :id::uuid", Map.of("id", messageId),
-                (rs, n) -> new MaskedSource(rs.getString("body"), rs.getString("masked")))
-                .stream().findFirst();
+                "m.id in (:ids)", Map.of("ids", messageIds.stream().map(UUID::fromString).toList()),
+                (rs, n) -> Map.entry(rs.getString("id"), new MaskedSource(rs.getString("body"), rs.getString("masked"))))
+                .forEach(entry -> sources.put(entry.getKey(), entry.getValue()));
+        return sources;
     }
 
     Optional<MessageRow> message(UUID id) {
