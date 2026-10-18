@@ -82,6 +82,7 @@
     <!-- Surefire (R03, R06): container tests are excluded unless -Pcontainer. -->
     <surefire.groups></surefire.groups>
     <surefire.excludedGroups>container</surefire.excludedGroups>
+    <surefire.timeout>1800</surefire.timeout>
     <!-- Empty default so @{argLine} resolves when no agent (e.g. JaCoCo) sets it. -->
     <argLine></argLine>
     <!-- Fork JVM args for surefire (R06 small-run default; the container profile raises heap/metaspace
@@ -284,6 +285,8 @@
           <groups>${surefire.groups}</groups>
           <excludedGroups>${surefire.excludedGroups}</excludedGroups>
           <argLine>@{argLine} ${surefireJvmArgs} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+          <!-- row 278: a wedged fork (75 min, a05fa0c) fails the gate instead of freezing it; -Dsurefire.timeout overrides. -->
+          <forkedProcessTimeoutInSeconds>${surefire.timeout}</forkedProcessTimeoutInSeconds>
         </configuration>
       </plugin>
     </plugins>
