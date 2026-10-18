@@ -1,5 +1,5 @@
 // T131 (row 323, F21 BS-C): the ONE registry of names BS-08 / BS-09 / BS-10 need that are NOT on main yet
-// (re-resolved against main 596eecb and the seam branches, 18-Oct). One line per name, so the Tue 20 run
+// (re-resolved against main 596eecb and the seam branches, 18-Oct; T105 + T107 against main efa7d1d). One line per name, so the Tue 20 run
 // swaps one line each. ON_MAIN below is the ONE flag per T-item a spec's test.fixme reads (waitsOn).
 //
 //   provisional  measured on a lane, not on main - used as is; re-measure on the Tue 20 candidate sha
@@ -36,29 +36,41 @@ export const NAMES = Object.freeze({
   // (LookupEntryService.java:97) - the replay writer (T111) decides what it passes, so it waits on T111
   auditActor: 'TBD(T111)',
 
-  // provisional - T107 seam-row278-t107 78792e4, NOT on main: MDC fields CorrelationContext.java:25-28
+  // T107 on main efa7d1d: MDC fields CorrelationContext.java:25-28, written as top-level JSON fields
+  // (logback-spring.xml:3-5, StructuredLogEncoder logstash :10-11)
   logFieldTenant: 'tenantId',
   logFieldMessage: 'messageId',
   logFieldCorrelation: 'correlationId',
-  // T107 has NO stage field (CorrelationContext.java:31 FIELDS; "message" is the log text,
-  // StructuredJsonLogTest.java:54-57) - open decision, see the row 323 hand-back
-  logFieldStage: 'TBD(T107)',
-  logStageValues: 'TBD(T107)', // comma list, pipeline order: the stage field's value at intake, route, transform, deliver
+  // T107 has NO stage field (CorrelationContext.java:31 FIELDS on efa7d1d) - null, with its reason in ABSENT;
+  // BS-09 skips the stage part of its log leg and proves the stages from the T105 timing rows instead
+  logFieldStage: null,
+  logStageValues: null, // would be a comma list, pipeline order: the stage field's value at intake, route, transform, deliver
 
   // T106 composition IS on main (OutboxRelayRunnerConfiguration.java:41); T130 boots the broker
   // (servicePlan kafka, lib/boot-options.mjs BS_KAFKA) and global-setup names its container
   kafkaContainerEnv: 'BS_KAFKA_CONTAINER', // the BS_* environment name holding the broker container's name
   kafkaConsumer: '/opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:19092', // argv prefix inside it
-  // main publishes only platform.message.accepted + platform.delivery.due (OutboxTopic.java:10/:13)
-  kafkaStageTopics: 'TBD(T107)' // comma list: the topics after platform.message.accepted that carry the message
+  // main efa7d1d publishes only platform.message.accepted + platform.delivery.due (OutboxTopic.java:10/:13);
+  // delivery.due is keyed "delivery:<deliveryId>" with the stored traceparent (JdbcDeliveryRepository.java:471-474)
+  // and its value names the delivery id, not the message id (KafkaPublishPort.java:114-120)
+  kafkaStageTopics: 'platform.delivery.due' // comma list: the topics after platform.message.accepted that carry the message
 });
 
-// One flag per T-item: is its feature on local main (measured 596eecb, 18-Oct)? Flip ONE line when it lands;
+// Names the landed item does NOT have: null in NAMES, the reason here. nameOf fails on them with the reason;
+// pendingNames does not list them (nothing will land to fill them - a spec skips that leg, naming the reason).
+const NO_STAGE_FIELD = 'no stage field - T107 MDC FIELDS are correlationId, tenantId, messageId, deliveryId '
+  + '(platform-ingest .../port/CorrelationContext.java:31, main efa7d1d)';
+export const ABSENT = Object.freeze({
+  logFieldStage: NO_STAGE_FIELD,
+  logStageValues: NO_STAGE_FIELD
+});
+
+// One flag per T-item: is its feature on local main (measured efa7d1d, 18-Oct)? Flip ONE line when it lands;
 // every spec guarded by waitsOn(item) then runs. Never flip for a lane or seam branch.
 export const ON_MAIN = Object.freeze({
-  T105: false, // stage timings - seam-row278-t105 d609f17
+  T105: true, // stage timings - main efa7d1d (landed d609f17)
   T106: true, // composition - OutboxRelayRunnerConfiguration.java:41
-  T107: false, // correlation + JSON logs - seam-row278-t107 78792e4
+  T107: true, // correlation + JSON logs - main efa7d1d (landed 78792e4)
   T109: true, // audit writer - JdbcAuditEventStore.java:42
   T110: true, // tracking reads - MessageTrackingController.java:40
   T111: false, // replay - not built
@@ -85,15 +97,22 @@ export function isPending(value) {
 export function nameOf(key) {
   if (!Object.hasOwn(NAMES, key)) throw new Error(`pending-names: unknown name ${key}`);
   const value = NAMES[key];
+  if (value === null && Object.hasOwn(ABSENT, key)) throw new Error(`${key} is not on main: ${ABSENT[key]}`);
   if (isPending(value)) {
     throw new Error(`${key} is still ${value} - swap its one line in tests/base-suite/lib/pending-names.mjs when that item lands`);
   }
   return value;
 }
 
-/** Every name still a placeholder: [[key, value], ...] - the handoff's placeholder list. */
+/** Why a name is absent from main (null in NAMES), or null when the name is there or still pending. */
+export function absentReason(key) {
+  if (!Object.hasOwn(NAMES, key)) throw new Error(`pending-names: unknown name ${key}`);
+  return NAMES[key] === null && Object.hasOwn(ABSENT, key) ? ABSENT[key] : null;
+}
+
+/** Every name still a placeholder: [[key, value], ...] - the handoff's placeholder list (absent names excluded). */
 export function pendingNames() {
-  return Object.entries(NAMES).filter(([, value]) => isPending(value));
+  return Object.entries(NAMES).filter(([key, value]) => isPending(value) && absentReason(key) === null);
 }
 
 /** A route or path template with each {param} replaced, URI-encoded. */

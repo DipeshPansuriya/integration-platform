@@ -5,7 +5,7 @@
 // - on every log line and Kafka header for intake, route, transform and deliver of that message; log lines
 // are structured JSON carrying tenant id, message id and correlation id. Kafka records carry the outbox
 // row's stored W3C trace context as the ONE header "traceparent" (KafkaPublishPort.java:41-42 on main).
-// The JSON field names are T107's (TBD(T107) in pending-names.mjs) - here they are parameters.
+// The JSON field names are T107's (on main efa7d1d, pending-names.mjs; no stage field) - here they are parameters.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -86,4 +86,13 @@ test('headerProblems: every record of the message carries traceparent with the o
   const other = [{ headers: { traceparent: `00-${'a'.repeat(32)}-00f067aa0ba902b7-01` }, key: MSG, value: '{}' }];
   assert.match(headerProblems(other, { messageId: MSG, correlationId: TRACE, topic: 't' }).join(';'), /trace id a{32}, not/);
   assert.match(headerProblems([], { messageId: MSG, correlationId: TRACE, topic: 't' }).join(';'), /t: no record of message/);
+});
+
+test('headerProblems: ids names the records of a hop keyed by another id (delivery.due is keyed "delivery:<id>")', () => {
+  const DEL = '7d0c4b1e-0000-4000-8000-000000000001';
+  const due = [{ headers: { traceparent: TP }, key: `delivery:${DEL}`, value: `{"v":1,"type":"delivery.due","id":"${DEL}"}` }];
+  assert.match(headerProblems(due, { messageId: MSG, correlationId: TRACE, topic: 'd' }).join(';'), /d: no record of message/, 'by default only the message id names a record');
+  assert.deepEqual(headerProblems(due, { messageId: MSG, ids: [DEL], correlationId: TRACE, topic: 'd' }), []);
+  assert.match(headerProblems([{ ...due[0], headers: {} }], { messageId: MSG, ids: [DEL], correlationId: TRACE, topic: 'd' }).join(';'), /d: a record of .* has no traceparent/);
+  assert.match(headerProblems(due, { messageId: MSG, ids: [], correlationId: TRACE, topic: 'd' }).join(';'), /d: no record of message/, 'an empty id list never passes');
 });

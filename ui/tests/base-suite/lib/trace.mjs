@@ -85,9 +85,14 @@ export function parseConsumerOutput(text) {
   });
 }
 
-/** Problems of one topic's records: every record naming the message carries traceparent with the one trace id. */
-export function headerProblems(records, { messageId, correlationId, topic }) {
-  const ofMessage = records.filter((r) => r.key.includes(messageId) || r.value.includes(messageId));
+/**
+ * Problems of one topic's records: every record naming the message carries traceparent with the one trace id.
+ * ids: the ids that name the message's records on this topic (default [messageId]) - e.g. its delivery ids on
+ * platform.delivery.due, whose key and value carry the delivery id only.
+ */
+export function headerProblems(records, { messageId, ids = [messageId], correlationId, topic }) {
+  const names = ids.filter((id) => typeof id === 'string' && id !== '');
+  const ofMessage = records.filter((r) => names.some((id) => r.key.includes(id) || r.value.includes(id)));
   if (ofMessage.length === 0) return [`${topic}: no record of message ${messageId}`];
   const problems = [];
   for (const record of ofMessage) {
