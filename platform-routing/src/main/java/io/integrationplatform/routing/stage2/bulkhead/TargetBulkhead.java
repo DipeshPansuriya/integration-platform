@@ -1,8 +1,8 @@
 package io.integrationplatform.routing.stage2.bulkhead;
 
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -12,9 +12,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  * run at a time for this target endpoint, on threads of this pool alone - the Kafka partition thread never
  * makes a target call. The contract is the ADR's: <em>bounded, non-blocking acquire, no hidden in-memory
  * queue</em>. A permit is a counting semaphore taken with {@link #tryAcquire()} (never {@code acquire()} -
- * waiting would occupy the partition thread); work runs on a fixed thread pool with a {@link SynchronousQueue}
- * (length 0: with the semaphore bounding the in-flight count to the pool size, an accepted task always finds a
- * thread). One slow or hanging target therefore occupies only its own pool (E9-C9).
+ * waiting would occupy the partition thread); work runs on a fixed thread pool whose hand-off buffer holds at
+ * most {@code max_concurrent_sends} tasks. The permit is the only admission: every task in the buffer or running
+ * holds one, so the buffer can never fill and a held permit is a guaranteed hand-off (B19 F2 - a worker returns
+ * its permit in the task's {@code finally}, a moment before it polls for the next task, so a zero-length
+ * {@code SynchronousQueue} rejected a hand-off made in that moment and stranded the CLAIMED row). A task waits in
+ * the buffer only for a worker that has already returned its permit - never a backlog. One slow or hanging target
+ * therefore occupies only its own pool (E9-C9).
  *
  * <p>The pool is per instance; the effective limit for a target is this size times the instance count.
  */
@@ -33,7 +37,7 @@ public final class TargetBulkhead {
                 ^ targetEndpointId.getLeastSignificantBits()), 36);
         this.permits = new Semaphore(bound);
         AtomicInteger seq = new AtomicInteger();
-        this.pool = new ThreadPoolExecutor(bound, bound, 60, TimeUnit.SECONDS, new SynchronousQueue<>(),
+        this.pool = new ThreadPoolExecutor(bound, bound, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(bound),
                 runnable -> {
                     Thread thread = new Thread(runnable, "bulkhead-" + nameTag + "-" + seq.incrementAndGet());
                     thread.setDaemon(true);
@@ -53,8 +57,8 @@ public final class TargetBulkhead {
     }
 
     /**
-     * Hands the task to this target's pool. Called only while holding a permit, so the in-flight count is at
-     * most the pool size and the hand-off always finds a thread; the {@code false} return is the defensive
+     * Hands the task to this target's pool. Called only while holding a permit, so the tasks buffered or running
+     * are at most the buffer size and the hand-off is always accepted; the {@code false} return is the defensive
      * path (pool shut down mid-shutdown) - the caller returns its permit and the database's own recovery
      * (the reconciler of ADR-010 section 9) re-drives the work.
      *

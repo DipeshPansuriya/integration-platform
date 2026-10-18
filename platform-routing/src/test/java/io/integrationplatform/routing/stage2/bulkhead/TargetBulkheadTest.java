@@ -12,7 +12,8 @@ import org.junit.jupiter.api.Test;
 /**
  * T-177 (E9-F1-S4, ADR-010 section 2 "the per-target bulkhead"): one bounded, non-blocking pool per target
  * endpoint. The contract: at most {@code max_concurrent_sends} running at a time, acquisition never blocks,
- * there is NO hidden in-memory queue (a rejected offer means "full - defer"), permits return on {@code release},
+ * there is NO hidden in-memory queue (the permit is the only admission - no permit means "full - defer"; a held
+ * permit is a guaranteed hand-off, B19 F2), permits return on {@code release},
  * and work accepted by the pool runs on the pool's own threads, never on the caller's. The bulkhead of one
  * target is fully independent of another's (one slow target never occupies the pool another target needs).
  */
@@ -69,6 +70,48 @@ class TargetBulkheadTest {
             hold.countDown();
         } finally {
             bulkhead.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("B19 F2: a hand-off with a free permit is never rejected - not even while the worker that"
+            + " returned it is still inside its task")
+    void handOffWithAFreePermitIsNeverRejected() throws Exception {
+        TargetBulkhead bulkhead = new TargetBulkhead(1, UUID.randomUUID());
+        CountDownLatch released = new CountDownLatch(1);
+        CountDownLatch leaveTask = new CountDownLatch(1);
+        CountDownLatch secondRan = new CountDownLatch(1);
+        try {
+            assertThat(bulkhead.tryAcquire()).isTrue();
+            assertThat(bulkhead.execute(() -> {
+                // DeliveryDueDispatch's task shape: the send, then the permit returns in the task's finally -
+                // and the worker is still inside the task, not yet back polling for the next hand-off
+                bulkhead.release();
+                released.countDown();
+                await(leaveTask);
+            })).isTrue();
+            assertThat(released.await(5, TimeUnit.SECONDS)).as("the first send returned its permit").isTrue();
+
+            assertThat(bulkhead.tryAcquire()).as("the permit is free again").isTrue();
+            boolean handedOff = bulkhead.execute(secondRan::countDown);
+            leaveTask.countDown();
+
+            assertThat(handedOff)
+                    .as("a held permit is a guaranteed hand-off - a rejection here strands the CLAIMED row"
+                            + " (DeliveryDueDispatch keeps it SENDING for the reconciler)")
+                    .isTrue();
+            assertThat(secondRan.await(5, TimeUnit.SECONDS)).as("the accepted task runs on the pool").isTrue();
+        } finally {
+            leaveTask.countDown();
+            bulkhead.shutdown();
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
