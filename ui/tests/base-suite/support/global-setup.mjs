@@ -46,7 +46,8 @@ export default async function globalSetup() {
   try {
     const tenantB = backend.extraTenants[TENANT_B_PLAN.key];
     const wiremock = backend.services.wiremock;
-    if (!tenantB || !wiremock) throw new Error('base-suite global-setup: the boot came up without tenant B or the WireMock');
+    const kafka = backend.services.kafka;
+    if (!tenantB || !wiremock || !kafka) throw new Error('base-suite global-setup: the boot came up without tenant B, the WireMock or the Kafka broker');
     consoleServer = await startConsole(backend.baseUrl, backend.sessions);
     setBooted(backend, consoleServer);
     // T131 (BS-09): the app's log stays in this process's memory; workers read it over the loopback tap
@@ -72,6 +73,7 @@ export default async function globalSetup() {
     process.env[BS_ENV.pgContainer] = backend.pgName;
     process.env[BS_ENV.wiremockPort] = String(wiremock.port);
     process.env[BS_ENV.wiremockAdmin] = wiremock.adminUrl;
+    process.env[BS_ENV.kafkaContainer] = kafka.name;
     process.env[BS_ENV.appPid] = String(backend.appPid);
     process.env[BS_ENV.appLog] = logTap.url;
   } catch (e) {

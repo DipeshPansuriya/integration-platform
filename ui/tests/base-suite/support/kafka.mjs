@@ -1,9 +1,8 @@
 // T131 (row 323, F21 BS-C, BS-09): one topic's records with their headers, read from the broker the
 // pipeline uses - bounded (30 s), read-only (a console consumer never writes a record).
 //
-// HARNESS GAP (T106): the base-suite boot starts NO Kafka today (servicePlan knows only wiremock,
-// unit/boot-services.test.mjs:42). Which container holds the broker and its console-consumer argv are
-// TBD(T106) in pending-names.mjs: this FAILS, naming T106, until those two lines are swapped.
+// T130: the base-suite boot starts ONE broker (servicePlan kafka, BS_KAFKA) and global-setup names its
+// container in BS_KAFKA_CONTAINER; the consumer argv is pending-names.mjs kafkaConsumer.
 
 import { execFileSync } from 'node:child_process';
 import { nameOf } from '../lib/pending-names.mjs';

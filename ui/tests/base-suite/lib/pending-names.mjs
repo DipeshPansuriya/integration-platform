@@ -45,10 +45,10 @@ export const NAMES = Object.freeze({
   logFieldStage: 'TBD(T107)',
   logStageValues: 'TBD(T107)', // comma list, pipeline order: the stage field's value at intake, route, transform, deliver
 
-  // T106 composition IS on main (OutboxRelayRunnerConfiguration.java:41); the gap is the base-suite
-  // HARNESS: it boots NO Kafka (servicePlan refuses one, unit/boot-services.test.mjs:42) - item T130
-  kafkaContainerEnv: 'TBD(T130)', // the BS_* environment name holding the broker container's name
-  kafkaConsumer: 'TBD(T130)', // console-consumer argv prefix inside that container, incl. --bootstrap-server
+  // T106 composition IS on main (OutboxRelayRunnerConfiguration.java:41); T130 boots the broker
+  // (servicePlan kafka, lib/boot-options.mjs BS_KAFKA) and global-setup names its container
+  kafkaContainerEnv: 'BS_KAFKA_CONTAINER', // the BS_* environment name holding the broker container's name
+  kafkaConsumer: '/opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:19092', // argv prefix inside it
   // main publishes only platform.message.accepted + platform.delivery.due (OutboxTopic.java:10/:13)
   kafkaStageTopics: 'TBD(T107)' // comma list: the topics after platform.message.accepted that carry the message
 });

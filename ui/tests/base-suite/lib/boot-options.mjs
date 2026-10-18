@@ -3,7 +3,8 @@
 //   extraTenants       tenant B (TENANT_B_PLAN): its own TENANT_ADMIN and APPROVER, so B publishes its own
 //                      flow under the two-person rule; the harness's four logins are never repurposed
 //   services           the ONE local WireMock, DECLARED here (the pinned image, a 200 stub per tenant path
-//                      plus BS-07's unnamed-loopback leg) and started only by the boot, inside its lock
+//                      plus BS-07's unnamed-loopback leg) and ONE Kafka broker (the pinned image, main's
+//                      three topics - BS-09 reads their headers), both started only by the boot, inside its lock
 //   appEnv             the dev-only exception's profile and host (settings.mjs), ADDED through mergeAppEnv -
 //                      their real names are TBD(row278) (row 278's build) and arrive only through the
 //                      environment; nothing here names a profile, a host or an app property
@@ -21,6 +22,15 @@ export const BS_WIREMOCK = Object.freeze({
   mappings: Object.freeze(Object.keys(STUB_IDS).map((stubPath) => Object.freeze(stubMapping(stubPath, 200))))
 });
 
+/** The broker image, pinned by tag AND digest (R05). */
+export const KAFKA_IMAGE = 'apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837';
+
+/** The one local Kafka broker: declared here, started by bootBackend only. Topics: main's OutboxTopic plus the poison topic. */
+export const BS_KAFKA = Object.freeze({
+  image: KAFKA_IMAGE,
+  topics: Object.freeze(['platform.message.accepted', 'platform.delivery.due', 'platform.poison'])
+});
+
 /** The harness logins the base suite drives (console-config.json; names only - the sessions stay in the boot). */
 export const BS_CONSOLE_LOGINS = Object.freeze([TENANTS.A.approver, ...Object.keys(TENANT_B_PLAN.logins)]);
 
@@ -32,7 +42,7 @@ export function baseSuiteBootOptions(settings, { lockHolder } = {}) {
   }
   return {
     extraTenants: [TENANT_B_PLAN],
-    services: { wiremock: BS_WIREMOCK },
+    services: { wiremock: BS_WIREMOCK, kafka: BS_KAFKA },
     appEnv: { ...exception.appEnv },
     sourceCredentials: true,
     lockHolder

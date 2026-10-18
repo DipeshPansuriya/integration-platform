@@ -227,7 +227,9 @@ export const HARNESS_APP_ENV = Object.freeze([
   // the JVM's own settings: an extra here could swap the app's real host resolver (jdk.net.hosts.file)
   'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS', 'JAVA_HOME', 'PATH',
   // the realm's admin client secret: only the harness itself passes it (sourceCredentials), never an extra
-  'PLATFORM_ADMIN_CLIENT_SECRET'
+  'PLATFORM_ADMIN_CLIENT_SECRET',
+  // T130: the broker the boot started (services.kafka) - only the harness points the app at it
+  'IPASS_KAFKA_BOOTSTRAP_SERVERS', 'IPASS_KAFKA_PUBLISH_CLIENT_ID'
 ]);
 
 /**
@@ -278,11 +280,58 @@ export function mergeAppEnv(base, ...extras) {
   return merged;
 }
 
-// The sidecars a boot may start (tests/base-suite/unit/boot-services.test.mjs): WireMock only, on its own
-// port inside the container and its health path - the Java suites' pattern (ApiAdapterWireMock.java:39-61).
+// The sidecars a boot may start (tests/base-suite/unit/boot-services.test.mjs): WireMock on its own port
+// inside the container and its health path - the Java suites' pattern (ApiAdapterWireMock.java:39-61) - and
+// ONE KRaft Kafka broker+controller (BS-09 reads its topics' headers; auto-create off like the app expects).
 const SIDECARS = Object.freeze({
-  wiremock: Object.freeze({ prefix: 'ipass-ui-bs-wm', containerPort: 8080, readyPath: '/__admin/health' })
+  wiremock: Object.freeze({ prefix: 'ipass-ui-bs-wm', containerPort: 8080, readyPath: '/__admin/health' }),
+  kafka: Object.freeze({ prefix: 'ipass-ui-bs-kafka', containerPort: 9092 })
 });
+const KAFKA_TOPIC = /^platform\.[a-z0-9.-]+$/;
+const KAFKA_INTERNAL = 'localhost:19092'; // the in-container listener: topic admin and console consumer
+const KAFKA_TOPICS_CLI = '/opt/kafka/bin/kafka-topics.sh';
+const KAFKA_CLIENT_ID = 'ipass-ui-bs';
+
+function kafkaPlan(key, sidecar, name, image, { topics } = {}, kafkaPort) {
+  if (!Array.isArray(topics) || topics.length === 0 || new Set(topics).size !== topics.length
+    || !topics.every((topic) => typeof topic === 'string' && KAFKA_TOPIC.test(topic))) {
+    throw new Error(`boot-backend: service ${key} topics must be a non-empty list of unique platform.* topics, got ${JSON.stringify(topics)}`);
+  }
+  if (!Number.isInteger(kafkaPort) || kafkaPort < 1 || kafkaPort > 65535) {
+    throw new Error(`boot-backend: service ${key} needs its kafkaPort (an integer 1-65535, picked before the lock), got ${kafkaPort}`);
+  }
+  // The advertised PLAINTEXT address must be the host's, so the host port is fixed (picked free) - not random.
+  const env = [
+    'KAFKA_NODE_ID=1',
+    'KAFKA_PROCESS_ROLES=broker,controller',
+    'KAFKA_LISTENERS=PLAINTEXT://:9092,INTERNAL://:19092,CONTROLLER://:9093',
+    `KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://127.0.0.1:${kafkaPort},INTERNAL://${KAFKA_INTERNAL}`,
+    'KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT',
+    'KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL',
+    'KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER',
+    'KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093',
+    'KAFKA_AUTO_CREATE_TOPICS_ENABLE=false',
+    'KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1',
+    'KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1',
+    'KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1',
+    'KAFKA_MIN_INSYNC_REPLICAS=1',
+    'KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0',
+    'TZ=Etc/UTC'
+  ];
+  const cli = ['exec', name, KAFKA_TOPICS_CLI, '--bootstrap-server', KAFKA_INTERNAL];
+  return {
+    key,
+    name,
+    containerPort: sidecar.containerPort,
+    port: kafkaPort,
+    topics: [...topics],
+    runArgs: ['run', '-d', '--rm', '--name', name, '-p', `127.0.0.1:${kafkaPort}:${sidecar.containerPort}`,
+      ...env.flatMap((pair) => ['-e', pair]), image],
+    readyArgs: [...cli, '--list'],
+    topicArgs: topics.map((topic) => [...cli, '--create', '--if-not-exists', '--topic', topic, '--partitions', '3', '--replication-factor', '1']),
+    appEnv: { IPASS_KAFKA_BOOTSTRAP_SERVERS: `127.0.0.1:${kafkaPort}`, IPASS_KAFKA_PUBLISH_CLIENT_ID: KAFKA_CLIENT_ID }
+  };
+}
 const PINNED_IMAGE = /^[a-z0-9]+(?:[._/-][a-z0-9]+)*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$/; // R05: tag AND digest
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -295,22 +344,25 @@ function isStubMapping(mapping) {
 
 /**
  * `services` -> the sidecars bootBackend starts INSIDE its docker-suite lock and removes before that lock is
- * released; today only `wiremock: { image, mappings }`. Pure: checks the declaration and returns each
+ * released: `wiremock: { image, mappings }` and `kafka: { image, topics }` (its host port is `kafkaPort`,
+ * picked by the caller, because the broker advertises it). Pure: checks the declaration and returns each
  * sidecar's container name, port, ready path, stubs and `docker run` arguments - the image pinned by tag AND
  * digest (R05), published on 127.0.0.1 only on a random host port, --rm. No services -> [] (today's boot).
  */
-export function servicePlan(services = {}, suffix) {
+export function servicePlan(services = {}, suffix, { kafkaPort } = {}) {
   const entries = Object.entries(services ?? {});
   if (entries.length === 0) return [];
   if (typeof suffix !== 'string' || !/^[0-9a-f]{8}$/.test(suffix)) {
     throw new Error(`boot-backend: service name suffix ${suffix} is not 8 hex characters`);
   }
-  return entries.map(([key, { image, mappings } = {}]) => {
+  return entries.map(([key, declaration = {}]) => {
+    const { image, mappings } = declaration;
     const sidecar = Object.hasOwn(SIDECARS, key) ? SIDECARS[key] : null;
     if (!sidecar) throw new Error(`boot-backend: unknown service ${key} - only ${Object.keys(SIDECARS).join(', ')} is declared`);
     if (typeof image !== 'string' || !PINNED_IMAGE.test(image)) {
       throw new Error(`boot-backend: service ${key} image must be pinned by tag AND digest (R05), got ${image}`);
     }
+    if (key === 'kafka') return kafkaPlan(key, sidecar, `${sidecar.prefix}-${suffix}`, image, declaration, kafkaPort);
     if (!Array.isArray(mappings)) throw new Error(`boot-backend: service ${key} needs its stub mappings (an array)`);
     for (const mapping of mappings) {
       if (!isStubMapping(mapping)) throw new Error(`boot-backend: ${JSON.stringify(mapping)} is not a stub mapping (uuid id, method, /path, status)`);
@@ -410,6 +462,22 @@ async function readyWireMock({ key, name, containerPort, readyPath, mappings }) 
   return { name, port, url, adminUrl: `${url}/__admin` };
 }
 
+/**
+ * T130: a started Kafka sidecar (servicePlan) - polled until its topic admin answers (bounded: 240 x 500 ms,
+ * like WireMock), then each declared topic created (auto-create is off). Throws (the boot tears down) when it
+ * never answers or a topic is refused.
+ */
+async function readyKafka({ name, port, topics, readyArgs, topicArgs }) {
+  for (let i = 0; ; i++) {
+    const ready = spawnSync('docker', readyArgs, { encoding: 'utf8', timeout: 20000 });
+    if (ready.status === 0) break;
+    if (i >= 240) throw new Error(`boot-backend: sidecar ${name} never answered kafka-topics --list: ${ready.stderr}`);
+    await sleep(500);
+  }
+  for (const args of topicArgs) docker(args, 60000);
+  return { name, port, bootstrap: `127.0.0.1:${port}`, topics: [...topics] };
+}
+
 /** T130: removes the started sidecars one by one - a failure is reported and never skips the rest or the lock release. */
 function removeSidecars(names) {
   for (const name of names) {
@@ -440,7 +508,7 @@ export async function fetchOpenApiDocument(boot) {
  * T130 (row 323, F21 BS-B) - four ADDITIVE options, all off by default (none given = exactly the boot below):
  * `extraTenants` NEW tenants `${tenantCode}-${key}` with NEW realm users, bound like the harness's own and
  * each given a harness session (extraTenantPlan, extraTenantSql); `services` sidecars started INSIDE this
- * boot's docker-suite lock and removed before it is released (servicePlan - WireMock only); `appEnv` app
+ * boot's docker-suite lock and removed before it is released (servicePlan - WireMock, Kafka); `appEnv` app
  * settings ADDED through mergeAppEnv (the dev-only exception's profile and host); `sourceCredentials` hands
  * the app the realm's platform-admin client secret by its NAME PLATFORM_ADMIN_CLIENT_SECRET (a random value,
  * memory only - keycloak-harness.mjs), so source credentials are issued through the real API. Every option
@@ -450,8 +518,11 @@ export default async function bootBackend({
   loginSeed = false, extraUsers = [], lockHolder, extraTenants = [], services = {}, appEnv = {}, sourceCredentials = false
 } = {}) {
   extraTenantPlan('lane-d-000000', extraTenants); // T130: a bad option never takes the lock or starts a container
-  const sidecars = servicePlan(services, crypto.randomBytes(4).toString('hex'));
-  mergeAppEnv({}, appEnv);
+  // T130: the broker advertises its host port, so it is picked here (free now, re-checked by docker run)
+  const kafkaPort = services?.kafka ? await freePort() : undefined;
+  const sidecars = servicePlan(services, crypto.randomBytes(4).toString('hex'), { kafkaPort });
+  const kafkaEnv = sidecars.find((sidecar) => sidecar.key === 'kafka')?.appEnv ?? {};
+  mergeAppEnv(kafkaEnv, appEnv);
   if (typeof sourceCredentials !== 'boolean') throw new Error('boot-backend: sourceCredentials is true or false');
   const releaseLock = await acquireSuiteLock(lockHolder);
   let container, app, keycloak;
@@ -494,12 +565,12 @@ export default async function bootBackend({
     }
 
     // T130: the declared sidecars (none by default), inside this boot's lock and before the JVM starts, so
-    // one that will not come up fails the boot early. servicePlan declares WireMock only.
+    // one that will not come up fails the boot early. servicePlan declares WireMock and Kafka.
     const serviceInfo = {};
     for (const sidecar of sidecars) {
       docker(sidecar.runArgs);
       sidecarNames.push(sidecar.name);
-      serviceInfo[sidecar.key] = await readyWireMock(sidecar);
+      serviceInfo[sidecar.key] = sidecar.key === 'kafka' ? await readyKafka(sidecar) : await readyWireMock(sidecar);
     }
 
     psql(pgName, `CREATE ROLE ${loginName} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${loginPassword}'`);
@@ -526,7 +597,8 @@ export default async function bootBackend({
           CONSOLE_OIDC_REDIRECT_URI: `${baseUrl}/login/oauth2/code/keycloak`,
           CONSOLE_POST_LOGOUT_REDIRECT_URI: `${CONSOLE_ORIGIN}/`,
           CONSOLE_URL: `${CONSOLE_ORIGIN}/`,
-          ...(sourceCredentials ? { PLATFORM_ADMIN_CLIENT_SECRET: keycloak.platformAdminClientSecret } : {})
+          ...(sourceCredentials ? { PLATFORM_ADMIN_CLIENT_SECRET: keycloak.platformAdminClientSecret } : {}),
+          ...kafkaEnv // T130: harness-owned - the app publishes to the broker this boot started
         }, appEnv),
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
