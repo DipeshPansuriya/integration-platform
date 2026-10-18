@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import { setBooted, STORAGE_STATE } from './boot-state.mjs';
+import { screenAppEnv } from './screen-hosts.mjs';
 import { browserLogin } from './keycloak-login.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -31,7 +32,7 @@ export default async function globalSetup() {
     throw new Error(`global-setup: the console build failed (an unbuilt console is the suite's own red):\n${build.stdout}\n${build.stderr}`);
   }
 
-  const backend = await bootBackend({ loginSeed: true });
+  const backend = await bootBackend({ loginSeed: true, appEnv: screenAppEnv() });
   let consoleServer;
   try {
     consoleServer = await startConsole(backend.baseUrl, backend.sessions);
