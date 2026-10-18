@@ -32,3 +32,13 @@ export const BASE_SUITE_CONFIG = Object.freeze({
     { name: SPEC_PROJECT, testMatch: /\.docker\.spec\.mjs$/, dependencies: [SEED_PROJECT] }
   ]
 });
+
+/** A fresh, extensible copy for defineConfig, which stamps a symbol on its argument (the original is frozen). */
+export function suiteConfig() {
+  return {
+    ...BASE_SUITE_CONFIG,
+    expect: { ...BASE_SUITE_CONFIG.expect },
+    use: { ...BASE_SUITE_CONFIG.use },
+    projects: BASE_SUITE_CONFIG.projects.map((project) => ({ ...project }))
+  };
+}

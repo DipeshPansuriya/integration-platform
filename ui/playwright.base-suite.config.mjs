@@ -4,6 +4,6 @@
 // suite's playwright.config.mjs is untouched and never reads tests/base-suite).
 
 import { defineConfig } from '@playwright/test';
-import { BASE_SUITE_CONFIG } from './tests/base-suite/lib/suite-config.mjs';
+import { suiteConfig } from './tests/base-suite/lib/suite-config.mjs';
 
-export default defineConfig(BASE_SUITE_CONFIG);
+export default defineConfig(suiteConfig()); // a copy: defineConfig stamps its argument, BASE_SUITE_CONFIG is frozen
