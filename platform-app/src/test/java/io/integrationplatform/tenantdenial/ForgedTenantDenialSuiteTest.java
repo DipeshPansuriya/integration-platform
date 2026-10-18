@@ -214,6 +214,8 @@ class ForgedTenantDenialSuiteTest {
         registry.add("CONSOLE_OIDC_REDIRECT_URI", () -> BACKEND + "/login/oauth2/code/keycloak");
         registry.add("CONSOLE_POST_LOGOUT_REDIRECT_URI", () -> BACKEND + "/");
         registry.add("CONSOLE_URL", () -> "/");
+        // T-124 save-time host check: E5SystemMatrix edits baseUrl to edited.partner.example
+        registry.add("platform.config.destinations.allowed-hosts", () -> "partner.example,*.partner.example");
     }
 
     @MockitoSpyBean
