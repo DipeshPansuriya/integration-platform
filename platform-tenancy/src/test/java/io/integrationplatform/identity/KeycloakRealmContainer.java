@@ -92,6 +92,7 @@ public final class KeycloakRealmContainer extends GenericContainer<KeycloakRealm
         withEnv("CONSOLE_OIDC_REDIRECT_URI", consoleRedirectUri);
         withEnv("CONSOLE_POST_LOGOUT_REDIRECT_URI", postLogoutRedirectUri);
         withEnv("PLATFORM_ADMIN_CLIENT_SECRET", platformAdminSecret);
+        withEnv("OPERATOR_AGENT_CLIENT_SECRET", randomToken(32)); // T162: never the literal placeholder
         withCopyFileToContainer(MountableFile.forHostPath(realmFile()), "/opt/keycloak/data/import/platform-realm.json");
         withCommand("start-dev", "--import-realm");
         withExposedPorts(HTTP, MANAGEMENT);
