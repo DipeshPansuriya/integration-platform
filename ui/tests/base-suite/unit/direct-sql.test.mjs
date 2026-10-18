@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deliveryRowsSql, intakeTimingSql, messageRowsSql, outboxAggregatesSql, tenantIdSql } from '../lib/direct-sql.mjs';
+import { deliveryRowsSql, intakeTimingSql, messageRowsSql, outboxAggregatesSql, stageTimingsOfMessageSql, tenantIdSql } from '../lib/direct-sql.mjs';
 import { isReadOnlySelect, pipelineWrites } from '../lib/source-scan.mjs';
 
 const SUITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -24,6 +24,18 @@ test('the message and delivery reads mirror the queue summary columns (interface
   assert.match(deliveryRowsSql(CODE), /select d\.message_id::text, d\.interface_id::text, d\.state, to_char\(d\.created_at at time zone 'UTC', 'YYYY-MM-DD'\)/);
   assert.match(outboxAggregatesSql(CODE), /topic = 'platform\.message\.accepted'/);
   assert.match(intakeTimingSql(CODE), /stage = 'INTAKE'/);
+});
+
+const MESSAGE = '3c2b1a09-0000-4000-8000-0000000000d9';
+
+test('BS-09 stage proof: ONE read-only SELECT of one message\'s T105 timing rows, tenant-scoped, UTC ISO millis, pipeline order', () => {
+  const sql = stageTimingsOfMessageSql(CODE, MESSAGE);
+  assert.ok(isReadOnlySelect(sql), sql);
+  assert.ok(sql.includes(`'${CODE}'`) && sql.includes(`'${MESSAGE}'`), sql);
+  assert.match(sql, /^select s\.stage, to_char\(s\.started_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS\.MS"Z"'\), coalesce\(to_char\(s\.finished_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS\.MS"Z"'\), ''\) from public\.message_stage_timing s /);
+  assert.match(sql, /order by s\.started_at, s\.stage$/);
+  for (const bad of ["x' or '1'='1", 'not-a-uuid', '', null]) assert.throws(() => stageTimingsOfMessageSql(CODE, bad), /uuid|id/i, String(bad));
+  assert.throws(() => stageTimingsOfMessageSql("x' or '1'='1", MESSAGE), /tenant code/);
 });
 
 test('a tenant code that could leave its literal is refused', () => {

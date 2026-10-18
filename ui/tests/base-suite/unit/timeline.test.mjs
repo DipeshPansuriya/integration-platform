@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { STAGES, screenRowProblems, timelineProblems } from '../lib/timeline.mjs';
+import { timelineOfRows } from '../lib/timeline.mjs';
 
 const ID = '0b9f6c1e-0000-4000-8000-000000000001';
 const at = (ms) => new Date(Date.UTC(2026, 9, 20, 10, 0, 0, ms)).toISOString();
@@ -89,4 +90,24 @@ test('the screen rows must show the API stages in the same order, all done, with
   assert.ok(screenRowProblems(failed, api).some((p) => /DELIVER shows failed/.test(p)));
   const wrong = rows.map((r) => (r.stage === 'ROUTE' ? { ...r, durationMs: '41' } : r));
   assert.ok(screenRowProblems(wrong, api).some((p) => /ROUTE shows 41 ms, the API 40 ms/.test(p)));
+});
+
+test('timelineOfRows: the T105 rows of one message as a timeline the oracle reads; a blank finish is still running', () => {
+  const id = '3c2b1a09-0000-4000-8000-0000000000d9';
+  const rows = [
+    ['INTAKE', '2026-10-18T10:00:00.000Z', '2026-10-18T10:00:00.010Z'],
+    ['ROUTE', '2026-10-18T10:00:00.020Z', '2026-10-18T10:00:00.030Z'],
+    ['TRANSFORM', '2026-10-18T10:00:00.040Z', '2026-10-18T10:00:00.050Z'],
+    ['DELIVER', '2026-10-18T10:00:00.060Z', '2026-10-18T10:00:00.090Z']
+  ];
+  const timeline = timelineOfRows(id, rows);
+  assert.equal(timeline.trackingId, id);
+  assert.deepEqual(timeline.stages[3], { stage: 'DELIVER', startedAt: '2026-10-18T10:00:00.060Z', finishedAt: '2026-10-18T10:00:00.090Z' });
+  assert.deepEqual(timelineProblems(timeline, id), []);
+  const open = timelineOfRows(id, [...rows.slice(0, 3), ['DELIVER', '2026-10-18T10:00:00.060Z', '']]);
+  assert.equal(open.stages[3].finishedAt, null);
+  assert.deepEqual(timelineProblems(open, id), ['DELIVER has not finished']);
+  assert.deepEqual(timelineProblems(timelineOfRows(id, rows.slice(0, 2)), id), ['stage TRANSFORM is missing', 'stage DELIVER is missing']);
+  assert.throws(() => timelineOfRows(id, [['INTAKE', '2026-10-18T10:00:00.000Z']]), /three columns/);
+  assert.throws(() => timelineOfRows(id, 'rows'), /rows/);
 });
