@@ -1,5 +1,6 @@
 package io.integrationplatform.ingest.internal.intake;
 
+import io.integrationplatform.ingest.adapter.in.CorrelationFilter;
 import io.integrationplatform.ingest.port.IntakeTransaction;
 import io.integrationplatform.ingest.port.OutboxWriter;
 import io.integrationplatform.ingest.port.StageTimings;
@@ -21,6 +22,12 @@ public class IntakeConfiguration {
     IntakeTransaction intakeTransaction(JdbcClient jdbcClient, TenantContext tenantContext, OutboxWriter outbox,
             StageTimings timings) {
         return new IntakeService(jdbcClient, tenantContext, outbox, timings);
+    }
+
+    /** T-063 (row 278 T107): every request runs in its journey - Boot registers this filter for all URLs. */
+    @Bean
+    CorrelationFilter correlationFilter() {
+        return new CorrelationFilter();
     }
 
     @Bean

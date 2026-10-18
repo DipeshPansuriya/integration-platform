@@ -65,6 +65,7 @@ public final class Stage1FanOut implements StageConsumer.Handler {
         List<Stage1Delivery> planned = plan(message, FlowBundle.parse(snapshot));
         deliveries.insertPerRoute(planned);
         deliveries.markMessageRouted(messageId);
+        log.info("stage 1: message {} routed into {} deliveries", messageId, planned.size());
     }
 
     /** One delivery per ACTIVE, unconditional route of the pinned snapshot, pinning that route's mapping version. */

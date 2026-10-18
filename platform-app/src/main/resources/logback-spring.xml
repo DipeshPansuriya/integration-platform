@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  T-065 (row 278 T107, E12-F1-S1 "Structured logs"): every log line is one JSON object (Spring Boot's built-in
+  logstash structured format - no extra dependency); the journey's MDC fields (correlationId, tenantId, messageId,
+  deliveryId - CorrelationContext) are top-level fields of each line. Boot's defaults keep its logger levels.
+-->
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+      <format>logstash</format>
+      <charset>${CONSOLE_LOG_CHARSET}</charset>
+    </encoder>
+  </appender>
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+  </root>
+</configuration>

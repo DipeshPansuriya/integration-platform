@@ -1,5 +1,6 @@
 package io.integrationplatform.routing.stage;
 
+import io.integrationplatform.ingest.port.CorrelationContext;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -205,15 +206,18 @@ public final class StageConsumer {
             return Outcome.POISONED;
         }
         WorkKind kind = WorkKind.of(contract.type());
-        UUID tenantId;
-        boolean visible;
-        try {
-            tenantId = rows.tenantFor(kind, contract.id());
+        // T107 (E12-F1-S1): the record's traceparent is the journey - every log line of this record's work carries
+        // its correlation id, the row's id and (once resolved from the row) its tenant; outbox rows the handler
+        // appends inherit the traceparent, the next hop's Kafka header. Nothing is left on the consumer thread.
+        try (CorrelationContext.Scope journey = CorrelationContext.open(contract.traceparent())) {
+            CorrelationContext.tag(kind == WorkKind.MESSAGE ? CorrelationContext.MESSAGE_ID
+                    : CorrelationContext.DELIVERY_ID, contract.id());
+            UUID tenantId = rows.tenantFor(kind, contract.id());
             if (tenantId == null) {
                 return noRow(kind, contract);
             }
-            visible = rows.visibleTo(tenantId, kind, contract.id());
-            if (!visible) {
+            CorrelationContext.tag(CorrelationContext.TENANT_ID, tenantId);
+            if (!rows.visibleTo(tenantId, kind, contract.id())) {
                 return noRow(kind, contract);
             }
             handler.onWork(contract, tenantId);
