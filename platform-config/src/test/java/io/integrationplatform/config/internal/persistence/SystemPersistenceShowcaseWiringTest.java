@@ -142,6 +142,29 @@ class SystemPersistenceShowcaseWiringTest {
                 });
     }
 
+    @ParameterizedTest(name = "M1 (CWE-184): the exception under \"{0}\" refuses to start")
+    @ValueSource(strings = {"showcase,preprod", "showcase,prd", "showcase,live", "showcase,pre-production",
+            "showcase,prod-eu", "showcase,perf", "showcase,dev,preprod", "showcase,default"})
+    void theExceptionNextToAnyProfileOutsideTheAllowListRefusesToStart(String activeProfiles) {
+        String[] active = activeProfiles.split(",");
+        profiles(runner, active)
+                .withPropertyValues(LOCAL_HOSTS + "=localhost", LOCAL_PORTS + "=8089").run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining(LOCAL_HOSTS)
+                            .hasMessageContaining(active[active.length - 1]);
+                });
+    }
+
+    @ParameterizedTest(name = "M1: the exception under \"{0}\" (allow-listed only) starts")
+    @ValueSource(strings = {"showcase", "showcase,local", "showcase,dev", "showcase,test", "showcase,local,dev"})
+    void theExceptionNextToOnlyAllowListedProfilesStarts(String activeProfiles) {
+        profiles(runner, activeProfiles.split(","))
+                .withPropertyValues(LOCAL_HOSTS + "=localhost", LOCAL_PORTS + "=8089")
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
     @Test
     @DisplayName("17e: the showcase profile without the property restores today's refusal, with no WARN")
     void removingThePropertyRestoresTodaysRefusal(CapturedOutput output) {
