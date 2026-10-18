@@ -102,7 +102,8 @@ class ReplayAttemptBudgetContainerTest {
         failTimes(id, MAX_ATTEMPTS - 1);
         assertThat(state(id)).contains(DeliveryState.RETRY_WAIT);
         assertThat(inTenant(() -> repository().countEvents(id,
-                io.integrationplatform.delivery.DeliveryEventType.REDRIVE))).as("6 redrives between 7 failures").isEqualTo(MAX_ATTEMPTS - 2);
+                io.integrationplatform.delivery.DeliveryEventType.REDRIVE)))
+                .as("6 redrives between 7 failures").isEqualTo(MAX_ATTEMPTS - 2);
         assertThat(lockedAttempts(id)).as("lockDue counts the whole un-replayed series").isEqualTo(MAX_ATTEMPTS - 1);
 
         redrive(id);

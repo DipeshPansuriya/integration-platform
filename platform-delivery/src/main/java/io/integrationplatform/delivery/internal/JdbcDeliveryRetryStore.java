@@ -34,7 +34,11 @@ public final class JdbcDeliveryRetryStore extends TenantScopedRepository impleme
         return query(
                 "select scoped.id, scoped.attempts, scoped.next_attempt_at from (select d.id,"
                         + " (select count(*) from public.delivery_attempt a"
-                        + " where a.delivery_id = d.id and a.tenant_id = :tenant_id::uuid) as attempts,"
+                        + " where a.delivery_id = d.id and a.tenant_id = :tenant_id::uuid"
+            // T165-B (ADR-010 s6 M5): the current series - rows started after the latest REPLAY.
+            + " and a.started_at > coalesce((select max(e.occurred_at) from public.delivery_event e"
+            + " where e.delivery_id = d.id and e.tenant_id = d.tenant_id and e.type = 'REPLAY'),"
+            + " '-infinity'::timestamptz)) as attempts,"
                         + " d.next_attempt_at, d.tenant_id from public.delivery d"
                         + " where d.tenant_id = :tenant_id::uuid and d.state = 'RETRY_WAIT'"
                         + " and d.next_attempt_at <= :now order by d.next_attempt_at limit :limit"

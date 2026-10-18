@@ -234,9 +234,17 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
         requireSingle(rows, "append attempt for delivery " + deliveryId);
     }
 
-    /** The layer-2 attempt count (ADR-010 section 4): how many attempts the ledger holds for the delivery. */
+    /**
+     * The layer-2 attempt budget count (ADR-010 section 4, section 6 addendum M5): the attempt rows of the CURRENT
+     * series - those started after the delivery's latest {@code REPLAY} event, or every row when it was never
+     * replayed. A {@code REDRIVE} does not start a series. The ledger itself keeps every row (R15); "retries made"
+     * is the lifetime count, not this one.
+     */
     public int countAttempts(UUID deliveryId) {
-        return query("select count(*)::int from public.delivery_attempt", "delivery_id = :delivery_id::uuid",
+        return query("select count(*)::int from public.delivery_attempt a",
+                "delivery_id = :delivery_id::uuid and a.started_at > coalesce((select max(e.occurred_at)"
+                        + " from public.delivery_event e where e.delivery_id = a.delivery_id"
+                        + " and e.tenant_id = a.tenant_id and e.type = 'REPLAY'), '-infinity'::timestamptz)",
                 params("delivery_id", deliveryId.toString()), (rs, n) -> rs.getInt(1)).stream()
                 .findFirst().orElseThrow(() -> new IllegalStateException("count returned no row"));
     }
