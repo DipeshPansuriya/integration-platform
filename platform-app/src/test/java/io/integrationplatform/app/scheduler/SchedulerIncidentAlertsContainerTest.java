@@ -15,6 +15,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.flywaydb.core.Flyway;
@@ -173,7 +174,8 @@ class SchedulerIncidentAlertsContainerTest {
 
         // plant an execution that was due but never picked: PAYLOAD_PURGE, due 12 minutes ago,
         // its late_threshold_seconds is 600
-        Instant dueAt = Instant.now().minusSeconds(720);
+        // Postgres keeps microseconds; a 100 ns Windows clock value could round differently on the two paths (gate small-baa7559 flake)
+        Instant dueAt = Instant.now().minusSeconds(720).truncatedTo(ChronoUnit.MICROS);
         try (var connection = dataSource.getConnection();
                 PreparedStatement insert = connection.prepareStatement(
                         "insert into scheduler.scheduled_tasks"
