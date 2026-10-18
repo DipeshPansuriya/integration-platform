@@ -3185,7 +3185,7 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "*/*": {
                 "schema": {
@@ -3194,7 +3194,84 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "Accepted: the message is recorded; the body carries the tracking id"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A required header is missing or the JSON body is malformed"
+          },
+          "403": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden: intake is source-only - a human or non-source caller is refused"
+          },
+          "404": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The interface is unknown or unpublished"
+          },
+          "413": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The payload exceeds the 1 MB cap"
+          },
+          "415": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The Content-Type is missing or not application/json"
+          },
+          "422": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The source contract version is off-pin or a business key is unresolved"
+          },
+          "503": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The intake transaction could not commit; no tracking id"
           }
         },
         "tags": [
@@ -3226,7 +3303,7 @@
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:55562"
+      "url": "http://127.0.0.1:49999"
     }
   ]
 }

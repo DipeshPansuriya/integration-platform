@@ -3,6 +3,8 @@ package io.integrationplatform.ingest.adapter.in;
 import io.integrationplatform.ingest.port.AcceptedMessage;
 import io.integrationplatform.ingest.port.IntakeRefusedException;
 import io.integrationplatform.ingest.port.IntakeTransaction;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -50,6 +52,17 @@ public class IntakeController {
 
     // T126: the Content-Type check is IN the method (not consumes=) so the refusal carries the JSON error body
     // instead of Spring's silent empty 415; the contract stays application/json per ADR-011 Decision 4.
+    // Row 278 gate fix: the declared response table (ADR-011 Decision 4) so the generated console client and T094
+    // see every answered status - 403 is the role guard refusing a non-source caller (SUBMIT_MESSAGE is source-only).
+    @ApiResponses({
+        @ApiResponse(responseCode = "202", description = "Accepted: the message is recorded; the body carries the tracking id"),
+        @ApiResponse(responseCode = "400", description = "A required header is missing or the JSON body is malformed"),
+        @ApiResponse(responseCode = "403", description = "Forbidden: intake is source-only - a human or non-source caller is refused"),
+        @ApiResponse(responseCode = "404", description = "The interface is unknown or unpublished"),
+        @ApiResponse(responseCode = "413", description = "The payload exceeds the 1 MB cap"),
+        @ApiResponse(responseCode = "415", description = "The Content-Type is missing or not application/json"),
+        @ApiResponse(responseCode = "422", description = "The source contract version is off-pin or a business key is unresolved"),
+        @ApiResponse(responseCode = "503", description = "The intake transaction could not commit; no tracking id")})
     @PostMapping(value = "/api/v1/interfaces/{interfaceCode}/messages")
     public ResponseEntity<Map<String, Object>> submit(
             @PathVariable("interfaceCode") String interfaceCode,
