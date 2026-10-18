@@ -264,6 +264,24 @@ class AuditWriterContainerTest {
         assertThat(underA).isGreaterThanOrEqualTo(0);
     }
 
+    @Test
+    void theAuditLedgerForcesRowLevelSecurityEvenForTheTableOwner() throws SQLException {
+        // row278 M2: ENABLE alone exempts the owner; FORCE puts the owner under the tenant policy too
+        assertThat(forcesRowLevelSecurity("public.audit_event"))
+                .as("audit_event is FORCE ROW LEVEL SECURITY")
+                .isTrue();
+    }
+
+    private static boolean forcesRowLevelSecurity(String table) throws SQLException {
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES);
+                var read = owner.prepareStatement("select relforcerowsecurity from pg_class where oid = ?::regclass")) {
+            read.setString(1, table);
+            try (var rows = read.executeQuery()) {
+                return rows.next() && rows.getBoolean(1);
+            }
+        }
+    }
+
     private int countUnderActor(UUID tenant, String actor) {
         boundTenant.bind(tenant);
         try {
