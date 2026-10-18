@@ -47,13 +47,14 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
     private final StageConsumer.PoisonSink poison;
     private final MeterRegistry meters;
     private final ObservationRegistry observations;
+    private final java.util.function.BooleanSupplier ready;
     private volatile boolean running;
     private volatile Thread thread;
     private volatile KafkaConsumer<byte[], byte[]> consumer;
 
     StageConsumerLoop(String bootstrapServers, String group, String topic, StageConsumer.ProtectedRows rows,
             StageConsumer.Handler handler, StageConsumer.PoisonSink poison, MeterRegistry meters,
-            ObservationRegistry observations) {
+            ObservationRegistry observations, java.util.function.BooleanSupplier ready) {
         this.bootstrapServers = Objects.requireNonNull(bootstrapServers, "bootstrapServers");
         this.group = Objects.requireNonNull(group, "group");
         this.topic = Objects.requireNonNull(topic, "topic");
@@ -62,6 +63,7 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
         this.poison = Objects.requireNonNull(poison, "poison");
         this.meters = Objects.requireNonNull(meters, "meters");
         this.observations = Objects.requireNonNull(observations, "observations");
+        this.ready = Objects.requireNonNull(ready, "ready");
     }
 
     @Override
@@ -113,7 +115,7 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
             kafka.subscribe(List.of(topic));
             StageConsumer stage = new StageConsumer(kafka, new WorkRecordParser(), rows, handler, poison,
                     StageConsumerLoop::backoff, POLL, Clock.systemUTC(), Thread::sleep,
-                    StageSettings.defaults(group), meters, observations, StageAlerts.LOG);
+                    StageSettings.defaults(group), meters, observations, StageAlerts.LOG, ready);
             while (running) {
                 try {
                     stage.drainOnce();

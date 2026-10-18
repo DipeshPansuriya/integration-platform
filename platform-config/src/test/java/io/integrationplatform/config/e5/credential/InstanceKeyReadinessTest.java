@@ -70,7 +70,7 @@ class InstanceKeyReadinessTest {
         InstanceKeyReadiness readiness = new InstanceKeyReadiness(indicator);
         assertThat(readiness.getAsBoolean()).isTrue();
 
-        indicator.reportMissing("K1");
+        indicator.reportMissing("K9");
 
         assertThat(readiness.getAsBoolean()).isFalse();
     }
