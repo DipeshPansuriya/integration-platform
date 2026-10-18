@@ -199,6 +199,30 @@
         },
         "type": "object"
       },
+      "DeliveryConflict": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "PENDING",
+              "HELD",
+              "SENDING",
+              "RETRY_WAIT",
+              "DUE",
+              "DELIVERED",
+              "DEAD_LETTERED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "state"
+        ],
+        "type": "object"
+      },
       "DeliveryTime": {
         "properties": {
           "deliveryId": {
@@ -211,10 +235,25 @@
           "outcome": {
             "type": "string"
           },
+          "state": {
+            "enum": [
+              "PENDING",
+              "HELD",
+              "SENDING",
+              "RETRY_WAIT",
+              "DUE",
+              "DELIVERED",
+              "DEAD_LETTERED"
+            ],
+            "type": "string"
+          },
           "targetId": {
             "type": "string"
           }
         },
+        "required": [
+          "state"
+        ],
         "type": "object"
       },
       "Failure": {
@@ -1847,7 +1886,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConfigErrorBody"
+                  "$ref": "#/components/schemas/DeliveryConflict"
                 }
               }
             },
@@ -1892,7 +1931,7 @@
                 }
               }
             },
-            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: a dead-letter replay"
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: a delivery retry"
           },
           "404": {
             "content": {
@@ -1908,7 +1947,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConfigErrorBody"
+                  "$ref": "#/components/schemas/DeliveryConflict"
                 }
               }
             },
@@ -3303,7 +3342,7 @@
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:49999"
+      "url": "http://127.0.0.1:49674"
     }
   ]
 }

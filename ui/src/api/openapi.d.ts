@@ -635,11 +635,18 @@ export interface components {
             status?: "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "RETIRED";
             versionLabel?: string;
         };
+        DeliveryConflict: {
+            error: string;
+            /** @enum {string} */
+            state: "PENDING" | "HELD" | "SENDING" | "RETRY_WAIT" | "DUE" | "DELIVERED" | "DEAD_LETTERED";
+        };
         DeliveryTime: {
             deliveryId?: string;
             /** Format: int64 */
             durationMs?: number;
             outcome?: string;
+            /** @enum {string} */
+            state: "PENDING" | "HELD" | "SENDING" | "RETRY_WAIT" | "DUE" | "DELIVERED" | "DEAD_LETTERED";
             targetId?: string;
         };
         Failure: {
@@ -1829,7 +1836,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConfigErrorBody"];
+                    "application/json": components["schemas"]["DeliveryConflict"];
                 };
             };
         };
@@ -1854,7 +1861,7 @@ export interface operations {
                     "application/json": components["schemas"]["Result"];
                 };
             };
-            /** @description NO_BOUND_USER, or ROLE_NOT_GRANTED: a dead-letter replay */
+            /** @description NO_BOUND_USER, or ROLE_NOT_GRANTED: a delivery retry */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1878,7 +1885,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConfigErrorBody"];
+                    "application/json": components["schemas"]["DeliveryConflict"];
                 };
             };
         };

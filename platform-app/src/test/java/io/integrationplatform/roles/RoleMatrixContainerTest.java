@@ -154,6 +154,17 @@ class RoleMatrixContainerTest {
     // Scenario Outline: The role matrix (rows whose endpoints exist today)
 
     @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("Refused: a read-only user retries or replays a delivery - 403 before any lookup (T165 item 6)")
+    void aReadOnlyUserCannotRetryOrReplayADelivery() throws Exception {
+        String delivery = "/api/v1/admin/messages/deliveries/" + UUID.randomUUID();
+
+        assertRoleRefusal(call("READ_ONLY", "POST", delivery + "/retry", null));
+        assertRoleRefusal(call("READ_ONLY", "POST", delivery + "/replay", null));
+    }
+
+    @Test
     @DisplayName("Role matrix: a configurator saves a flow draft - allowed")
     void aConfiguratorSavesAFlowDraft() throws Exception {
         String flowId = newFlow();

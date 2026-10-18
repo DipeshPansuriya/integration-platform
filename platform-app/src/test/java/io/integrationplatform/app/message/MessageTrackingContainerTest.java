@@ -317,10 +317,10 @@ class MessageTrackingContainerTest {
     void theTimelineListsEachDeliveryWithItsLastAttemptsResponseTime() {
         // TIMED's delivery: two target answers, the last (PERMANENT, 50 ms sent-to-answered) is the response
         assertThat(timelineOf(TENANT_A, TIMED).deliveries()).containsExactly(new MessageTrackingService.DeliveryTime(
-                TARGET_DEAD.toString(), TARGET.toString(), 50L, "PERMANENT"));
+                TARGET_DEAD.toString(), TARGET.toString(), 50L, "PERMANENT", io.integrationplatform.domain.delivery.DeliveryState.DEAD_LETTERED));
         // CREDENTIAL's delivery dead-lettered before any send: no attempt, no duration
         assertThat(timelineOf(TENANT_A, CREDENTIAL).deliveries()).containsExactly(
-                new MessageTrackingService.DeliveryTime(PLATFORM_DEAD.toString(), TARGET.toString(), null, null));
+                new MessageTrackingService.DeliveryTime(PLATFORM_DEAD.toString(), TARGET.toString(), null, null, io.integrationplatform.domain.delivery.DeliveryState.DEAD_LETTERED));
         // a route-failed message never reached a delivery
         assertThat(timelineOf(TENANT_A, ROUTE_FAILED).deliveries()).isEmpty();
     }
@@ -331,7 +331,7 @@ class MessageTrackingContainerTest {
         Optional<MessageTrackingService.Timeline> mine = boundTenant.as(TENANT_A, () -> tracking.timeline(DELIVERED));
         assertThat(mine).isPresent();
         assertThat(mine.get().deliveries()).containsExactly(new MessageTrackingService.DeliveryTime(
-                DELIVERED_DELIVERY.toString(), TARGET.toString(), 50L, "SUCCESS"));
+                DELIVERED_DELIVERY.toString(), TARGET.toString(), 50L, "SUCCESS", io.integrationplatform.domain.delivery.DeliveryState.DELIVERED));
         assertThat(boundTenant.as(TENANT_B, () -> tracking.timeline(DELIVERED))).isEmpty();
     }
 
@@ -359,7 +359,7 @@ class MessageTrackingContainerTest {
                 .extracting(JdbcMessageTrackingStore.DeliveryAttemptRow::outcomeClass).containsExactly("PERMANENT");
         // and the endpoint's answer carries that last attempt
         assertThat(timelineOf(TENANT_A, RETRIED).deliveries()).containsExactly(new MessageTrackingService.DeliveryTime(
-                RETRIED_DELIVERY.toString(), TARGET.toString(), 50L, "SUCCESS"));
+                RETRIED_DELIVERY.toString(), TARGET.toString(), 50L, "SUCCESS", io.integrationplatform.domain.delivery.DeliveryState.DELIVERED));
     }
 
     @Test
@@ -414,7 +414,7 @@ class MessageTrackingContainerTest {
         assertThat(mine).isPresent();
         assertThat(mine.get().failingStage()).isNull();
         assertThat(mine.get().deliveries()).containsExactly(new MessageTrackingService.DeliveryTime(
-                DELIVERED_DELIVERY.toString(), TARGET.toString(), 50L, "SUCCESS"));
+                DELIVERED_DELIVERY.toString(), TARGET.toString(), 50L, "SUCCESS", io.integrationplatform.domain.delivery.DeliveryState.DELIVERED));
     }
 
     /** Runs {@code read} in {@code tx} with {@code tenant} bound in the app context. */

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.integrationplatform.domain.delivery.DeliveryState;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -109,7 +110,7 @@ class MessageTrackingServiceTest {
                 row("d-1", TARGET_1, "DELIVERED", 8L, T0, T0.plusSeconds(30), "TRANSIENT"));
 
         assertThat(read(id).deliveries()).containsExactly(
-                new MessageTrackingService.DeliveryTime("d-1", TARGET_1, 412L, "SUCCESS"));
+                new MessageTrackingService.DeliveryTime("d-1", TARGET_1, 412L, "SUCCESS", DeliveryState.DELIVERED));
     }
 
     @Test
@@ -127,7 +128,7 @@ class MessageTrackingServiceTest {
         UUID id = message("ROUTED", row("d-1", TARGET_1, "PENDING", null, null, null, null));
 
         assertThat(read(id).deliveries()).containsExactly(
-                new MessageTrackingService.DeliveryTime("d-1", TARGET_1, null, null));
+                new MessageTrackingService.DeliveryTime("d-1", TARGET_1, null, null, DeliveryState.PENDING));
     }
 
     @Test
@@ -153,5 +154,32 @@ class MessageTrackingServiceTest {
         assertThat(service.timeline(foreign)).isEmpty();
         verify(store, never()).stages(any());
         verify(store, never()).deliveries(any());
+    }
+
+    // ------------------------------------------------------------------ T165 M1: each delivery carries its own state
+
+    @Test
+    void everyDeliveryCarriesItsOwnStateEvenWithoutAnAttempt() {
+        UUID id = message("ROUTED",
+                row("d-1", TARGET_1, "RETRY_WAIT", 1L, T0, T0.plusMillis(10), "TRANSIENT"),
+                row("d-2", TARGET_2, "DEAD_LETTERED", 2L, T0, T0.plusMillis(20), "TRANSIENT"),
+                row("d-3", "00000000-0000-4000-8000-0000000000c3", "DELIVERED", 3L, T0, T0.plusMillis(30), "SUCCESS"),
+                row("d-4", "00000000-0000-4000-8000-0000000000d4", "PENDING", null, null, null, null));
+
+        assertThat(read(id).deliveries())
+                .extracting(MessageTrackingService.DeliveryTime::deliveryId, MessageTrackingService.DeliveryTime::state)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("d-1", DeliveryState.RETRY_WAIT),
+                        org.assertj.core.groups.Tuple.tuple("d-2", DeliveryState.DEAD_LETTERED),
+                        org.assertj.core.groups.Tuple.tuple("d-3", DeliveryState.DELIVERED),
+                        org.assertj.core.groups.Tuple.tuple("d-4", DeliveryState.PENDING));
+    }
+
+    @Test
+    void theStateIsARequiredFieldOfTheTrackingApi() throws Exception {
+        io.swagger.v3.oas.annotations.media.Schema schema = MessageTrackingService.DeliveryTime.class
+                .getDeclaredField("state").getAnnotation(io.swagger.v3.oas.annotations.media.Schema.class);
+        assertThat(schema).as("@Schema on DeliveryTime.state").isNotNull();
+        assertThat(schema.requiredMode()).isEqualTo(io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED);
     }
 }
