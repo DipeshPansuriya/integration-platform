@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.integrationplatform</groupId>
+    <artifactId>integration-platform-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+  <artifactId>platform-e2e</artifactId>
+  <name>platform-e2e</name>
+  <description>Test only - the E15 end-to-end harness and scenarios (black box: no product module dependency); never deployed</description>
+
+  <!-- E15 seam (arjun-fullstack, F17/T142): test scope only and no product module - the harness drives the platform
+       from outside (black box). spring-boot-starter-test comes from the parent; Testcontainers is declared the way
+       platform-app declares it (version from the spring-boot BOM's testcontainers-bom, no new pin, no new library). -->
+  <dependencies>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

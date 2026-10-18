@@ -1,5 +1,6 @@
 package io.integrationplatform.archtest;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -19,8 +20,8 @@ final class ModuleScopeGuard {
 
     private static final String PROJECT_GROUP = "io.integrationplatform";
 
-    /** Modules that hold no production classes. */
-    private static final Set<String> TEST_ONLY_MODULES = Set.of("arch-test");
+    /** Modules that hold no production classes (platform-e2e: E15 black-box harness, F17/T142). */
+    static final Set<String> TEST_ONLY_MODULES = Set.of("arch-test", "platform-e2e");
 
     private ModuleScopeGuard() {
     }
@@ -50,6 +51,13 @@ final class ModuleScopeGuard {
         return modules.stream()
                 .filter(module -> !TEST_ONLY_MODULES.contains(module))
                 .filter(module -> !dependencies.contains(module))
+                .toList();
+    }
+
+    /** The test-only modules under {@code root} that hold a {@code src/main} (none may: they are skipped above). */
+    static List<String> testOnlyModulesWithProductionSources(Path root) {
+        return TEST_ONLY_MODULES.stream().sorted()
+                .filter(module -> Files.exists(root.resolve(module).resolve("src/main")))
                 .toList();
     }
 

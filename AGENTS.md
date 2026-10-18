@@ -31,8 +31,9 @@ When this file and a document disagree, the document wins.
 
 Built today: `platform-app` (the deployable: wiring only, no business logic), `platform-routing`
 (the only Camel module), `platform-ingest` (the common intake API, no Camel), `platform-tenancy`
-(tenant context, bootstrap resolvers, row-level security) and the test-only `arch-test` (ArchUnit
-rules over every module's package). The full module
+(tenant context, bootstrap resolvers, row-level security), the test-only `arch-test` (ArchUnit
+rules over every module's package) and the test-only `platform-e2e` (black-box end-to-end harness:
+Testcontainers Artemis + WireMock, no production sources, not scanned by arch-test). The full module
 list, with what each module owns and must not do, is
 [architecture.md section 2](documents/architecture.md).
 
