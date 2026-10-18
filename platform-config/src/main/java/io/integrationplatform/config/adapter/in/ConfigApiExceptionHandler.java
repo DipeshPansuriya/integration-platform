@@ -66,8 +66,10 @@ public class ConfigApiExceptionHandler {
      * ADR-017 Decision 2: a publish listener refused the publish (it rolled back). 400 with the listener's reason;
      * a validation refusal, not a cross-tenant attempt - no denial record, nothing logged above DEBUG.
      * Row 278 T160 (K-C2-1, CWE-209 defence in depth): the thrower sanitises, and this seam does not trust it - the
-     * reason loses every ISO control character (CR, LF, TAB, NUL, ESC, DEL ...) and is cut to
-     * {@value #REASON_CAP} characters; a reason blank after that answers {@value #REFUSED}, never an empty string.
+     * reason loses every ISO control character (CR, LF, TAB, NUL, ESC, DEL ...) and, T160 L-5 (CWE-451/CWE-117),
+     * every line or paragraph separator (U+2028, U+2029) and format character (Cf: bidi embeddings and isolates,
+     * zero-width characters, BOM, soft hyphen), and is cut to {@value #REASON_CAP} code points - L-4 (CWE-176),
+     * never a split surrogate pair; a reason blank after that answers {@value #REFUSED}, never an empty string.
      */
     @ExceptionHandler(InterfacePublishRefused.class)
     public ResponseEntity<Map<String, Object>> publishRefused(InterfacePublishRefused refused) {
@@ -89,11 +91,18 @@ public class ConfigApiExceptionHandler {
                 "error", "the configuration write failed and the transaction was rolled back"));
     }
 
-    /** The reason without control characters, at most {@value #REASON_CAP} long; {@value #REFUSED} if blank. */
+    /** The reason without control, separator or format characters, at most {@value #REASON_CAP} code points. */
     private static String answerable(String reason) {
-        String kept = reason.chars().filter(c -> !Character.isISOControl(c)).limit(REASON_CAP)
+        String kept = reason.codePoints().filter(ConfigApiExceptionHandler::answerable).limit(REASON_CAP)
                 .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString();
         return kept.isBlank() ? REFUSED : kept;
+    }
+
+    /** Not an ISO control (Cc), a line or paragraph separator (Zl, Zp) or a format character (Cf). */
+    private static boolean answerable(int codePoint) {
+        int type = Character.getType(codePoint);
+        return !Character.isISOControl(codePoint) && type != Character.FORMAT
+                && type != Character.LINE_SEPARATOR && type != Character.PARAGRAPH_SEPARATOR;
     }
 
     /** The one denied-attempt record a path-named foreign row earns: bound tenant, method, path - never the id. */
