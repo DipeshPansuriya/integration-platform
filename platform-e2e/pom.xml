@@ -22,5 +22,11 @@
       <artifactId>testcontainers-junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Row 327 T157: the tenant B seed writes the directory rows over JDBC (version from the spring-boot BOM). -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

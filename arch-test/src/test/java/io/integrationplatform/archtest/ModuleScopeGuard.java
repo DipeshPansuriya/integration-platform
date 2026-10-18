@@ -1,11 +1,16 @@
 package io.integrationplatform.archtest;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
@@ -22,6 +27,16 @@ final class ModuleScopeGuard {
 
     /** Modules that hold no production classes (platform-e2e: E15 black-box harness, F17/T142). */
     static final Set<String> TEST_ONLY_MODULES = Set.of("arch-test", "platform-e2e");
+
+    /**
+     * Row 327 T157: the test-only tenant B seed's package and marker (platform-e2e TenantSeedPlanTest pins both) - no
+     * production file may name either.
+     */
+    static final Set<String> SEED_MARKERS = Set.of("io.integrationplatform.e2e.seed", "e2e-seed");
+
+    /** Production files outside the Maven modules' src/main: the console source and the compose realm import. */
+    private static final List<String> OTHER_PRODUCTION_ROOTS =
+            List.of("ui/src", "compose/keycloak/platform-realm.json");
 
     private ModuleScopeGuard() {
     }
@@ -59,6 +74,50 @@ final class ModuleScopeGuard {
         return TEST_ONLY_MODULES.stream().sorted()
                 .filter(module -> Files.exists(root.resolve(module).resolve("src/main")))
                 .toList();
+    }
+
+    /** The modules (other than {@code artifactId} itself) whose pom names {@code artifactId} as a dependency. */
+    static List<String> modulesDependingOn(Path root, List<String> modules, String artifactId) {
+        return modules.stream()
+                .filter(module -> !module.equals(artifactId))
+                .filter(module -> Files.exists(root.resolve(module).resolve("pom.xml")))
+                .filter(module -> projectDependenciesOf(root.resolve(module).resolve("pom.xml")).contains(artifactId))
+                .toList();
+    }
+
+    /**
+     * Every file (root-relative, {@code /}-separated, sorted) under a module's {@code src/main} - resources and
+     * db/migration included - or under {@link #OTHER_PRODUCTION_ROOTS} whose content names one of {@code markers}.
+     */
+    static List<String> productionFilesNaming(Path root, List<String> modules, Set<String> markers) {
+        List<Path> roots = new ArrayList<>();
+        modules.forEach(module -> roots.add(root.resolve(module).resolve("src/main")));
+        OTHER_PRODUCTION_ROOTS.forEach(other -> roots.add(root.resolve(other)));
+        List<String> naming = new ArrayList<>();
+        for (Path production : roots) {
+            if (!Files.exists(production)) {
+                continue;
+            }
+            try (Stream<Path> files = Files.walk(production)) {
+                files.filter(Files::isRegularFile)
+                        .filter(file -> names(file, markers))
+                        .map(file -> root.relativize(file).toString().replace(File.separatorChar, '/'))
+                        .forEach(naming::add);
+            } catch (IOException failure) {
+                throw new UncheckedIOException("Cannot walk " + production.toAbsolutePath(), failure);
+            }
+        }
+        return naming.stream().sorted().toList();
+    }
+
+    private static boolean names(Path file, Set<String> markers) {
+        try {
+            // ISO-8859-1 reads any bytes (images included) without a decoding failure; the markers are ASCII.
+            String content = Files.readString(file, StandardCharsets.ISO_8859_1);
+            return markers.stream().anyMatch(content::contains);
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Cannot read " + file.toAbsolutePath(), failure);
+        }
     }
 
     private static String text(Element parent, String tag) {

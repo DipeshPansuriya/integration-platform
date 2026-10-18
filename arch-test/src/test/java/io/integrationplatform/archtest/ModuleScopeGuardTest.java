@@ -71,4 +71,54 @@ class ModuleScopeGuardTest {
 
         assertThat(ModuleScopeGuard.missingFromScope(modules, dependencies)).containsExactly("platform-brandnew");
     }
+
+    @Test
+    void noProductionModuleDependsOnTheTestOnlyE2eModule() {
+        // Row 327 T157: the tenant B seed lives in platform-e2e src/test; no product module may pull that module in.
+        assertThat(ModuleScopeGuard.modulesDependingOn(Path.of(".."), ModuleScopeGuard.modulesOf(PARENT_POM),
+                "platform-e2e")).isEmpty();
+    }
+
+    @Test
+    void noProductionSourceOrTheRealmImportNamesTheTestOnlySeed() {
+        // Row 327 T157 (R07, test-scoped seed): no src/main file (resources and db/migration included), console source
+        // or compose realm import names the seed package or its marker - the seed can only ever run from a test.
+        assertThat(ModuleScopeGuard.SEED_MARKERS).containsExactlyInAnyOrder("io.integrationplatform.e2e.seed", "e2e-seed");
+        assertThat(ModuleScopeGuard.productionFilesNaming(Path.of(".."), ModuleScopeGuard.modulesOf(PARENT_POM),
+                ModuleScopeGuard.SEED_MARKERS)).isEmpty();
+    }
+
+    @Test
+    void aProductionModuleDependingOnTheE2eModuleFailsTheGuard(@TempDir Path root) throws IOException {
+        writePom(root, "platform-routing", "platform-domain");
+        writePom(root, "platform-config", "platform-e2e");
+
+        assertThat(ModuleScopeGuard.modulesDependingOn(root, List.of("platform-routing", "platform-config", "arch-test"),
+                "platform-e2e")).containsExactly("platform-config");
+    }
+
+    @Test
+    void aMigrationOrRealmImportNamingTheSeedFailsTheGuard(@TempDir Path root) throws IOException {
+        Path migration = root.resolve("platform-tenancy/src/main/resources/db/migration/V9_9_9__tenant_b.sql");
+        Files.createDirectories(migration.getParent());
+        Files.writeString(migration, "INSERT INTO public.tenant (code, status) VALUES ('e2e-seed-b-1a2b', 'ACTIVE');");
+        Path cleanSource = root.resolve("platform-config/src/main/java/Clean.java");
+        Files.createDirectories(cleanSource.getParent());
+        Files.writeString(cleanSource, "class Clean {}");
+        Path realm = root.resolve("compose/keycloak/platform-realm.json");
+        Files.createDirectories(realm.getParent());
+        Files.writeString(realm, "{\"users\":[{\"username\":\"e2e-seed-admin-1\"}]}");
+
+        assertThat(ModuleScopeGuard.productionFilesNaming(root, List.of("platform-tenancy", "platform-config"),
+                ModuleScopeGuard.SEED_MARKERS)).containsExactlyInAnyOrder(
+                        "compose/keycloak/platform-realm.json",
+                        "platform-tenancy/src/main/resources/db/migration/V9_9_9__tenant_b.sql");
+    }
+
+    private static void writePom(Path root, String module, String dependency) throws IOException {
+        Files.createDirectories(root.resolve(module));
+        Files.writeString(root.resolve(module).resolve("pom.xml"), "<project><artifactId>" + module + "</artifactId>"
+                + "<dependencies><dependency><groupId>io.integrationplatform</groupId><artifactId>" + dependency
+                + "</artifactId></dependency></dependencies></project>");
+    }
 }
