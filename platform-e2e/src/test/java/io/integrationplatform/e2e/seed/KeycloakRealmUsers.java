@@ -1,5 +1,6 @@
 package io.integrationplatform.e2e.seed;
 
+import com.jayway.jsonpath.DocumentContext;
 import com.jayway.jsonpath.JsonPath;
 import io.integrationplatform.e2e.seed.TenantSeedPlan.SeedUser;
 import java.io.IOException;
@@ -73,11 +74,44 @@ public final class KeycloakRealmUsers {
 
     /** {@code user}'s access token from the realm's {@code admin-cli} client (direct grant) - a real login. */
     public String accessToken(SeedUser user) {
+        giveAdminCliTheBasicScope();
         HttpResponse<String> token = form(baseUri + "/realms/" + REALM + "/protocol/openid-connect/token",
                 Map.of("grant_type", "password", "client_id", "admin-cli", "username", user.username(),
                         "password", user.password()));
         expect(token, 200, "token for " + user.username());
         return JsonPath.read(token.body(), "$.access_token");
+    }
+
+    /**
+     * Keycloak 26 puts {@code sub} in an access token only through the {@code basic} client scope (F3). The
+     * built-in {@code admin-cli} is created before the import adds the realm's client scopes, so it lacks it
+     * (asking for {@code scope=basic} answers 400), and it issues lightweight access tokens, which drop
+     * {@code sub} anyway. Test-only set-up of the e2e realm's admin-cli; the product clients are untouched.
+     */
+    private void giveAdminCliTheBasicScope() {
+        String admin = "Bearer " + masterAdminToken();
+        String realmAdmin = baseUri + "/admin/realms/" + REALM;
+        HttpResponse<String> clients = send(HttpRequest.newBuilder(URI.create(realmAdmin + "/clients?clientId=admin-cli"))
+                .header("Authorization", admin).GET());
+        expect(clients, 200, "finding the realm's admin-cli");
+        HttpResponse<String> scopes = send(HttpRequest.newBuilder(URI.create(realmAdmin + "/client-scopes"))
+                .header("Authorization", admin).GET());
+        expect(scopes, 200, "listing the realm's client scopes");
+        List<String> basic = JsonPath.read(scopes.body(), "$[?(@.name == 'basic')].id");
+        if (basic.isEmpty()) {
+            throw new IllegalStateException("the realm has no basic client scope - sub cannot reach a token");
+        }
+        String clientId = JsonPath.read(clients.body(), "$[0].id");
+        DocumentContext client = JsonPath.parse(clients.body());
+        client.put("$[0].attributes", "client.use.lightweight.access.token.enabled", "false");
+        HttpResponse<String> updated = send(HttpRequest.newBuilder(URI.create(realmAdmin + "/clients/" + clientId))
+                .header("Authorization", admin).header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(JSONValue.toJSONString(client.read("$[0]")))));
+        expect(updated, 204, "turning off admin-cli's lightweight access token");
+        HttpResponse<String> attached = send(HttpRequest.newBuilder(URI.create(realmAdmin + "/clients/" + clientId
+                        + "/default-client-scopes/" + basic.get(0)))
+                .header("Authorization", admin).PUT(HttpRequest.BodyPublishers.noBody()));
+        expect(attached, 204, "giving admin-cli the basic client scope");
     }
 
     private String masterAdminToken() {
