@@ -213,6 +213,198 @@ export function jdkEnv(baseEnv, jdk) {
   };
 }
 
+// --- T130 (row 323, F21 BS-B): additive two-tenant options --------------------------------
+// ADD, never repurpose (tests/base-suite/unit/boot-plan.test.mjs): the logins bound below and the app
+// settings the harness passes are its own - an extra tenant or extra app setting can never take one, so
+// with no extras the boot is exactly what it was before.
+
+export const HARNESS_LOGINS = Object.freeze(['default', 'approver', 'other-tenant', 'empty-tenant']);
+const HARNESS_TENANT_KEYS = Object.freeze(['b', 'c']); // `${tenantCode}-b` (the other tenant), `-c` (the empty one)
+export const HARNESS_APP_ENV = Object.freeze([
+  'DB_URL', 'DB_USERNAME', 'DB_PASSWORD', 'DB_MIGRATION_USERNAME', 'DB_MIGRATION_PASSWORD',
+  'OIDC_ISSUER_URI', 'OIDC_AUDIENCE', 'CONSOLE_OIDC_CLIENT_ID', 'CONSOLE_OIDC_CLIENT_SECRET',
+  'CONSOLE_OIDC_REDIRECT_URI', 'CONSOLE_POST_LOGOUT_REDIRECT_URI', 'CONSOLE_URL',
+  // the JVM's own settings: an extra here could swap the app's real host resolver (jdk.net.hosts.file)
+  'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS', 'JAVA_HOME', 'PATH',
+  // the realm's admin client secret: only the harness itself passes it (sourceCredentials), never an extra
+  'PLATFORM_ADMIN_CLIENT_SECRET',
+  // T130: the broker the boot started (services.kafka) - only the harness points the app at it
+  'IPASS_KAFKA_BOOTSTRAP_SERVERS', 'IPASS_KAFKA_PUBLISH_CLIENT_ID'
+]);
+
+/**
+ * `extraTenants` -> the tenants to add: each `{ key, logins: { <login>: <ROLE> } }` becomes the NEW tenant
+ * `${tenantCode}-${key}` with NEW realm users bound in the role_grant vocabulary. A harness login or
+ * tenant is never taken, nothing is given twice, a role is a closed-set name (the extraUsers check).
+ */
+export function extraTenantPlan(tenantCode, extraTenants = []) {
+  const keys = new Set();
+  const logins = new Set();
+  return (extraTenants ?? []).map(({ key, logins: wanted } = {}) => {
+    if (HARNESS_TENANT_KEYS.includes(key)) throw new Error(`boot-backend: tenant key ${key} is a harness tenant (-b other, -c empty) - add a new one`);
+    if (typeof key !== 'string' || !/^[a-z][a-z0-9-]{1,20}$/.test(key)) throw new Error(`boot-backend: invalid tenant key ${key}`);
+    if (keys.has(key)) throw new Error(`boot-backend: tenant key ${key} given twice`);
+    keys.add(key);
+    const entries = Object.entries(wanted ?? {});
+    if (entries.length === 0) throw new Error(`boot-backend: extra tenant ${key} has no logins`);
+    for (const [login, role] of entries) {
+      if (HARNESS_LOGINS.includes(login)) throw new Error(`boot-backend: harness login ${login} is never repurposed - name a new login`);
+      if (!/^[a-z][a-z0-9-]{1,30}$/.test(login)) throw new Error(`boot-backend: invalid login ${login}`);
+      if (logins.has(login)) throw new Error(`boot-backend: login ${login} given twice`);
+      if (typeof role !== 'string' || !/^[A-Z_]+$/.test(role)) throw new Error(`boot-backend: invalid role for ${login}`);
+      logins.add(login);
+    }
+    return { key, code: `${tenantCode}-${key}`, logins: entries };
+  });
+}
+
+/**
+ * The app's environment plus extra settings (the dev-only exception's profile and host, a sidecar's
+ * address): an extra ADDS a name - it never replaces one the harness owns (HARNESS_APP_ENV, compared
+ * case-insensitively as Windows does), never repeats one, and is always text.
+ */
+export function mergeAppEnv(base, ...extras) {
+  const owned = new Set(HARNESS_APP_ENV.map((name) => name.toUpperCase()));
+  const added = new Set();
+  const merged = { ...base };
+  for (const extra of extras) {
+    for (const [name, value] of Object.entries(extra ?? {})) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`boot-backend: app setting ${name} is not an environment name`);
+      if (owned.has(name.toUpperCase())) throw new Error(`boot-backend: app setting ${name} is harness-owned - an extra never replaces it`);
+      if (added.has(name.toUpperCase())) throw new Error(`boot-backend: app setting ${name} given twice`);
+      if (typeof value !== 'string') throw new Error(`boot-backend: app setting ${name} must be text`);
+      added.add(name.toUpperCase());
+      merged[name] = value;
+    }
+  }
+  return merged;
+}
+
+// The sidecars a boot may start (tests/base-suite/unit/boot-services.test.mjs): WireMock on its own port
+// inside the container and its health path - the Java suites' pattern (ApiAdapterWireMock.java:39-61) - and
+// ONE KRaft Kafka broker+controller (BS-09 reads its topics' headers; auto-create off like the app expects).
+const SIDECARS = Object.freeze({
+  wiremock: Object.freeze({ prefix: 'ipass-ui-bs-wm', containerPort: 8080, readyPath: '/__admin/health' }),
+  kafka: Object.freeze({ prefix: 'ipass-ui-bs-kafka', containerPort: 9092 })
+});
+const KAFKA_TOPIC = /^platform\.[a-z0-9.-]+$/;
+const KAFKA_INTERNAL = 'localhost:19092'; // the in-container listener: topic admin and console consumer
+const KAFKA_TOPICS_CLI = '/opt/kafka/bin/kafka-topics.sh';
+const KAFKA_CLIENT_ID = 'ipass-ui-bs';
+
+function kafkaPlan(key, sidecar, name, image, { topics } = {}, kafkaPort) {
+  if (!Array.isArray(topics) || topics.length === 0 || new Set(topics).size !== topics.length
+    || !topics.every((topic) => typeof topic === 'string' && KAFKA_TOPIC.test(topic))) {
+    throw new Error(`boot-backend: service ${key} topics must be a non-empty list of unique platform.* topics, got ${JSON.stringify(topics)}`);
+  }
+  if (!Number.isInteger(kafkaPort) || kafkaPort < 1 || kafkaPort > 65535) {
+    throw new Error(`boot-backend: service ${key} needs its kafkaPort (an integer 1-65535, picked before the lock), got ${kafkaPort}`);
+  }
+  // The advertised PLAINTEXT address must be the host's, so the host port is fixed (picked free) - not random.
+  const env = [
+    'KAFKA_NODE_ID=1',
+    'KAFKA_PROCESS_ROLES=broker,controller',
+    'KAFKA_LISTENERS=PLAINTEXT://:9092,INTERNAL://:19092,CONTROLLER://:9093',
+    `KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://127.0.0.1:${kafkaPort},INTERNAL://${KAFKA_INTERNAL}`,
+    'KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT',
+    'KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL',
+    'KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER',
+    'KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093',
+    'KAFKA_AUTO_CREATE_TOPICS_ENABLE=false',
+    'KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1',
+    'KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1',
+    'KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1',
+    'KAFKA_MIN_INSYNC_REPLICAS=1',
+    'KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0',
+    'TZ=Etc/UTC'
+  ];
+  const cli = ['exec', name, KAFKA_TOPICS_CLI, '--bootstrap-server', KAFKA_INTERNAL];
+  return {
+    key,
+    name,
+    containerPort: sidecar.containerPort,
+    port: kafkaPort,
+    topics: [...topics],
+    runArgs: ['run', '-d', '--rm', '--name', name, '-p', `127.0.0.1:${kafkaPort}:${sidecar.containerPort}`,
+      ...env.flatMap((pair) => ['-e', pair]), image],
+    readyArgs: [...cli, '--list'],
+    topicArgs: topics.map((topic) => [...cli, '--create', '--if-not-exists', '--topic', topic, '--partitions', '3', '--replication-factor', '1']),
+    appEnv: { IPASS_KAFKA_BOOTSTRAP_SERVERS: `127.0.0.1:${kafkaPort}`, IPASS_KAFKA_PUBLISH_CLIENT_ID: KAFKA_CLIENT_ID }
+  };
+}
+const PINNED_IMAGE = /^[a-z0-9]+(?:[._/-][a-z0-9]+)*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$/; // R05: tag AND digest
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isStubMapping(mapping) {
+  const status = mapping?.response?.status;
+  return UUID.test(String(mapping?.id ?? '')) && typeof mapping?.request?.method === 'string'
+    && typeof mapping?.request?.urlPath === 'string' && mapping.request.urlPath.startsWith('/')
+    && Number.isInteger(status) && status >= 100 && status <= 599;
+}
+
+/**
+ * `services` -> the sidecars bootBackend starts INSIDE its docker-suite lock and removes before that lock is
+ * released: `wiremock: { image, mappings }` and `kafka: { image, topics }` (its host port is `kafkaPort`,
+ * picked by the caller, because the broker advertises it). Pure: checks the declaration and returns each
+ * sidecar's container name, port, ready path, stubs and `docker run` arguments - the image pinned by tag AND
+ * digest (R05), published on 127.0.0.1 only on a random host port, --rm. No services -> [] (today's boot).
+ */
+export function servicePlan(services = {}, suffix, { kafkaPort } = {}) {
+  const entries = Object.entries(services ?? {});
+  if (entries.length === 0) return [];
+  if (typeof suffix !== 'string' || !/^[0-9a-f]{8}$/.test(suffix)) {
+    throw new Error(`boot-backend: service name suffix ${suffix} is not 8 hex characters`);
+  }
+  return entries.map(([key, declaration = {}]) => {
+    const { image, mappings } = declaration;
+    const sidecar = Object.hasOwn(SIDECARS, key) ? SIDECARS[key] : null;
+    if (!sidecar) throw new Error(`boot-backend: unknown service ${key} - only ${Object.keys(SIDECARS).join(', ')} is declared`);
+    if (typeof image !== 'string' || !PINNED_IMAGE.test(image)) {
+      throw new Error(`boot-backend: service ${key} image must be pinned by tag AND digest (R05), got ${image}`);
+    }
+    if (key === 'kafka') return kafkaPlan(key, sidecar, `${sidecar.prefix}-${suffix}`, image, declaration, kafkaPort);
+    if (!Array.isArray(mappings)) throw new Error(`boot-backend: service ${key} needs its stub mappings (an array)`);
+    for (const mapping of mappings) {
+      if (!isStubMapping(mapping)) throw new Error(`boot-backend: ${JSON.stringify(mapping)} is not a stub mapping (uuid id, method, /path, status)`);
+    }
+    const name = `${sidecar.prefix}-${suffix}`;
+    return {
+      key,
+      name,
+      containerPort: sidecar.containerPort,
+      readyPath: sidecar.readyPath,
+      mappings: [...mappings],
+      runArgs: ['run', '-d', '--rm', '--name', name, '-p', `127.0.0.1::${sidecar.containerPort}`, image]
+    };
+  });
+}
+
+const TENANT_CODE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const REALM_ISSUER = /^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/realms\/[A-Za-z0-9_-]+$/;
+
+/**
+ * One planned extra tenant (extraTenantPlan) -> the owner-psql statements that bind it, in the harness's own
+ * pattern (the bindings in bootBackend): the tenant row, then per login its app_user row (the realm user's
+ * issuer + subject) and its role_grant row (ADR-007 Decision 5). Every value is checked for its shape first,
+ * so none can leave its SQL literal.
+ */
+export function extraTenantSql({ code, logins } = {}, issuer, subjects = {}) {
+  if (typeof code !== 'string' || !TENANT_CODE.test(code)) throw new Error(`boot-backend: tenant code ${code} is not a tenant code`);
+  if (typeof issuer !== 'string' || !REALM_ISSUER.test(issuer)) throw new Error(`boot-backend: issuer ${issuer} is not a realm issuer URL`);
+  const statements = [`INSERT INTO public.tenant (code, status) VALUES ('${code}', 'ACTIVE')`];
+  for (const [login, role] of logins ?? []) {
+    const subject = subjects[login];
+    if (subject === undefined) throw new Error(`boot-backend: login ${login} has no realm user`);
+    if (typeof subject !== 'string' || !UUID.test(subject)) throw new Error(`boot-backend: the subject of ${login} is not a realm user id`);
+    if (typeof role !== 'string' || !/^[A-Z_]+$/.test(role)) throw new Error(`boot-backend: the role of ${login} is not a role name`);
+    statements.push(
+      `INSERT INTO public.app_user (tenant_id, issuer, subject, status) SELECT id, '${issuer}', '${subject}', 'ACTIVE' FROM public.tenant WHERE code='${code}'`,
+      `INSERT INTO public.role_grant (tenant_id, user_id, role) SELECT tenant_id, id, '${role}' FROM public.app_user WHERE issuer='${issuer}' AND subject='${subject}'`
+    );
+  }
+  return statements;
+}
+
 async function healthy(appPort) {
   try {
     const response = await fetch(`http://127.0.0.1:${appPort}/actuator/health`, { signal: AbortSignal.timeout(2000) });
@@ -240,6 +432,63 @@ function psql(container, sql) {
   throw new Error('psql: the real postgres cluster never became ready');
 }
 
+/**
+ * T130: a started WireMock sidecar (servicePlan) - its loopback port, then its health (bounded: 2 s per probe,
+ * 2 minutes in all, the Java suites' startup timeout), then each declared stub through its admin API. Returns
+ * its address; throws (and the boot tears down) when it never answers or refuses a stub.
+ */
+async function readyWireMock({ key, name, containerPort, readyPath, mappings }) {
+  const port = Number(docker(['port', name, String(containerPort)]).split('\n')[0].split(':').pop());
+  const url = `http://127.0.0.1:${port}`;
+  for (let i = 0; ; i++) {
+    try {
+      const ready = await fetch(`${url}${readyPath}`, { signal: AbortSignal.timeout(2000) });
+      if (ready.ok) break;
+    } catch {
+      // not up yet
+    }
+    if (i >= 240) throw new Error(`boot-backend: sidecar ${name} never answered ${readyPath}`);
+    await sleep(500);
+  }
+  for (const mapping of mappings) {
+    const stub = await fetch(`${url}/__admin/mappings`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(mapping),
+      signal: AbortSignal.timeout(5000)
+    });
+    if (stub.status !== 201) throw new Error(`boot-backend: ${key} refused the stub for ${mapping.request.urlPath} (${stub.status})`);
+  }
+  return { name, port, url, adminUrl: `${url}/__admin` };
+}
+
+/**
+ * T130: a started Kafka sidecar (servicePlan) - polled until its topic admin answers (bounded: 240 x 500 ms,
+ * like WireMock), then each declared topic created (auto-create is off). Throws (the boot tears down) when it
+ * never answers or a topic is refused.
+ */
+async function readyKafka({ name, port, topics, readyArgs, topicArgs }) {
+  for (let i = 0; ; i++) {
+    const ready = spawnSync('docker', readyArgs, { encoding: 'utf8', timeout: 20000 });
+    if (ready.status === 0) break;
+    if (i >= 240) throw new Error(`boot-backend: sidecar ${name} never answered kafka-topics --list: ${ready.stderr}`);
+    await sleep(500);
+  }
+  for (const args of topicArgs) docker(args, 60000);
+  return { name, port, bootstrap: `127.0.0.1:${port}`, topics: [...topics] };
+}
+
+/** T130: removes the started sidecars one by one - a failure is reported and never skips the rest or the lock release. */
+function removeSidecars(names) {
+  for (const name of names) {
+    try {
+      docker(['rm', '-f', name]);
+    } catch (e) {
+      console.error(`teardown: sidecar ${name}: ${e.message}`);
+    }
+  }
+}
+
 // --- one booted backend ---------------------------------------------------------------
 
 /** The backend's own OpenAPI document, fetched from the really running app (never a mock), with a console session. */
@@ -255,10 +504,29 @@ export async function fetchOpenApiDocument(boot) {
  * `extraUsers` (T94, the trial): more realm users bound in the default tenant, each
  * `{ key, username, password, role }` - the password is the caller's (never generated or printed
  * here) and no harness session is opened for them. `lockHolder` names the holder in the lock note.
+ *
+ * T130 (row 323, F21 BS-B) - four ADDITIVE options, all off by default (none given = exactly the boot below):
+ * `extraTenants` NEW tenants `${tenantCode}-${key}` with NEW realm users, bound like the harness's own and
+ * each given a harness session (extraTenantPlan, extraTenantSql); `services` sidecars started INSIDE this
+ * boot's docker-suite lock and removed before it is released (servicePlan - WireMock, Kafka); `appEnv` app
+ * settings ADDED through mergeAppEnv (the dev-only exception's profile and host); `sourceCredentials` hands
+ * the app the realm's platform-admin client secret by its NAME PLATFORM_ADMIN_CLIENT_SECRET (a random value,
+ * memory only - keycloak-harness.mjs), so source credentials are issued through the real API. Every option
+ * is checked before the lock is taken.
  */
-export default async function bootBackend({ loginSeed = false, extraUsers = [], lockHolder } = {}) {
+export default async function bootBackend({
+  loginSeed = false, extraUsers = [], lockHolder, extraTenants = [], services = {}, appEnv = {}, sourceCredentials = false
+} = {}) {
+  extraTenantPlan('lane-d-000000', extraTenants); // T130: a bad option never takes the lock or starts a container
+  // T130: the broker advertises its host port, so it is picked here (free now, re-checked by docker run)
+  const kafkaPort = services?.kafka ? await freePort() : undefined;
+  const sidecars = servicePlan(services, crypto.randomBytes(4).toString('hex'), { kafkaPort });
+  const kafkaEnv = sidecars.find((sidecar) => sidecar.key === 'kafka')?.appEnv ?? {};
+  mergeAppEnv(kafkaEnv, appEnv);
+  if (typeof sourceCredentials !== 'boolean') throw new Error('boot-backend: sourceCredentials is true or false');
   const releaseLock = await acquireSuiteLock(lockHolder);
   let container, app, keycloak;
+  const sidecarNames = []; // T130: every started sidecar, removed before the lock is released
   try {
     // Inside the try (m-910e28): a boot that throws before the teardown path would leak the lock.
     const jdk = resolveJdk(); // resolves before any container starts - a missing JVM fails the boot immediately
@@ -283,6 +551,9 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
       consoleRedirectUri: `${baseUrl}/login/oauth2/code/keycloak`,
       postLogoutRedirectUri: `${CONSOLE_ORIGIN}/`
     });
+    if (sourceCredentials && typeof keycloak.platformAdminClientSecret !== 'string') {
+      throw new Error('boot-backend: sourceCredentials, but the realm handed no platform-admin client secret');
+    }
 
     docker(['run', '-d', '--rm', '--name', pgName, '-P', '-e', 'POSTGRES_USER=owner', '-e', `POSTGRES_PASSWORD=${pgPassword}`, '-e', 'POSTGRES_DB=platform', PG_IMAGE]);
     container = pgName;
@@ -293,13 +564,24 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
       await sleep(500);
     }
 
+    // T130: the declared sidecars (none by default), inside this boot's lock and before the JVM starts, so
+    // one that will not come up fails the boot early. servicePlan declares WireMock and Kafka.
+    const serviceInfo = {};
+    for (const sidecar of sidecars) {
+      docker(sidecar.runArgs);
+      sidecarNames.push(sidecar.name);
+      serviceInfo[sidecar.key] = sidecar.key === 'kafka' ? await readyKafka(sidecar) : await readyWireMock(sidecar);
+    }
+
     psql(pgName, `CREATE ROLE ${loginName} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${loginPassword}'`);
 
     app = spawn(
       jdk.java,
       ['-XX:+UseSerialGC', '-Xmx256m', `-Dserver.port=${appPort}`, '-jar', jar],
       {
-        env: {
+        // T130: `appEnv` is ADDED through mergeAppEnv (it never replaces a name the harness owns); only with
+        // `sourceCredentials` does the app get the realm's admin client secret, by its NAME (value in memory)
+        env: mergeAppEnv({
           ...jdkEnv(process.env, jdk),
           JAVA_TOOL_OPTIONS: `${process.env.JAVA_TOOL_OPTIONS ?? ''} -Duser.timezone=Etc/UTC`.trim(),
           DB_URL: `jdbc:postgresql://127.0.0.1:${pgPort}/platform`,
@@ -314,8 +596,10 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
           CONSOLE_OIDC_CLIENT_SECRET: keycloak.consoleClientSecret,
           CONSOLE_OIDC_REDIRECT_URI: `${baseUrl}/login/oauth2/code/keycloak`,
           CONSOLE_POST_LOGOUT_REDIRECT_URI: `${CONSOLE_ORIGIN}/`,
-          CONSOLE_URL: `${CONSOLE_ORIGIN}/`
-        },
+          CONSOLE_URL: `${CONSOLE_ORIGIN}/`,
+          ...(sourceCredentials ? { PLATFORM_ADMIN_CLIENT_SECRET: keycloak.platformAdminClientSecret } : {}),
+          ...kafkaEnv // T130: harness-owned - the app publishes to the broker this boot started
+        }, appEnv),
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       }
@@ -391,10 +675,31 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
         `INSERT INTO public.role_grant (tenant_id, user_id, role) SELECT tenant_id, id, '${role}' FROM public.app_user WHERE issuer='${keycloak.issuer}' AND subject='${user.subject}'`);
     }
 
+    // T130: the extra tenants (none by default) - NEW tenant rows and NEW realm users, bound in the same
+    // pattern as the harness's own above; each of their logins also gets a harness session below.
+    const tenantUsers = {};
+    const addedTenants = {};
+    for (const tenant of extraTenantPlan(tenantCode, extraTenants)) {
+      const logins = {};
+      for (const [login, role] of tenant.logins) {
+        tenantUsers[login] = await keycloak.createUser(login);
+        logins[login] = { username: tenantUsers[login].username, subject: tenantUsers[login].subject, role };
+      }
+      const subjects = Object.fromEntries(Object.entries(logins).map(([login, { subject }]) => [login, subject]));
+      for (const sql of extraTenantSql(tenant, keycloak.issuer, subjects)) psql(pgName, sql);
+      addedTenants[tenant.key] = { code: tenant.code, logins };
+    }
+
     // The harness's server-side sessions, each through the realm's real login form. The console
     // proxy swaps one in for the X-Harness-Login marker; the browser never holds any of them.
     const sessions = {};
     for (const [login, user] of Object.entries(users)) {
+      sessions[login] = await sessionLogin(baseUrl, user);
+      if (sessions[login].status !== 200) {
+        throw new Error(`boot-backend: the ${login} session's first call answered ${sessions[login].status}`);
+      }
+    }
+    for (const [login, user] of Object.entries(tenantUsers)) { // T130: the extra tenants' logins, the same way
       sessions[login] = await sessionLogin(baseUrl, user);
       if (sessions[login].status !== 200) {
         throw new Error(`boot-backend: the ${login} session's first call answered ${sessions[login].status}`);
@@ -451,6 +756,12 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
       users,
       /** The `extraUsers` bound in the default tenant, by key: username, subject, role (no password). */
       extraUsers: extra,
+      /** T130: the `extraTenants` by key - tenant code and its logins (username, subject, role; no password). */
+      extraTenants: addedTenants,
+      /** T130: the started sidecars by key - container name, loopback port, URL, admin URL ({} by default). */
+      services: serviceInfo,
+      /** T130: the app's process id - one process serves the whole run (BS-07's "0 deploys"). */
+      appPid: app.pid,
       /** The docker-suite lock this boot holds; refreshLock() rewrites its owner note (mtime now). */
       lockPath: LOCK_PATH,
       refreshLock() {
@@ -473,6 +784,7 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
         } catch (e) {
           console.error(`teardown: ${e.message}`);
         }
+        removeSidecars(sidecarNames); // T130: before the lock is released (none by default)
         keycloak?.stop();
         releaseLock();
       }
@@ -486,6 +798,7 @@ export default async function bootBackend({ loginSeed = false, extraUsers = [], 
         // already gone
       }
     }
+    removeSidecars(sidecarNames); // T130: before the lock is released (none by default)
     keycloak?.stop();
     releaseLock();
     throw e;
