@@ -6,10 +6,38 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_SUITE_CONFIG, BS_STORAGE_STATE, SEED_PROJECT, SPEC_PROJECT } from '../lib/suite-config.mjs';
+import { createRequire } from 'node:module';
+import { BASE_SUITE_CONFIG, BS_STORAGE_STATE, SEED_PROJECT, SPEC_PROJECT, suiteConfig } from '../lib/suite-config.mjs';
 
 const UI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const inUi = (relative) => path.resolve(UI, relative);
+
+function playwrightInstalled() {
+  try {
+    createRequire(inUi('package.json')).resolve('@playwright/test');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Found 18-Oct by `--list`: defineConfig() stamps a symbol on the object it is given, and BASE_SUITE_CONFIG is
+// frozen - "Cannot add property Symbol(defineConfigWasUsed), object is not extensible". Hand it a copy.
+test('suiteConfig() is a fresh, extensible copy - defineConfig can stamp it, the frozen original stays intact', () => {
+  const a = suiteConfig();
+  assert.equal(Object.isExtensible(a), true);
+  assert.notEqual(a, suiteConfig(), 'a new object per call');
+  assert.deepEqual({ ...a, projects: undefined }, { ...BASE_SUITE_CONFIG, projects: undefined });
+  assert.equal(a.projects.length, BASE_SUITE_CONFIG.projects.length);
+  a.workers = 4;
+  assert.equal(BASE_SUITE_CONFIG.workers, 1);
+});
+
+test('playwright.base-suite.config.mjs loads through defineConfig', { skip: !playwrightInstalled() && 'no ui/node_modules (@playwright/test) in this checkout' }, async () => {
+  const { default: config } = await import('../../../playwright.base-suite.config.mjs');
+  assert.equal(config.testDir, 'tests/base-suite/specs');
+  assert.equal(config.retries, 0);
+});
 
 test('the base suite reads only tests/base-suite/specs - never the screens suite', () => {
   assert.equal(BASE_SUITE_CONFIG.testDir, 'tests/base-suite/specs');
