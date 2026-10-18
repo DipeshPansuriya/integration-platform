@@ -177,4 +177,16 @@ class TokenValidationTest {
                 }))
                 .andExpect(status().isInternalServerError());
     }
+
+    /** R1 (TenancySecurityConfiguration.java:90-92): only the ERROR dispatch is open; a direct GET /error is denied. */
+    @Test
+    void aDirectGetOfTheErrorPathIsDeniedWithoutAToken() throws Exception {
+        mvc.perform(get("/error")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aDirectGetOfTheErrorPathIsDeniedEvenWithAValidToken() throws Exception {
+        mvc.perform(get("/error").header("Authorization", "Bearer " + ISSUER.rs256(ISSUER.claims(ALICE, c -> { }))))
+                .andExpect(status().isForbidden());
+    }
 }
