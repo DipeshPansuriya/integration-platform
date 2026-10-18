@@ -53,6 +53,13 @@ public interface SchedulerRegistry {
      */
     boolean recordAlert(String jobType, Instant scheduledFor, String kind, String errorClass, String message);
 
+    /**
+     * Reads {@code scheduler.job_run} rows for the operator's run search (T-059, E14-C9), newest first. Each non-null
+     * filter of the query adds one compile-time fragment with a bound value (R11); the date window is on the run's
+     * start, or its due time when it never started (a MISSED run), so missed runs stay searchable by date.
+     */
+    <T> List<T> searchRuns(RunQuery query, RowMapper<T> mapper);
+
     /** The port's {@code scheduler.job_run} row shape; a module's own run row maps onto it component by component. */
     record JobRunEntry(
             String jobType,
@@ -64,5 +71,12 @@ public interface SchedulerRegistry {
             boolean isLate,
             String errorClass,
             String counts) {
+    }
+
+    /**
+     * The run search's filters; null means no filter on that column. {@code from} is inclusive, {@code to}
+     * exclusive; the caller validates (the adapter only binds).
+     */
+    record RunQuery(String jobType, String outcome, Instant from, Instant to, int limit) {
     }
 }

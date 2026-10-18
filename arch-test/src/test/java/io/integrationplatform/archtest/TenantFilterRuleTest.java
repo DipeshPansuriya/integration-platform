@@ -118,6 +118,7 @@ class TenantFilterRuleTest {
         assertThat(result.getFailureReport().getDetails())
                 .as("scheduler access outside the reviewed crossing")
                 .noneMatch(line -> line.startsWith("Method <io.integrationplatform.config.scheduler.JdbcJobDefinitionRepository")
+                        || line.startsWith("Method <io.integrationplatform.config.scheduler.JobRunSearch")
                         || line.startsWith("Method <io.integrationplatform.app.scheduler.JobOverdueDetector")
                         || line.startsWith("Method <io.integrationplatform.app.scheduler.JobIncidentJdbcSink"));
         assertThat(TenantFilterRule.REVIEWED_CROSSINGS)
