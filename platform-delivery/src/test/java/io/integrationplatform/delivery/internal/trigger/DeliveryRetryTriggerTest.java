@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.delivery.internal.retry.FakeDeliveryRetryStore;
+import io.integrationplatform.delivery.internal.retry.RetryPolicy;
+import io.integrationplatform.delivery.port.DeliveryReconcileStore;
+import io.integrationplatform.delivery.port.TargetSendFacts;
+import io.integrationplatform.domain.delivery.OutcomeClass;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts.BulkheadFacts;
 import io.integrationplatform.delivery.port.InstanceReadiness;
 import io.integrationplatform.delivery.port.TargetRedriveCap;
@@ -249,6 +253,166 @@ class DeliveryRetryTriggerTest {
         DeliveryRetryTrigger trigger = cappedTrigger(facts, 3, 1, BATCH);
 
         assertThat(List.of(trigger.runOnce(), trigger.runOnce(), trigger.runOnce())).containsExactly(3, 3, 1);
+    }
+
+    // ---------- T-180: the delivery side of the reconciler sweep ----------
+
+    private static final UUID TARGET = id("target");
+    private static final UUID TOKEN = id("token");
+    private final FakeReconcileStore reconcile = new FakeReconcileStore(context);
+    private final Map<UUID, TargetSendFacts.Facts> targetFacts = new HashMap<>();
+
+    @Test
+    void aStaleClaimOnANonIdempotentTargetIsDeadLetteredAmbiguous() {
+        staleClaim(TENANT_A, D1, 1, Duration.ofMinutes(10));
+        targetFacts.put(TARGET, new TargetSendFacts.Facts(Duration.ofSeconds(1), false));
+
+        reconcilingTrigger(() -> List.of(TENANT_A)).runOnce();
+
+        assertThat(store.stateOf(D1)).isEqualTo(DeliveryState.DEAD_LETTERED);
+        assertThat(store.deadLetterReasonOf(D1)).isEqualTo(OutcomeClass.AMBIGUOUS);
+    }
+
+    @Test
+    void aStaleClaimOnAnIdempotentTargetIsScheduledForRetryNeverResent() {
+        staleClaim(TENANT_A, D1, 1, Duration.ofMinutes(10));
+        targetFacts.put(TARGET, new TargetSendFacts.Facts(Duration.ofSeconds(1), true));
+
+        reconcilingTrigger(() -> List.of(TENANT_A)).runOnce();
+
+        assertThat(store.stateOf(D1)).isEqualTo(DeliveryState.RETRY_WAIT);
+        assertThat(store.nextAttemptAtOf(D1)).isAfter(Instant.now().minusSeconds(5));
+        assertThat(outbox.committedEntries()).isEmpty(); // re-driven later by the retry, never straight to SENDING
+    }
+
+    @Test
+    void anIdempotentStaleClaimOutOfAttemptsIsDeadLettered() {
+        staleClaim(TENANT_A, D1, RetryPolicy.defaults().maxAttempts(), Duration.ofMinutes(10));
+        targetFacts.put(TARGET, new TargetSendFacts.Facts(Duration.ofSeconds(1), true));
+
+        reconcilingTrigger(() -> List.of(TENANT_A)).runOnce();
+
+        assertThat(store.stateOf(D1)).isEqualTo(DeliveryState.DEAD_LETTERED);
+    }
+
+    @Test
+    void aHealthyClaimInsideItsStaleLimitIsLeftAlone() {
+        staleClaim(TENANT_A, D1, 1, Duration.ofSeconds(30)); // limit 3 x 30 s + 5 s + 60 s = 155 s
+        targetFacts.put(TARGET, new TargetSendFacts.Facts(Duration.ofSeconds(30), false));
+
+        reconcilingTrigger(() -> List.of(TENANT_A)).runOnce();
+
+        assertThat(store.stateOf(D1)).isEqualTo(DeliveryState.SENDING);
+    }
+
+    @Test
+    void anUnknownTargetAssumesTheLongestTimeoutBeforeSettling() {
+        staleClaim(TENANT_A, D1, 1, Duration.ofMinutes(10)); // inside 3 x 300 s + 65 s
+        staleClaim(TENANT_A, D2, 1, Duration.ofMinutes(20)); // past it
+
+        reconcilingTrigger(() -> List.of(TENANT_A)).runOnce();
+
+        assertThat(store.stateOf(D1)).isEqualTo(DeliveryState.SENDING);
+        assertThat(store.stateOf(D2)).isEqualTo(DeliveryState.DEAD_LETTERED);
+        assertThat(store.deadLetterReasonOf(D2)).isEqualTo(OutcomeClass.AMBIGUOUS);
+    }
+
+    @Test
+    void aHeldDeliveryWhosePredecessorIsFinalIsReleasedAndReDrivenInItsTenant() {
+        reconcile.held(TENANT_A, D1);
+        reconcile.held(TENANT_B, D2);
+
+        int moved = reconcilingTrigger(() -> List.of(TENANT_A, TENANT_B)).runOnce();
+
+        assertThat(moved).isEqualTo(2);
+        assertThat(reconcile.released()).containsExactlyInAnyOrder(
+                Tuple.tuple(TENANT_A, D1), Tuple.tuple(TENANT_B, D2));
+        assertThat(outbox.committedEntries())
+                .extracting(OutboxEntry::topic, OutboxEntry::aggregateId, OutboxEntry::recordKey)
+                .containsExactlyInAnyOrder(Tuple.tuple(OutboxTopic.DELIVERY_DUE, D1, "delivery:" + D1),
+                        Tuple.tuple(OutboxTopic.DELIVERY_DUE, D2, "delivery:" + D2));
+    }
+
+    @Test
+    void aHeldDeliveryNoLongerHeldWritesNoDueRecord() {
+        reconcile.held(TENANT_A, D1);
+        reconcile.refuseRelease(D1);
+
+        int moved = reconcilingTrigger(() -> List.of(TENANT_A)).runOnce();
+
+        assertThat(moved).isZero();
+        assertThat(outbox.committedEntries()).isEmpty();
+    }
+
+    @Test
+    void aStaleClaimOfAnotherTenantIsNeverSettledFromThisTenant() {
+        staleClaim(TENANT_B, D1, 1, Duration.ofMinutes(30));
+
+        reconcilingTrigger(() -> List.of(TENANT_A)).runOnce();
+
+        assertThat(store.stateOf(D1)).isEqualTo(DeliveryState.SENDING);
+    }
+
+    private void staleClaim(UUID tenant, UUID delivery, int attempts, Duration age) {
+        store.seed(tenant, delivery, DeliveryState.SENDING, attempts, null, TOKEN);
+        reconcile.claim(tenant, new DeliveryReconcileStore.SendingClaim(delivery, TOKEN, Instant.now().minus(age),
+                TARGET, attempts));
+    }
+
+    private DeliveryRetryTrigger reconcilingTrigger(ActiveTenants tenants) {
+        return new DeliveryRetryTrigger(tenants, context, transactions, store, outbox, BATCH,
+                InstanceReadiness.alwaysReady(), delivery -> Optional.empty(), TargetRedriveCap.unlimited(),
+                reconcile, target -> Optional.ofNullable(targetFacts.get(target)), RetryPolicy.defaults());
+    }
+
+    /** The reconcile store contract: the bound tenant's rows only; a refused release is {@code false}. */
+    private static final class FakeReconcileStore implements DeliveryReconcileStore {
+
+        private final TriggerTenantContext tenantContext;
+        private final Map<UUID, List<SendingClaim>> claims = new HashMap<>();
+        private final Map<UUID, List<UUID>> held = new HashMap<>();
+        private final List<UUID> refused = new ArrayList<>();
+        private final List<Tuple> released = new CopyOnWriteArrayList<>();
+
+        FakeReconcileStore(TriggerTenantContext tenantContext) {
+            this.tenantContext = tenantContext;
+        }
+
+        void claim(UUID tenant, SendingClaim claim) {
+            claims.computeIfAbsent(tenant, t -> new ArrayList<>()).add(claim);
+        }
+
+        void held(UUID tenant, UUID delivery) {
+            held.computeIfAbsent(tenant, t -> new ArrayList<>()).add(delivery);
+        }
+
+        void refuseRelease(UUID delivery) {
+            refused.add(delivery);
+        }
+
+        List<Tuple> released() {
+            return List.copyOf(released);
+        }
+
+        @Override
+        public List<SendingClaim> sendingClaimedBefore(Instant claimedBefore, int limit) {
+            return claims.getOrDefault(tenantContext.requireTenantId(), List.of()).stream()
+                    .filter(c -> !c.claimedAt().isAfter(claimedBefore)).limit(limit).toList();
+        }
+
+        @Override
+        public List<UUID> lockReleasableHeld(int limit) {
+            return held.getOrDefault(tenantContext.requireTenantId(), List.of()).stream().limit(limit).toList();
+        }
+
+        @Override
+        public boolean release(UUID deliveryId) {
+            if (refused.contains(deliveryId)) {
+                return false;
+            }
+            released.add(Tuple.tuple(tenantContext.requireTenantId(), deliveryId));
+            return true;
+        }
     }
 
     // ---------- helpers ----------

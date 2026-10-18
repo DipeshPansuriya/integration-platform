@@ -1,10 +1,13 @@
 package io.integrationplatform.delivery.internal.trigger;
 
+import io.integrationplatform.delivery.internal.retry.RetryPolicy;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
+import io.integrationplatform.delivery.port.DeliveryReconcileStore;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.delivery.port.InstanceReadiness;
 import io.integrationplatform.delivery.port.RetryCandidate;
 import io.integrationplatform.delivery.port.TargetRedriveCap;
+import io.integrationplatform.delivery.port.TargetSendFacts;
 import io.integrationplatform.ingest.port.OutboxEntry;
 import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.ingest.port.OutboxWriter;
@@ -41,6 +44,9 @@ public final class DeliveryRetryTrigger {
     private final InstanceReadiness readiness;
     private final DeliveryBulkheadFacts bulkheadFacts;
     private final TargetRedriveCap redriveCap;
+    private final DeliveryReconcileStore reconcileStore;
+    private final TargetSendFacts targetFacts;
+    private final RetryPolicy policy;
     private final int batchSize;
 
     public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
@@ -69,6 +75,20 @@ public final class DeliveryRetryTrigger {
             TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
             int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
             TargetRedriveCap redriveCap) {
+        this(tenants, tenantContext, transactions, store, outboxWriter, batchSize, readiness, bulkheadFacts,
+                redriveCap, DeliveryReconcileStore.none(), TargetSendFacts.unknown(), RetryPolicy.defaults());
+    }
+
+    /**
+     * T-180 (E9-F3-S1): with the delivery side of the reconciler sweep - in each tenant's transaction, before the
+     * re-drive, stale {@code SENDING} claims are settled and held deliveries whose predecessors are final are
+     * released.
+     */
+    public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
+            TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
+            int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
+            TargetRedriveCap redriveCap, DeliveryReconcileStore reconcileStore, TargetSendFacts targetFacts,
+            RetryPolicy policy) {
         if (batchSize < 1) {
             throw new IllegalArgumentException("batchSize must be at least 1");
         }
@@ -80,6 +100,9 @@ public final class DeliveryRetryTrigger {
         this.readiness = Objects.requireNonNull(readiness, "readiness");
         this.bulkheadFacts = Objects.requireNonNull(bulkheadFacts, "bulkheadFacts");
         this.redriveCap = Objects.requireNonNull(redriveCap, "redriveCap");
+        this.reconcileStore = Objects.requireNonNull(reconcileStore, "reconcileStore");
+        this.targetFacts = Objects.requireNonNull(targetFacts, "targetFacts");
+        this.policy = Objects.requireNonNull(policy, "policy");
         this.batchSize = batchSize;
     }
 
