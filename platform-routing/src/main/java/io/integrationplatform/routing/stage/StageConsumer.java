@@ -126,6 +126,16 @@ public final class StageConsumer {
             Duration pollTimeout, Clock clock, Sleeper sleeper, StageSettings settings,
             io.micrometer.core.instrument.MeterRegistry meters,
             io.micrometer.observation.ObservationRegistry observations, StageAlerts alerts) {
+        this(consumer, parser, rows, handler, poison, backoff, pollTimeout, clock, sleeper, settings, meters,
+                observations, alerts, () -> true);
+    }
+
+    public StageConsumer(Consumer<byte[], byte[]> consumer, WorkRecordParser parser, ProtectedRows rows,
+            Handler handler, PoisonSink poison, java.util.function.IntFunction<Duration> backoff,
+            Duration pollTimeout, Clock clock, Sleeper sleeper, StageSettings settings,
+            io.micrometer.core.instrument.MeterRegistry meters,
+            io.micrometer.observation.ObservationRegistry observations, StageAlerts alerts,
+            java.util.function.BooleanSupplier ready) {
         this.consumer = consumer;
         this.parser = parser;
         this.rows = rows;
