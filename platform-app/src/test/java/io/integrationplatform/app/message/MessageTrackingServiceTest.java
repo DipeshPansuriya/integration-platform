@@ -182,4 +182,19 @@ class MessageTrackingServiceTest {
         assertThat(schema).as("@Schema on DeliveryTime.state").isNotNull();
         assertThat(schema.requiredMode()).isEqualTo(io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED);
     }
+
+    // ------------------------------------------------------------------ row 278: a dead letter with no message id
+
+    @Test
+    void aDeadLetterWithNoMessageIdIsListedWhenNoSourceIsFound() {
+        String flow = UUID.randomUUID().toString();
+        when(store.deadLetters(any(), any(), any())).thenReturn(List.of(new JdbcMessageTrackingStore.DeadLetterRow(
+                "d-1", null, flow, TARGET_1, "PERMANENT", null, "no route", T0)));
+        when(store.maskedSources(any())).thenReturn(java.util.Map.of());
+
+        assertThat(service.failures(null, null))
+                .extracting(MessageTrackingService.Failure::trackingId, MessageTrackingService.Failure::deliveryId,
+                        MessageTrackingService.Failure::lastError)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(null, "d-1", "no route"));
+    }
 }

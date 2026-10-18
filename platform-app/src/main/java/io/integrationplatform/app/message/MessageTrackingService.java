@@ -128,7 +128,9 @@ public class MessageTrackingService {
             boolean namedReason = row.deadLetterDetail() != null
                     && !row.deadLetterDetail().equals(row.deadLetterClass());
             boolean targetAnswer = !namedReason && row.attemptDetail() != null;
-            String lastError = masked(sources.get(row.messageId()), targetAnswer ? row.attemptDetail() : row.deadLetterDetail());
+            // a null id must not reach Map.of().get(null), which throws
+            JdbcMessageTrackingStore.MaskedSource source = row.messageId() == null ? null : sources.get(row.messageId());
+            String lastError = masked(source, targetAnswer ? row.attemptDetail() : row.deadLetterDetail());
             failures.add(Map.entry(row.failedAt(), new Failure(row.messageId(), row.id(), row.flowId(),
                     row.targetId(), "DELIVER", row.deadLetterClass(), lastError, targetAnswer ? TARGET : PLATFORM,
                     text(row.failedAt()))));
