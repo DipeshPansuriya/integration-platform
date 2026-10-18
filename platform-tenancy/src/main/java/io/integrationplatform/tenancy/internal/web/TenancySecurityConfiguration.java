@@ -8,6 +8,7 @@ import io.integrationplatform.tenancy.port.TenantDenialRecorder;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
+import jakarta.servlet.DispatcherType;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
@@ -86,6 +87,9 @@ class TenancySecurityConfiguration {
         AuthenticationEntryPoint entryPoint =
                 new NoIdentityEntryPoint(new BearerTokenAuthenticationEntryPoint(), tenantDenialRecorder);
         http.authorizeHttpRequests(requests -> requests
+                        // R1: the error dispatch of a request that already passed (or failed) this chain keeps its
+                        // status; re-authorising it turned every 5xx into a 401. A direct GET /error stays denied.
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         // The springdoc document the console's typed client is generated against (E3 T-158/T-094,
