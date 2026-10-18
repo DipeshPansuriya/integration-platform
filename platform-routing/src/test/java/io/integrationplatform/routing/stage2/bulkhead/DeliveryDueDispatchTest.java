@@ -398,8 +398,8 @@ class DeliveryDueDispatchTest {
         @Override
         public void dispatch(Stage2Send send) {
             tenants.add(tenant.get());
+            onCall.accept(Thread.currentThread().getName()); // before calls.add: awaitOneSend sees it settled
             calls.add(send);
-            onCall.accept(Thread.currentThread().getName());
         }
     }
 

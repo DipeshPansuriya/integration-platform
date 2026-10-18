@@ -154,6 +154,26 @@ class RouteInstanceFactoryTest {
         assertThat(factory.instanceOf(ENDPOINT_A)).as("the refused route is never registered").isEmpty();
     }
 
+    @org.junit.jupiter.params.ParameterizedTest(name = "{0}")
+    @org.junit.jupiter.params.provider.CsvSource({
+            "exec, exec:/bin/echo",
+            "file, file:///etc/passwd",
+            "http, http://unlisted.example/v1"})
+    void everyUnapprovedSchemeIsRefusedAtPublishAndAtBuildNamingTheScheme(String scheme, String uri) {
+        reader.add(new RouteConfigRow(instanceId("route-" + scheme), ENDPOINT_A, "API", uri, null, MAPPING_M3));
+        String answer = "the publish was refused: endpoint URI scheme '" + scheme + "' is not in allowedSchemes";
+
+        assertThatThrownBy(() -> factory.publishInterface(TENANT, INTERFACE_ID))
+                .as("T71 crit 5 / T-120: publish refuses %s:", scheme)
+                .isInstanceOfSatisfying(RouteBuildRefusedException.class,
+                        refused -> assertThat(refused.answer()).isEqualTo(answer));
+        assertThatThrownBy(() -> factory.ensure(reader.current(ENDPOINT_A)))
+                .as("T71 crit 5 / T-120: the lazy build refuses %s: too", scheme)
+                .isInstanceOfSatisfying(RouteBuildRefusedException.class,
+                        refused -> assertThat(refused.answer()).isEqualTo(answer));
+        assertThat(factory.instanceOf(ENDPOINT_A)).as("never built, never registered").isEmpty();
+    }
+
     @Test
     void aRefusalDetailNamesTheSchemeEndpointAndRouteButNeverTheEndpointUri() {
         UUID route = instanceId("route-5");

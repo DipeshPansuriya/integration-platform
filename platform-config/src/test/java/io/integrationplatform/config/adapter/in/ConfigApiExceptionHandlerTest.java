@@ -21,6 +21,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.test.web.servlet.MockMvc;
@@ -149,6 +151,19 @@ class ConfigApiExceptionHandlerTest {
                 .andExpect(jsonPath("$.error").value(emoji.repeat(REASON_CAP)));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"exec", "file", "http"})
+    void aRefusalWrappedOnTheWayOutStillAnswers400NamingTheSchemeNeverTheGeneric500(String scheme) throws Exception {
+        controller.reason = "the publish was refused: endpoint URI scheme '" + scheme + "' is not in allowedSchemes";
+
+        mvc.perform(post("/publish/refused-wrapped"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$", aMapWithSize(1)))
+                .andExpect(jsonPath("$.error").value(controller.reason));
+        assertThat(logged.list).as("T71 crit 5 / F15: a refusal is not a failure - nothing above DEBUG")
+                .noneMatch(event -> event.getLevel().isGreaterOrEqual(Level.INFO));
+    }
+
     /** A configuration publish whose BEFORE_COMMIT listener refused it, with the reason the test sets. */
     @RestController
     static class RefusedPublishController {
@@ -158,6 +173,13 @@ class ConfigApiExceptionHandlerTest {
         @PostMapping("/publish/refused")
         String publish() {
             throw new InterfacePublishRefused(reason, new IllegalStateException("routing detail, never answered"));
+        }
+
+        /** The same refusal, wrapped by a commit path on its way out (e.g. a transaction or event wrapper). */
+        @PostMapping("/publish/refused-wrapped")
+        String publishWrapped() {
+            throw new IllegalStateException("commit failed", new InterfacePublishRefused(reason,
+                    new IllegalStateException("routing detail, never answered")));
         }
     }
 }
