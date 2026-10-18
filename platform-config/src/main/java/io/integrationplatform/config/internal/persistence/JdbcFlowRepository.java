@@ -205,6 +205,18 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
                 Params.of("interface_id", interfaceId, "ordering", ordering));
     }
 
+    /** T108: the interface's masked-field list as stored JSON text ({@code []} when none); empty when not visible. */
+    public Optional<String> findMaskedFields(String interfaceId) {
+        return first(query("select i.masked_fields::text from public.interface i", "i.id = :id::uuid",
+                Params.of("id", interfaceId), FIRST_COLUMN));
+    }
+
+    /** T108: replace the interface's masked-field list ({@code maskedFieldsJson} is a JSON array text). */
+    public int updateMaskedFields(String interfaceId, String maskedFieldsJson) {
+        return update("update public.interface set masked_fields = :masked_fields::jsonb, updated_at = now()",
+                "id = :interface_id::uuid", Params.of("interface_id", interfaceId, "masked_fields", maskedFieldsJson));
+    }
+
     public int updateInterfaceAfterPublish(String interfaceId, int version) {
         return update(UPDATE_INTERFACE_AFTER_PUBLISH, "id = :interface_id::uuid",
                 Params.of("interface_id", interfaceId, "version", version));

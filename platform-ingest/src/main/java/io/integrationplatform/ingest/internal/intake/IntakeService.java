@@ -1,5 +1,6 @@
 package io.integrationplatform.ingest.internal.intake;
 
+import io.integrationplatform.config.flow.api.MaskedFields;
 import io.integrationplatform.ingest.port.AcceptedMessage;
 import io.integrationplatform.ingest.port.CorrelationContext;
 import io.integrationplatform.ingest.port.IntakeRefusedException;
@@ -53,6 +54,8 @@ public class IntakeService implements IntakeTransaction {
                 .orElseThrow(() -> new IntakeRefusedException(
                         IntakeRefusedException.Reason.INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED,
                         "interface '" + request.interfaceCode() + "' has no published version"));
+        // T-066 (T108): this payload's masked values are scrubbed from every later log line, whoever writes it.
+        MaskedFields.register(MaskedFields.valuesOf(request.payload(), version.maskedFields()));
         String pinnedLabel = store.pinnedLabel(version.sourceContractVersionId()).orElseThrow(
                 () -> new IntakeRefusedException(IntakeRefusedException.Reason.CONTRACT_PIN_MISMATCH,
                         "the interface's pinned source contract version is not approved"));

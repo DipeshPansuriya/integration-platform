@@ -1,5 +1,6 @@
 package io.integrationplatform.ingest.internal.intake;
 
+import io.integrationplatform.config.flow.api.MaskedFields;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.TenantScopedRepository;
 import java.util.List;
@@ -22,7 +23,8 @@ class IntakeStore extends TenantScopedRepository {
     }
 
     /** The published version's flow content: the business key rule and the pinned source contract version id. */
-    record PublishedVersion(UUID interfaceVersionId, String businessKeyRule, UUID sourceContractVersionId) {
+    record PublishedVersion(UUID interfaceVersionId, String businessKeyRule, UUID sourceContractVersionId,
+            List<String> maskedFields) {
     }
 
     IntakeStore(JdbcClient jdbcClient, TenantContext tenantContext) {
@@ -41,14 +43,17 @@ class IntakeStore extends TenantScopedRepository {
     /** The interface's published version row: its business key rule and the pinned source contract version id. */
     Optional<PublishedVersion> resolvePublishedVersion(PublishedInterface published) {
         List<PublishedVersion> rows = query(
-                "select iv.id, iv.business_key_rule, iv.source_contract_version_id from public.interface_version iv",
+                "select iv.id, iv.business_key_rule, iv.source_contract_version_id,"
+                        + " (iv.snapshot->'interface'->'maskedFields')::text as masked_fields"
+                        + " from public.interface_version iv",
                 "iv.interface_id = :interface_id::uuid and iv.version = :published_version"
                         + " and iv.status = 'PUBLISHED'",
                 Map.of("interface_id", published.interfaceId().toString(),
                         "published_version", published.publishedVersion()),
                 (rs, rowNum) -> new PublishedVersion(UUID.fromString(rs.getString("id")),
                         rs.getString("business_key_rule"),
-                        UUID.fromString(rs.getString("source_contract_version_id"))));
+                        UUID.fromString(rs.getString("source_contract_version_id")),
+                        MaskedFields.fromJson(rs.getString("masked_fields"))));
         return rows.stream().findFirst();
     }
 
