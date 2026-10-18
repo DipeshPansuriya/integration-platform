@@ -319,7 +319,8 @@ final class EndpointMatrix {
             // E11's children are reachable by their own ids only while its parent message row still stands, and
             // F10's clear removes the tenant's whole message set.
             new B9FlowRoutesMatrix(), new E11IntakeMatrix(), new F10QueueSummaryMatrix(), new E13TimelineMatrix(),
-            new T111DeliveryOperatorMatrix());
+            new T111DeliveryOperatorMatrix(),
+            new E12ActivityMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),

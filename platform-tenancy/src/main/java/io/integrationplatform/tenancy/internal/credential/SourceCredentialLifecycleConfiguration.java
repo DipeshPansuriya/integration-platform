@@ -1,5 +1,6 @@
 package io.integrationplatform.tenancy.internal.credential;
 
+import io.integrationplatform.tenancy.api.CredentialCleanup;
 import io.integrationplatform.tenancy.port.IdentityProviderAdmin;
 import io.integrationplatform.tenancy.port.SourceCredentialAdmin;
 import io.integrationplatform.tenancy.port.SourceCredentialStore;
@@ -38,5 +39,13 @@ class SourceCredentialLifecycleConfiguration {
                 Optional.ofNullable(identityProvider.getIfAvailable()),
                 binder.bind(ROTATION_GRACE, Duration.class).orElse(Duration.ofDays(7)),
                 binder.bind(PENDING_TIMEOUT, Duration.class).orElse(Duration.ofMinutes(15)));
+    }
+
+    /** E14 T-203: the clean-up pass the CREDENTIAL_CLEANUP job runs per bound tenant (public port in tenancy.api). */
+    @Bean
+    CredentialCleanup credentialCleanup(SourceCredentialLifecycle sourceCredentialLifecycle,
+            ObjectProvider<IdpDisableReconciliation> reconciliation) {
+        return new TenantCredentialCleanup(sourceCredentialLifecycle,
+                Optional.ofNullable(reconciliation.getIfAvailable()));
     }
 }

@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import io.integrationplatform.app.message.DeliveryOperatorController;
+import io.integrationplatform.app.activity.ActivityController;
+import io.integrationplatform.app.activity.ActivityService;
 import io.integrationplatform.app.message.MessageTrackingController;
 import io.integrationplatform.app.message.MessageTrackingService;
 import io.integrationplatform.app.queue.QueueSummaryController;
@@ -208,6 +210,10 @@ class EndpointMatrixCoverageTest {
                 // row 278 gate fix (T111): the operator replay/retry actions, covered by T111DeliveryOperatorMatrix;
                 // mocked actions and providers, nothing is invoked
                 new DeliveryOperatorController(mock(DeliveryOperatorActions.class), mock(ConfigActors.class),
+                        mock(ObjectProvider.class), mock(ObjectProvider.class)),
+                // row 327 E12 seam (T118): the activity read, covered by E12ActivityMatrix; mocked service and
+                // providers, nothing is invoked
+                new ActivityController(mock(ActivityService.class), mock(ConfigActors.class),
                         mock(ObjectProvider.class), mock(ObjectProvider.class))};
     }
 

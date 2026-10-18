@@ -95,8 +95,7 @@ public class ContractVersionAdminController {
                 content = @Content(mediaType = JSON, schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping("/versions/{versionId}/submit")
     public ResponseEntity<Map<String, Object>> submit(@PathVariable String versionId, @RequestBody JsonNode body) {
-        actors.requireActor();
-        service.submit(versionId, body);
+        service.submit(versionId, body, actors.requireActor().userId());
         return ResponseEntity.ok(ConfigApiException.body("id", versionId));
     }
 

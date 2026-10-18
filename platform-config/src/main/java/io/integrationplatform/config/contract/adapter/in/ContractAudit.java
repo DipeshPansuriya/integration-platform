@@ -7,8 +7,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * T-105: one structured audit event per contract import and approval, in the {@code RefusedTokenAuditor} style
- * ({@code event=..., tenant, actor, version, outcome}) - never a body, a schema or a secret (R14). platform-audit does
- * not exist yet; the log line is the audit record until it does.
+ * ({@code event=..., tenant, actor, version, outcome}) - never a body, a schema or a secret (R14). The ledger record
+ * of a completed import or approval is the {@code AuditEvent} {@code ContractAdminService} publishes inside its
+ * transaction (E12-F2-S1, T-134); a refusal rolls that back, so this log line is its only record.
  */
 final class ContractAudit {
 

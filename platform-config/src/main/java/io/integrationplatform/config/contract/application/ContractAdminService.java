@@ -11,6 +11,8 @@ import io.integrationplatform.config.internal.persistence.JdbcContractRepository
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemRow;
 import io.integrationplatform.config.system.application.SystemAdminService;
+import io.integrationplatform.domain.audit.ConfigAuditActions;
+import io.integrationplatform.tenancy.TenantContext;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -49,15 +52,24 @@ public class ContractAdminService {
 
     private final JdbcContractRepository contracts;
     private final JdbcSystemRepository systems;
+    private final ApplicationEventPublisher events;
+    private final TenantContext tenants;
     private final ContractDocumentImporter importer = new ContractDocumentImporter();
 
     /** One contract with its versions in label order (T-105 listing). */
     public record ContractWithVersions(ContractSummary contract, List<VersionDetail> versions) {
     }
 
-    public ContractAdminService(JdbcContractRepository contracts, JdbcSystemRepository systems) {
+    /**
+     * @param events  where a completed import or approval publishes its audit event (E12-F2-S1, T-134)
+     * @param tenants the bound tenant the audit event names
+     */
+    public ContractAdminService(JdbcContractRepository contracts, JdbcSystemRepository systems,
+            ApplicationEventPublisher events, TenantContext tenants) {
         this.contracts = Objects.requireNonNull(contracts, "contracts");
         this.systems = Objects.requireNonNull(systems, "systems");
+        this.events = Objects.requireNonNull(events, "events");
+        this.tenants = Objects.requireNonNull(tenants, "tenants");
     }
 
     // ------------------------------------------------------------------ E5 lane A (T-105)
@@ -103,8 +115,10 @@ public class ContractAdminService {
         String versionId = contracts.insertImportedVersion(contractId, label, imported.jsonSchema().toString(),
                 imported.openapiDocument() == null ? null : imported.openapiDocument().toString(), derivedFrom,
                 actorId.toString());
-        return contracts.findVersionDetail(versionId)
+        VersionDetail stored = contracts.findVersionDetail(versionId)
                 .orElseThrow(() -> new IllegalStateException("the imported contract version vanished after insert"));
+        audit(ConfigAuditActions.CONTRACT_VERSION_IMPORTED, actorId, stored, null);
+        return stored;
     }
 
     /** GET /api/v1/admin/contracts - every contract of the tenant with its versions side by side (RETIRED kept). */
@@ -142,8 +156,13 @@ public class ContractAdminService {
         String id = requireUuid(versionId).orElseThrow(ConfigApiException::notFound);
         String result = contracts.approveVersion(id, approverId.toString());
         return switch (result) {
-            case "APPROVED" -> contracts.findVersionDetail(id)
-                    .orElseThrow(() -> new IllegalStateException("the approved contract version vanished"));
+            case "APPROVED" -> {
+                VersionDetail approved = contracts.findVersionDetail(id)
+                        .orElseThrow(() -> new IllegalStateException("the approved contract version vanished"));
+                audit(ConfigAuditActions.CONTRACT_VERSION_APPROVED, approverId, approved,
+                        ConfigAuditActions.state("status", "PENDING_APPROVAL"));
+                yield approved;
+            }
             case "VERSION_NOT_FOUND" -> throw ConfigApiException.notFound();
             case "REFUSED_AUTHOR_IS_APPROVER" -> throw ConfigApiException.refusal(403, "AUTHOR_IS_APPROVER");
             default -> throw ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL");
@@ -158,6 +177,18 @@ public class ContractAdminService {
                 .flatMap(contract -> contracts.listVersionDetails(contract.id()).stream()
                         .filter(version -> version.status().equals("APPROVED"))
                         .max(Comparator.comparing(VersionDetail::versionLabel, ContractAdminService::compareLabels)));
+    }
+
+    /** E12-F2-S1 (T-134): one audit event per completed import or approval - status and label, never the schema. */
+    private void audit(String action, UUID actorId, VersionDetail version, String before) {
+        audit(action, actorId, version.id(), before,
+                ConfigAuditActions.state("status", version.status(), "versionLabel", version.versionLabel()));
+    }
+
+    /** Ids, status and version label only - never the schema or the document. */
+    private void audit(String action, UUID actorId, String versionId, String before, String after) {
+        events.publishEvent(ConfigAuditActions.event(action, tenants.requireTenantId(), actorId,
+                List.of(ConfigAuditActions.target("contract_version", versionId)), before, after));
     }
 
     /** The source request contract keeps the E3 code (the system code); every other role is {@code code:ROLE}. */
@@ -209,19 +240,22 @@ public class ContractAdminService {
                 .orElseGet(() -> contracts.insertContract(system.id(), systemCode, name));
         String label = nextLabel(contracts.listVersionLabels(contractId));
         String versionId = contracts.insertVersion(contractId, label, sourceSchema.toString(), actorId.toString());
-        return contracts.findVersionById(versionId)
+        VersionRow saved = contracts.findVersionById(versionId)
                 .orElseThrow(() -> new IllegalStateException("the contract version row vanished after insert"));
+        audit(ConfigAuditActions.CONTRACT_DRAFT_SAVED, actorId, saved.id(), null,
+                ConfigAuditActions.state("status", saved.status(), "versionLabel", saved.versionLabel()));
+        return saved;
     }
 
     /** POST /api/v1/admin/contracts/versions/{id}/submit - the definer move draft -> pending approval. */
     @Transactional
-    public void submit(String versionId, JsonNode body) {
+    public void submit(String versionId, JsonNode body, UUID actorId) {
         String changeNote = SystemAdminService.required(body, "changeNote");
         String result = contracts.submitVersion(versionId, changeNote);
         switch (result) {
-            case "SUBMITTED" -> {
-                return;
-            }
+            case "SUBMITTED" -> audit(ConfigAuditActions.CONTRACT_SUBMITTED, actorId, versionId,
+                    ConfigAuditActions.state("status", "DRAFT"),
+                    ConfigAuditActions.state("status", "PENDING_APPROVAL"));
             case "VERSION_NOT_FOUND" -> throw ConfigApiException.notFound();
             default -> throw ConfigApiException.conflict(
                     "only a DRAFT contract version submits (the version answered " + result + ")");

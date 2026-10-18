@@ -135,6 +135,11 @@ its own trigger tables would be a second source of truth beside `job_definition`
   (delivery: retry and purge; ledger: daily report; config: credential clean-up) behind one plain
   job-handler interface with no Spring type, so no module depends on `platform-app`. [Verified]
   module ownership; [Inferred] interface placement.
+- **Update 2026-10-17 ([ADR-016](ADR-016-retention-enforcement.md), team - Dipesh may reverse):** the
+  register has **five** types - `AUDIT_PARTITION_MAINTENANCE` added (creates `audit_event` month
+  partitions 12 months ahead and drops those older than 7 years, as the maintenance role, daily at
+  03:30 UTC). ADR-016 lists every dependent list re-published with it. The four-type text above is
+  kept as the record of the original decision.
 
 ### 3. No local state
 

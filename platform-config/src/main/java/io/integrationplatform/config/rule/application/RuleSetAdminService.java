@@ -3,10 +3,13 @@ package io.integrationplatform.config.rule.application;
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.rule.internal.JdbcRuleSetRepository;
 import io.integrationplatform.config.rule.internal.JdbcRuleSetRepository.RuleSetRow;
+import io.integrationplatform.domain.audit.ConfigAuditActions;
+import io.integrationplatform.tenancy.TenantContext;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
@@ -23,10 +26,19 @@ public class RuleSetAdminService {
 
     private final JdbcRuleSetRepository ruleSets;
     private final DecisionEngine engine;
+    private final ApplicationEventPublisher events;
+    private final TenantContext tenants;
 
-    public RuleSetAdminService(JdbcRuleSetRepository ruleSets, DecisionEngine engine) {
+    /**
+     * @param events  where a completed create or update publishes its audit event (E12-F2-S1)
+     * @param tenants the bound tenant the audit event names
+     */
+    public RuleSetAdminService(JdbcRuleSetRepository ruleSets, DecisionEngine engine,
+            ApplicationEventPublisher events, TenantContext tenants) {
         this.ruleSets = Objects.requireNonNull(ruleSets, "ruleSets");
         this.engine = Objects.requireNonNull(engine, "engine");
+        this.events = Objects.requireNonNull(events, "events");
+        this.tenants = Objects.requireNonNull(tenants, "tenants");
     }
 
     @Transactional
@@ -45,6 +57,8 @@ public class RuleSetAdminService {
         if ("LOOKUP".equals(kind)) {
             ruleSets.insertLookupTable(id, name);
         }
+        audit(ConfigAuditActions.RULE_SET_CREATED, authorId, flow.toString(), id, null,
+                ConfigAuditActions.state("kind", kind, "name", name));
         return new RuleSetRow(id, flow.toString(), kind, name, content);
     }
 
@@ -75,7 +89,18 @@ public class RuleSetAdminService {
         if ("LOOKUP".equals(stored.kind())) {
             ruleSets.renameLookupTable(id, name);
         }
+        audit(ConfigAuditActions.RULE_SET_UPDATED, authorId, stored.flowId(), stored.id(),
+                ConfigAuditActions.state("kind", stored.kind(), "name", stored.name()),
+                ConfigAuditActions.state("kind", stored.kind(), "name", name));
         return new RuleSetRow(stored.id(), stored.flowId(), stored.kind(), name, content);
+    }
+
+    /** E12-F2-S1: one audit event per completed edit - kind and name, never the decision table. */
+    private void audit(String action, UUID actorId, String flowId, String ruleSetId, String before, String after) {
+        events.publishEvent(ConfigAuditActions.event(action, tenants.requireTenantId(), actorId,
+                List.of(ConfigAuditActions.target("interface", flowId),
+                        ConfigAuditActions.target("rule_set", ruleSetId)),
+                before, after));
     }
 
     /** A path id that is not a uuid names no row: the same 404 as a foreign or unknown id, never a 500. */
