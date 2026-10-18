@@ -3,10 +3,13 @@ package io.integrationplatform.app.message;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.when;
 
 import io.integrationplatform.config.flow.api.MaskedFields;
+import java.lang.reflect.RecordComponent;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,5 +54,44 @@ class MessageTrackingMaskingTest {
 
         assertThat(new MessageTrackingService(store).failures(null, null).get(0).lastError())
                 .isEqualTo("HTTP 400 field orderId rejected");
+    }
+
+    /**
+     * Row 278 item 5: the message detail and its timeline entries hold no free text a masked value could ride in -
+     * ids, states, classes and times only. A new text field here must be masked like {@code Failure.lastError}.
+     */
+    @Test
+    void theTimelineDetailAndItsEntriesCarryNoFreeTextField() {
+        assertThat(components(MessageTrackingService.Timeline.class)).containsExactly("trackingId", "flowId", "state",
+                "acceptedAt", "stages", "totalMs", "failingStage", "deliveries");
+        assertThat(components(MessageTrackingService.StageTime.class)).containsExactly("stage", "startedAt",
+                "finishedAt", "durationMs", "sincePreviousMs");
+        assertThat(components(MessageTrackingService.DeliveryTime.class)).containsExactly("deliveryId", "targetId",
+                "durationMs", "outcome", "state");
+    }
+
+    /** Row 278 M6: one page of dead letters reads the masked sources in ONE store call, not one per row. */
+    @Test
+    void aPageOfDeadLettersReadsTheMaskedSourcesOnceNotOncePerRow() {
+        JdbcMessageTrackingStore store = mock(JdbcMessageTrackingStore.class);
+        when(store.routeFailures(any(), any(), any())).thenReturn(List.of());
+        when(store.deadLetters(any(), any(), any())).thenReturn(List.of(deadLetter("e-1"), deadLetter("e-2"),
+                deadLetter("e-3")));
+
+        assertThat(new MessageTrackingService(store).failures(null, null)).hasSize(3);
+
+        assertThat(mockingDetails(store).getInvocations())
+                .filteredOn(call -> call.getMethod().getName().startsWith("maskedSource"))
+                .hasSize(1);
+    }
+
+    private static JdbcMessageTrackingStore.DeadLetterRow deadLetter(String attemptDetail) {
+        return new JdbcMessageTrackingStore.DeadLetterRow(UUID.randomUUID().toString(), UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(), UUID.randomUUID().toString(), "PERMANENT", attemptDetail, "PERMANENT",
+                Instant.now());
+    }
+
+    private static List<String> components(Class<? extends Record> type) {
+        return Arrays.stream(type.getRecordComponents()).map(RecordComponent::getName).toList();
     }
 }

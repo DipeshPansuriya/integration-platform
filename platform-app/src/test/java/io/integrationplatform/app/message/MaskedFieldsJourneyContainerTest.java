@@ -168,6 +168,25 @@ class MaskedFieldsJourneyContainerTest {
         assertThat(refused.toString()).doesNotContain(PROBE);
     }
 
+    /**
+     * Row 278 item 5: the message detail ({@code GET /messages/{id}/timeline}) - the payload the controller writes, its
+     * stage entries and its delivery entries - carries no masked value, for the same message whose payload and
+     * target answer do.
+     */
+    @Test
+    void theTimelineDetailAndItsEntriesNeverHandBackTheMaskedValue() throws SQLException {
+        seedOnce();
+
+        MessageTrackingService.Timeline timeline = boundTenant.as(TENANT, () -> tracking.timeline(MESSAGE))
+                .orElseThrow();
+
+        assertThat(timeline.trackingId()).isEqualTo(MESSAGE.toString());
+        assertThat(timeline.deliveries()).hasSize(1);
+        assertThat(JsonMapper.builder().build().writeValueAsString(timeline)).doesNotContain(PROBE);
+        assertThat(timeline.stages()).allSatisfy(stage -> assertThat(stage.toString()).doesNotContain(PROBE));
+        assertThat(timeline.deliveries()).allSatisfy(entry -> assertThat(entry.toString()).doesNotContain(PROBE));
+    }
+
     @Test
     void noLogLineCarriesTheMaskedValueOnceIntakeHasSeenIt(CapturedOutput output) throws SQLException {
         seedOnce();
