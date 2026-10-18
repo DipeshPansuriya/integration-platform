@@ -3,7 +3,9 @@ package io.integrationplatform.tenancy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -49,14 +51,19 @@ class WorkerTenantBindingTest {
     @Test
     @DisplayName("the binding is thread-confined: another thread sees nothing")
     void threadConfined() throws Exception {
+        // row 278 T158: the other thread's view is captured and asserted on the test thread - an assertion inside
+        // the spawned thread would only kill that thread and could never fail the test.
+        AtomicReference<Optional<UUID>> seenByOther = new AtomicReference<>();
         binding.runAs(TENANT_A, () -> {
-            Thread other = new Thread(() -> assertThat(binding.currentTenantId()).isEmpty());
+            Thread other = new Thread(() -> seenByOther.set(binding.currentTenantId()));
             other.start();
             try {
                 other.join();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted while joining the other thread", e);
             }
         });
+        assertThat(seenByOther.get()).as("the other thread ran and saw no tenant").isNotNull().isEmpty();
     }
 }

@@ -31,10 +31,11 @@ class AuditPersistenceConfiguration {
     @Bean
     AuditEventWriter auditEventWriter(JdbcAuditEventStore store, ObjectProvider<TenantContext> tenantContexts,
             PlatformTransactionManager transactionManager) {
-        TransactionTemplate ledger = new TransactionTemplate(transactionManager);
-        ledger.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        // row278 D2/M3: the outbox append rides the business transaction; only the after-commit relay is new
+        TransactionTemplate relay = new TransactionTemplate(transactionManager);
+        relay.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         TenantContext bound = tenantContexts.getIfAvailable();
-        return new AuditEventWriter(store, ledger, bound != null ? bound : neverBound());
+        return new AuditEventWriter(store, relay, bound != null ? bound : neverBound());
     }
 
     /** The fail-closed no-binding context - the anonymous shape over the two-method contract. */
