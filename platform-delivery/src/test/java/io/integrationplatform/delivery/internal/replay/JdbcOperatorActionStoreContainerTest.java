@@ -10,6 +10,9 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -121,5 +124,50 @@ class JdbcOperatorActionStoreContainerTest {
                 () -> store(DeliveryTestDatabase.TENANT_A).retryNow(deadLettered, Instant.now()))).isFalse();
         assertThat(state(DeliveryTestDatabase.TENANT_A, retryWait)).isEqualTo("RETRY_WAIT");
         assertThat(state(DeliveryTestDatabase.TENANT_A, deadLettered)).isEqualTo("DEAD_LETTERED");
+    }
+
+    /**
+     * T165 item 4: two operators replay the same dead-lettered delivery at once. The first holds the
+     * {@code FOR UPDATE} lock until it commits; the second's lock read waits, then sees the committed DUE and is
+     * refused as wrong-state (the {@code DeliveryOperatorActions.act} check). Exactly one REPLAY event exists. Without
+     * the lock the second read would see DEAD_LETTERED from its snapshot and only the conditional update would save it.
+     */
+    @Test
+    void twoConcurrentReplaysOfOneDeliveryLetExactlyOneWin() throws Exception {
+        UUID id = insert(DeliveryTestDatabase.TENANT_A, "DEAD_LETTERED", "PERMANENT");
+        CountDownLatch firstLocked = new CountDownLatch(1);
+        CompletableFuture<String> first = CompletableFuture.supplyAsync(() -> attemptReplay(id, () -> {
+            firstLocked.countDown();
+            sleep(750); // hold the row lock while the second caller reaches its lock read
+        }));
+        assertThat(firstLocked.await(10, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<String> second = CompletableFuture.supplyAsync(() -> attemptReplay(id, () -> { }));
+
+        assertThat(first.get(20, TimeUnit.SECONDS)).isEqualTo("MOVED_TO_DUE");
+        assertThat(second.get(20, TimeUnit.SECONDS)).isEqualTo("WRONG_STATE saw DUE");
+        assertThat(state(DeliveryTestDatabase.TENANT_A, id)).isEqualTo("DUE");
+        assertThat(events(DeliveryTestDatabase.TENANT_A, id)).containsExactly("REPLAY");
+    }
+
+    /** The lock-check-move of {@code DeliveryOperatorActions.act} for a replay, in one tenant transaction. */
+    private String attemptReplay(UUID id, Runnable afterLock) {
+        return tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> {
+            JdbcOperatorActionStore store = store(DeliveryTestDatabase.TENANT_A);
+            Target target = store.lockForAction(id).orElseThrow();
+            afterLock.run();
+            if (target.state() != DeliveryState.DEAD_LETTERED) {
+                return "WRONG_STATE saw " + target.state();
+            }
+            return store.replay(id, Instant.now()) ? "MOVED_TO_DUE" : "WRONG_STATE lock broken";
+        });
+    }
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
 }
