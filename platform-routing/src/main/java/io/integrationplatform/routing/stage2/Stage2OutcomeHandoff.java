@@ -18,7 +18,10 @@ public interface Stage2OutcomeHandoff {
      *
      * @param deliveryId                      the delivery whose attempt failed
      * @param claimToken                      the token the claim wrote (the state move stays conditional on it)
-     * @param attemptsSoFar                   the delivery's attempt rows so far including this series
+     * @param attemptsSoFar                   the delivery's attempt rows so far including this series - advisory
+     *                                        only: the attempt budget is counted from the attempt rows since the
+     *                                        latest {@code REPLAY} (see {@code SendOutcomes#recordFailure} and
+     *                                        {@code JdbcSendOutcomes}), never from this argument
      * @param outcome                         the classified outcome of the last call (never SUCCESS - a successful
      *                                        layer 1 hands off nothing)
      * @param targetDeclaresIdempotentReceive the pinned target's declaration: an AMBIGUOUS outcome retries in

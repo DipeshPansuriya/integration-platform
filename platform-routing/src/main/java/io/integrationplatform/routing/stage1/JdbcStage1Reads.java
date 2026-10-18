@@ -42,4 +42,16 @@ public class JdbcStage1Reads extends TenantScopedRepository {
                 (rs, n) -> rs.getString("snapshot"));
         return rows.stream().findFirst();
     }
+
+    /**
+     * T-180: the ids of this tenant's messages still {@code ACCEPTED} that were accepted before {@code cutoff}
+     * (unordered). ponytail: no batch limit - the set is empty in steady state, and the tenant-scoped
+     * {@code query} appends its condition in parentheses, so a LIMIT clause cannot ride along.
+     */
+    public List<UUID> acceptedBefore(Instant cutoff) {
+        return query("select m.id from public.message m",
+                "m.state = 'ACCEPTED' and m.accepted_at < :cutoff",
+                Map.of("cutoff", java.sql.Timestamp.from(cutoff)),
+                (rs, n) -> rs.getObject("id", UUID.class));
+    }
 }
