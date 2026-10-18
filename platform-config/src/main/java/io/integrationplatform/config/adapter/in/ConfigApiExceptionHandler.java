@@ -37,6 +37,14 @@ public class ConfigApiExceptionHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ConfigApiExceptionHandler.class);
 
+    /**
+     * The longest publish-refusal reason answered. Config-local (config never imports routing): routing's
+     * RefusalText bounds each echoed value to 32 characters, and its longest whole answer is 104, so 128 cuts no
+     * routing answer and still bounds any other thrower. Cut plainly, no marker - RefusalText adds none either.
+     */
+    static final int REASON_CAP = 128;
+    static final String REFUSED = "the publish was refused";
+
     private final ObjectProvider<TenantDenialRecorder> recorders;
     private final ObjectProvider<TenantContext> tenantContexts;
 
@@ -55,13 +63,16 @@ public class ConfigApiExceptionHandler {
     }
 
     /**
-     * ADR-017 Decision 2: a publish listener refused the publish (it rolled back). 400 with the listener's sanitised
-     * reason; a validation refusal, not a cross-tenant attempt - no denial record, nothing logged above DEBUG.
+     * ADR-017 Decision 2: a publish listener refused the publish (it rolled back). 400 with the listener's reason;
+     * a validation refusal, not a cross-tenant attempt - no denial record, nothing logged above DEBUG.
+     * Row 278 T160 (K-C2-1, CWE-209 defence in depth): the thrower sanitises, and this seam does not trust it - the
+     * reason loses every ISO control character (CR, LF, TAB, NUL, ESC, DEL ...) and is cut to
+     * {@value #REASON_CAP} characters; a reason blank after that answers {@value #REFUSED}, never an empty string.
      */
     @ExceptionHandler(InterfacePublishRefused.class)
     public ResponseEntity<Map<String, Object>> publishRefused(InterfacePublishRefused refused) {
         LOG.debug("a publish listener refused the publish; it was rolled back", refused);
-        return ResponseEntity.status(400).body(ConfigApiException.body("error", refused.reason()));
+        return ResponseEntity.status(400).body(ConfigApiException.body("error", answerable(refused.reason())));
     }
 
     @ExceptionHandler(DuplicateKeyException.class)
@@ -76,6 +87,13 @@ public class ConfigApiExceptionHandler {
         LOG.error("the configuration write failed; the transaction was rolled back", failure);
         return ResponseEntity.status(500).body(ConfigApiException.body(
                 "error", "the configuration write failed and the transaction was rolled back"));
+    }
+
+    /** The reason without control characters, at most {@value #REASON_CAP} long; {@value #REFUSED} if blank. */
+    private static String answerable(String reason) {
+        String kept = reason.chars().filter(c -> !Character.isISOControl(c)).limit(REASON_CAP)
+                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString();
+        return kept.isBlank() ? REFUSED : kept;
     }
 
     /** The one denied-attempt record a path-named foreign row earns: bound tenant, method, path - never the id. */
