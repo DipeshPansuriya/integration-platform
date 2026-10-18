@@ -4,8 +4,8 @@
 // the detail screen, carrying the failing stage), failing stage, error class, last error text, origin
 // (PLATFORM = our side, TARGET = the target's answer) and failed-at. Newest first, as answered.
 //
-// Retry/replay is NOT here: the replay API (T111) is not built, so there is no button at all - not a
-// dead or disabled one. FailureRowView is its own component so the one action cell can be added later.
+// Replay (T111/T112): a dead-lettered delivery row (failing stage DELIVER, with a delivery id) carries a Replay
+// button (OperatorActionButton); a route failure has no delivery to replay, so its action cell is empty.
 //
 // Masked fields: no payload field is shown. lastError is rendered as a React text child (escaped,
 // never parsed as HTML); masking any sensitive value inside it is the backend's (T108), not this screen's.
@@ -16,6 +16,8 @@
 import { useEffect, useState } from 'react';
 import { listFlows, type FlowSummary } from '../api/flows';
 import { messageFailures, type Failure } from '../api/messages';
+import { OperatorActionButton } from './OperatorActionButton';
+import { failureAction, type OperatorAction } from './operator-actions';
 import {
   emptyText,
   failureColumns,
@@ -29,8 +31,8 @@ import {
 
 type Load = 'loading' | 'ready' | 'refused' | 'error';
 
-/** One failure row; T111 adds its replay action as one more cell here. The Flow cell shows only in the All-flows view. */
-function FailureRowView({ row, showFlow }: { row: FailureRow; showFlow: boolean }) {
+/** One failure row, its replay action the last cell. The Flow cell shows only in the All-flows view. */
+function FailureRowView({ row, showFlow, action }: { row: FailureRow; showFlow: boolean; action: OperatorAction | null }) {
   return (
     <tr data-failure-row={row.trackingId} data-failing-stage={row.failingStage} data-origin={row.origin}>
       <td>
@@ -46,6 +48,7 @@ function FailureRowView({ row, showFlow }: { row: FailureRow; showFlow: boolean 
       <td>
         <time dateTime={row.failedAt}>{row.failedAtText}</time>
       </td>
+      <td data-action-cell>{action && <OperatorActionButton action={action} />}</td>
     </tr>
   );
 }
@@ -149,11 +152,12 @@ export function Failures() {
                 {column}
               </th>
             ))}
+            <th scope="col">Action</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <FailureRowView key={row.key} row={row} showFlow={showFlow} />
+          {rows.map((row, i) => (
+            <FailureRowView key={row.key} row={row} showFlow={showFlow} action={failureAction(answered[i])} />
           ))}
         </tbody>
       </table>

@@ -15,6 +15,8 @@
 
 import { useEffect, useState } from 'react';
 import { messageTimeline, type Timeline } from '../api/messages';
+import { OperatorActionButton } from './OperatorActionButton';
+import { deliveryAction } from './operator-actions';
 import {
   NOT_FOUND_TEXT,
   detailStateOf,
@@ -135,6 +137,15 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
               </div>
             ))}
           </dl>
+          {(timeline.deliveries ?? []).map((d) => {
+            // T112: a delivery waiting to retry (last outcome TRANSIENT/AMBIGUOUS) offers Retry now; the server's 409 guards the state.
+            const action = deliveryAction(d);
+            return action ? (
+              <p key={d.deliveryId} data-delivery-action={d.deliveryId}>
+                Delivery to {d.targetId ?? d.deliveryId}: <OperatorActionButton action={action} />
+              </p>
+            ) : null;
+          })}
           {failing && (
             <p data-failing-stage={failing}>
               Failed at the {stageName(failing)} stage.

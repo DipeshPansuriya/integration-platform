@@ -75,3 +75,4 @@ export async function messageFailures(params: { flowId?: string; date?: string }
   const { data, error, response } = await api.GET('/api/v1/admin/messages/failures', { params: { query: params } });
   return answer((data ?? []) as unknown as Failure[], error, response);
 }
+
