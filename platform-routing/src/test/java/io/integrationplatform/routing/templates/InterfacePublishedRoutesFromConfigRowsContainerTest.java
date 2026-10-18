@@ -49,9 +49,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * T-116 container leg (row 278 T68, sanjay-developer; E9-F1-S1 "Publish creates the route at runtime", ADR-010
  * section 3): the REAL config publish path ({@link FlowAdminService#publish} through its transaction proxy, the real
  * {@link JdbcFlowRepository}) writes the interface's route rows on PostgreSQL, announces the publish, and the routing
- * module's listener instantiates each ACTIVE route row - read by the real {@link JdbcRouteConfigReader} inside the
- * publish transaction - as a live route in the Camel context that was started before the publish. Publishing a new
- * target on the live interface adds exactly its route; the instances already live are re-used, never rebuilt.
+ * module's listener validates each ACTIVE route row - read by the real {@link JdbcRouteConfigReader} inside the
+ * publish transaction - and builds nothing (ADR-010 s3 amendment, row 278 T106); stage 2 then builds each row lazily
+ * as a live route in the Camel context that was started before the publish. A new target published on the live
+ * interface adds exactly its route on first use; the instances already live are re-used, never rebuilt.
  * 0 deploys, 0 restarts: the one context is never stopped, started or reloaded.
  *
  * <p>Not exercised here, by design: the T-190 mapping pin check (its own suite, T190MappingPinContainerTest) is a
@@ -71,6 +72,7 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
     private DefaultCamelContext camel;
     private AnnotationConfigApplicationContext spring;
     private RouteInstanceFactory factory;
+    private JdbcRouteConfigReader reader;
 
     @BeforeAll
     static void database() {
@@ -109,8 +111,8 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
                 return exchange -> sent.add(row.endpointUri() + "<-" + exchange.getMessage().getBody(String.class));
             }
         };
-        factory = new RouteInstanceFactory(new JdbcRouteConfigReader(jdbc, RoutingTestDatabase.tenant(TENANT)),
-                camel, List.of(api), Set.of("https"), Duration.ofMinutes(30), Instant::now);
+        reader = new JdbcRouteConfigReader(jdbc, RoutingTestDatabase.tenant(TENANT));
+        factory = new RouteInstanceFactory(reader, camel, List.of(api), Set.of("https"), Duration.ofMinutes(30), Instant::now);
 
         spring = new AnnotationConfigApplicationContext();
         spring.registerBean(RouteInstanceFactory.class, () -> factory);
@@ -140,6 +142,8 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
 
         spring.getBean(FlowAdminService.class).publish(seed.interfaceId.toString());
 
+        assertThat(camel.getRoutes()).as("AC-1: the publish validates the rows and builds nothing").isEmpty();
+        ensureActiveRoutes(seed.interfaceId); // stage 2 builds each ACTIVE row's instance lazily on first use
         assertThat(routeIds()).as("one live route instance per ACTIVE route row; the paused row is not instantiated")
                 .containsExactlyInAnyOrder(camelRouteId(routeA), camelRouteId(routeB));
         RouteInstance liveA = factory.instanceOf(endpointA).orElseThrow();
@@ -153,7 +157,7 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
         send(endpointB, "m-2");
         assertThat(sent).as("each route runs the send built from its row's endpoint URI")
                 .containsExactly("https://target-a.example/v1<-m-1", "https://target-b.example/v1<-m-2");
-        assertThat(seed.interfaceStatus()).as("the publish committed after the routes were built").isEqualTo("PUBLISHED");
+        assertThat(seed.interfaceStatus()).as("the publish committed").isEqualTo("PUBLISHED");
 
         // publishing a new target on the live interface: version 2 adds a route to target D
         UUID endpointD = seed.targetEndpoint("https://target-d.example/v1");
@@ -162,6 +166,9 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
 
         spring.getBean(FlowAdminService.class).publish(seed.interfaceId.toString());
 
+        assertThat(routeIds()).as("AC-1: the republish adds no route")
+                .containsExactlyInAnyOrder(camelRouteId(routeA), camelRouteId(routeB));
+        ensureActiveRoutes(seed.interfaceId);
         assertThat(routeIds()).as("the new target's route joined the running context")
                 .containsExactlyInAnyOrder(camelRouteId(routeA), camelRouteId(routeB), camelRouteId(routeD));
         assertThat(factory.instanceOf(endpointA).orElseThrow()).as("a live instance is re-used, never rebuilt")
@@ -170,6 +177,46 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
         assertThat(sent).last().isEqualTo("https://target-d.example/v1<-m-3");
         assertThat(camel.isStarted()).as("the same running context").isTrue();
         assertThat(contextStartsOrStops).as("0 restarts: the context was never stopped or started again").hasValue(0);
+    }
+
+    /**
+     * Row 278 T106, Varun N2 / Kavita F14 (ADR-010 s3 amendment, AC-1): the REAL publish of an interface whose route
+     * rows are one https: target and one exec: target is refused at BEFORE_COMMIT and rolled back - the interface's
+     * status and published-version pointer are unchanged, and no live or cached route is left behind.
+     */
+    @Test
+    void aPublishWithARefusedSchemeRowRollsBackAndLeavesNoRoute() {
+        Seed seed = new Seed();
+        UUID endpointHttps = seed.targetEndpoint("https://target-a.example/v1");
+        UUID endpointExec = seed.targetEndpoint("exec:/bin/echo");
+        RouteRow routeHttps = seed.draftRoute(endpointHttps, 1, "ACTIVE");
+        RouteRow routeExec = seed.draftRoute(endpointExec, 2, "ACTIVE");
+        seed.approvedVersion(1, List.of(routeHttps, routeExec),
+                List.of(seed.boundMapping(routeHttps), seed.boundMapping(routeExec)));
+        List<String> pointerBefore = seed.publishPointer();
+
+        Throwable thrown = org.assertj.core.api.Assertions.catchThrowable(
+                () -> spring.getBean(FlowAdminService.class).publish(seed.interfaceId.toString()));
+
+        assertThat(thrown).as("the publish is refused").isNotNull();
+        RouteBuildRefusedException refused = null;
+        for (Throwable t = thrown; t != null && refused == null; t = t.getCause()) {
+            if (t instanceof RouteBuildRefusedException r) {
+                refused = r;
+            }
+        }
+        assertThat(refused).as("the refusal is (or is caused by) RouteBuildRefusedException: " + thrown).isNotNull();
+        assertThat(refused.getMessage()).as("the refusal names the scheme").contains("'exec'");
+        assertThat(seed.publishPointer()).as("status and published-version pointer rolled back")
+                .isEqualTo(pointerBefore);
+        assertThat(camel.getRoutes()).as("a refused publish leaves no live Camel route (F14)").isEmpty();
+        assertThat(factory.instanceOf(endpointHttps)).as("and no cached instance for the https row").isEmpty();
+    }
+
+    /** Stage 2's lazy build: each ACTIVE row read in a tenant-stamped transaction, then ensured. */
+    private void ensureActiveRoutes(UUID interfaceId) {
+        new TransactionTemplate(stamped).execute(status -> reader.activeRoutes(TENANT, interfaceId))
+                .forEach(factory::ensure);
     }
 
     private List<String> routeIds() {
@@ -291,6 +338,13 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
                     + " :cv::uuid, :author::uuid, :approver::uuid)",
                     "interface", interfaceId, "version", version, "snapshot", snapshot, "cv", contractVersion,
                     "author", author, "approver", UUID.randomUUID());
+        }
+
+        /** The interface's status and published-version pointer, as one comparable pair. */
+        List<String> publishPointer() {
+            return tx.execute(status -> jdbc.sql("select status, published_version::text as pv from public.interface"
+                    + " where id = :id::uuid").param("id", interfaceId.toString())
+                    .query((rs, n) -> java.util.Arrays.asList(rs.getString("status"), rs.getString("pv"))).single());
         }
 
         String interfaceStatus() {

@@ -3,10 +3,13 @@ package io.integrationplatform.config.destination;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -23,17 +26,52 @@ import java.util.regex.Pattern;
  * </ol>
  *
  * A redirect is a new destination: the caller runs the guard again on every hop.
+ *
+ * <p>T138 (showcase only, wired under the {@code showcase} profile by the systems configuration): a set of EXACT
+ * allow-listed host names may resolve to a {@code loopback} or {@code private} address, so a showcase reaches a local
+ * test destination. It never widens the allow-list, never lifts an IP literal and never lifts any other refused range
+ * (link-local / cloud metadata, carrier-grade NAT, multicast, ...). Empty, it is today's guard. B21 (T137 F1,
+ * CWE-918): the exception is also pinned to EXACT ports - a range is lifted only when the host AND the port are
+ * listed, so a name that resolves to loopback does not reach every port on the host (database, identity, broker).
+ * The ports are global to the exception, not per host.
  */
 public final class DestinationGuard {
 
     private static final Pattern IPV4_LITERAL = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
 
+    /** An exact host name: dot-separated labels of letters, digits and inner hyphens - no wildcard, port or IP. */
+    private static final Pattern HOST_NAME =
+            Pattern.compile("[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*");
+
+    /** The only ranges the showcase exception lifts: a local test destination is on loopback or a private network. */
+    private static final Set<String> LOCAL_RANGES = Set.of("loopback", "private");
+
     private final AllowList allowList;
     private final HostResolver resolver;
+    private final Set<String> showcaseLocalHosts;
+    private final Set<Integer> showcaseLocalPorts;
 
     public DestinationGuard(AllowList allowList, HostResolver resolver) {
+        this(allowList, resolver, List.of(), List.of());
+    }
+
+    /**
+     * @param showcaseLocalHosts exact host names (normalised like the allow-list) that may resolve to a loopback or
+     *                           private address; only the showcase wiring passes a non-empty set
+     * @param showcaseLocalPorts the exact ports of the local test destination; required (non-empty) when
+     *                           {@code showcaseLocalHosts} is not empty
+     * @throws IllegalArgumentException a host entry is empty, a wildcard, an IP literal or anything but a host name;
+     *                                  a port is null or outside 1-65535; hosts are listed with no port
+     */
+    public DestinationGuard(AllowList allowList, HostResolver resolver, Collection<String> showcaseLocalHosts,
+            Collection<Integer> showcaseLocalPorts) {
         this.allowList = Objects.requireNonNull(allowList, "allowList");
         this.resolver = Objects.requireNonNull(resolver, "resolver");
+        this.showcaseLocalHosts = exactHostNames(Objects.requireNonNull(showcaseLocalHosts, "showcaseLocalHosts"));
+        this.showcaseLocalPorts = exactPorts(Objects.requireNonNull(showcaseLocalPorts, "showcaseLocalPorts"));
+        if (!this.showcaseLocalHosts.isEmpty() && this.showcaseLocalPorts.isEmpty()) {
+            throw new IllegalArgumentException("showcase local hosts need at least one exact showcase local port");
+        }
     }
 
     /**
@@ -59,7 +97,7 @@ public final class DestinationGuard {
 
         Optional<InetAddress> literal = literal(host);
         if (literal.isPresent()) {
-            refuseIfInRange(literal.get());
+            refuseIfInRange(literal.get(), false);
             if (!allowList.allows(host)) {
                 throw new DestinationRefusedException(Refusal.NOT_ON_ALLOW_LIST, null);
             }
@@ -72,17 +110,47 @@ public final class DestinationGuard {
         if (resolved == null || resolved.isEmpty()) {
             throw new UnknownHostException(host);
         }
+        boolean showcaseLocal = showcaseLocalHosts.contains(host) && showcaseLocalPorts.contains(port);
         for (InetAddress each : resolved) {
-            refuseIfInRange(each);
+            refuseIfInRange(each, showcaseLocal);
         }
         return new CheckedDestination(address, host, port, tls, resolved.get(0));
     }
 
-    private static void refuseIfInRange(InetAddress address) throws DestinationRefusedException {
+    private static void refuseIfInRange(InetAddress address, boolean showcaseLocal)
+            throws DestinationRefusedException {
         Optional<String> range = RefusedRanges.rangeOf(address);
-        if (range.isPresent()) {
+        if (range.isPresent() && !(showcaseLocal && LOCAL_RANGES.contains(range.get()))) {
             throw new DestinationRefusedException(Refusal.REFUSED_ADDRESS, range.get());
         }
+    }
+
+    private static Set<String> exactHostNames(Collection<String> hosts) {
+        Set<String> names = new LinkedHashSet<>();
+        for (String each : hosts) {
+            String name = each == null ? "" : AllowList.normalise(each);
+            String lastLabel = name.substring(name.lastIndexOf('.') + 1);
+            // a real top-level label is alphabetic: an all-digit or 0x-hex last label is an IPv4 encoding (T137 F3)
+            if (!HOST_NAME.matcher(name).matches() || lastLabel.matches("[0-9]+|0x[0-9a-f]*")) {
+                throw new IllegalArgumentException(
+                        "a showcase local host must be an exact host name (no wildcard, IP literal or port): '"
+                                + each + "'");
+            }
+            names.add(name);
+        }
+        return Set.copyOf(names);
+    }
+
+    private static Set<Integer> exactPorts(Collection<Integer> ports) {
+        Set<Integer> exact = new LinkedHashSet<>();
+        for (Integer each : ports) {
+            if (each == null || each < 1 || each > 65535) {
+                throw new IllegalArgumentException(
+                        "a showcase local port must be an exact port 1-65535: '" + each + "'");
+            }
+            exact.add(each);
+        }
+        return Set.copyOf(exact);
     }
 
     /** An IPv4 dotted quad or a bracketed/plain IPv6 literal, parsed without any DNS query. */

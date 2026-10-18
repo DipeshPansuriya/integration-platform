@@ -20,18 +20,18 @@
           "bulkhead",
           "db"
         ],
-        "note": "Permit, then one claim transaction: lock, hold check, HELD or SENDING; offset after the claim (ADR-010 s2, s7)."
+        "note": "Claim built, not wired (DeliveryClaimService): lock, hold check, HELD or SENDING; offset after the claim. Bulkhead permit first: not wired."
       },
       {
         "id": "send",
-        "label": "Send on the target's bulkhead",
+        "label": "Send on the send route",
         "focus": [
           "bulkhead",
           "transform",
           "target",
           "db"
         ],
-        "note": "Credential opened at send time, pinned mapping, checked address, six controls, attempt row, state only with the claim token."
+        "note": "Built, not wired: credential opened at send, checked address, layer-1 redelivery, outcome class, attempt row. Transform step planned."
       },
       {
         "id": "recover",
@@ -40,7 +40,7 @@
           "job",
           "db"
         ],
-        "note": "The delivery-retry job re-drives RETRY_WAIT and runs the reconciler: nothing stays stuck (ADR-010 s9)."
+        "note": "Re-drive code built, not wired (its job has no handler yet); reconciler and stale-claim sweeper planned (ADR-010 s9)."
       }
     ]
   },
@@ -53,7 +53,7 @@
     {
       "id": "routing",
       "type": "backend",
-      "label": "Stage 2 consumer"
+      "label": "Stage 2 (not wired)"
     },
     {
       "id": "db",
@@ -63,7 +63,7 @@
     {
       "id": "bulkhead",
       "type": "backend",
-      "label": "Target bulkhead"
+      "label": "Send route (not wired)"
     },
     {
       "id": "transform",
@@ -85,17 +85,17 @@
     {
       "from": 146,
       "to": 320,
-      "label": "1. Claim (partition thread)"
+      "label": "1. Claim (built, not wired)"
     },
     {
       "from": 334,
       "to": 564,
-      "label": "2. Send (bulkhead thread)"
+      "label": "2. Send (built, not wired)"
     },
     {
       "from": 578,
       "to": 668,
-      "label": "3. Retry + reconcile"
+      "label": "3. Retry + reconcile (partly planned)"
     }
   ],
   "messages": [
@@ -111,7 +111,7 @@
       "from": "routing",
       "to": "bulkhead",
       "y": 194,
-      "label": "take permit (non-blocking)",
+      "label": "bulkhead permit (not wired)",
       "variant": "security"
     },
     {
@@ -119,8 +119,9 @@
       "from": "routing",
       "to": "db",
       "y": 222,
-      "label": "full: BULKHEAD_FULL + RETRY_WAIT, no call",
-      "variant": "dashed"
+      "label": "full: defer, no call (not wired)",
+      "variant": "dashed",
+      "note": "JdbcBulkheadDeferrals (built, not wired): PENDING or DUE to RETRY_WAIT, 1 s doubling to 30 s, full jitter, BULKHEAD_FULL event, no attempt row. A successful claim resets the deferral count to 0."
     },
     {
       "id": "m04",
@@ -129,7 +130,7 @@
       "y": 250,
       "label": "claim tx: lock, hold check, HELD or SENDING",
       "variant": "security",
-      "note": "Hold if an earlier same-key message is still ACCEPTED or an earlier delivery to this target is not final"
+      "note": "DeliveryClaimService: key lock, read the delivery, hold check (earlier same-key message or earlier delivery to this target not final), then HELD or SENDING with a fresh claim token"
     },
     {
       "id": "m05",
@@ -144,7 +145,7 @@
       "from": "routing",
       "to": "bulkhead",
       "y": 306,
-      "label": "hand over the claimed delivery",
+      "label": "hand over to the send route",
       "variant": "emphasis"
     },
     {
@@ -179,14 +180,15 @@
       "from": "bulkhead",
       "to": "transform",
       "y": 438,
-      "label": "pinned mapping"
+      "label": "pinned mapping (planned)",
+      "note": "platform-routing has no transform dependency yet; the API adapter's body port is a stub (ApiAdapterConfiguration)."
     },
     {
       "id": "m08",
       "from": "transform",
       "to": "bulkhead",
       "y": 466,
-      "label": "payload or error",
+      "label": "payload or error (planned)",
       "variant": "return"
     },
     {
@@ -196,7 +198,7 @@
       "y": 494,
       "label": "send to checked IP, layer-1 redelivery",
       "variant": "emphasis",
-      "note": "Timeout, transient-only redelivery (2 max, 5 s of delay), breaker, Retry-After honoured"
+      "note": "ApiTargetCall: the destination guard pins the resolved IP; Camel layer 1 redelivers TRANSIENT only (2 max, 500 ms doubling, 5 s cap). Per-target breaker planned."
     },
     {
       "id": "m10",
@@ -205,7 +207,7 @@
       "y": 522,
       "label": "HTTP status -> outcome class",
       "variant": "return",
-      "note": "OutcomeClassifier: 401/403 (and 400/422) PERMANENT - one attempt, dead-lettered, never retried; 500/502/504/408 AMBIGUOUS unless idempotent receive"
+      "note": "OutcomeClassifier: 400/401/403/422 PERMANENT (one attempt, dead-lettered); 429/503 TRANSIENT; 408 and other 5xx AMBIGUOUS unless the target declares idempotent receive"
     },
     {
       "id": "m11",
@@ -214,59 +216,59 @@
       "y": 550,
       "label": "attempt row, delivery_event, state (token)",
       "variant": "emphasis",
-      "note": "A matching claim token writes the state row, delivery_event records the transition, and the final state releases the next HELD delivery in the same transaction"
+      "note": "Conditional on the claim token; delivery_event per transition; DELIVERED or DEAD_LETTERED releases the next HELD same-key delivery in the same transaction (JdbcDeliveryRepository)"
     },
     {
       "id": "m12",
       "from": "job",
       "to": "db",
       "y": 598,
-      "label": "due RETRY_WAIT to DUE + outbox",
+      "label": "due RETRY_WAIT to DUE + outbox (not wired)",
       "variant": "dashed",
-      "note": "At half-open, at most the breaker's trial count per target"
+      "note": "DeliveryRetryTrigger is built; the DELIVERY_RETRY db-scheduler task runs but has no handler yet, so the run is skipped. Half-open trial limit planned."
     },
     {
       "id": "m13",
       "from": "job",
       "to": "db",
       "y": 626,
-      "label": "reconcile: stale ACCEPTED, idle, HELD",
+      "label": "reconcile: stale ACCEPTED, idle, HELD (planned)",
       "variant": "dashed",
-      "note": "Re-publishes messages ACCEPTED over 5 min, PENDING/DUE idle over 5 min, HELD with no blocker"
+      "note": "Design: re-publish messages ACCEPTED over 5 min, PENDING/DUE idle over 5 min, HELD with no blocker. No reconciler code yet."
     },
     {
       "id": "m14",
       "from": "job",
       "to": "db",
       "y": 654,
-      "label": "stale claim: 3 x timeout + 65 s",
+      "label": "stale claim: 3 x timeout + 65 s (planned)",
       "variant": "dashed",
-      "note": "Classed AMBIGUOUS; a late outcome with an old token writes only a LATE_OUTCOME delivery_event and changes no state"
+      "note": "The limit is computed in RetryPolicy; no sweeper calls it yet. Design: classed AMBIGUOUS; a late outcome with an old token writes only a LATE_OUTCOME event."
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "One slow target stays alone",
+      "title": "One slow target stays alone (not wired)",
       "items": [
         "Sends never run on the Kafka partition thread",
-        "A full bulkhead defers in the database, no call"
+        "Per-target bulkhead (1-32 sends): not wired; send breaker: planned"
       ]
     },
     {
       "dot": "orange",
-      "title": "Exactly two retry layers",
+      "title": "Exactly two retry layers (not wired)",
       "items": [
         "Layer 1: Camel, transient only, seconds",
-        "Layer 2: RETRY_WAIT rows, the delivery-retry job"
+        "Layer 2: RETRY_WAIT rows (8 attempts, 30 s base, 1 h cap)"
       ]
     },
     {
       "dot": "rose",
-      "title": "Nothing stays stuck",
+      "title": "Status at code main",
       "items": [
-        "Release in the same transaction as the final state",
-        "Reconciler and consumer pause: 0 lost on a crash"
+        "Sections 1-2: code + tests exist, not wired yet (E11)",
+        "Reconciler and stale-claim sweeper: planned"
       ]
     }
   ]

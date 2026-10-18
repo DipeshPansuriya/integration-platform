@@ -1,7 +1,7 @@
 ---
 type: Architecture
 title: "Architecture - configuration-driven integration platform"
-status: "Recreated 2026-10-02 (phase 0) from surviving sources and updated to ADR-005, 007, 010, 011; revised 2026-10-02 for vikram-cto's challenge (m-817272); revised 2026-10-02 for vikram-cto's re-check (m-6a410c): ordering_key table and per-key sequence; amended 2026-10-12 for ADR-012, ADR-013, ADR-014 and ADR-015 (approved by Dipesh 2026-10-12): adapters and the send-time destination check in platform-routing, routing -> config public API, message and payload day-partitioned on accepted_at with deliveries on their message's day, mapping_version, scheduler schema and the OPERATOR_AGENT caller kind"
+status: "Recreated 2026-10-02 (phase 0) from surviving sources and updated to ADR-005, 007, 010, 011; revised 2026-10-02 for vikram-cto's challenge (m-817272); revised 2026-10-02 for vikram-cto's re-check (m-6a410c): ordering_key table and per-key sequence; amended 2026-10-12 for ADR-012, ADR-013, ADR-014 and ADR-015 (approved by Dipesh 2026-10-12): adapters and the send-time destination check in platform-routing, routing -> config public API, message and payload day-partitioned on accepted_at with deliveries on their message's day, mapping_version, scheduler schema and the OPERATOR_AGENT caller kind; as-built status added 2026-10-16 at main 90c1ddd in section 9 (ledger row 325) - the target design is unchanged and every earlier line keeps its number"
 date: 2026-10-02
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
@@ -19,10 +19,10 @@ related:
 > 2026-10-02. This file is rebuilt from their quotes in the hub (`ws/_specs/project-plan.md:159`,
 > provenance table) and written straight to the 2026-10-02 approach (Camel core, Kafka, contract
 > registry), so there is no v1/v2 drift to undo. Each section names its source; text marked
-> **New** comes from the ADRs of 2026-10-02.
+> **New** comes from the ADRs of 2026-10-02. **What of this design the code runs today (main `90c1ddd`): section 9.**
 
-Source paths starting `ws/` are in the hub repository, project workspace
-`_personal/_project_ipass/integration-platform/`.
+Source paths starting `ws/` are in the planning workspace kept outside this repository;
+see [README.md](README.md) for how to read them.
 
 ## 1. Quality goals, in priority order
 
@@ -35,7 +35,7 @@ Source paths starting `ws/` are in the hub repository, project workspace
    to the rows.
 5. **Each target isolated** - one failing target never blocks or rolls back another.
 
-## 2. Building blocks - one deployable, Maven modules
+## 2. Building blocks - one deployable, Maven modules (status today: section 9)
 
 *Sources: `ws/_specs/work-breakdown.md:16-20` (module list of the deleted design);
 `ws/_specs/f3-plan-brief.md:512` (config rule), `:611` (only deployable); ADR-001; **New**: the
@@ -94,7 +94,7 @@ start, transform end, sent, target responded, completed.
 
 *Sources: ADR-005, ADR-010, ADR-011; `ws/_specs/project-plan.md:113-116`.*
 
-### 4.1 Asynchronous flow (the default)
+### 4.1 Asynchronous flow (the default) - status today: section 9
 
 | Step | Where | What happens | Failure path - who finds out |
 |---|---|---|---|
@@ -113,7 +113,7 @@ start, transform end, sent, target responded, completed.
 | 13 | delivery (delivery-retry job) | Moves due `RETRY_WAIT` rows to `DUE` with an outbox row -> back to step 9 (at half-open, at most the breaker's trial count per target); the **reconciler** re-publishes messages `ACCEPTED` over 5 minutes, deliveries `PENDING`/`DUE` idle over 5 minutes, and `HELD` with no blocker left | Instance crash mid-call -> stale claim after 3 x target timeout + 5 s + 60 s, classed ambiguous; a late outcome with an old claim token changes no state |
 | 14 | delivery | `DELIVERED` or `DEAD_LETTERED`, conditional on the claim token; **in the same transaction** the next held same-key delivery per target is released | Dead letter -> operator replay later, with the versions pinned at arrival (retired versions stay readable), audited |
 
-### 4.2 Synchronous single-target flow
+### 4.2 Synchronous single-target flow - planned, see section 9
 
 Steps 1-4 as above, with **the message's own outbox row** deferred (`available_at` = now + 10 s +
 5 s). The request thread then runs stage 1 inline (`ROUTED` and the delivery in one transaction,
@@ -138,7 +138,7 @@ dies mid-call, the stale-claim rule recovers the delivery (ADR-011 Decision 5).
 *Source for 4.3: deleted workflows.md W8 and integration-platform-design.md P8, quoted at
 `ws/_specs/f3-plan-brief.md:52-55`, `:62-65`.*
 
-## 5. Tenant isolation - the controls (closed register)
+## 5. Tenant isolation - the controls (closed register; T5 status: section 9)
 
 *Sources: `ws/_specs/project-plan.md:103`; ADR-007, ADR-009, ADR-011; measured lessons in
 [rule.md](rule.md).*
@@ -166,7 +166,7 @@ dies mid-call, the stale-claim rule recovers the delivery (ADR-011 Decision 5).
   Release 1 security review (T-147). T5 stays at four definer functions: jobs loop
   `ipaas_active_tenants` and resolve known rows with `ipaas_work_tenant`.
 
-## 6. Deployment view
+## 6. Deployment view (development compose today: section 9)
 
 *Sources: `ws/_specs/project-plan.md:71`, `:79`, `:85-92`, `:192`; ADR-005, ADR-007.*
 
@@ -215,4 +215,77 @@ reverse).*
 
 See the [ADR index](adr/README.md).
 
-Diagrams (architecture, end-to-end flow, configuration workflow, delivery states): [diagrams/README.md](diagrams/README.md).
+Diagrams (architecture, end-to-end flow in two parts, configuration workflow, delivery states, console UI shell), drawn against the code at main `90c1ddd` with status words: [diagrams/README.md](diagrams/README.md).
+
+## 9. As built at main `90c1ddd` (2026-10-16)
+
+Sections 1-8 describe the **target** architecture. This section says how much of it the code holds today, so a
+reader does not take a planned piece for a running one. The [diagrams](diagrams/README.md) use the same status
+words: **runs** (started by `platform-app`), **not wired** (classes and tests exist, nothing creates or calls them
+yet), **planned** (no running code and no caller).
+
+**In one sentence:** the running application accepts a message, stores it with its payload and outbox row, and stops
+there (`platform-ingest/src/main/java/io/integrationplatform/ingest/internal/intake/IntakeService.java:38-66`). The
+relay, the stage-1 and stage-2 consumers, the per-target bulkhead, claim, send and the retry job body are built and tested as separate pieces
+but are not connected. Connecting them is the E11 composition step; no `app/composition` package exists under
+`platform-app/src/main` yet.
+
+| Module (section 2) | Maven module today | Status | Evidence |
+|---|---|---|---|
+| `platform-domain` | yes | partly: the job-handler and audit-event types are used by running code; the Delivery state register and the outcome classes are reached only from **not wired** code; no id type yet (only `audit/`, `delivery/`, `scheduler/`) | `pom.xml:24`; `platform-domain/src/main/java/io/integrationplatform/domain/scheduler/JobHandler.java:19` (used by `platform-app/src/main/java/io/integrationplatform/app/scheduler/JobRunWrapper.java:3`); `platform-config/src/main/java/io/integrationplatform/config/rule/application/LookupEntryService.java:6`; `platform-domain/src/main/java/io/integrationplatform/domain/delivery/Delivery.java:34`; `platform-domain/src/main/java/io/integrationplatform/domain/delivery/DeliveryTransitions.java:39-47` |
+| `platform-tenancy` | yes | runs: console login (BFF), bootstrap resolvers, roles | `pom.xml:34`; `platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/web/ConsoleSecurityConfiguration.java:84-88` |
+| `platform-config` | yes | runs: the admin API of [interface.md](interface.md) sections 4-7 | `pom.xml:30` |
+| `platform-ingest` | yes | intake runs (one endpoint, no bulk, no schema or rule validation, `Idempotency-Key` required but not stored); the outbox relay is **not wired** | `pom.xml:27`; `platform-ingest/src/main/java/io/integrationplatform/ingest/adapter/in/IntakeController.java:53`, `:68-69`; `platform-ingest/src/main/java/io/integrationplatform/ingest/internal/relay/PostgresOutboxRelay.java:45` |
+| `platform-routing` | yes | **not wired**: stage consumers, the layer-1 send route, the per-target bulkhead (1-32 concurrent sends, non-blocking permit taken before the claim), the API adapter and the send-time credential beans exist with no caller; the Kafka publish port is a bean only when `IPASS_KAFKA_BOOTSTRAP_SERVERS` is set; only the API adapter sends; MQ-CSV, DB, File and Kafka adapters **planned** - and Kafka is not yet a registrable target type (see the Kafka note below) | `pom.xml:26`; `platform-routing/src/main/java/io/integrationplatform/routing/stage/StageConsumer.java:45`; `platform-routing/src/main/java/io/integrationplatform/routing/publish/KafkaPublishPortConfiguration.java:29`; `platform-routing/src/main/java/io/integrationplatform/routing/adapter/api/ApiAdapterConfiguration.java:43-45`; `platform-routing/src/main/java/io/integrationplatform/routing/credential/CredentialRoutingConfiguration.java:23-33`; `platform-routing/src/main/java/io/integrationplatform/routing/stage2/bulkhead/DeliveryDueDispatch.java:41`; `platform-routing/src/main/java/io/integrationplatform/routing/stage2/bulkhead/TargetBulkhead.java:23-36`; `platform-routing/src/main/java/io/integrationplatform/routing/stage2/bulkhead/BulkheadSettings.java:14` |
+| `platform-transform` | yes | runs only behind the mapping test; transform in the send path **planned** (`platform-routing/pom.xml` has no `platform-transform` dependency; the API body port is a stub) | `pom.xml:33`; `platform-routing/src/main/java/io/integrationplatform/routing/adapter/api/ApiAdapterConfiguration.java:38-39` |
+| `platform-delivery` | yes | **not wired**: claim, outcome recording, retry trigger, and the bulkhead-full deferral (`PENDING`/`DUE` to `RETRY_WAIT`, 1 s doubling to 30 s with full jitter, a `BULKHEAD_FULL` event); the reconciler **planned** | `pom.xml:25`; `platform-delivery/src/main/java/io/integrationplatform/delivery/internal/deferral/JdbcBulkheadDeferrals.java:31`, `:68-75`; `platform-delivery/src/main/java/io/integrationplatform/delivery/internal/deferral/BulkheadBackoff.java:5-9` |
+| `platform-ledger` | **no** | planned; stage timings are kept in `message_stage_timing` today | `pom.xml:23-38`; `platform-routing/src/main/resources/db/migration/V2_1_1110__message_stage_timing.sql:26` |
+| `platform-audit` | **no** | planned; no `audit_event` table in any migration | `pom.xml:23-38` |
+| `platform-app` | yes | runs: wiring, db-scheduler with 4 recurring jobs whose bodies are no-ops or skipped today, the queue summary API `GET /api/v1/admin/queue/summary` | `pom.xml:35`; `platform-app/src/main/java/io/integrationplatform/app/scheduler/SchedulerJobTasks.java:37-53`; `platform-app/src/main/java/io/integrationplatform/app/scheduler/JobRunWrapper.java:32-34`; `platform-app/src/main/java/io/integrationplatform/app/queue/QueueSummaryController.java:35`, `:51` |
+| `arch-test` | yes | ArchUnit only (6 rule classes); no Spring Modulith dependency in any `pom.xml` | `pom.xml:37`; `arch-test/src/test/java/io/integrationplatform/archtest/` |
+| `platform-e2e` | **no** | planned | `pom.xml:23-38` |
+| `ui/` | not a Maven module | runs: the console of [design.md](design.md) | `ui/src/App.tsx:65-89` |
+
+Data model (section 3) differences today, measured by searching every `*.sql` migration on main: there is **no**
+`ordering_key`, `retry_policy`, `daily_aggregate` or `audit_event` table yet [TBD - the owning phases];
+`lookup_entry` is named only in a comment
+(`platform-config/src/main/resources/db/migration/V2_2_51__lookup_table.sql:2`). The `message` state set
+`ACCEPTED`/`ROUTED`/`ROUTE_FAILED` exists
+(`platform-routing/src/main/resources/db/migration/V2_1_810__message_partitioned.sql:23`).
+
+### Notes per section
+
+**Section 2 (modules).** `platform-ledger`, `platform-audit` and `platform-e2e` are not Maven modules
+yet, and `arch-test` holds ArchUnit rules only (table above).
+
+**Section 4.1 (asynchronous flow).** Steps 1, 2, 4 and 5 run for a single record. Step 3 runs only the 1 MB cap,
+the source-contract pin and the business key (`IntakeService.java:41-56`): no bulk, no schema or rule validation,
+no idempotency store. Step 4 writes message, payload and outbox but no `ordering_key` row. Steps 6-14 are built but
+**not wired** (table above). Answers today: 202 with a tracking id, 400, 404, 413, 415, 422, 503
+(`platform-ingest/src/main/java/io/integrationplatform/ingest/adapter/in/IntakeController.java:30-33`).
+
+**Section 4.2 (synchronous flow).** **planned** - no `SYNC` code path in any module.
+
+**Kafka - two roles, both not running yet** (diagrams: the architecture `Apache Kafka` and `Target systems` boxes).
+As the platform's own bus, the development compose file starts the broker (`compose/compose.yaml:72`), but
+`platform-app` publishes and consumes nothing: the outbox relay and the stage consumers are **not wired**, and the
+Kafka publish port is a bean only when `IPASS_KAFKA_BOOTSTRAP_SERVERS` is set
+(`platform-routing/src/main/java/io/integrationplatform/routing/publish/KafkaPublishPortConfiguration.java:29`) - so the
+three topics and the ids-only record are **not wired**. As a target type, Kafka is **planned**: the system-type register
+allows only `API`, `DB`, `MQ` and `FILE`
+(`platform-config/src/main/resources/db/migration/V2_2_7__config_system_type_settings.sql:13`), so a Kafka target cannot
+be registered today; [ADR-015](adr/ADR-015-target-type-register-and-adapter-placement.md) decision 3 adds `KAFKA_TOPIC`
+(and renames `MQ` to `MQ_CSV`) in E10, with its settings schema in E16. The architecture diagram's targets box reads
+"API; MQ, DB, File, Kafka planned".
+
+**Section 5 (control T5).** T5 - three of the four definer functions exist
+(`platform-tenancy/src/main/resources/db/migration/V1_3_3__ipaas_login_bootstrap.sql:7`,
+`platform-tenancy/src/main/resources/db/migration/V2_3_5__ipaas_client_bootstrap.sql:8`,
+`platform-routing/src/main/resources/db/migration/V2_3_811__ipaas_work_tenant.sql:13`). `ipaas_active_tenants` is
+referenced in Java (`platform-delivery/src/main/java/io/integrationplatform/delivery/internal/trigger/ActiveTenants.java:8`)
+but no migration creates it yet [TBD - the phase that wires the scanning jobs].
+
+**Section 6 (deployment).** The development compose file starts PostgreSQL 17, Keycloak, Kafka and Kafbat
+only (`compose/compose.yaml:13`, `:41`, `:72`, `:104`). Prometheus, Grafana and Tempo are **planned**; actuator
+exposes health only (`platform-app/src/main/resources/application.yml:57-58`). No JMS broker is in compose or in any
+test yet [TBD - the MQ-CSV adapter phase].

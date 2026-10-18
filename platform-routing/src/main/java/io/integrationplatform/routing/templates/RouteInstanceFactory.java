@@ -2,7 +2,6 @@ package io.integrationplatform.routing.templates;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Locale;
@@ -18,15 +17,17 @@ import org.apache.camel.CamelContext;
 
 /**
  * Route instances from configuration, built at runtime, lazily, on every consuming instance (ADR-010 section 3,
- * T-116, E9-C1/E9-C2): publish reads the interface's active route rows from the running system and instantiates
- * each through its target type's {@link RouteTemplate}; the consuming instance builds a (target endpoint,
- * version) pair's instance the first time a delivery needs it; an instance idle for 30 minutes is removed. A
- * local Camel route - rebuilt on demand, never authoritative (ADR-001), 0 deploys and 0 restarts.
+ * T-116, E9-C1/E9-C2): publish validates; it never builds (ADR-010 s3 amendment, F16 verdict c) - it reads the
+ * interface's active route rows and checks each against {@code allowedSchemes} and the template registry, adding
+ * 0 Camel routes and 0 cache entries; routes are built lazily in stage 2, where the consuming instance builds a
+ * (target endpoint, version) pair's instance through its target type's {@link RouteTemplate} the first time a
+ * delivery needs it; an instance idle for 30 minutes is removed. A local Camel route - rebuilt on demand, never
+ * authoritative (ADR-001), 0 deploys and 0 restarts.
  *
- * <p>The {@code allowedSchemes} guard sits before every build (E9-C6, T-120 machinery): a row whose endpoint URI
- * scheme is not in the approved list is refused and the publish fails with a clear error naming the scheme -
- * never built, never registered. {@code exec:}, {@code file:} and anything unlisted cannot be reached by
- * configuration.
+ * <p>The {@code allowedSchemes} guard sits before every build and in every publish (E9-C6, T-120 machinery): a row
+ * whose endpoint URI scheme is not in the approved list is refused and the publish fails with a clear error naming
+ * the scheme - never built, never registered. {@code exec:}, {@code file:} and anything unlisted cannot be reached
+ * by configuration.
  *
  * <p>Pinned versions (E9-F1-S1 @negative route side): the instance captures the row's contract and mapping
  * versions when it is BUILT; later configuration changes produce new rows for new messages but never touch
@@ -66,20 +67,18 @@ public final class RouteInstanceFactory {
     }
 
     /**
-     * Publish: instantiates a route instance from the route template for every active route row of the interface,
-     * on the running system - no context restart, no deploy. A row already instantiated is re-used (lazy re-use):
-     * a republished configuration never rebuilds a live route.
+     * Publish validates; it never builds (ADR-010 s3 amendment, F16 verdict c; row 278 T106 F14): every active
+     * route row of the interface passes the scheme check and the template-exists check, and nothing else happens -
+     * 0 Camel routes added, 0 cache entries written, so a refused row or a failed commit leaves nothing live.
+     * Routes are built lazily in stage 2 through {@link #ensure}.
      *
-     * @return the instances this call holds live for the interface's rows
-     * @throws RouteBuildRefusedException when a row's endpoint URI scheme is not in allowedSchemes - the publish
-     *     fails with a clear error, and the refused row's instance is never registered
+     * @throws RouteBuildRefusedException when a row's endpoint URI scheme is not in allowedSchemes or its target
+     *     type has no template - the publish fails with a clear error naming the scheme or type
      */
-    public List<RouteInstance> publishInterface(UUID tenantId, UUID interfaceId) {
-        List<RouteInstance> published = new ArrayList<>();
+    public void publishInterface(UUID tenantId, UUID interfaceId) {
         for (RouteConfigRow row : reader.activeRoutes(Objects.requireNonNull(tenantId), Objects.requireNonNull(interfaceId))) {
-            published.add(ensure(row));
+            approvedTemplate(row);
         }
-        return List.copyOf(published);
     }
 
     /**
@@ -88,13 +87,7 @@ public final class RouteInstanceFactory {
      * reset. Unknown target type or refused scheme fail fast with a clear error.
      */
     public RouteInstance ensure(RouteConfigRow row) {
-        Objects.requireNonNull(row, "row");
-        String scheme = row.scheme();
-        if (!allowedSchemes.contains(scheme)) {
-            throw new RouteBuildRefusedException("endpoint URI scheme '" + scheme
-                    + "' is not in allowedSchemes - the route for endpoint " + row.targetEndpointId()
-                    + " (URI '" + row.endpointUri() + "') is refused: configuration cannot reach an unapproved component");
-        }
+        RouteTemplate template = approvedTemplate(Objects.requireNonNull(row, "row"));
         RouteInstance existing = instancesByEndpoint.get(row.targetEndpointId());
         if (existing != null) {
             return existing; // lazy re-use: the pinned versions stayed, no rebuild from current configuration
@@ -104,15 +97,11 @@ public final class RouteInstanceFactory {
             if (existing != null) {
                 return existing;
             }
-            RouteTemplate template = templatesByType.get(row.targetType());
-            if (template == null) {
-                throw new RouteBuildRefusedException("no route template for target type '" + row.targetType()
-                        + "' - the route for endpoint " + row.targetEndpointId() + " is refused");
-            }
             String routeId = ROUTE_ID_PREFIX + row.routeId();
             if (context.getRoute(routeId) != null) {
-                throw new RouteBuildRefusedException("route id '" + routeId + "' is already in the Camel context"
-                        + " without a held instance - refusing to rebuild over it");
+                throw new RouteBuildRefusedException(409, "the route instance is already in the running context",
+                        "route id '" + routeId + "' is already in the Camel context without a held instance"
+                        + " - refusing to rebuild over it");
             }
             org.apache.camel.Processor send = template.build(row);
             registerRouteInstance(routeId, consumerOf(row), send);
@@ -120,6 +109,25 @@ public final class RouteInstanceFactory {
             instancesByEndpoint.put(row.targetEndpointId(), built);
             return built;
         }
+    }
+
+    /**
+     * The one validation publish and build share: the row's scheme is in allowedSchemes and its target type has a
+     * template. The exception messages keep their wording (logs and the stage 2 dead-letter reason read them).
+     */
+    private RouteTemplate approvedTemplate(RouteConfigRow row) {
+        String scheme = row.scheme();
+        if (!allowedSchemes.contains(scheme)) {
+            throw RouteBuildRefusedException.scheme(scheme, "endpoint URI scheme '" + scheme
+                    + "' is not in allowedSchemes - the route for endpoint " + row.targetEndpointId()
+                    + " (URI '" + row.endpointUri() + "') is refused: configuration cannot reach an unapproved component");
+        }
+        RouteTemplate template = templatesByType.get(row.targetType());
+        if (template == null) {
+            throw RouteBuildRefusedException.targetType(row.targetType(), "no route template for target type '"
+                    + row.targetType() + "' - the route for endpoint " + row.targetEndpointId() + " is refused");
+        }
+        return template;
     }
 
     /** The live instance of an endpoint, if this consuming instance holds one. */
