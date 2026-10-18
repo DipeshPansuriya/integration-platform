@@ -53,6 +53,10 @@ export type Failure = {
   failedAt: string;
 };
 
+// The live-regenerated schemas (openapi.d.ts Timeline/Failure/DeliveryTime) now carry failingStage and
+// deliveries, but springdoc marks every record field optional and never nullable, so the two reads below
+// keep one cast to the documented contract (tsc refuses the bare assignment: 'string | undefined' vs 'string').
+
 /** flows.ts's answer() pattern, keeping the backend's error/refusal wording. */
 function answer<T>(data: T | undefined, error: unknown, response: Response): ApiAnswer<T> {
   if (response.ok && data !== undefined) return { ok: true, data };

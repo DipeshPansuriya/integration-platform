@@ -88,7 +88,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["submit_1"];
+        post: operations["submit_2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -216,7 +216,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["submit"];
+        post: operations["submit_1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -281,6 +281,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/messages/failures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["failures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/messages/{trackingId}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["timeline"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -463,6 +495,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/interfaces/{interfaceCode}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -555,6 +603,24 @@ export interface components {
             status?: "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "RETIRED";
             versionLabel?: string;
         };
+        DeliveryTime: {
+            deliveryId?: string;
+            /** Format: int64 */
+            durationMs?: number;
+            outcome?: string;
+            targetId?: string;
+        };
+        Failure: {
+            deliveryId?: string;
+            errorClass?: string;
+            failedAt?: string;
+            failingStage?: string;
+            flowId?: string;
+            lastError?: string;
+            origin?: string;
+            targetId?: string;
+            trackingId?: string;
+        };
         JsonNode: {
             array?: boolean;
             bigDecimal?: boolean;
@@ -591,6 +657,20 @@ export interface components {
             /** Format: uuid */
             userId?: string;
         };
+        MediaType: {
+            charset?: string;
+            concrete?: boolean;
+            parameters?: {
+                [key: string]: string;
+            };
+            /** Format: double */
+            qualityValue?: number;
+            subtype?: string;
+            subtypeSuffix?: string;
+            type?: string;
+            wildcardSubtype?: boolean;
+            wildcardType?: boolean;
+        };
         RuleTableCell: {
             column?: string;
             node?: string;
@@ -605,6 +685,26 @@ export interface components {
             error?: string;
             /** @description Why the table is refused (the engine's own reason) */
             reason?: string;
+        };
+        StageTime: {
+            /** Format: int64 */
+            durationMs?: number;
+            finishedAt?: string;
+            /** Format: int64 */
+            sincePreviousMs?: number;
+            stage?: string;
+            startedAt?: string;
+        };
+        Timeline: {
+            acceptedAt?: string;
+            deliveries?: components["schemas"]["DeliveryTime"][];
+            failingStage?: string;
+            flowId?: string;
+            stages?: components["schemas"]["StageTime"][];
+            state?: string;
+            /** Format: int64 */
+            totalMs?: number;
+            trackingId?: string;
         };
     };
     responses: never;
@@ -837,7 +937,7 @@ export interface operations {
             };
         };
     };
-    submit_1: {
+    submit_2: {
         parameters: {
             query?: never;
             header?: never;
@@ -1383,7 +1483,7 @@ export interface operations {
             };
         };
     };
-    submit: {
+    submit_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -1631,6 +1731,78 @@ export interface operations {
                 };
             };
             /** @description Not found: the mapping is unknown, not a uuid, or not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    failures: {
+        parameters: {
+            query?: {
+                flowId?: string;
+                date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Failure"][];
+                };
+            };
+            /** @description NO_BOUND_USER, or ROLE_NOT_GRANTED: a message-timeline read */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    timeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trackingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Timeline"];
+                };
+            };
+            /** @description NO_BOUND_USER, or ROLE_NOT_GRANTED: a message-timeline read */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description No message with this tracking id for the bound tenant */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2547,6 +2719,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    submit: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Content-Type"?: components["schemas"]["MediaType"];
+                "X-Source-Contract-Version"?: string;
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                interfaceCode: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
