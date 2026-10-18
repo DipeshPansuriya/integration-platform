@@ -102,11 +102,13 @@ test('timelineOfRows: the T105 rows of one message as a timeline the oracle read
   ];
   const timeline = timelineOfRows(id, rows);
   assert.equal(timeline.trackingId, id);
-  assert.deepEqual(timeline.stages[3], { stage: 'DELIVER', startedAt: '2026-10-18T10:00:00.060Z', finishedAt: '2026-10-18T10:00:00.090Z' });
+  assert.deepEqual(timeline.stages[3], { stage: 'DELIVER', startedAt: '2026-10-18T10:00:00.060Z', finishedAt: '2026-10-18T10:00:00.090Z', durationMs: 30 });
+  assert.equal(timeline.totalMs, 90, 'first start to last finish');
   assert.deepEqual(timelineProblems(timeline, id), []);
   const open = timelineOfRows(id, [...rows.slice(0, 3), ['DELIVER', '2026-10-18T10:00:00.060Z', '']]);
   assert.equal(open.stages[3].finishedAt, null);
-  assert.deepEqual(timelineProblems(open, id), ['DELIVER has not finished']);
+  assert.equal(open.stages[3].durationMs, null, 'no duration is made up for a running stage');
+  assert.deepEqual(timelineProblems(open, id), ['DELIVER has not finished', 'DELIVER duration null is not >= 0', 'total null is not >= 0']);
   assert.deepEqual(timelineProblems(timelineOfRows(id, rows.slice(0, 2)), id), ['stage TRANSFORM is missing', 'stage DELIVER is missing']);
   assert.throws(() => timelineOfRows(id, [['INTAKE', '2026-10-18T10:00:00.000Z']]), /three columns/);
   assert.throws(() => timelineOfRows(id, 'rows'), /rows/);

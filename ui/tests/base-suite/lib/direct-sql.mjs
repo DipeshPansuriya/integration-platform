@@ -71,3 +71,15 @@ export const eventTypesSql = (code, deliveryId) => {
 export const auditRowsSql = (code) => "select a.id::text, a.tenant_id::text, a.actor, a.action,"
   + " translate(a.target_ids::text || ' ' || coalesce(a.before_state, '') || ' ' || coalesce(a.after_state, ''), chr(124) || chr(10) || chr(13), '   ')"
   + ` from public.audit_event a where a.tenant_id = ${tenantOf(code)} order by a.id`;
+
+// BS-09 stage proof (T105, seam-row278-t105 d609f17 StageTimings.java; table V2_1_1110 on main): one message's
+// timing rows, UTC ISO with millis so Date.parse reads them; a still-running stage's finish is ''.
+const ISO_MS = `'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'`;
+
+/** Rows: stage | started (UTC ISO) | finished (UTC ISO, or '' while running) - of one message, in start order. */
+export const stageTimingsOfMessageSql = (code, messageId) => {
+  const id = uuidOf(messageId);
+  return `select s.stage, to_char(s.started_at at time zone 'UTC', ${ISO_MS}),`
+    + ` coalesce(to_char(s.finished_at at time zone 'UTC', ${ISO_MS}), '') from public.message_stage_timing s`
+    + ` where s.tenant_id = ${tenantOf(code)} and s.message_id = ${id} order by s.started_at, s.stage`;
+};

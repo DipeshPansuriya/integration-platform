@@ -3,22 +3,26 @@
 // so the one id is known before the POST - its trace id. Then:
 //   logs   every app log line written meanwhile is a JSON object; every line naming the message carries
 //          its tenant, message and correlation ids; intake, route, transform and deliver each have one
+//   stages the message has ONE T105 timing row per stage (INTAKE, ROUTE, TRANSFORM, DELIVER), each
+//          finished, in pipeline order (public.message_stage_timing, read-only, tenant-scoped)
 //   Kafka  every record of the message, on platform.message.accepted and the later hops, carries the
 //          header "traceparent" (KafkaPublishPort.java:41-42) with the same trace id
 //
 // Expected RED today, in this order:
 //   1. global-setup: "dev-only exception not configured - waits for row 278" (or "still TBD(row278)");
-//   2. "logFieldTenant is still TBD(T107)" - the JSON field names land with T107; and the Kafka reads
-//      "kafkaContainerEnv is still TBD(T130)" - the base-suite boot starts no Kafka (harness gap);
+//   2. "logFieldStage is still TBD(T107)" - the stage field and values land with T107; and the Kafka read
+//      "kafkaStageTopics is still TBD(T107)" (the broker itself is booted by the harness since T130);
 //   3. with the names swapped, before T106: the message is never delivered (nothing consumes
 //      platform.message.accepted) - the DELIVERED wait times out;
 //   4. before T107: the log lines are plain text, and no line carries the correlation id.
-// Green needs T106, T107 and row 278's exception after T137. Read-only: logs, Kafka and SQL are only read.
+//   5. before T105: no ROUTE / TRANSFORM / DELIVER timing rows - only intake writes one on main.
+// Green needs T105, T106, T107 and row 278's exception after T137. Read-only: logs, Kafka and SQL are only read.
 
 import { randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { deliveryOfMessageSql, tenantIdSql } from '../lib/direct-sql.mjs';
+import { deliveryOfMessageSql, stageTimingsOfMessageSql, tenantIdSql } from '../lib/direct-sql.mjs';
 import { nameOf, waitsOn } from '../lib/pending-names.mjs';
+import { timelineOfRows, timelineProblems } from '../lib/timeline.mjs';
 import { FLOW, SOURCE_CONTRACT, TENANTS, orderRecord } from '../lib/tenants.mjs';
 import { ACCEPTED_TOPIC, headerProblems, logProblems, traceIdOf, traceparentOf } from '../lib/trace.mjs';
 import { appLogFrom, appLogSize, eventually, postRecord, sourceToken } from '../support/api.mjs';
@@ -30,7 +34,7 @@ import { rotatedSecret } from '../support/seed.mjs';
 
 // BS-09 needs features not on main yet: ONE flag per T-item (ON_MAIN in pending-names.mjs). While one is
 // missing the file is test.fixme - reported as fixme with the item named, never a silent pass.
-const WAITS = waitsOn('T107');
+const WAITS = waitsOn('T105', 'T107');
 test.fixme(WAITS !== null, WAITS ?? '');
 
 const PIPELINE_MS = 90000;
@@ -72,6 +76,10 @@ test('BS-09: one correlation id at intake, route, transform and deliver - JSON l
     return problems.length === 0;
   }, 'the log lines of the message', { timeoutMs: 15000 }).catch(() => {}); // the assertion below reports what is missing
   expect(problems, 'every log line JSON; the message\'s lines carry tenant, message and correlation ids at all four stages').toEqual([]);
+
+  // T105: the DELIVER row is written by the final move, in its transaction - so it is there once DELIVERED is
+  const timings = timelineOfRows(messageId, readRows(stageTimingsOfMessageSql(code, messageId)));
+  expect(timelineProblems(timings, messageId), 'one finished T105 timing row per stage, in pipeline order').toEqual([]);
 
   for (const topic of topics) {
     expect(headerProblems(topicRecords(topic), { messageId, correlationId, topic }), `${topic}: traceparent carries the one id`).toEqual([]);

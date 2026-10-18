@@ -62,3 +62,23 @@ export function screenRowProblems(rows, timeline) {
   }
   return problems;
 }
+
+/**
+ * The T105 rows of one message (stage | started | finished-or-'') as the timeline timelineProblems reads.
+ * Durations come from the timestamps; an unfinished stage has none (null), and so has the total - the oracle
+ * then names both, never a made-up 0.
+ */
+export function timelineOfRows(trackingId, rows) {
+  if (!Array.isArray(rows)) throw new Error('timelineOfRows: rows must be an array of [stage, started, finished]');
+  const stages = rows.map((row) => {
+    if (!Array.isArray(row) || row.length !== 3) throw new Error(`timelineOfRows: a row has three columns, got ${JSON.stringify(row)}`);
+    const [stage, startedAt, rawFinish] = row;
+    const finishedAt = rawFinish === '' ? null : rawFinish;
+    const span = finishedAt === null ? Number.NaN : ms(finishedAt) - ms(startedAt);
+    return { stage, startedAt, finishedAt, durationMs: Number.isNaN(span) ? null : span };
+  });
+  const starts = stages.map((s) => ms(s.startedAt));
+  const ends = stages.map((s) => (s.finishedAt === null ? Number.NaN : ms(s.finishedAt)));
+  const totalMs = stages.length === 0 || [...starts, ...ends].some(Number.isNaN) ? null : Math.max(...ends) - Math.min(...starts);
+  return { trackingId, stages, totalMs };
+}
