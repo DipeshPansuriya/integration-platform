@@ -113,7 +113,7 @@ test('a dead-lettered message: every stage with times, duration and gap, the tot
   // reached from Failures (the detail screen has no menu entry)
   await page.goto(consoleUrl());
   await page.click('[data-nav="failures"]');
-  await page.getByLabel('Flow', { exact: true }).selectOption(flow.id);
+  await page.getByRole('combobox', { name: 'Flow', exact: true }).selectOption(flow.id);
   await page.click(`[data-message-link="${msg}"]`);
   await expect(page).toHaveURL(new RegExp(`#/messages/${msg}\\?failed=DELIVER$`));
   await expect(page.locator(`${PAGE}[data-message-loaded="true"]`)).toBeVisible();

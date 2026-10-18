@@ -85,7 +85,16 @@ test('configured: the app gets the named profile and the one host through the va
   assert.equal(settings.profile, 'showcase');
   assert.equal(settings.host, 'target.showcase.test', 'trimmed and lower-cased like the guard normalises');
   assert.equal(settings.port, 32768, 'the exception port as a number');
-  assert.deepEqual(settings.appEnv, { SPRING_PROFILES_ACTIVE: 'showcase', SHOWCASE_TARGET_HOST: 'target.showcase.test' });
+  assert.deepEqual(settings.appEnv, { SPRING_PROFILES_ACTIVE: 'showcase', SHOWCASE_TARGET_HOST: 'target.showcase.test',
+    PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '32768', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'target.showcase.test' });
+});
+
+test('F1/F2: the host variable can never be the port or allow-list property the exception sets itself', () => {
+  for (const name of ['PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS', 'PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS']) {
+    const settings = exceptionSettings(withEnv({ IPASS_BS_EXCEPTION_HOST_VAR: name }));
+    assert.equal(settings.configured, false, name);
+    assert.match(settings.reason, new RegExp(name), name);
+  }
 });
 
 test('the exception port is one integer 1-65535 - anything else is misconfigured, not unset', () => {

@@ -35,6 +35,14 @@ test('wiremock: the pinned image, --rm, 8080 published on 127.0.0.1 only (random
   }]);
 });
 
+test('wiremock with a hostPort: published on exactly that loopback port (F1); a non-port is refused', () => {
+  const [plan] = servicePlan({ wiremock: { image: IMAGE, mappings: [STUB], hostPort: 32768 } }, '0a1b2c3d');
+  assert.ok(plan.runArgs.includes('127.0.0.1:32768:8080'));
+  for (const hostPort of [0, 65536, 1.5, '32768', null]) {
+    assert.throws(() => servicePlan({ wiremock: { image: IMAGE, mappings: [STUB], hostPort } }, '0a1b2c3d'), /hostPort/, String(hostPort));
+  }
+});
+
 test('refused before anything starts: an unpinned image, an unknown service, a bad stub or name suffix', () => {
   for (const image of ['wiremock/wiremock:3.13.1', `wiremock/wiremock@sha256:${'a'.repeat(64)}`, 'wiremock/wiremock:latest', '', undefined]) {
     assert.throws(() => servicePlan({ wiremock: { image, mappings: [] } }, '0a1b2c3d'), /pinned by tag AND digest/, String(image));

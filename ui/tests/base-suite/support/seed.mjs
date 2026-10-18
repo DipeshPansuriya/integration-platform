@@ -24,7 +24,7 @@ export async function seedTenant(page, tenant, settings) {
   // so an approver's call can never ride the author's marker
   await page.setExtraHTTPHeaders({});
   const as = (method, apiPath, body, what, login = tenant.admin) => inBrowser(page, method, apiPath, body, login).then((a) => must(a, `${tenant.key}: ${what}`));
-  const port = Number(bsEnv('wiremockPort'));
+  const port = settings.port; // F1: WireMock is published on the exception port (boot-options.mjs)
 
   // TBD(row278|T106): the API adapter's send URL - today the production body port is empty
   // (ApiAdapterConfiguration.java:38-39) and where the delivery reads its base URL (this system setting or a

@@ -55,8 +55,9 @@ test('configured: tenant B, the declared WireMock, the exception through mergeAp
   const options = baseSuiteBootOptions(CONFIGURED, { lockHolder: 'aditya-qa-automation base-suite' });
   assert.deepEqual(options, {
     extraTenants: [TENANT_B_PLAN],
-    services: { wiremock: BS_WIREMOCK, kafka: BS_KAFKA },
-    appEnv: { SPRING_PROFILES_ACTIVE: 'showcase', SHOWCASE_TARGET_HOST: 'target.showcase.test' },
+    services: { wiremock: { ...BS_WIREMOCK, hostPort: 32768 }, kafka: BS_KAFKA },
+    appEnv: { SPRING_PROFILES_ACTIVE: 'showcase', SHOWCASE_TARGET_HOST: 'target.showcase.test',
+      PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '32768', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'target.showcase.test' },
     sourceCredentials: true,
     lockHolder: 'aditya-qa-automation base-suite'
   });
@@ -65,6 +66,8 @@ test('configured: tenant B, the declared WireMock, the exception through mergeAp
   assert.deepEqual(mergeAppEnv({}, options.appEnv), options.appEnv);
   for (const name of Object.keys(options.appEnv)) assert.ok(!HARNESS_APP_ENV.includes(name), name);
   for (const login of Object.keys(TENANT_B_PLAN.logins)) assert.ok(!HARNESS_LOGINS.includes(login), login);
+  // F1: WireMock listens on the exception port itself - the one port the guard's showcase-local-ports lifts
+  assert.ok(servicePlan({ wiremock: options.services.wiremock }, '0a1b2c3d')[0].runArgs.includes('127.0.0.1:32768:8080'));
   assert.ok(!('loginSeed' in options), 'the base suite onboards its own flows - the login seed stays off');
 });
 

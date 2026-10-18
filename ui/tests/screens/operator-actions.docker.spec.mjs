@@ -80,7 +80,10 @@ async function freshFlow(page, scenario) {
   const created = await inBrowser(page, 'POST', '/api/v1/admin/flows',
     { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' });
   expect(created?.data?.id, `scenario ${scenario} onboards a flow: ${JSON.stringify(created?.data ?? created)}`).toBeTruthy();
-  return { id: created.data.id, code: created.data.code };
+  // the 201 carries only {id} (FlowAdminController.create); the code comes from the read
+  const read = await inBrowser(page, 'GET', `/api/v1/admin/flows/${created.data.id}`);
+  expect(read?.data?.code, `scenario ${scenario} reads its flow back: ${JSON.stringify(read?.data ?? read)}`).toBeTruthy();
+  return { id: created.data.id, code: read.data.code };
 }
 
 function seedMessage(tenantId, flowId, state) {
@@ -118,7 +121,7 @@ async function openFailures(page, flowId) {
   await page.goto(consoleUrl());
   await page.click('[data-nav="failures"]');
   await expect(page.locator(`${FAILURES}[data-failures-loaded="true"]`)).toBeVisible();
-  await page.getByLabel('Flow', { exact: true }).selectOption(flowId);
+  await page.getByRole('combobox', { name: 'Flow', exact: true }).selectOption(flowId);
   await expect(page.locator(`${FAILURES}[data-failures-loaded="true"]`)).toBeVisible();
 }
 
@@ -178,7 +181,7 @@ test('double submit: two replays of one delivery at once -> exactly one 200 and 
   expect(eventsOf(delivery, 'REPLAY')).toBe(1);
 });
 
-test('failures: the button is disabled while its POST is in flight, then a second click answers wrong state', async ({ page }) => {
+test('failures: the button is disabled while its POST is in flight and stays disabled after the replay, ignoring a second press', async ({ page }) => {
   const flow = await freshFlow(page, 'in-flight');
   const tenantId = tenantIdOf();
   const msg = seedMessage(tenantId, flow.id, 'ROUTED');
@@ -187,18 +190,19 @@ test('failures: the button is disabled while its POST is in flight, then a secon
   await openFailures(page, flow.id);
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
-  await page.route(`**/deliveries/${delivery}/replay`, async (route) => { await gate; await route.continue(); });
+  let posts = 0;
+  await page.route(`**/deliveries/${delivery}/replay`, async (route) => { posts += 1; await gate; await route.continue(); });
   const button = replayButton(page, msg);
   await button.click();
   await expect(button).toBeDisabled();
   release();
   await expect(answerOf(page, delivery)).toHaveText(TEXT.replayed);
-  await expect(button).toBeEnabled();
+  // T165 M4 (OperatorActionButton.tsx:3-4): once the delivery moved the button stays aria-disabled and ignores presses
+  await expect(button).toHaveAttribute('aria-disabled', 'true');
+  await button.click({ force: true }); // Playwright waits on aria-disabled; force sends the press the button must ignore
+  await expect(answerOf(page, delivery)).toHaveText(TEXT.replayed);
+  expect(posts, 'a press on the moved delivery sends no second POST').toBe(1);
   await page.unroute(`**/deliveries/${delivery}/replay`);
-
-  // the row still shows the stale DEAD_LETTERED read; the server is the authority
-  await button.click();
-  await expect(answerOf(page, delivery)).toContainText(/^Not replayed: the delivery is [A-Z_]+, not dead-lettered\. Reload/);
   expect(eventsOf(delivery, 'REPLAY')).toBe(1);
 });
 
