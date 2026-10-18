@@ -2,6 +2,10 @@ package io.integrationplatform.delivery.internal.deferral;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.zaxxer.hikari.HikariDataSource;
 import io.integrationplatform.delivery.DeliveryEventType;
 import io.integrationplatform.delivery.DeliveryTestDatabase;
@@ -23,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -257,6 +262,32 @@ class BulkheadDeferralContainerTest {
     @DisplayName("facts for a delivery the tenant cannot see answer empty - the record is acknowledged with no effect")
     void factsOfAnUnseenDeliveryAreEmpty() {
         assertThat(facts().forDelivery(UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("B19 F4: a delivery with no pinned target (target_id null) answers empty with a logged reason -"
+            + " acknowledged with no claim, never a retried failure that stalls the partition")
+    void factsOfADeliveryWithNoTargetAreEmptyWithALoggedReason() {
+        UUID delivery = UUID.randomUUID();
+        tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> repository.create(delivery,
+                DeliveryTestDatabase.INTERFACE_ID, "key-no-target-" + delivery, 1L, null, NOW));
+        Logger log = (Logger) LoggerFactory.getLogger(JdbcDeliveryBulkheadFacts.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        log.addAppender(appender);
+        try {
+            assertThat(facts().forDelivery(delivery))
+                    .as("no target, no bulkhead: empty, so the dispatch acknowledges with no permit and no claim")
+                    .isEmpty();
+        } finally {
+            log.detachAppender(appender);
+        }
+        assertThat(appender.list).as("the reason is logged once, naming the delivery").singleElement()
+                .satisfies(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                    assertThat(event.getFormattedMessage()).contains(delivery.toString()).contains("target_id");
+                });
+        assertThat(state(delivery)).as("the row is untouched - no claim").contains(DeliveryState.PENDING);
     }
 
     @Test

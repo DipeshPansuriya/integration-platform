@@ -11,6 +11,7 @@ import io.integrationplatform.routing.adapter.api.TargetEndpointView;
 import io.integrationplatform.routing.adapter.api.TargetEndpointViews;
 import io.integrationplatform.routing.stage.WorkRecord;
 import io.integrationplatform.routing.stage2.Stage2Send;
+import io.integrationplatform.tenancy.WorkerTenantBinding;
 import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -18,10 +19,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.DoubleSupplier;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
 
 /**
  * T-177 (E9-F1-S4, ADR-010 section 2 stage 2): the {@code platform.delivery.due} dispatch contract on the
@@ -38,6 +44,8 @@ class DeliveryDueDispatchTest {
     private static final UUID TENANT = UUID.fromString("00000000-0000-4000-8000-00000000000a");
     private static final Instant NOW = Instant.parse("2026-10-16T12:00:00Z");
 
+    private final WorkerTenantBinding binding = new WorkerTenantBinding();
+    private final FakeTransactions transactions = new FakeTransactions();
     private final RecordingFacts facts = new RecordingFacts();
     private final RecordingDeferrals deferrals = new RecordingDeferrals();
     private final RecordingClaim claim = new RecordingClaim();
@@ -220,6 +228,91 @@ class DeliveryDueDispatchTest {
     }
 
     @Test
+    @DisplayName("B19 F1: the idempotent-receive flag is read under the record's tenant, inside a transaction,"
+            + " BEFORE the claim")
+    void idempotentReceiveIsReadTenantScopedBeforeTheClaim() {
+        UUID delivery = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            views.idempotentReceive = true;
+
+            dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
+
+            assertThat(views.reads).as("one endpoint read")
+                    .containsExactly(new EndpointRead(target, true, Optional.of(TENANT), 0));
+            assertThat(awaitOneSend(send).targetDeclaresIdempotentReceive())
+                    .as("the send still carries the pinned declaration").isTrue();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("B19 F1: a failing endpoint read claims nothing - no CLAIMED/SENDING row is left to strand")
+    void aFailingEndpointReadClaimsNothing() {
+        UUID delivery = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            IllegalStateException refused = new IllegalStateException("A tenant-scoped access must run inside a"
+                    + " transaction (R11)");
+            views.failure = refused;
+
+            assertThatThrownBy(() -> dispatch(registry).onWork(deliveryRecord(delivery), TENANT))
+                    .as("the failure reaches the stage base, which retries the record (TRANSIENT)")
+                    .isSameAs(refused);
+
+            assertThat(claim.calls).as("nothing was claimed, so nothing is stranded in SENDING").isEmpty();
+            assertThat(send.calls).isEmpty();
+            assertThat(registry.of(target).tryAcquire()).as("the permit is back").isTrue();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("B19 F3: the send runs on the pool thread under the record's tenant, unbound after - nothing"
+            + " leaks to that thread's next task")
+    void poolThreadRunsUnderTheRecordsTenantAndNothingLeaks() throws Exception {
+        UUID delivery = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1); // one pool thread: the next task reuses it
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            AtomicReference<String> sendThread = new AtomicReference<>();
+            send.onCall = sendThread::set;
+            send.tenant = binding::currentTenantId;
+
+            dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
+            assertThat(binding.currentTenantId()).as("the partition thread is unbound after the record").isEmpty();
+
+            // queued behind the send on the same single thread, so it runs only once the send's task has ended
+            AtomicReference<String> nextThread = new AtomicReference<>();
+            AtomicReference<Optional<UUID>> nextTenant = new AtomicReference<>();
+            CountDownLatch nextRan = new CountDownLatch(1);
+            assertThat(registry.of(target).execute(() -> {
+                nextThread.set(Thread.currentThread().getName());
+                nextTenant.set(binding.currentTenantId());
+                nextRan.countDown();
+            })).isTrue();
+            assertThat(nextRan.await(5, TimeUnit.SECONDS)).as("the next task ran").isTrue();
+
+            assertThat(send.tenants).as("the send ran with the record's tenant bound on the pool thread")
+                    .containsExactly(Optional.of(TENANT));
+            assertThat(nextThread.get()).as("the same pool thread").isEqualTo(sendThread.get());
+            assertThat(nextTenant.get()).as("no tenant leaks to the thread's next task").isEmpty();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("this handler is the delivery consumer - a message record is refused, never half-handled")
     void messageRecordsAreRefused() {
         BulkheadRegistry registry = new BulkheadRegistry(1);
@@ -232,8 +325,23 @@ class DeliveryDueDispatchTest {
         }
     }
 
+    @Test
+    @DisplayName("test double: a send is published to calls only after onCall ran - awaitOneSend never sees a half-recorded call")
+    void recordingSendPublishesTheCallLast() {
+        RecordingSend probe = new RecordingSend();
+        AtomicReference<Boolean> visibleDuringOnCall = new AtomicReference<>();
+        probe.onCall = thread -> visibleDuringOnCall.set(!probe.calls.isEmpty());
+
+        probe.dispatch(new Stage2Send(UUID.randomUUID(), UUID.randomUUID(), "key-1", UUID.randomUUID(), false));
+
+        assertThat(visibleDuringOnCall.get())
+                .as("the call must not be visible in calls while onCall still runs (T154 race)").isFalse();
+        assertThat(probe.calls).hasSize(1);
+    }
+
     private DeliveryDueDispatch dispatch(BulkheadRegistry registry) {
-        return new DeliveryDueDispatch(facts, registry, claim, deferrals, send, views, () -> NOW, () -> 0.5);
+        return new DeliveryDueDispatch(binding, transactions, facts, registry, claim, deferrals, send, views,
+                () -> NOW, () -> 0.5);
     }
 
     private static WorkRecord deliveryRecord(UUID deliveryId) {
@@ -297,21 +405,51 @@ class DeliveryDueDispatchTest {
     private static final class RecordingSend implements Stage2SendDispatch {
 
         final List<Stage2Send> calls = java.util.Collections.synchronizedList(new ArrayList<>());
+        final List<Optional<UUID>> tenants = java.util.Collections.synchronizedList(new ArrayList<>());
         java.util.function.Consumer<String> onCall = thread -> { };
+        java.util.function.Supplier<Optional<UUID>> tenant = Optional::empty;
 
         @Override
         public void dispatch(Stage2Send send) {
-            calls.add(send);
+            tenants.add(tenant.get());
             onCall.accept(Thread.currentThread().getName());
+            calls.add(send); // published last: awaitOneSend returning means onCall already ran (T154)
         }
     }
 
-    private static final class FakeViews implements TargetEndpointViews {
+    /** What the endpoint read saw: inside a transaction, the bound tenant, how many claims had already run. */
+    private record EndpointRead(UUID endpointId, boolean inTransaction, Optional<UUID> tenant, int claimsBefore) { }
+
+    /** Marks a transaction open on the calling thread for the callback's duration - no database. */
+    private static final class FakeTransactions implements TransactionOperations {
+
+        final ThreadLocal<Boolean> open = ThreadLocal.withInitial(() -> false);
+
+        @Override
+        public <T> T execute(TransactionCallback<T> action) {
+            open.set(true);
+            try {
+                return action.doInTransaction(new SimpleTransactionStatus());
+            } finally {
+                open.set(false);
+            }
+        }
+    }
+
+    /** The JdbcTargetEndpointViews stand-in: records the context of each read, as the tenant-scoped base checks it. */
+    private final class FakeViews implements TargetEndpointViews {
 
         boolean idempotentReceive;
+        RuntimeException failure;
+        final List<EndpointRead> reads = new ArrayList<>();
 
         @Override
         public Optional<TargetEndpointView> byEndpointId(UUID endpointId) {
+            reads.add(new EndpointRead(endpointId, transactions.open.get(), binding.currentTenantId(),
+                    claim.calls.size()));
+            if (failure != null) {
+                throw failure;
+            }
             return Optional.of(new TargetEndpointView(URI.create("http://target.test"), "POST", 5000,
                     "NO_AUTH", idempotentReceive, Map.of()));
         }

@@ -84,8 +84,20 @@ public class ConfigApiExceptionHandler {
                 .body(ConfigApiException.body("error", "a uniqueness constraint refused the write"));
     }
 
+    /**
+     * The catch-all 500 - unless a publish refusal is in the cause chain (T71 crit 5 / F15): a commit path that
+     * wraps the listener's {@link InterfacePublishRefused} still answers the named 400, never the generic 500.
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> unexpected(Exception failure) {
+        for (Throwable cause = failure.getCause(); cause != null && cause != failure; cause = cause.getCause()) {
+            if (cause instanceof InterfacePublishRefused refused) {
+                return publishRefused(refused);
+            }
+            if (cause.getCause() == cause) {
+                break;
+            }
+        }
         LOG.error("the configuration write failed; the transaction was rolled back", failure);
         return ResponseEntity.status(500).body(ConfigApiException.body(
                 "error", "the configuration write failed and the transaction was rolled back"));
