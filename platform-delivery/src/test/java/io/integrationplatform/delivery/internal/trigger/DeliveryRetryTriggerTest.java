@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.delivery.internal.retry.FakeDeliveryRetryStore;
+import io.integrationplatform.delivery.port.DeliveryBulkheadFacts.BulkheadFacts;
+import io.integrationplatform.delivery.port.InstanceReadiness;
+import io.integrationplatform.delivery.port.TargetRedriveCap;
 import io.integrationplatform.domain.delivery.DeliveryState;
 import io.integrationplatform.ingest.port.OutboxEntry;
 import io.integrationplatform.ingest.port.OutboxTopic;
@@ -12,7 +15,11 @@ import io.integrationplatform.tenancy.NoTenantBoundException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -179,10 +186,82 @@ class DeliveryRetryTriggerTest {
         assertThat(outbox.committedEntries()).hasSize(2);
     }
 
+    // ---------- T-199: per-target re-drive cap (ADR-010 section 2) ----------
+
+    private static final UUID TARGET_A = id("target-a");
+    private static final UUID TARGET_B = id("target-b");
+
+    @Test
+    void aRunReDrivesAtMostMaxConcurrentSendsTimesInstancesBulkheadDeferredDeliveriesPerTarget() {
+        Map<UUID, BulkheadFacts> facts = new HashMap<>();
+        List<UUID> deferred = new ArrayList<>();
+        for (int i = 0; i < 500; i++) {
+            UUID delivery = id("deferred-" + i);
+            deferred.add(delivery);
+            store.seed(TENANT_A, delivery, DeliveryState.RETRY_WAIT, 1, BASE.plusMillis(i), null);
+            facts.put(delivery, new BulkheadFacts(TARGET_A, null, 3));
+        }
+
+        int reDriven = cappedTrigger(facts, 10, 2, 1000).runOnce();
+
+        assertThat(reDriven).as("max_concurrent_sends 10 x 2 instances").isEqualTo(20);
+        assertThat(deferred).filteredOn(d -> store.stateOf(d) == DeliveryState.DUE).hasSize(20);
+        assertThat(deferred).filteredOn(d -> store.stateOf(d) == DeliveryState.RETRY_WAIT)
+                .as("the rest wait for the next run").hasSize(480);
+        assertThat(deferred.subList(0, 20)).as("oldest retry time first")
+                .allMatch(d -> store.stateOf(d) == DeliveryState.DUE);
+        assertThat(outbox.committedEntries()).hasSize(20);
+    }
+
+    @Test
+    void theCapIsPerTargetAndNeverCountsDeliveriesThatWereNotBulkheadDeferred() {
+        Map<UUID, BulkheadFacts> facts = new HashMap<>();
+        for (int i = 0; i < 5; i++) {
+            UUID a = id("a-deferred-" + i);
+            store.seed(TENANT_A, a, DeliveryState.RETRY_WAIT, 1, BASE.plusMillis(i), null);
+            facts.put(a, new BulkheadFacts(TARGET_A, null, 1));
+            UUID b = id("b-deferred-" + i);
+            store.seed(TENANT_A, b, DeliveryState.RETRY_WAIT, 1, BASE.plusMillis(i), null);
+            facts.put(b, new BulkheadFacts(TARGET_B, null, 1));
+            UUID plain = id("a-plain-retry-" + i);
+            store.seed(TENANT_A, plain, DeliveryState.RETRY_WAIT, 2, BASE.plusMillis(i), null);
+            facts.put(plain, new BulkheadFacts(TARGET_A, null, 0));
+        }
+
+        int reDriven = cappedTrigger(facts, 1, 2, BATCH).runOnce();
+
+        assertThat(reDriven).as("2 deferred per target + 5 ordinary retries").isEqualTo(9);
+        assertThat(store.stateOf(id("a-deferred-1"))).isEqualTo(DeliveryState.DUE);
+        assertThat(store.stateOf(id("a-deferred-2"))).isEqualTo(DeliveryState.RETRY_WAIT);
+        assertThat(store.stateOf(id("b-deferred-1"))).isEqualTo(DeliveryState.DUE);
+        assertThat(store.stateOf(id("b-deferred-2"))).isEqualTo(DeliveryState.RETRY_WAIT);
+        assertThat(store.stateOf(id("a-plain-retry-4"))).isEqualTo(DeliveryState.DUE);
+    }
+
+    @Test
+    void theNextRunTakesTheNextCapOfTheBacklog() {
+        Map<UUID, BulkheadFacts> facts = new HashMap<>();
+        for (int i = 0; i < 7; i++) {
+            UUID delivery = id("backlog-" + i);
+            store.seed(TENANT_A, delivery, DeliveryState.RETRY_WAIT, 1, BASE.plusMillis(i), null);
+            facts.put(delivery, new BulkheadFacts(TARGET_A, null, 2));
+        }
+        DeliveryRetryTrigger trigger = cappedTrigger(facts, 3, 1, BATCH);
+
+        assertThat(List.of(trigger.runOnce(), trigger.runOnce(), trigger.runOnce())).containsExactly(3, 3, 1);
+    }
+
     // ---------- helpers ----------
 
     private DeliveryRetryTrigger trigger(ActiveTenants tenants) {
         return new DeliveryRetryTrigger(tenants, context, transactions, store, outbox, BATCH);
+    }
+
+    private DeliveryRetryTrigger cappedTrigger(Map<UUID, BulkheadFacts> facts, int maxConcurrentSends,
+            int instances, int batch) {
+        return new DeliveryRetryTrigger(() -> List.of(TENANT_A), context, transactions, store, outbox, batch,
+                InstanceReadiness.alwaysReady(), delivery -> Optional.ofNullable(facts.get(delivery)),
+                TargetRedriveCap.of(target -> maxConcurrentSends, instances));
     }
 
     private static void runQuietly(DeliveryRetryTrigger trigger, CountDownLatch ready, CountDownLatch go,
