@@ -1,5 +1,6 @@
 package io.integrationplatform.app.message;
 
+import io.integrationplatform.config.flow.api.MaskedFields;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -11,6 +12,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * E13 N1 (T110; T-137 API narrow + the E12 failure-diagnosis read side): one message's journey by tracking id, and
@@ -53,6 +55,8 @@ public class MessageTrackingService {
     public record Failure(String trackingId, String deliveryId, String flowId, String targetId, String failingStage,
             String errorClass, String lastError, String origin, String failedAt) {
     }
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final JdbcMessageTrackingStore store;
 
@@ -99,7 +103,7 @@ public class MessageTrackingService {
             boolean namedReason = row.deadLetterDetail() != null
                     && !row.deadLetterDetail().equals(row.deadLetterClass());
             boolean targetAnswer = !namedReason && row.attemptDetail() != null;
-            String lastError = targetAnswer ? row.attemptDetail() : row.deadLetterDetail();
+            String lastError = masked(row.messageId(), targetAnswer ? row.attemptDetail() : row.deadLetterDetail());
             failures.add(Map.entry(row.failedAt(), new Failure(row.messageId(), row.id(), row.flowId(),
                     row.targetId(), "DELIVER", row.deadLetterClass(), lastError, targetAnswer ? TARGET : PLATFORM,
                     text(row.failedAt()))));
@@ -108,6 +112,19 @@ public class MessageTrackingService {
                 .sorted(Map.Entry.<Instant, Failure>comparingByKey().reversed())
                 .map(Map.Entry::getValue)
                 .toList();
+    }
+
+    /** T-066 (T108): an error text with the message's own masked values (and any registered one) replaced. */
+    private String masked(String messageId, String text) {
+        if (text == null) {
+            return null;
+        }
+        String redacted = store.maskedSource(messageId)
+                .filter(source -> source.bodyJson() != null && source.maskedFieldsJson() != null)
+                .map(source -> MaskedFields.redact(text, MaskedFields.valuesOf(JSON.readTree(source.bodyJson()),
+                        MaskedFields.fromJson(source.maskedFieldsJson()))))
+                .orElse(text);
+        return MaskedFields.scrub(redacted);
     }
 
     private static int pipelineIndex(String stage) {

@@ -46,12 +46,25 @@ public final class FlowBundle {
 
     public static String serialize(String code, String name, String ordering, String businessKeyRule,
             List<RouteRow> routes, List<MappingRow> mappings) {
+        return serialize(code, name, ordering, businessKeyRule, List.of(), routes, mappings);
+    }
+
+    /**
+     * T108: as above, with the flow's masked-field paths in the interface part - omitted when there are none, so a
+     * flow without masked fields keeps its exact snapshot bytes.
+     */
+    public static String serialize(String code, String name, String ordering, String businessKeyRule,
+            List<String> maskedFields, List<RouteRow> routes, List<MappingRow> mappings) {
         ObjectNode snapshot = JSON.createObjectNode();
         ObjectNode interfacePart = snapshot.putObject("interface");
         interfacePart.put("code", code);
         interfacePart.put("name", name);
         interfacePart.put("ordering", ordering);
         interfacePart.put("businessKeyRule", businessKeyRule);
+        if (maskedFields != null && !maskedFields.isEmpty()) {
+            ArrayNode masked = interfacePart.putArray("maskedFields");
+            maskedFields.forEach(masked::add);
+        }
 
         List<RouteRow> sortedRoutes = new ArrayList<>(routes);
         sortedRoutes.sort(Comparator.comparingInt(RouteRow::sequence).thenComparing(RouteRow::id));
@@ -88,6 +101,15 @@ public final class FlowBundle {
             entry.put("mappingVersionId", mapping.mappingVersionId());
         }
         return snapshot.toString();
+    }
+
+    /** T108: the masked-field paths a snapshot carries (none when absent). */
+    public static List<String> maskedFields(String snapshotJson) {
+        List<String> paths = new ArrayList<>();
+        for (JsonNode entry : JSON.readTree(snapshotJson).path("interface").path("maskedFields")) {
+            paths.add(entry.asString());
+        }
+        return List.copyOf(paths);
     }
 
     public static Parsed parse(String snapshotJson) {

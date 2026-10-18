@@ -51,8 +51,22 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
             String attemptDetail, String deadLetterDetail, Instant failedAt) {
     }
 
+    /** T108: a message's payload body and the masked-field list of the interface version it was accepted on. */
+    record MaskedSource(String bodyJson, String maskedFieldsJson) {
+    }
+
     JdbcMessageTrackingStore(JdbcClient jdbcClient, TenantContext tenantContext) {
         super(jdbcClient, tenantContext);
+    }
+
+    /** T108: what a failure's error text is redacted from; empty when the tenant cannot see the message. */
+    Optional<MaskedSource> maskedSource(String messageId) {
+        return query("select (select p.body::text from public.payload p where p.message_id = m.id) as body,"
+                        + " (select (iv.snapshot->'interface'->'maskedFields')::text from public.interface_version iv"
+                        + " where iv.id = m.interface_version_id) as masked from public.message m",
+                "m.id = :id::uuid", Map.of("id", messageId),
+                (rs, n) -> new MaskedSource(rs.getString("body"), rs.getString("masked")))
+                .stream().findFirst();
     }
 
     Optional<MessageRow> message(UUID id) {

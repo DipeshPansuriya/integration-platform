@@ -56,3 +56,8 @@ management:
     web:
       exposure:
         include: health
+# T-066 (row 278 T108): masked-field values are scrubbed from every JSON log line (logback-spring.xml's encoder).
+logging:
+  structured:
+    json:
+      customizer: io.integrationplatform.app.logging.MaskingLogCustomizer
