@@ -57,6 +57,7 @@ class CredentialCleanupContainerTest {
     static void identityProvider(DynamicPropertyRegistry registry) {
         // never called here: the resource server only needs an issuer to start; no admin client is configured
         registry.add("OIDC_ISSUER_URI", () -> RlsTestDatabase.ISSUER);
+        registry.add("OIDC_AUDIENCE", () -> "integration-platform-api");
     }
 
     @TestConfiguration(proxyBeanMethods = false)
