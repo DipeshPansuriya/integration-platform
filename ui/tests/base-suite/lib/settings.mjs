@@ -7,6 +7,9 @@
 // 278's - TBD(row278) until row 278's build lands; they are read from the four names in EXCEPTION_ENV and
 // nowhere else, and a value still reading TBD is refused (PLACEHOLDER). The fourth, the port the target
 // listens on behind the exception host, is one integer 1-65535 (Kavita, row 323 follow-up 18-Oct).
+// Row 278's build names them (SystemPersistenceConfiguration.java:53-60): profile `showcase`, host variable
+// PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS; this file adds the port (showcase-local-ports) and the
+// host on allowed-hosts itself, and boot-options.mjs publishes WireMock on that same port (F1/F2).
 //
 // Unset -> not configured: every BS scenario FAILS with NOT_CONFIGURED (never a skip). There is no
 // default host and no fallback: the unnamed loopback stays what the guard refuses
@@ -32,8 +35,15 @@ const MISCONFIGURED = 'dev-only exception misconfigured';
 /** The JVM option variables a hosts-file or name-service override could ride in. */
 const JVM_OPTION_VARS = Object.freeze(['JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS']);
 const RESOLVER_OVERRIDES = /jdk\.net\.hosts\.file|sun\.net\.spi\.nameservice/i;
-/** Names the exception's app variable may never be: the profile switch, the JVM's own settings. */
-const RESERVED_VARS = new Set(['SPRING_PROFILES_ACTIVE', 'JAVA_HOME', 'PATH', ...JVM_OPTION_VARS]);
+/**
+ * F1/F2 (row 323): the guard lifts the loopback refusal only for a showcase-local host on a showcase-local PORT
+ * (DestinationGuard.java:165), after the host passed allowed-hosts (:158) - Spring Boot's env names of
+ * platform.config.destinations.showcase-local-ports / .allowed-hosts (SystemPersistenceConfiguration.java:53-57).
+ */
+const SHOWCASE_PORTS_VAR = 'PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS';
+const ALLOWED_HOSTS_VAR = 'PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS';
+/** Names the exception's app variable may never be: the profile switch, the JVM's own settings, the two set here. */
+const RESERVED_VARS = new Set(['SPRING_PROFILES_ACTIVE', 'JAVA_HOME', 'PATH', ...JVM_OPTION_VARS, SHOWCASE_PORTS_VAR, ALLOWED_HOSTS_VAR]);
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const NOT_A_HOST = 'is not a host name (one exact name: no wildcard, port, scheme, path, user info, space or IP literal)';
 
@@ -63,7 +73,7 @@ function portProblem(port) {
 
 function hostVarProblem(name) {
   if (!/^[A-Z][A-Z0-9_]*$/.test(name)) return `app variable "${name}" is not an environment name`;
-  if (RESERVED_VARS.has(name)) return `app variable "${name}" is the profile switch or a JVM setting, never the exception host`;
+  if (RESERVED_VARS.has(name)) return `app variable "${name}" is the profile switch, a JVM setting or a property the exception sets itself, never the exception host`;
   return null;
 }
 
@@ -101,7 +111,12 @@ export function exceptionSettings(env = process.env) {
     configured: true,
     ...values,
     port: Number(values.port),
-    appEnv: Object.freeze({ SPRING_PROFILES_ACTIVE: values.profile, [values.hostVar]: values.host })
+    appEnv: Object.freeze({
+      SPRING_PROFILES_ACTIVE: values.profile,
+      [values.hostVar]: values.host,
+      [SHOWCASE_PORTS_VAR]: values.port, // the port WireMock is published on (boot-options.mjs hostPort)
+      [ALLOWED_HOSTS_VAR]: values.host
+    })
   });
 }
 

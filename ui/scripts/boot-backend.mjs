@@ -347,7 +347,7 @@ function isStubMapping(mapping) {
  * released: `wiremock: { image, mappings }` and `kafka: { image, topics }` (its host port is `kafkaPort`,
  * picked by the caller, because the broker advertises it). Pure: checks the declaration and returns each
  * sidecar's container name, port, ready path, stubs and `docker run` arguments - the image pinned by tag AND
- * digest (R05), published on 127.0.0.1 only on a random host port, --rm. No services -> [] (today's boot).
+ * digest (R05), published on 127.0.0.1 only on a random host port (or the declared `hostPort`), --rm. No services -> [] (today's boot).
  */
 export function servicePlan(services = {}, suffix, { kafkaPort } = {}) {
   const entries = Object.entries(services ?? {});
@@ -367,6 +367,10 @@ export function servicePlan(services = {}, suffix, { kafkaPort } = {}) {
     for (const mapping of mappings) {
       if (!isStubMapping(mapping)) throw new Error(`boot-backend: ${JSON.stringify(mapping)} is not a stub mapping (uuid id, method, /path, status)`);
     }
+    const { hostPort } = declaration;
+    if (hostPort !== undefined && !(Number.isInteger(hostPort) && hostPort >= 1 && hostPort <= 65535)) {
+      throw new Error(`boot-backend: service ${key} hostPort ${hostPort} is not a TCP port (an integer 1-65535)`);
+    }
     const name = `${sidecar.prefix}-${suffix}`;
     return {
       key,
@@ -374,7 +378,7 @@ export function servicePlan(services = {}, suffix, { kafkaPort } = {}) {
       containerPort: sidecar.containerPort,
       readyPath: sidecar.readyPath,
       mappings: [...mappings],
-      runArgs: ['run', '-d', '--rm', '--name', name, '-p', `127.0.0.1::${sidecar.containerPort}`, image]
+      runArgs: ['run', '-d', '--rm', '--name', name, '-p', `127.0.0.1:${hostPort ?? ''}:${sidecar.containerPort}`, image]
     };
   });
 }
