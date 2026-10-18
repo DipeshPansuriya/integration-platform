@@ -11,7 +11,7 @@ import java.lang.reflect.RecordComponent;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -37,7 +37,7 @@ class MessageTrackingMaskingTest {
     void theLastErrorOfAFailureCarriesNoMaskedValue() {
         String messageId = UUID.randomUUID().toString();
         JdbcMessageTrackingStore store = storeWithOneDeadLetter(messageId, "HTTP 400 customerId " + PROBE + " unknown");
-        when(store.maskedSource(messageId)).thenReturn(Optional.of(new JdbcMessageTrackingStore.MaskedSource(
+        when(store.maskedSources(any())).thenReturn(Map.of(messageId, new JdbcMessageTrackingStore.MaskedSource(
                 "{\"customerId\":\"" + PROBE + "\",\"orderId\":\"o-1\"}", "[\"customerId\"]")));
 
         List<MessageTrackingService.Failure> failures = new MessageTrackingService(store).failures(null, null);
@@ -50,7 +50,7 @@ class MessageTrackingMaskingTest {
     void aFailureOfAFlowWithoutMaskedFieldsKeepsItsLastErrorAsIs() {
         String messageId = UUID.randomUUID().toString();
         JdbcMessageTrackingStore store = storeWithOneDeadLetter(messageId, "HTTP 400 field orderId rejected");
-        when(store.maskedSource(messageId)).thenReturn(Optional.empty());
+        when(store.maskedSources(any())).thenReturn(Map.of());
 
         assertThat(new MessageTrackingService(store).failures(null, null).get(0).lastError())
                 .isEqualTo("HTTP 400 field orderId rejected");
