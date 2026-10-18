@@ -55,6 +55,8 @@ class SystemPersistenceConfiguration {
     static final String RATE_WINDOW = "platform.config.test-connection.rate-limit.window";
     static final String SHOWCASE_LOCAL_HOSTS = "platform.config.destinations.showcase-local-hosts";
     static final String SHOWCASE_LOCAL_PORTS = "platform.config.destinations.showcase-local-ports";
+    /** T-184: the platform's own hosts (exact names or IP literals) - never a destination, whatever is allowed. */
+    static final String PLATFORM_HOSTS = "platform.config.destinations.platform-hosts";
     static final String SHOWCASE_PROFILE = "showcase";
     /** The only profiles the local-host exception may run next to; any other active profile refuses to start. */
     static final Set<String> SHOWCASE_COMPANIONS = Set.of(SHOWCASE_PROFILE, "local", "dev", "test");
@@ -84,8 +86,9 @@ class SystemPersistenceConfiguration {
                 .orElse(List.of());
         List<Integer> showcasePorts = binder.bind(SHOWCASE_LOCAL_PORTS, Bindable.listOf(Integer.class))
                 .orElse(List.of());
+        List<String> platformHosts = binder.bind(PLATFORM_HOSTS, Bindable.listOf(String.class)).orElse(List.of());
         if (showcaseLocal.isEmpty()) {
-            return new DestinationGuard(AllowList.of(allowed), resolver);
+            return new DestinationGuard(AllowList.of(allowed), resolver, List.of(), List.of(), platformHosts);
         }
         List<String> active = Arrays.asList(environment.getActiveProfiles());
         if (!active.contains(SHOWCASE_PROFILE)) {
@@ -101,7 +104,8 @@ class SystemPersistenceConfiguration {
             throw new IllegalStateException(SHOWCASE_LOCAL_PORTS + " must list the exact port(s) of the local test"
                     + " destination while " + SHOWCASE_LOCAL_HOSTS + " is set - refusing to start");
         }
-        DestinationGuard guard = new DestinationGuard(AllowList.of(allowed), resolver, showcaseLocal, showcasePorts);
+        DestinationGuard guard = new DestinationGuard(AllowList.of(allowed), resolver, showcaseLocal, showcasePorts,
+                platformHosts);
         LOG.warn("SHOWCASE ONLY: {}={} on {}={} - these allow-listed hosts may resolve to loopback or private"
                 + " addresses on these ports only (profile '{}'); remove the properties to restore the refusal",
                 SHOWCASE_LOCAL_HOSTS, showcaseLocal, SHOWCASE_LOCAL_PORTS, showcasePorts, SHOWCASE_PROFILE);
@@ -128,7 +132,8 @@ class SystemPersistenceConfiguration {
     }
 
     @Bean
-    SystemAdminService systemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection) {
-        return new SystemAdminService(systems, testConnection);
+    SystemAdminService systemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
+            DestinationGuard guard) {
+        return new SystemAdminService(systems, testConnection, guard);
     }
 }

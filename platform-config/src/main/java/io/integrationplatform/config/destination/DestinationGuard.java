@@ -51,8 +51,19 @@ public final class DestinationGuard {
     private final Set<String> showcaseLocalHosts;
     private final Set<Integer> showcaseLocalPorts;
 
+    /** The detail of a refusal for a platform host (T-184): the platform's own data stores, broker and identity. */
+    public static final String PLATFORM_HOST = "platform-host";
+
+    private final Set<String> platformNames;
+    private final Set<InetAddress> platformAddresses;
+
     public DestinationGuard(AllowList allowList, HostResolver resolver) {
         this(allowList, resolver, List.of(), List.of());
+    }
+
+    public DestinationGuard(AllowList allowList, HostResolver resolver, Collection<String> showcaseLocalHosts,
+            Collection<Integer> showcaseLocalPorts) {
+        this(allowList, resolver, showcaseLocalHosts, showcaseLocalPorts, List.of());
     }
 
     /**
@@ -62,25 +73,55 @@ public final class DestinationGuard {
      *                           {@code showcaseLocalHosts} is not empty
      * @throws IllegalArgumentException a host entry is empty, a wildcard, an IP literal or anything but a host name;
      *                                  a port is null or outside 1-65535; hosts are listed with no port
+     * @param platformHosts      T-184: the platform's own hosts (exact names or IP literals) - never a destination,
+     *                           whatever the allow-list or the showcase exception says; a name that resolves to a
+     *                           listed literal is refused too (detail {@value #PLATFORM_HOST})
      */
-    /** RED stub (row 327 T97): the platform hosts are not honoured yet. */
     public DestinationGuard(AllowList allowList, HostResolver resolver, Collection<String> showcaseLocalHosts,
             Collection<Integer> showcaseLocalPorts, Collection<String> platformHosts) {
-        this(allowList, resolver, showcaseLocalHosts, showcaseLocalPorts);
-    }
-
-    /** RED stub (row 327 T97): the save-time check of a bare host does nothing yet. */
-    public void checkHost(String host) throws DestinationRefusedException {
-    }
-
-    public DestinationGuard(AllowList allowList, HostResolver resolver, Collection<String> showcaseLocalHosts,
-            Collection<Integer> showcaseLocalPorts) {
         this.allowList = Objects.requireNonNull(allowList, "allowList");
         this.resolver = Objects.requireNonNull(resolver, "resolver");
         this.showcaseLocalHosts = exactHostNames(Objects.requireNonNull(showcaseLocalHosts, "showcaseLocalHosts"));
         this.showcaseLocalPorts = exactPorts(Objects.requireNonNull(showcaseLocalPorts, "showcaseLocalPorts"));
         if (!this.showcaseLocalHosts.isEmpty() && this.showcaseLocalPorts.isEmpty()) {
             throw new IllegalArgumentException("showcase local hosts need at least one exact showcase local port");
+        }
+        Set<String> names = new LinkedHashSet<>();
+        Set<InetAddress> addresses = new LinkedHashSet<>();
+        for (String each : Objects.requireNonNull(platformHosts, "platformHosts")) {
+            String host = each == null ? "" : AllowList.normalise(each);
+            Optional<InetAddress> literal = literal(host);
+            if (literal.isPresent()) {
+                addresses.add(literal.get());
+            } else if (HOST_NAME.matcher(host).matches()) {
+                names.add(host);
+            } else {
+                throw new IllegalArgumentException(
+                        "a platform host must be an exact host name or an IP literal (no wildcard or port): '"
+                                + each + "'");
+            }
+        }
+        this.platformNames = Set.copyOf(names);
+        this.platformAddresses = Set.copyOf(addresses);
+    }
+
+    /**
+     * T-124 save time: the checks of {@link #check(URI)} that need no DNS, on a bare host (an MQ or DB {@code host}
+     * setting, or the host of an API base address). An IP literal is range-checked; a platform host is refused; a
+     * name must be on the allow-list. Never resolves: DNS is decided at send, on the pinned address.
+     */
+    public void checkHost(String rawHost) throws DestinationRefusedException {
+        if (rawHost == null || rawHost.isBlank()) {
+            throw new DestinationRefusedException(Refusal.NO_HOST, null);
+        }
+        String host = AllowList.normalise(rawHost);
+        Optional<InetAddress> literal = literal(host);
+        refuseIfPlatform(host, literal);
+        if (literal.isPresent()) {
+            refuseIfInRange(literal.get(), false);
+        }
+        if (!allowList.allows(host)) {
+            throw new DestinationRefusedException(Refusal.NOT_ON_ALLOW_LIST, null);
         }
     }
 
@@ -106,6 +147,7 @@ public final class DestinationGuard {
         String host = AllowList.normalise(rawHost);
 
         Optional<InetAddress> literal = literal(host);
+        refuseIfPlatform(host, literal);
         if (literal.isPresent()) {
             refuseIfInRange(literal.get(), false);
             if (!allowList.allows(host)) {
@@ -122,9 +164,16 @@ public final class DestinationGuard {
         }
         boolean showcaseLocal = showcaseLocalHosts.contains(host) && showcaseLocalPorts.contains(port);
         for (InetAddress each : resolved) {
+            refuseIfPlatform(host, Optional.of(each)); // before the showcase lift: it never lifts a platform host
             refuseIfInRange(each, showcaseLocal);
         }
         return new CheckedDestination(address, host, port, tls, resolved.get(0));
+    }
+
+    private void refuseIfPlatform(String host, Optional<InetAddress> address) throws DestinationRefusedException {
+        if (platformNames.contains(host) || address.filter(platformAddresses::contains).isPresent()) {
+            throw new DestinationRefusedException(Refusal.REFUSED_ADDRESS, PLATFORM_HOST);
+        }
     }
 
     private static void refuseIfInRange(InetAddress address, boolean showcaseLocal)
