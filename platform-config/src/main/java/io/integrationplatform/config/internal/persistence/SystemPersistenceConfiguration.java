@@ -3,6 +3,7 @@ package io.integrationplatform.config.internal.persistence;
 import io.integrationplatform.config.destination.AllowList;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.HostResolver;
+import io.integrationplatform.config.destination.MqConnectionCheck;
 import io.integrationplatform.config.destination.OutboundHttpCheck;
 import io.integrationplatform.config.destination.SocketDialer;
 import io.integrationplatform.config.system.application.SystemAdminService;
@@ -122,13 +123,15 @@ class SystemPersistenceConfiguration {
 
     @Bean
     TestConnectionService testConnectionService(Environment environment, JdbcSystemRepository systems,
-            PlatformTransactionManager transactions, OutboundHttpCheck check) {
+            PlatformTransactionManager transactions, OutboundHttpCheck check,
+            ObjectProvider<MqConnectionCheck> mq) {
         Binder binder = Binder.get(environment);
         int limit = binder.bind(RATE_LIMIT, Integer.class).orElse(10);
         Duration window = binder.bind(RATE_WINDOW, Duration.class).orElse(Duration.ofMinutes(1));
         TransactionTemplate readOnly = new TransactionTemplate(transactions);
         readOnly.setReadOnly(true);
-        return new TestConnectionService(systems, readOnly, check, limit, window, new TestConnectionAudit());
+        return new TestConnectionService(systems, readOnly, check, limit, window, new TestConnectionAudit(),
+                mq.getIfAvailable()); // routing's MQ adapter when on the classpath (T-126)
     }
 
     @Bean

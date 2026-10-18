@@ -86,6 +86,12 @@ public class TestConnectionService {
             return answer(system, "NOT_CONFIGURED", null, null, null, null,
                     "The system has no type and settings yet; register them first");
         }
+        if (type.equals("MQ") && mq != null) {
+            Map<String, Object> result = mq.test(UUID.fromString(system.id()), system.settings());
+            audit.record(tenant, actor, system.id(), type, (String) result.get("result"), (String) result.get("reason"),
+                    null);
+            return result;
+        }
         if (!type.equals("API")) {
             String epic = type.equals("MQ") ? "E10" : "E16";
             audit.record(tenant, actor, system.id(), type, "NOT_AVAILABLE_YET", null, null);
