@@ -8,9 +8,14 @@ import io.integrationplatform.domain.delivery.OutcomeClassifier;
 import io.integrationplatform.routing.stage2.Stage2Send;
 import io.integrationplatform.routing.stage2.TargetCall;
 import io.integrationplatform.routing.stage2.TargetFaultException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.net.ssl.SSLException;
@@ -36,12 +41,24 @@ public class ApiTargetCall implements TargetCall {
     private final DestinationGuard guard;
     private final ApiTargetBody bodyPort;
     private final HttpSend sender;
+    private final CircuitBreakerRegistry breakers;
 
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender) {
+        this(views, guard, bodyPort, sender, CircuitBreakerRegistry.of(CircuitBreakerConfig.custom()
+                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+                .slidingWindowSize(10).minimumNumberOfCalls(5).failureRateThreshold(50)
+                .waitDurationInOpenState(Duration.ofSeconds(30))
+                .permittedNumberOfCallsInHalfOpenState(2).build()));
+    }
+
+    /** T96: one breaker per target endpoint; a half-open breaker lets through at most its trial-call count. */
+    public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
+            CircuitBreakerRegistry breakers) {
         this.views = views;
         this.guard = guard;
         this.bodyPort = bodyPort;
         this.sender = sender;
+        this.breakers = breakers;
     }
 
     @Override
@@ -73,6 +90,28 @@ public class ApiTargetCall implements TargetCall {
         headers.put("Content-Type", body.contentType());
         // the endpoint is addressed per delivery: the key ADR-011 Decision 4 requires on every call
         headers.put("Idempotency-Key", send.deliveryId().toString());
+        CircuitBreaker breaker = breakers.circuitBreaker(send.targetEndpointId().toString());
+        if (!breaker.tryAcquirePermission()) {
+            throw new TargetFaultException.TransientFaultException("the breaker of target endpoint "
+                    + send.targetEndpointId() + " is " + breaker.getState() + " - nothing sent; the delivery waits");
+        }
+        long started = System.nanoTime();
+        try {
+            sendThrough(send, view, destination, headers, body);
+            breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+        } catch (TargetFaultException failed) {
+            // only a target that may be down counts against its breaker; a PERMANENT answer is the target working
+            if (failed.outcomeClass() == OutcomeClass.TRANSIENT || failed.outcomeClass() == OutcomeClass.AMBIGUOUS) {
+                breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, failed);
+            } else {
+                breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+            }
+            throw failed;
+        }
+    }
+
+    private void sendThrough(Stage2Send send, TargetEndpointView view, CheckedDestination destination,
+            Map<String, String> headers, ApiTargetBody.ApiWireBody body) {
         HttpSend.Response response;
         try {
             response = sender.send(destination, view.httpMethod(), headers, body.bytes(), view.timeoutMs());

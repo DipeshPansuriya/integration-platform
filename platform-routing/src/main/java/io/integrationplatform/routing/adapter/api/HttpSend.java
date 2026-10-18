@@ -2,6 +2,7 @@ package io.integrationplatform.routing.adapter.api;
 
 import io.integrationplatform.config.destination.CheckedDestination;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -34,7 +35,13 @@ public interface HttpSend {
     /**
      * @param status the answer's HTTP status
      * @param body the answer's body (bounded read); empty for status-only answers
+     * @param retryAfter the answer's Retry-After (delta-seconds or HTTP-date, floor zero); null when absent or
+     *        unparseable (T96)
      */
-    record Response(int status, byte[] body) {
+    record Response(int status, byte[] body, Duration retryAfter) {
+
+        public Response(int status, byte[] body) {
+            this(status, body, null);
+        }
     }
 }
