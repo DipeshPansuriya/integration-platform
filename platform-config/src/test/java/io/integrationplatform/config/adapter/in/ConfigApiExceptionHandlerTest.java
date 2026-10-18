@@ -43,7 +43,7 @@ class ConfigApiExceptionHandlerTest {
     private static final String REASON = "the publish was refused: endpoint URI scheme 'exec' is not in allowedSchemes";
 
     /** The handler's config-local reason cap (RefusalText bounds each echoed value; this bounds the whole reason). */
-    private static final int REASON_CAP = 128;
+    private static final int REASON_CAP = ConfigApiExceptionHandler.REASON_CAP;
 
     private final RefusedPublishController controller = new RefusedPublishController();
     private final List<DeniedTenantAttempt> denials = new ArrayList<>();
@@ -113,6 +113,40 @@ class ConfigApiExceptionHandlerTest {
         mvc.perform(post("/publish/refused"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("the publish was refused"));
+    }
+
+    @Test
+    void lineSeparatorsBidiControlsAndFormatCharactersAreStrippedBeforeTheAnswer() throws Exception {
+        // T160 L-5 (CWE-451/CWE-117): U+2028/U+2029 (Zl/Zp), bidi embeddings and isolates U+202A-202E and
+        // U+2066-2069, and other Cf characters (zero-width space, BOM, soft hyphen) are not ISO controls.
+        controller.reason = "the\u2028 publish\u2029 was\u202a\u202b\u202c\u202d\u202e refused"
+                + "\u2066\u2067\u2068\u2069:\u200b scheme\ufeff\u00ad 'exec'";
+
+        mvc.perform(post("/publish/refused"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("the publish was refused: scheme 'exec'"));
+    }
+
+    @Test
+    void theCapCountsCodePointsAndNeverSplitsASurrogatePair() throws Exception {
+        // T160 L-4 (CWE-176): an emoji (two UTF-16 units) at code point 128 is kept whole, never cut to a lone
+        // high surrogate; the answer is exactly REASON_CAP code points.
+        String emoji = new String(Character.toChars(0x1F600));
+        controller.reason = "x".repeat(REASON_CAP - 1) + emoji + "TAIL-NEVER-ANSWERED";
+
+        mvc.perform(post("/publish/refused"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("x".repeat(REASON_CAP - 1) + emoji));
+    }
+
+    @Test
+    void aReasonOfOnlyNonBmpCharactersIsCutAtTheCapInCodePoints() throws Exception {
+        String emoji = new String(Character.toChars(0x1F600));
+        controller.reason = emoji.repeat(REASON_CAP + 5);
+
+        mvc.perform(post("/publish/refused"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(emoji.repeat(REASON_CAP)));
     }
 
     /** A configuration publish whose BEFORE_COMMIT listener refused it, with the reason the test sets. */
