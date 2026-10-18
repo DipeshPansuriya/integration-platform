@@ -325,6 +325,20 @@ class DeliveryDueDispatchTest {
         }
     }
 
+    @Test
+    @DisplayName("test double: a send is published to calls only after onCall ran - awaitOneSend never sees a half-recorded call")
+    void recordingSendPublishesTheCallLast() {
+        RecordingSend probe = new RecordingSend();
+        AtomicReference<Boolean> visibleDuringOnCall = new AtomicReference<>();
+        probe.onCall = thread -> visibleDuringOnCall.set(!probe.calls.isEmpty());
+
+        probe.dispatch(new Stage2Send(UUID.randomUUID(), UUID.randomUUID(), "key-1", UUID.randomUUID(), false));
+
+        assertThat(visibleDuringOnCall.get())
+                .as("the call must not be visible in calls while onCall still runs (T154 race)").isFalse();
+        assertThat(probe.calls).hasSize(1);
+    }
+
     private DeliveryDueDispatch dispatch(BulkheadRegistry registry) {
         return new DeliveryDueDispatch(binding, transactions, facts, registry, claim, deferrals, send, views,
                 () -> NOW, () -> 0.5);
@@ -398,8 +412,8 @@ class DeliveryDueDispatchTest {
         @Override
         public void dispatch(Stage2Send send) {
             tenants.add(tenant.get());
-            onCall.accept(Thread.currentThread().getName()); // before calls.add: awaitOneSend sees it settled
-            calls.add(send);
+            onCall.accept(Thread.currentThread().getName());
+            calls.add(send); // published last: awaitOneSend returning means onCall already ran (T154)
         }
     }
 
