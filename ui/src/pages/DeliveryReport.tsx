@@ -36,7 +36,7 @@ export default function DeliveryReport() {
   }, [day]);
 
   return (
-    <main>
+    <div data-page="delivery-report">
       <h1>Delivery report</h1>
       <label>
         Day (
@@ -81,6 +81,6 @@ export default function DeliveryReport() {
           </tbody>
         </table>
       )}
-    </main>
+    </div>
   );
 }
