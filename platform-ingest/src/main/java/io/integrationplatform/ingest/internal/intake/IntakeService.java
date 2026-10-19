@@ -55,21 +55,26 @@ public class IntakeService implements IntakeTransaction {
     @Override
     @Transactional
     public AcceptedMessage accept(IntakeRequest request) {
-        RecordResult only = run(new BulkRequest(request.interfaceCode(), request.sourceContractVersion(),
-                List.of(request.payload()), request.idempotencyKey(), request.credentialRef())).get(0);
+        Run run = run(new BulkRequest(request.interfaceCode(), request.sourceContractVersion(),
+                List.of(request.payload()), request.idempotencyKey(), request.credentialRef()), true);
+        RecordResult only = run.results().get(0);
         if (!RecordResult.ACCEPTED.equals(only.status())) {
             throw new IntakeRefusedException(IntakeRefusedException.Reason.valueOf(only.code()), only.message());
         }
-        return new AcceptedMessage(only.trackingId(), only.outboxId());
+        return new AcceptedMessage(only.trackingId(), only.outboxId(), run.sync());
     }
 
     @Override
     @Transactional
     public List<RecordResult> acceptBulk(BulkRequest request) {
-        return run(request);
+        return run(request, false).results();
     }
 
-    private List<RecordResult> run(BulkRequest request) {
+    /** {@code sync}: the caller may wait for the inline answer (a SYNC interface, single record, not a replay). */
+    private record Run(List<RecordResult> results, boolean sync) {
+    }
+
+    private Run run(BulkRequest request, boolean inline) {
         String key = request.idempotencyKey();
         boolean keyed = key != null && !key.isBlank();
         String credential = request.credentialRef() == null ? "" : request.credentialRef();
@@ -84,7 +89,7 @@ public class IntakeService implements IntakeTransaction {
                     throw new IntakeRefusedException(IntakeRefusedException.Reason.IDEMPOTENCY_KEY_REUSED,
                             "the Idempotency-Key was already used with another request body");
                 }
-                return JSON.readValue(prior.get().results(), RESULTS);
+                return new Run(JSON.readValue(prior.get().results(), RESULTS), false);
             }
         }
         IntakeStore.PublishedInterface published = store.resolvePublishedInterface(request.interfaceCode())
@@ -135,12 +140,13 @@ public class IntakeService implements IntakeTransaction {
             UUID messageId = UUID.randomUUID();
             CorrelationContext.tag(CorrelationContext.MESSAGE_ID, messageId);
             Instant startedAt = Instant.now();
+            Instant deferredUntil = IntakeKeys.deferredUntil(published.mode(), inline, startedAt);
             store.accept(messageId, published.interfaceId(), version.interfaceVersionId(),
                     version.sourceContractVersionId(), keys[i], records.get(i).toString(), keySeq);
             // ADR-011 Decision 5: the record that sets stage 1 in motion is part of the same commit; it carries
             // the request's journey (T107) - the relay restores the traceparent as the record's Kafka header.
             long outboxId = outbox.append(new OutboxEntry(OutboxTopic.MESSAGE_ACCEPTED, messageId, keys[i],
-                    CorrelationContext.currentTraceparent(), null, version.sourceContractVersionId()));
+                    CorrelationContext.currentTraceparent(), deferredUntil, version.sourceContractVersionId()));
             timings.record(messageId, StageTimings.Stage.INTAKE, startedAt, Instant.now());
             results[i] = RecordResult.accepted(i, messageId, outboxId);
         }
@@ -149,6 +155,6 @@ public class IntakeService implements IntakeTransaction {
             store.saveIdempotency(credential, key, hash, JSON.writeValueAsString(answer));
         }
         log.info("intake: {} of {} records accepted on interface {}", validKeys.size(), n, request.interfaceCode());
-        return answer;
+        return new Run(answer, inline && "SYNC".equals(published.mode()));
     }
 }

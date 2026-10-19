@@ -3,16 +3,23 @@ package io.integrationplatform.ingest.adapter.in;
 import io.integrationplatform.ingest.port.AcceptedMessage;
 import io.integrationplatform.ingest.port.IntakeRefusedException;
 import io.integrationplatform.ingest.port.IntakeTransaction;
+import io.integrationplatform.ingest.port.SyncAnswer;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.PessimisticLockingFailureException;
@@ -47,25 +54,48 @@ public class IntakeController {
     /** The 1 MB payload cap (ADR-011 Decision 4; the bulk caps for batch records are E11 B2's). */
     static final int PAYLOAD_LIMIT_BYTES = 1_048_576;
 
+    /** The SYNC inline budget (architecture.md 4.2); past it the answer is 202 PENDING. */
+    static final Duration SYNC_BUDGET = Duration.ofSeconds(10);
+
     private static final Logger log = LoggerFactory.getLogger(IntakeController.class);
 
     private final IntakeTransaction intake;
     private final JsonMapper mapper = JsonMapper.builder().build();
     private final int bulkMaxRecords;
     private final int bulkMaxBytes;
+    private final Supplier<SyncAnswer> syncAnswer;
+    private final Duration syncBudget;
 
     public IntakeController(IntakeTransaction intake) {
         this(intake, 1000, 10_485_760);
     }
 
     /** T-128: the bulk caps are config (defaults 1000 records / 10 MB); each refusal names the cap it hit. */
+    public IntakeController(IntakeTransaction intake, int bulkMaxRecords, int bulkMaxBytes) {
+        this(intake, bulkMaxRecords, bulkMaxBytes, () -> null, SYNC_BUDGET);
+    }
+
+    /** T-129: the SYNC inline answer is optional - with no {@link SyncAnswer} bean intake answers 202 as today. */
     @Autowired
     public IntakeController(IntakeTransaction intake,
             @Value("${ingest.bulk.max-records:1000}") int bulkMaxRecords,
-            @Value("${ingest.bulk.max-bytes:10485760}") int bulkMaxBytes) {
+            @Value("${ingest.bulk.max-bytes:10485760}") int bulkMaxBytes,
+            ObjectProvider<SyncAnswer> syncAnswers) {
+        this(intake, bulkMaxRecords, bulkMaxBytes, syncAnswers::getIfAvailable, SYNC_BUDGET);
+    }
+
+    /** Tests: a fake port (null = no bean) and a short budget. */
+    IntakeController(IntakeTransaction intake, SyncAnswer syncAnswer, Duration syncBudget) {
+        this(intake, 1000, 10_485_760, () -> syncAnswer, syncBudget);
+    }
+
+    private IntakeController(IntakeTransaction intake, int bulkMaxRecords, int bulkMaxBytes,
+            Supplier<SyncAnswer> syncAnswer, Duration syncBudget) {
         this.intake = intake;
         this.bulkMaxRecords = bulkMaxRecords;
         this.bulkMaxBytes = bulkMaxBytes;
+        this.syncAnswer = syncAnswer;
+        this.syncBudget = syncBudget;
     }
 
     // T126: the Content-Type check is IN the method (not consumes=) so the refusal carries the JSON error body
@@ -73,7 +103,8 @@ public class IntakeController {
     // Row 278 gate fix: the declared response table (ADR-011 Decision 4) so the generated console client and T094
     // see every answered status - 403 is the role guard refusing a non-source caller (SUBMIT_MESSAGE is source-only).
     @ApiResponses({
-        @ApiResponse(responseCode = "202", description = "Accepted: the message is recorded; the body carries the tracking id"),
+        @ApiResponse(responseCode = "200", description = "SYNC interface answered within 10 s: the body is the target's answer mapped to the source's response contract"),
+        @ApiResponse(responseCode = "202", description = "Accepted: the message is recorded; the body carries the tracking id (SYNC past 10 s: status PENDING)"),
         @ApiResponse(responseCode = "400", description = "A required header is missing or the JSON body is malformed"),
         @ApiResponse(responseCode = "403", description = "Forbidden: intake is source-only - a human or non-source caller is refused"),
         @ApiResponse(responseCode = "404", description = "The interface is unknown or unpublished"),
@@ -82,7 +113,7 @@ public class IntakeController {
         @ApiResponse(responseCode = "422", description = "The source contract version is off-pin, a business key is unresolved, or the Idempotency-Key was reused with another body"),
         @ApiResponse(responseCode = "503", description = "The intake transaction could not commit (Retry-After when an ordering key is busy); no tracking id")})
     @PostMapping(value = "/api/v1/interfaces/{interfaceCode}/messages")
-    public ResponseEntity<Map<String, Object>> submit(
+    public ResponseEntity<?> submit(
             @PathVariable("interfaceCode") String interfaceCode,
             @RequestHeader(value = "Content-Type", required = false) MediaType contentType,
             @RequestHeader(value = "X-Source-Contract-Version", required = false) String sourceContractVersion,
@@ -117,6 +148,19 @@ public class IntakeController {
                         credentialRef(principal)));
         Map<String, Object> answer = new LinkedHashMap<>();
         answer.put("trackingId", accepted.trackingId().toString());
+        SyncAnswer port = accepted.sync() ? syncAnswer.get() : null;
+        if (port != null) {
+            try {
+                return ResponseEntity.ok(port.answer(accepted.trackingId())
+                        .get(syncBudget.toMillis(), TimeUnit.MILLISECONDS));
+            } catch (TimeoutException | ExecutionException late) {
+                log.info("sync intake {}: no inline answer within {} ms ({}), answering PENDING",
+                        accepted.trackingId(), syncBudget.toMillis(), late.getClass().getSimpleName());
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            answer.put("status", "PENDING");
+        }
         return ResponseEntity.accepted().body(answer);
     }
 
