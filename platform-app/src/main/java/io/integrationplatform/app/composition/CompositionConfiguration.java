@@ -1,6 +1,7 @@
 package io.integrationplatform.app.composition;
 
 import io.integrationplatform.routing.adapter.api.ApiTargetBody;
+import io.integrationplatform.routing.adapter.mq.MqTargetBody;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.transform.api.LookupSource;
 import io.integrationplatform.transform.api.TransformPort;
@@ -26,6 +27,12 @@ class CompositionConfiguration {
         TenantContext boundAtCall =
                 () -> Optional.ofNullable(tenantContexts.getIfAvailable()).flatMap(TenantContext::currentTenantId);
         return new TransformedApiBody(jdbcClient, boundAtCall, transformPort, lookupSource);
+    }
+
+    /** Row 327: the MQ message is the transformed API body's bytes - one transform lookup, inside the same tenant transaction. */
+    @Bean
+    MqTargetBody transformedMqBody(ApiTargetBody transformedApiBody) {
+        return send -> transformedApiBody.bodyFor(send).map(ApiTargetBody.ApiWireBody::bytes);
     }
 
     /**
