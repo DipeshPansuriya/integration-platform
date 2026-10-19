@@ -71,6 +71,14 @@ class BestEffortIsolationContainerTest {
         registry.add("ROUTING_CORE_ALLOWED_SCHEMES", () -> "http,https");
     }
 
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    static class GrantAppRoleWiring {
+        @org.springframework.context.annotation.Bean
+        org.flywaydb.core.api.callback.Callback e9GrantAppRole() {
+            return E9TestNetwork.grantAppRoleAfterMigrate(POSTGRES, () -> login);
+        }
+    }
+
     private static Stage1Environment env;
     private static TargetStub targetA;
     private static TargetStub targetB;
@@ -123,13 +131,11 @@ class BestEffortIsolationContainerTest {
     @Test
     @org.junit.jupiter.api.Order(2)
     void nothingWasRolledBack() {
-        List<String> states = env.queryListAsApp("select state from public.delivery"
-                + " where tenant_id = ? and interface_id = ? and target_id in (?, ?) order by target_id",
-                String.class, Stage1Environment.TENANT, Stage1Environment.INTERFACE_ID,
-                routeToA.endpointId(), routeToB.endpointId());
-
-        assertThat(states).as("both deliveries persist with their states (nothing rolled back)")
-                .containsExactly("RETRY_WAIT", "DELIVERED");
+        // per target name: the endpoint ids are random, so an order by target_id is not an A-then-B order
+        assertThat(statesOf(routeToA.endpointId())).as("Target A's delivery persists in RETRY_WAIT")
+                .containsExactly("RETRY_WAIT");
+        assertThat(statesOf(routeToB.endpointId())).as("Target B's delivery persists DELIVERED (not rolled back)")
+                .containsExactly("DELIVERED");
     }
 
     // Stage 2 actually addressed both stubs.
@@ -138,6 +144,12 @@ class BestEffortIsolationContainerTest {
     void bothTargetsWereAddressed() {
         assertThat(targetB.calls()).as("Target B answered 200").isPositive();
         assertThat(targetA.calls()).as("Target A answered 500").isPositive();
+    }
+
+    private List<String> statesOf(UUID targetEndpointId) {
+        return env.queryListAsApp("select state from public.delivery"
+                + " where tenant_id = ? and interface_id = ? and target_id = ?", String.class,
+                Stage1Environment.TENANT, Stage1Environment.INTERFACE_ID, targetEndpointId);
     }
 
     /** The one delivery of one target; polls the full settle deadline. */

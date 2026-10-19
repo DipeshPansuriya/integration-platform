@@ -80,6 +80,14 @@ class RoutingBudgetPerformanceContainerTest {
         registry.add("ROUTING_CORE_ALLOWED_SCHEMES", () -> "http,https");
     }
 
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    static class GrantAppRoleWiring {
+        @org.springframework.context.annotation.Bean
+        org.flywaydb.core.api.callback.Callback e9GrantAppRole() {
+            return E9TestNetwork.grantAppRoleAfterMigrate(POSTGRES, () -> login);
+        }
+    }
+
     private static Stage1Environment env;
     private static final List<TargetStub> targets = new ArrayList<>();
     private static final RoutingStepBudget budget = new RoutingStepBudget();

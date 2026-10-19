@@ -31,6 +31,11 @@ public final class Stage1Environment {
 
     public static final UUID TENANT = UUID.fromString("0000000d-0000-4000-8000-00000000000d");
     public static final UUID INTERFACE_ID = UUID.fromString("13131313-0000-4000-8000-000000000001");
+    /** The published version every seeded message pins; its snapshot lists the routes registered so far. */
+    static final UUID INTERFACE_VERSION_ID = UUID.fromString("13131313-0000-4000-8000-000000000002");
+
+    private final java.util.List<RouteRows> routes = new java.util.ArrayList<>();
+    private boolean versionSeeded;
 
     private final String kafkaBootstrap;
     private org.apache.kafka.clients.producer.KafkaProducer<String, String> producer;
@@ -72,9 +77,9 @@ public final class Stage1Environment {
         UUID systemId = UUID.randomUUID();
         UUID endpointId = UUID.randomUUID();
         UUID routeId = UUID.randomUUID();
-        insertAsOwner("insert into public.system (id, tenant_id, code, name, direction)"
+        insertAsOwner("insert into public.system (id, tenant_id, code, name, direction, type, settings)"
                 + " values ('" + systemId + "', '" + TENANT + "', '" + endpointCode + "-system', '"
-                + endpointCode + " system', 'TARGET')");
+                + endpointCode + " system', 'TARGET', 'API', '{}'::jsonb)");
         insertAsOwner("insert into public.target_endpoint (id, tenant_id, system_id, code, name, base_url,"
                 + " http_method, auth_method, timeout_ms)"
                 + " values ('" + endpointId + "', '" + TENANT + "', '" + systemId + "', '" + endpointCode
@@ -82,7 +87,9 @@ public final class Stage1Environment {
         insertAsOwner("insert into public.route (id, tenant_id, interface_id, target_endpoint_id, sequence,"
                 + " status) values ('" + routeId + "', '" + TENANT + "', '" + INTERFACE_ID + "', '" + endpointId
                 + "', 1, 'ACTIVE')");
-        return new RouteRows(routeId, endpointId);
+        RouteRows rows = new RouteRows(routeId, endpointId);
+        routes.add(rows);
+        return rows;
     }
 
     /** The two ids one routing registration creates: the route row and its target endpoint. */
@@ -170,6 +177,7 @@ public final class Stage1Environment {
     /** Produces one accepted record on the given producer, waiting for its ack. */
     public void produceAccepted(org.apache.kafka.clients.producer.KafkaProducer<String, String> producer,
             UUID messageId, String businessKey, String payloadJson) {
+        seedAcceptedMessage(messageId, businessKey, payloadJson);
         try {
             producer.send(new org.apache.kafka.clients.producer.ProducerRecord<>(
                     io.integrationplatform.routing.topics.Topics.MESSAGE_ACCEPTED, businessKey,
@@ -180,11 +188,61 @@ public final class Stage1Environment {
         }
     }
 
-    /** The accepted-record envelope; lane C may narrow the shape at integration (wave-0 note). */
+    /** The ids-only work record the outbox relay publishes (KafkaPublishPort, WorkRecordParser v1). */
     String acceptedRecordJson(UUID messageId, String businessKey, String payloadJson) {
-        return "{\"messageId\":\"" + messageId + "\",\"tenantId\":\"" + TENANT + "\",\"interfaceId\":\""
-                + INTERFACE_ID + "\",\"businessKey\":\"" + businessKey + "\",\"keySeq\":1,\"acceptedAt\":\""
-                + Instant.now() + "\",\"payload\":" + payloadJson + "}";
+        return "{\"v\":1,\"type\":\"message.accepted\",\"id\":\"" + messageId + "\"}";
+    }
+
+    /**
+     * The rows the intake path writes before the record exists (IntakeStore): the ACCEPTED message pinning the
+     * published version, and its payload. The version is laid once, on the first message, with the routes
+     * registered by then (stage 1 routes from the pinned snapshot, Stage1FanOut).
+     */
+    private synchronized void seedAcceptedMessage(UUID messageId, String businessKey, String payloadJson) {
+        if (!versionSeeded) {
+            StringBuilder snapshot = new StringBuilder("{\"routes\":[");
+            for (int i = 0; i < routes.size(); i++) {
+                RouteRows route = routes.get(i);
+                snapshot.append(i == 0 ? "" : ",").append("{\"id\":\"").append(route.routeId())
+                        .append("\",\"sequence\":1,\"isPrimary\":false,\"status\":\"ACTIVE\",\"targetEndpointId\":\"")
+                        .append(route.endpointId()).append("\"}");
+            }
+            // each route pins an identity JSONata mapping version, so stage 2 has a transform input (TransformedApiBody)
+            StringBuilder mappingRows = new StringBuilder();
+            snapshot.append("],\"mappings\":[");
+            for (int i = 0; i < routes.size(); i++) {
+                RouteRows route = routes.get(i);
+                UUID mappingVersionId = UUID.randomUUID();
+                snapshot.append(i == 0 ? "" : ",").append("{\"id\":\"").append(UUID.randomUUID())
+                        .append("\",\"routeId\":\"").append(route.routeId())
+                        .append("\",\"mappingVersionId\":\"").append(mappingVersionId).append("\"}");
+                mappingRows.append(" insert into public.mapping_version (id, tenant_id, mapping_id, version,"
+                        + " source_contract_version_id, target_contract_version_id, engine, field_mappings,"
+                        + " compiled_expression, content_sha256, author_id) values ('" + mappingVersionId + "', '"
+                        + TENANT + "', '" + UUID.randomUUID() + "', 1, '" + UUID.randomUUID() + "', '"
+                        + UUID.randomUUID() + "', 'JSONATA', '[]'::jsonb, '$', sha256('" + mappingVersionId
+                        + "'::bytea), '" + UUID.randomUUID() + "');");
+            }
+            snapshot.append("]}");
+            // the contract/author parents are not under test, so this one connection skips the FK triggers
+            // (as MaskedFieldsJourneyContainerTest does) instead of building the whole config chain
+            insertAsOwner("set session_replication_role = replica;"
+                    + " insert into public.interface_version (id, tenant_id, interface_id, version, status,"
+                    + " business_key_rule, snapshot, source_contract_version_id, author_id) values ('"
+                    + INTERFACE_VERSION_ID + "', '" + TENANT + "', '" + INTERFACE_ID + "', 1, 'PUBLISHED', '$.key', '"
+                    + snapshot + "'::jsonb, '" + UUID.randomUUID() + "', '" + UUID.randomUUID() + "');"
+                    + mappingRows + " set session_replication_role = origin");
+            versionSeeded = true;
+        }
+        String acceptedAt = Instant.now().toString();
+        insertAsOwner("insert into public.message (id, tenant_id, interface_id, interface_version_id,"
+                + " source_contract_version_id, business_key, state, accepted_at, updated_at) values ('" + messageId
+                + "', '" + TENANT + "', '" + INTERFACE_ID + "', '" + INTERFACE_VERSION_ID + "', '" + UUID.randomUUID()
+                + "', '" + businessKey.replace("'", "''") + "', 'ACCEPTED', '" + acceptedAt + "'::timestamptz, '"
+                + acceptedAt + "'::timestamptz)");
+        insertAsOwner("insert into public.payload (message_id, tenant_id, accepted_at, body) values ('" + messageId
+                + "', '" + TENANT + "', '" + acceptedAt + "'::timestamptz, '" + payloadJson.replace("'", "''")
+                + "'::jsonb)");
     }
 
     /**
