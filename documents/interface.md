@@ -44,7 +44,7 @@ common API now has its first endpoint - section 2, "As built".
 |---|---|---|
 | The **common API** is what source systems call to hand over data; the **admin API** is what the console calls to configure systems, credentials, contracts, flows and rules | [Verified] | `ws/_specs/project-plan.md:116`; `ws/_specs/f3-plan-brief.md:532` |
 | Every endpoint is under `/api/v1`; the admin API is under `/api/v1/admin` | [Verified] | `platform-config/src/main/java/io/integrationplatform/config/system/adapter/in/SystemAdminController.java:35`; ADR-011 `:141-142` |
-| API v1 is supported for 12 months; T-169 records the window here formally and adds a test that unversioned paths are not served | [Verified] / [TBD] | `ws/_specs/project-plan.md:180`; `ws/_specs/backlog.md:3101`, `:3111` (E11) |
+| API v1 is supported for 12 months; T-169 records the window here formally and adds a test that unversioned paths are not served | [Verified] | `ws/_specs/project-plan.md:180`; `ws/_specs/backlog.md:3101`, `:3111` (E11); every controller path is under `/api/v1`: `platform-app/src/test/java/io/integrationplatform/apiversion/UnversionedPathsAreNotServedTest.java:46` (planted violation `:56`) |
 
 ## 2. The common API - ADR-011 Decision 4
 
