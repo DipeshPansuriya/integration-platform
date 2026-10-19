@@ -288,6 +288,43 @@ alert (T-062); a not-ready instance claims 0 executions while the other runs eve
 partition holding one dead letter survives the purge (T-189). [Inferred - owners per
 `ws/_specs/backlog.md:3594-3745`]
 
+## Amendment 2026-10-19 - per-task acceptance criteria (row 327, E14 / F8)
+
+No decision above changes. This section makes the gate table implementable: each tracker item maps
+to its backlog tasks, and each task has pass criteria written as counts. [Verified] mapping from the
+hub tracker `.claude/tracker/projects/ipass--integration-platform.json` (items T73-T76, T127).
+
+**Tracker to backlog mapping.** T73 (done) = T-057, T-058. T74 = T-056, T-141, T-062 (its T-060
+part was split out). T75 = T-142, T-144, T-189, T-203. T76 = T-059, T-143, T-061. **T127 = T-060**,
+the agent admin REST API, split out of T74 after review bounce c3; it needs a karan-security
+re-gate before review. Backlog task T-127 (E10 sync p95 measurement, `_specs/backlog.md:2659`) is
+a different item that shares the number only. [Verified] tracker titles.
+
+**Tenant isolation rule for every job (RLS).** A handler never takes a tenant id from job data, the
+`job_definition` row or a caller. It either loops the active tenants, setting `app.tenant_id` per
+transaction, or works on rows whose `tenant_id` it reads from the row under row-level security.
+Platform-scoped scheduler tables carry no `tenant_id`, and the agent principal reading a tenant
+table gets an error, not rows. [Decided - restates Decision 1 and T-144 as one testable rule]
+
+| Task | Acceptance criteria (each a test written failing first) |
+|---|---|
+| T-056 core, job rows | 1 `job_run` row per execution, with start, end, outcome and counts; a throwing handler gives 1 `FAILED` row and 1 alert; 0 `@Scheduled` or `@EnableScheduling` in the build (arch test, with a planted violation that must fail it); 0 `tenant_id` columns on platform-scoped scheduler tables |
+| T-057 on time | a due job fires within 1 poll interval; a job due while every instance was down fires 1 time on start and is flagged late |
+| T-058 two instances | 20 due jobs on 2 instances give 20 runs and 0 duplicates; killing the instance mid-run still ends in 1 recorded run |
+| T-059 run rows | every finished run shows 1 row in the run list with its counts; 0 payload bytes in any `job_run` column |
+| T-141 delivery retry | a not-ready instance claims 0 executions while the other claims every one; a delivery at the re-drive cap is re-driven 0 times |
+| T-142 purge | only partitions past retention are dropped; the job runs as the maintenance role (env var names only, 0 secrets in files) |
+| T-189 purge guard | a partition holding 1 `DEAD_LETTERED` delivery, or 1 non-final delivery, survives (0 drops); it drops only when both counts are 0 |
+| T-143 daily report | 1 report per tenant per day; a tenant's report holds 0 rows of another tenant |
+| T-144 tenant from row | a tenant id planted in job data is ignored: 0 rows written or read for the planted tenant |
+| T-203 credential clean-up | the Keycloak call carries the five controls, each with its own test; Keycloak down gives 1 `FAILED` run, 0 credentials marked removed, and the next run retries |
+| T-060 / T127 agent API | list, run, pause and inspect work under the agent credential; 403 for 3 of 3 non-agent callers (source credential, read-only user, tenant admin); the agent token on every tenant endpoint gives 403; 0 payload fields and 0 other-tenant configuration fields in any response; karan-security re-gate PASS before review |
+| T-061 activity log | 1 audit event per agent operation (run, pause, resume) through E12's writer; a refused call writes 1 refusal event and nothing else |
+| T-062 alerts | 1 alert row per incident, never 1 per retry; the alert API returns it on the next 5-minute poll; an alert closes 1 time, when the job next succeeds |
+
+**What this gives up:** the criteria are fixed per task, so a lane that finds a better test changes
+this section, not only the test.
+
 ## Consequences
 
 - One mechanism runs all background work, visible in one table and one API. [Inferred]
