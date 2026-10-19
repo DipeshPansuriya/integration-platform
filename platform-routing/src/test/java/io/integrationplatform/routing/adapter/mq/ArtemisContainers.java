@@ -17,7 +17,7 @@ import org.testcontainers.utility.DockerImageName;
  */
 public final class ArtemisContainers {
 
-    public static final String IMAGE = "apache/activemq-artemis:2.55.0";
+    public static final String IMAGE = "apache/activemq-artemis:2.44.0@sha256:0305c26f19eda00c0506d0953cfe265600a72ac1b17f7934412120c01a595cff";
     public static final int ACCEPTOR_PORT = 61616;
     public static final String USER = "t98-" + UUID.randomUUID();
     public static final String PASSWORD = UUID.randomUUID().toString();
