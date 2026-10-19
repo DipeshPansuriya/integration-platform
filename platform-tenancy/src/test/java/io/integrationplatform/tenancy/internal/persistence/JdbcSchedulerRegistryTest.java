@@ -88,6 +88,24 @@ class JdbcSchedulerRegistryTest {
         assertThat(jdbc.args).containsExactly(false, null, null, "DAILY_REPORT");
     }
 
+    /** T-127 follow-up: the operator credential lookup is ACTIVE-only with bound values; no row is not active. */
+    @Test
+    void anOperatorCredentialIsActiveOnlyByItsBoundIssuerAndClient() {
+        assertThat(registry.operatorCredentialActive("https://idp", "ops-agent")).isFalse();
+
+        assertThat(jdbc.sql).isEqualTo("select 1 from scheduler.operator_credential"
+                + " where issuer = ? and client_id = ? and status = 'ACTIVE'");
+        assertThat(jdbc.args).containsExactly("https://idp", "ops-agent");
+    }
+
+    @Test
+    void aBlankOperatorIssuerOrClientRunsNoQuery() {
+        assertThat(registry.operatorCredentialActive("https://idp", " ")).isFalse();
+        assertThat(registry.operatorCredentialActive(null, "ops-agent")).isFalse();
+
+        assertThat(jdbc.sql).isNull();
+    }
+
     @Test
     void isTheDeclaredBoundaryCrossingOfTheSchedulerTables() {
         assertThat(JdbcSchedulerRegistry.class.getAnnotation(TenantBoundaryCrossing.class).value())
