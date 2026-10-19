@@ -197,4 +197,28 @@ class MessageTrackingServiceTest {
                         MessageTrackingService.Failure::lastError)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple(null, "d-1", "no route"));
     }
+    // ------------------------------------------------------------------ T156: lastError reaches read-only users
+
+    private String lastErrorOf(String attemptDetail) {
+        when(store.deadLetters(any(), any(), any())).thenReturn(List.of(new JdbcMessageTrackingStore.DeadLetterRow(
+                "d-1", null, UUID.randomUUID().toString(), TARGET_1, "PERMANENT", attemptDetail, "PERMANENT", T0)));
+        when(store.maskedSources(any())).thenReturn(java.util.Map.of());
+        return service.failures(null, null).get(0).lastError();
+    }
+
+    @Test
+    void aLongTargetAnswerIsCapped() {
+        String lastError = lastErrorOf("HTTP 500 " + "x".repeat(5000));
+
+        assertThat(lastError).startsWith("HTTP 500 xxx").hasSizeLessThanOrEqualTo(512);
+    }
+
+    @Test
+    void anEmailOrSecretInTheTargetAnswerIsNotReturned() {
+        String lastError = lastErrorOf("HTTP 401 user jane.doe@example.com Authorization: Bearer eyJabc.def-ghi"
+                + " password=hunter2 api_key: K3yV4lue");
+
+        assertThat(lastError).startsWith("HTTP 401 user ")
+                .doesNotContain("jane.doe@example.com", "eyJabc.def-ghi", "hunter2", "K3yV4lue");
+    }
 }
