@@ -9,7 +9,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
-import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -34,10 +33,8 @@ public class MqTargetCallConfiguration {
 
     @Bean
     MqTargetCall mqTargetCall(JdbcMqTargets targets, SendTimeCredentials vault, DestinationGuard guard,
-            ObjectProvider<MqTargetBody> body, ObjectProvider<CircuitBreakerRegistry> breakers,
+            MqTargetBody bodyPort, ObjectProvider<CircuitBreakerRegistry> breakers,
             ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations) {
-        // shortcut: no production body port yet, so an MQ send is refused PERMANENT until the transform provides one
-        MqTargetBody bodyPort = body.getIfAvailable(() -> send -> Optional.empty());
         MqOutbound outbound = new MqTargetOutbound(targets::settingsOf, endpointId -> {
             try (OpenedCredentials opened = vault.open(endpointId)) {
                 return opened.value(PASSWORD_FIELD).map(char[]::clone); // copy: close() zeroes the original
