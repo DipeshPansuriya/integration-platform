@@ -160,10 +160,6 @@ public final class DeliveryRetryTrigger {
         return moved;
     }
 
-    /**
-     * T-180 (ADR-011 D6): a HELD delivery whose predecessors are all final but whose release was missed is
-     * released here, writing its due record in the same transaction.
-     */
     /** T-180: a PENDING/DUE row unchanged for {@link #UNHANDED_AFTER} with no unpublished outbox row is re-handed. */
     private int reHandUnhanded() {
         int reHanded = 0;
@@ -176,6 +172,10 @@ public final class DeliveryRetryTrigger {
 
     private static final Duration UNHANDED_AFTER = Duration.ofMinutes(5);
 
+    /**
+     * T-180 (ADR-011 D6): a HELD delivery whose predecessors are all final but whose release was missed is
+     * released here, writing its due record in the same transaction.
+     */
     private int releaseHeld() {
         int released = 0;
         for (UUID held : reconcileStore.lockReleasableHeld(batchSize)) {
