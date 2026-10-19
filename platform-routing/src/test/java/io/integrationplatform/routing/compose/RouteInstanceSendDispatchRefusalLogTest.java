@@ -2,17 +2,18 @@ package io.integrationplatform.routing.compose;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.integrationplatform.delivery.port.SendOutcomes;
-import io.integrationplatform.routing.adapter.api.TargetEndpointViews;
-import io.integrationplatform.routing.claim.DeliveryClaimHandler;
+import io.integrationplatform.routing.stage2.Stage2Send;
 import io.integrationplatform.routing.templates.RouteConfigRow;
 import io.integrationplatform.routing.templates.RouteInstanceFactory;
-import io.integrationplatform.tenancy.WorkerTenantBinding;
+import io.integrationplatform.tenancy.TenantContext;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.apache.camel.ProducerTemplate;
@@ -30,7 +31,7 @@ import org.springframework.transaction.support.TransactionOperations;
  */
 @Tag("e9-t116")
 @ExtendWith(OutputCaptureExtension.class)
-class DueDeliverySendRefusalLogTest {
+class RouteInstanceSendDispatchRefusalLogTest {
 
     private static final String DIRTY_URI = "exec://user:pw@host/bin/echo?token=s3cret\r\nX-Injected: yes";
     private static final Instant NOW = Instant.parse("2026-10-17T12:00:00Z");
@@ -46,13 +47,17 @@ class DueDeliverySendRefusalLogTest {
         try {
             RouteInstanceFactory routes = new RouteInstanceFactory((t, i) -> List.of(row), camel, List.of(),
                     Set.of("https"), Duration.ofMinutes(30), () -> NOW);
-            DueDeliverySend stage2 = new DueDeliverySend(mock(WorkerTenantBinding.class),
-                    TransactionOperations.withoutTransaction(), mock(JdbcDueDeliveries.class),
-                    mock(DeliveryClaimHandler.class), (t, i) -> List.of(row), routes, mock(TargetEndpointViews.class),
-                    mock(ProducerTemplate.class), mock(SendOutcomes.class), () -> NOW);
+            UUID tenant = seed("tenant");
+            JdbcDueDeliveries deliveries = mock(JdbcDueDeliveries.class);
+            when(deliveries.claimed(delivery)).thenReturn(Optional.of(
+                    new JdbcDueDeliveries.DueDelivery(delivery, route, endpoint, seed("iface"), "key-1")));
+            TenantContext tenants = mock(TenantContext.class);
+            when(tenants.requireTenantId()).thenReturn(tenant);
+            RouteInstanceSendDispatch stage2 = new RouteInstanceSendDispatch(TransactionOperations.withoutTransaction(),
+                    deliveries, tenants, (t, i) -> List.of(row), routes, mock(ProducerTemplate.class),
+                    mock(SendOutcomes.class), () -> NOW);
 
-            stage2.send(seed("tenant"), new JdbcDueDeliveries.DueDelivery(delivery, route, endpoint, seed("iface"),
-                    "key-1"), UUID.randomUUID());
+            stage2.dispatch(new Stage2Send(delivery, UUID.randomUUID(), "key-1", endpoint, false));
         } finally {
             camel.stop();
         }

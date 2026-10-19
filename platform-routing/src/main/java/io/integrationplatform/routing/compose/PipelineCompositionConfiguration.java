@@ -1,5 +1,11 @@
 package io.integrationplatform.routing.compose;
 
+import io.integrationplatform.delivery.port.BulkheadDeferrals;
+import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
+import io.integrationplatform.routing.stage2.bulkhead.BulkheadRegistry;
+import io.integrationplatform.routing.stage2.bulkhead.BulkheadSettings;
+import io.integrationplatform.routing.stage2.bulkhead.DeliveryDueDispatch;
+import java.util.concurrent.ThreadLocalRandom;
 import io.integrationplatform.delivery.DeliveryClaimService;
 import io.integrationplatform.delivery.port.SendOutcomes;
 import io.integrationplatform.delivery.port.Stage1Deliveries;
@@ -154,15 +160,44 @@ class PipelineCompositionConfiguration {
                 new JdbcStage1Reads(jdbcClient, tenantContext), stage1Deliveries);
     }
 
+    @Bean(destroyMethod = "shutdown")
+    BulkheadRegistry stage2Bulkheads(Environment environment) {
+        return new BulkheadRegistry(stage2BulkheadSettings(environment));
+    }
+
+    /** Unset, blank, unresolved (no env var) or non-numeric size -> team default; a number is still range-checked. */
+    private static BulkheadSettings stage2BulkheadSettings(Environment environment) {
+        String raw;
+        try {
+            raw = environment.getProperty("routing.core.stage2.bulkhead.max-concurrent-sends");
+        } catch (IllegalArgumentException unresolvedPlaceholder) {
+            return BulkheadSettings.teamDefault();
+        }
+        if (raw == null || raw.isBlank()) {
+            return BulkheadSettings.teamDefault();
+        }
+        int max;
+        try {
+            max = Integer.parseInt(raw.strip());
+        } catch (NumberFormatException notANumber) {
+            return BulkheadSettings.teamDefault();
+        }
+        return new BulkheadSettings(max);
+    }
+
     @Bean
-    DueDeliverySend dueDeliverySend(WorkerTenantBinding binding, PlatformTransactionManager transactionManager,
+    DeliveryDueDispatch deliveryDueDispatch(WorkerTenantBinding binding, PlatformTransactionManager transactionManager,
             JdbcClient jdbcClient, TenantContext tenantContext, DeliveryClaimService claimService,
+            DeliveryBulkheadFacts bulkheadFacts, BulkheadDeferrals deferrals, BulkheadRegistry stage2Bulkheads,
             RouteConfigReader routeConfigReader, RouteInstanceFactory routeInstanceFactory,
             TargetEndpointViews targetEndpointViews, ProducerTemplate producerTemplate, SendOutcomes outcomes) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
-        return new DueDeliverySend(binding, transactions, new JdbcDueDeliveries(jdbcClient, tenantContext),
-                new DeliveryClaimHandler(transactions, claimService), routeConfigReader, routeInstanceFactory,
-                targetEndpointViews, producerTemplate, outcomes, Instant::now);
+        RouteInstanceSendDispatch sends = new RouteInstanceSendDispatch(transactions,
+                new JdbcDueDeliveries(jdbcClient, tenantContext), tenantContext, routeConfigReader,
+                routeInstanceFactory, producerTemplate, outcomes, Instant::now);
+        return new DeliveryDueDispatch(binding, transactions, bulkheadFacts, stage2Bulkheads,
+                new DeliveryClaimHandler(transactions, claimService)::claim, deferrals, sends, targetEndpointViews,
+                Instant::now, () -> ThreadLocalRandom.current().nextDouble());
     }
 
     @Bean
@@ -199,10 +234,10 @@ class PipelineCompositionConfiguration {
 
     @Bean
     StageConsumerLoop stage2Consumer(@Value("${platform.routing.kafka.bootstrap-servers}") String bootstrap,
-            ProtectedWorkRows protectedWorkRows, DueDeliverySend dueDeliverySend,
+            ProtectedWorkRows protectedWorkRows, DeliveryDueDispatch deliveryDueDispatch,
             Producer<byte[], byte[]> poisonProducer, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations, ObjectProvider<InstanceKeyReadiness> keyReadiness) {
-        return loop(bootstrap, "platform-stage2", Topics.DELIVERY_DUE, protectedWorkRows, dueDeliverySend,
+        return loop(bootstrap, "platform-stage2", Topics.DELIVERY_DUE, protectedWorkRows, deliveryDueDispatch,
                 poisonProducer, meters, observations, keyReadiness);
     }
 
