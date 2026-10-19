@@ -1,5 +1,11 @@
 package io.integrationplatform.routing.stage2;
 
+import io.integrationplatform.domain.delivery.OutcomeClass;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Function;
+
 /**
  * One target call of a route instance (T-116/T-119 seam): the template's send behaviour - what E10's adapters
  * (ADR-015) implement per target type and stage 2's layer-1 route invokes for every try. The call is everything
@@ -16,4 +22,20 @@ public interface TargetCall {
      * @throws TargetFaultException the classified failure of this call
      */
     void call(Stage2Send send);
+
+    /**
+     * Row 327: the call for the send's target type ("MQ", "API" - the stored {@code system.type}); a missing or
+     * unknown type is refused PERMANENT, so no send is ever silently dropped or dialled through the wrong adapter.
+     */
+    static TargetCall byType(Function<UUID, Optional<String>> typeOfEndpoint, Map<String, TargetCall> calls) {
+        Map<String, TargetCall> byType = Map.copyOf(calls);
+        return send -> {
+            String type = typeOfEndpoint.apply(send.targetEndpointId()).orElse(null);
+            TargetCall call = type == null ? null : byType.get(type);
+            if (call == null) {
+                throw new TargetFaultException(OutcomeClass.PERMANENT, "no target call for type " + type);
+            }
+            call.call(send);
+        };
+    }
 }

@@ -4,6 +4,8 @@ import io.integrationplatform.delivery.DeliveryClaimService;
 import io.integrationplatform.delivery.port.SendOutcomes;
 import io.integrationplatform.delivery.port.Stage1Deliveries;
 import io.integrationplatform.routing.adapter.api.TargetEndpointViews;
+import io.integrationplatform.routing.adapter.mq.JdbcMqTargets;
+import io.integrationplatform.routing.adapter.mq.MqTargetCall;
 import io.integrationplatform.routing.claim.DeliveryClaimHandler;
 import io.integrationplatform.routing.poison.PoisonTopic;
 import io.integrationplatform.routing.stage.StageConsumer;
@@ -43,6 +45,7 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -84,10 +87,12 @@ class PipelineCompositionConfiguration {
      * hand-off each commit in their own short transaction, as the recorder path does.
      */
     @Bean
-    LayerOneRouteBuilder layerOneRoute(TargetCall apiTargetCall, SendOutcomes outcomes,
-            PlatformTransactionManager transactionManager) {
+    LayerOneRouteBuilder layerOneRoute(@Qualifier("apiTargetCall") TargetCall apiTargetCall, MqTargetCall mqTargetCall,
+            JdbcMqTargets mqTargets, SendOutcomes outcomes, PlatformTransactionManager transactionManager) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
-        TargetCall inTenantTransaction = send -> transactions.executeWithoutResult(status -> apiTargetCall.call(send));
+        // row 327: picked by the stored system.type; an unknown type is refused PERMANENT, never dropped
+        TargetCall byType = TargetCall.byType(mqTargets::typeOf, Map.of("MQ", mqTargetCall, "API", apiTargetCall));
+        TargetCall inTenantTransaction = send -> transactions.executeWithoutResult(status -> byType.call(send));
         Stage2AttemptWriter attempts = (deliveryId, layer, outcome, startedAt, finishedAt, detail) ->
                 transactions.executeWithoutResult(status ->
                         outcomes.recordAttempt(deliveryId, layer, outcome, startedAt, finishedAt, detail));
