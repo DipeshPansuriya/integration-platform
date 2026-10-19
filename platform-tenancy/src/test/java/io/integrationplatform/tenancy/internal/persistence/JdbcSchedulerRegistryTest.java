@@ -30,6 +30,13 @@ class JdbcSchedulerRegistryTest {
             this.args = List.of(args);
             return List.of();
         }
+
+        @Override
+        public int update(String sql, Object... args) {
+            this.sql = sql;
+            this.args = java.util.Arrays.asList(args);
+            return 1;
+        }
     }
 
     private final RecordingJdbc jdbc = new RecordingJdbc();
@@ -60,6 +67,25 @@ class JdbcSchedulerRegistryTest {
         assertThat(jdbc.sql).doesNotContain(" and ").endsWith(" where true"
                 + " order by coalesce(started, scheduled_for) desc nulls last, id limit ?");
         assertThat(jdbc.args).containsExactly(100);
+    }
+
+    /** E14 T-060: pausing records who and when on the register row; resuming clears both. Bound values only (R11). */
+    @Test
+    void pauseRecordsWhoAndWhenWithBoundValues() {
+        Instant at = Instant.parse("2026-10-19T09:00:00Z");
+
+        assertThat(registry.setPaused("DAILY_REPORT", true, "ops-agent", at)).isEqualTo(1);
+
+        assertThat(jdbc.sql).isEqualTo(
+                "update scheduler.job_definition set paused = ?, paused_by = ?, paused_at = ? where job_type = ?");
+        assertThat(jdbc.args).containsExactly(true, "ops-agent", Timestamp.from(at), "DAILY_REPORT");
+    }
+
+    @Test
+    void resumeClearsWhoAndWhen() {
+        registry.setPaused("DAILY_REPORT", false, "ops-agent", Instant.parse("2026-10-19T09:00:00Z"));
+
+        assertThat(jdbc.args).containsExactly(false, null, null, "DAILY_REPORT");
     }
 
     @Test
