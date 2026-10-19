@@ -13,6 +13,10 @@ import io.integrationplatform.domain.delivery.OutcomeClass;
 import io.integrationplatform.routing.adapter.api.HttpSend.Response;
 import io.integrationplatform.routing.stage2.Stage2Send;
 import io.integrationplatform.routing.stage2.TargetFaultException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.SocketTimeoutException;
@@ -261,6 +265,103 @@ class ApiTargetCallTest {
         assertThatThrownBy(() -> target.call(sendTo(UUID.randomUUID())))
                 .isInstanceOf(TargetFaultException.TransientFaultException.class);
         assertThat(sent).as("one breaker per target: another target still sends").hasSize(3 + trialCalls);
+    }
+
+    // ---------------------------------------------------------------- T99: every call is observable (T-167)
+
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    private final List<String> observed = new ArrayList<>();
+    private final ObservationRegistry observations = recording(observed);
+
+    @Test
+    @DisplayName("T99: success, transient, permanent and breaker-open each count their outcome and time the attempt,"
+            + " tagged target_type=API")
+    void everyOutcomeIsCountedAndTimed() {
+        CircuitBreakerRegistry breakers = CircuitBreakerRegistry.ofDefaults();
+        TargetEndpointView view = view("http://target.e5.test:8080/api", "POST", 1500, "NO_AUTH", false, Map.of());
+        observed(view, answering(() -> new Response(200, new byte[0])), breakers).call(send());
+        assertThatThrownBy(() -> observed(view, answering(() -> new Response(503, new byte[0])), breakers)
+                .call(send())).isInstanceOf(TargetFaultException.TransientFaultException.class);
+        assertThatThrownBy(() -> observed(view, answering(() -> new Response(401, new byte[0])), breakers)
+                .call(send())).isInstanceOfSatisfying(TargetFaultException.class, fault ->
+                        assertThat(fault.outcomeClass()).isEqualTo(OutcomeClass.PERMANENT));
+        UUID open = UUID.randomUUID();
+        breakers.circuitBreaker(open.toString()).transitionToOpenState();
+        assertThatThrownBy(() -> observed(view, neverExpected(), breakers).call(sendTo(open)))
+                .isInstanceOf(TargetFaultException.TransientFaultException.class);
+
+        assertThat(meters.get("api.target.outcome").tags("target_type", "API", "outcome", "SUCCESS").counter()
+                .count()).isEqualTo(1);
+        assertThat(meters.get("api.target.outcome").tags("target_type", "API", "outcome", "PERMANENT").counter()
+                .count()).isEqualTo(1);
+        assertThat(meters.get("api.target.outcome").tags("target_type", "API", "outcome", "TRANSIENT").counter()
+                .count()).as("the 503 and the breaker-open refusal").isEqualTo(2);
+        assertThat(meters.get("api.target.send").tags("target_type", "API").timers().stream()
+                .mapToLong(io.micrometer.core.instrument.Timer::count).sum()).isEqualTo(4);
+        assertThat(meters.get("resilience4j.circuitbreaker.state").gauges()).as("breaker state is a gauge")
+                .isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("T99: one api.target.send observation is started and stopped per attempt")
+    void oneObservationPerAttempt() {
+        TargetEndpointView view = view("http://target.e5.test:8080/api", "POST", 1500, "NO_AUTH", false, Map.of());
+        ApiTargetCall target = observed(view, answering(() -> new Response(200, new byte[0])),
+                CircuitBreakerRegistry.ofDefaults());
+
+        target.call(send());
+        target.call(send());
+
+        assertThat(observed).containsExactly("start api.target.send", "stop api.target.send outcome=SUCCESS",
+                "start api.target.send", "stop api.target.send outcome=SUCCESS");
+    }
+
+    @Test
+    @DisplayName("T99/T-123: endpoint A's breaker OPEN - endpoint B's call still goes out and B's breaker stays"
+            + " CLOSED")
+    void oneOpenBreakerNeverStopsAnotherTarget() {
+        CircuitBreakerRegistry breakers = CircuitBreakerRegistry.ofDefaults();
+        ApiTargetCall target = observed(view("http://target.e5.test:8080/api", "POST", 1500, "NO_AUTH", false,
+                Map.of()), answering(() -> new Response(200, new byte[0])), breakers);
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        breakers.circuitBreaker(a.toString()).transitionToOpenState();
+
+        assertThatThrownBy(() -> target.call(sendTo(a)))
+                .isInstanceOf(TargetFaultException.TransientFaultException.class);
+        target.call(sendTo(b));
+
+        assertThat(sent).as("only B's call reached the wire").hasSize(1);
+        assertThat(breakers.circuitBreaker(b.toString()).getState())
+                .isEqualTo(io.github.resilience4j.circuitbreaker.CircuitBreaker.State.CLOSED);
+        assertThat(meters.get("api.target.outcome").tags("outcome", "SUCCESS").counter().count()).isEqualTo(1);
+    }
+
+    private ApiTargetCall observed(TargetEndpointView view, HttpSend sender, CircuitBreakerRegistry breakers) {
+        return new ApiTargetCall(views(view), guard(), bodyPort, sender, breakers, meters, observations);
+    }
+
+    /** A recording handler: micrometer-observation-test is not on this module's test classpath. */
+    private static ObservationRegistry recording(List<String> log) {
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationHandler<Observation.Context>() {
+            @Override
+            public void onStart(Observation.Context context) {
+                log.add("start " + context.getName());
+            }
+
+            @Override
+            public void onStop(Observation.Context context) {
+                log.add("stop " + context.getName() + " outcome="
+                        + context.getLowCardinalityKeyValue("outcome").getValue());
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        return registry;
     }
 
     // ---------------------------------------------------------------- the seams
