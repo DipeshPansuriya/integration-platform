@@ -29,7 +29,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  *
  * <pre>
  * Scenario: Best-effort across targets
- *   Given Target A answering 500 and Target B answering 200
+ *   Given Target A (declares idempotent receive) answering 500 and Target B answering 200
  *   When one message is routed to both
  *   Then Target B's delivery is DELIVERED and Target A's goes to RETRY_WAIT; nothing is rolled back
  * </pre>
@@ -37,7 +37,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * <p>Drive: one accepted record into {@code platform.message.accepted} (the Kafka harness, unchanged); routing
  * stage 1 (T-117/T-178, lane C) fans it out and pins one delivery per route; stage 2 (the target adapter, lane
  * A1) sends - Target B's 200 confirms the delivery DELIVERED, Target A's 500 leaves it in RETRY_WAIT for the
- * retry layer; best-effort means both rows persist and the settled states hold. The whole application runs
+ * retry layer (A declares idempotent receive, so a 500 is TRANSIENT; without it a 500 is AMBIGUOUS and
+ * dead-letters, ADR-010 outcome table); best-effort means both rows persist and the settled states hold. The whole application runs
  * ({@code @SpringBootTest}, E9 reopen B1); a missing link leaves no delivery and the poll's failure names it.
  */
 @Tag("container")
@@ -85,7 +86,7 @@ class BestEffortIsolationContainerTest {
     private static Stage1Environment.RouteRows routeToA;
     private static Stage1Environment.RouteRows routeToB;
 
-    // Given Target A answering 500 and Target B answering 200 (and their routes registered).
+    // Given Target A (idempotent receive, so its 500 is TRANSIENT) answering 500 and Target B answering 200.
     @BeforeEach
     void givenTheTwoTargetsAndTheirRoutes() throws Exception {
         if (env != null) {
@@ -95,7 +96,7 @@ class BestEffortIsolationContainerTest {
         env = new Stage1Environment(POSTGRES, login, KAFKA.getBootstrapServers());
         targetA = TargetStub.answering("/target-a-500", 500);
         targetB = TargetStub.answering("/target-b-200", 200);
-        routeToA = env.registerRoute("e9-target-a", targetA.baseUrl());
+        routeToA = env.registerRoute("e9-target-a", targetA.baseUrl(), true);
         routeToB = env.registerRoute("e9-target-b", targetB.baseUrl());
     }
 
@@ -156,7 +157,8 @@ class BestEffortIsolationContainerTest {
     private Map<String, Object> oneDeliveryOfTarget(UUID targetEndpointId, String named) {
         return Stage1Environment.pollUntil(SETTLE,
                 () -> env.queryOneAsApp("select id, state, next_attempt_at from public.delivery"
-                        + " where tenant_id = ? and interface_id = ? and target_id = ? limit 1",
+                        + " where tenant_id = ? and interface_id = ? and target_id = ?"
+                        + " and state not in ('PENDING', 'SENDING') limit 1", // settled (ADR-010:275)
                         Stage1Environment.TENANT, Stage1Environment.INTERFACE_ID, targetEndpointId),
                 "a delivery of " + named + " (routing stage 1 T-117/T-178 or stage 2 T-177 did not act)");
     }

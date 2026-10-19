@@ -74,6 +74,14 @@ public final class Stage1Environment {
      * @return {@code routeId/endpointId} - the delivery row's {@code target_id} is the endpoint id
      */
     public RouteRows registerRoute(String endpointCode, String baseUrl) {
+        return registerRoute(endpointCode, baseUrl, false);
+    }
+
+    /**
+     * As {@link #registerRoute(String, String)}, with the endpoint's {@code idempotent_receive} flag - it decides
+     * whether a 408/5xx is TRANSIENT (retried) or AMBIGUOUS (dead-lettered), ADR-010 outcome table.
+     */
+    public RouteRows registerRoute(String endpointCode, String baseUrl, boolean idempotentReceive) {
         UUID systemId = UUID.randomUUID();
         UUID endpointId = UUID.randomUUID();
         UUID routeId = UUID.randomUUID();
@@ -81,9 +89,9 @@ public final class Stage1Environment {
                 + " values ('" + systemId + "', '" + TENANT + "', '" + endpointCode + "-system', '"
                 + endpointCode + " system', 'TARGET', 'API', '{}'::jsonb)");
         insertAsOwner("insert into public.target_endpoint (id, tenant_id, system_id, code, name, base_url,"
-                + " http_method, auth_method, timeout_ms)"
+                + " http_method, auth_method, timeout_ms, idempotent_receive)"
                 + " values ('" + endpointId + "', '" + TENANT + "', '" + systemId + "', '" + endpointCode
-                + "', '" + endpointCode + " endpoint', '" + baseUrl + "', 'POST', 'NO_AUTH', 30000)");
+                + "', '" + endpointCode + " endpoint', '" + baseUrl + "', 'POST', 'NO_AUTH', 30000, " + idempotentReceive + ")");
         insertAsOwner("insert into public.route (id, tenant_id, interface_id, target_endpoint_id, sequence,"
                 + " status) values ('" + routeId + "', '" + TENANT + "', '" + INTERFACE_ID + "', '" + endpointId
                 + "', 1, 'ACTIVE')");
