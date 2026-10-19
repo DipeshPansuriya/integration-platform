@@ -29,7 +29,8 @@ class Stage1FanOutPlanTest {
     private static final String VERSION_B = "bbbbbbbb-2222-4000-8000-000000000002";
 
     private final JdbcStage1Reads.PinnedMessage message =
-            new JdbcStage1Reads.PinnedMessage(MESSAGE, "ACCEPTED", ACCEPTED_AT, UUID.randomUUID());
+            new JdbcStage1Reads.PinnedMessage(MESSAGE, "ACCEPTED", ACCEPTED_AT, UUID.randomUUID(), INTERFACE, "K-1", 3L);
+    private static final UUID INTERFACE = UUID.fromString("eeeeeeee-0000-4000-8000-000000000001");
 
     @Test
     @DisplayName("one delivery per ACTIVE unconditional route, each pinning its own mapping version")
@@ -44,9 +45,9 @@ class Stage1FanOutPlanTest {
 
         assertThat(planned).containsExactly(
                 new Stage1Delivery(MESSAGE, UUID.fromString(ROUTE_A), ACCEPTED_AT, UUID.fromString(ENDPOINT_A),
-                        UUID.fromString(VERSION_A), null, null, null, null),
+                        UUID.fromString(VERSION_A), null, INTERFACE, "K-1", 3L),
                 new Stage1Delivery(MESSAGE, UUID.fromString(ROUTE_B), ACCEPTED_AT, UUID.fromString(ENDPOINT_B),
-                        UUID.fromString(VERSION_B), null, null, null, null));
+                        UUID.fromString(VERSION_B), null, INTERFACE, "K-1", 3L));
     }
 
     @Test
