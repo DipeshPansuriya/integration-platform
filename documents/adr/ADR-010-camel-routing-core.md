@@ -416,12 +416,34 @@ is `platform-config/src/main/java/io/integrationplatform/config/destination/`,
   unit exit 0, `-Pcontainer` exit 0 (merge `a2c76ff`).
 - **What it gives up.** Under `showcase`, a listed name that resolves to loopback can still reach
   any service on that host that listens on a **listed** port. The port pin narrows this from every
-  port to the listed ones, but the "platform's own hosts" refusal list of this section is not yet
-  in code, so a listed port shared with a platform service is not caught. A showcase-local port
+  port to the listed ones, and the "platform's own hosts" refusal list of this section is in code
+  since `8215ebc` (`DestinationGuard.java:76-106`, `:173-177`), so a listed port shared with a
+  platform service is refused. A showcase-local port
   must therefore be the test destination's own port, a showcase-local host a name that points
   only at the test destination, and a showcase run never holds real tenant data.
 - **Review.** karan-security, through kavita-release-manager (T137, ledger row 323), reviewed the
   change before it landed: T137 PASS (merge `a2c76ff`).
+
+#### Amendment 2026-10-19 - global outbound allow-list (T-202, row 327)
+
+- **Context.** The allow-list is per tenant only, so a tenant administrator decides alone where
+  the platform may connect. An operator needs an outer bound per deployment.
+- **Options.** (A) Keep the per-tenant list only: no new setting, but no operator bound.
+  (B) Global list only: one bound, but it removes the tenant's own narrowing. (C) Both, the
+  effective list being the intersection. [Decided] **C.**
+- **Decision.** A global allow-list from an environment variable is the outer bound; the
+  effective list for a target is global ∩ tenant. An empty or missing global list **fails closed**
+  (every destination refused), never open. The platform's own hosts (the instance's PostgreSQL,
+  Kafka and Keycloak) are refused as targets **even when allow-listed**: the egress manifest
+  allows them for the platform's own connections only. A FILE target path is confined with
+  `ConfinedPath.under` (`ConfinedPath.java:25-45`); `..` and symlink escapes are refused.
+- **Gates (counts), each a conformance test.** Empty global list: N of N destinations refused. A
+  host on the tenant list but not on the global list: refused, 1 of 1. A platform host on both
+  lists: refused, 1 of 1. FILE escapes: 2 of 2 refused (`..`, symlink). A host on both lists and
+  not a platform host: allowed, 1 of 1.
+- **What it gives up.** One more setting per deployment, and a deployment that forgets it sends
+  nothing until it is set.
+- **Revisit if** an operator needs per-tenant overrides of the global bound.
 
 ### 9. Nothing stays stuck (challenge B4)
 
