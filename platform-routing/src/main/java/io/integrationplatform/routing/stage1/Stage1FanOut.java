@@ -89,7 +89,7 @@ public final class Stage1FanOut implements StageConsumer.Handler {
             String mappingVersion = mappingVersionByRoute.get(route.id());
             planned.add(new Stage1Delivery(message.id(), UUID.fromString(route.id()), message.acceptedAt(),
                     UUID.fromString(route.targetEndpointId()),
-                    mappingVersion == null ? null : UUID.fromString(mappingVersion), null));
+                    mappingVersion == null ? null : UUID.fromString(mappingVersion), null, null, null, null));
         }
         return planned;
     }

@@ -44,9 +44,9 @@ class Stage1FanOutPlanTest {
 
         assertThat(planned).containsExactly(
                 new Stage1Delivery(MESSAGE, UUID.fromString(ROUTE_A), ACCEPTED_AT, UUID.fromString(ENDPOINT_A),
-                        UUID.fromString(VERSION_A), null),
+                        UUID.fromString(VERSION_A), null, null, null, null),
                 new Stage1Delivery(MESSAGE, UUID.fromString(ROUTE_B), ACCEPTED_AT, UUID.fromString(ENDPOINT_B),
-                        UUID.fromString(VERSION_B), null));
+                        UUID.fromString(VERSION_B), null, null, null, null));
     }
 
     @Test

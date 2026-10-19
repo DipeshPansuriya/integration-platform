@@ -15,7 +15,11 @@ import java.util.UUID;
  * @param mappingVersionId the pinned mapping version (later configuration changes never alter it, E9-F1-S1)
  * @param orderingKey      the interface's ordering key value for this message (hold/scope key), or {@code null}
  *                         when the interface's ordering is {@code NONE}
+ * @param interfaceId      the message's {@code interface_id} - with {@code businessKey} and the target, the ordering
+ *                         scope the due-claim and the best-effort hold compare (ADR-011 Decision 6)
+ * @param businessKey      the message's {@code business_key}
+ * @param keySeq           the message's per-key {@code key_seq}, or {@code null} when the message has none
  */
 public record Stage1Delivery(UUID messageId, UUID routeId, java.time.Instant acceptedAt, UUID targetEndpointId,
-        UUID mappingVersionId, String orderingKey) {
+        UUID mappingVersionId, String orderingKey, UUID interfaceId, String businessKey, Long keySeq) {
 }
