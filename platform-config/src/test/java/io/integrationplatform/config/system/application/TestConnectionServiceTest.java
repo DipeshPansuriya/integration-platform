@@ -58,14 +58,53 @@ class TestConnectionServiceTest {
 
     @Test
     void withoutAnMqPortTheAnswerStaysNotAvailableYet() {
-        Map<String, Object> answer = service(null).test(ID, TENANT, ACTOR);
+        Map<String, Object> answer = service((MqConnectionCheck) null).test(ID, TENANT, ACTOR);
 
         assertThat(answer.get("result")).isEqualTo("NOT_AVAILABLE_YET");
         verify(audit).record(TENANT, ACTOR, ID, "MQ", "NOT_AVAILABLE_YET", null, null);
     }
 
+    @Test
+    void aNonMqTypeNeverTouchesTheCheckRegisteredForMq() {
+        String dbId = UUID.randomUUID().toString();
+        when(systems.findSystem(dbId)).thenReturn(Optional.of(new SystemDetail(dbId, "C", "N", "TARGET", "DB", SETTINGS)));
+        MqConnectionCheck mq = mock(MqConnectionCheck.class);
+
+        Map<String, Object> answer = service(Map.of("MQ", mq)).test(dbId, TENANT, ACTOR);
+
+        assertThat(answer.get("result")).isEqualTo("NOT_AVAILABLE_YET");
+        verify(audit).record(TENANT, ACTOR, dbId, "DB", "NOT_AVAILABLE_YET", null, null);
+        verifyNoInteractions(mq, http);
+    }
+
+    @Test
+    void anMqTypeDispatchesToTheCheckRegisteredForItsType() {
+        Map<String, Object> port = new LinkedHashMap<>();
+        port.put("systemId", ID);
+        port.put("type", "MQ");
+        port.put("result", "OK");
+        port.put("httpStatus", null);
+        port.put("responseTimeMs", 7L);
+        port.put("reason", null);
+        port.put("detail", null);
+        port.put("message", null);
+        MqConnectionCheck mq = mock(MqConnectionCheck.class);
+        when(mq.test(UUID.fromString(ID), SETTINGS)).thenReturn(port);
+
+        Map<String, Object> answer = service(Map.of("MQ", mq)).test(ID, TENANT, ACTOR);
+
+        assertThat(answer).isEqualTo(port);
+        verify(audit).record(TENANT, ACTOR, ID, "MQ", "OK", null, null);
+        verifyNoInteractions(http);
+    }
+
     private TestConnectionService service(MqConnectionCheck mq) {
         return new TestConnectionService(systems, TransactionOperations.withoutTransaction(), http, 10,
                 Duration.ofMinutes(1), audit, mq);
+    }
+
+    private TestConnectionService service(Map<String, MqConnectionCheck> registry) {
+        return new TestConnectionService(systems, TransactionOperations.withoutTransaction(), http, 10,
+                Duration.ofMinutes(1), audit, registry);
     }
 }

@@ -43,20 +43,27 @@ public class TestConnectionService {
     private final OutboundHttpCheck check;
     private final RateLimiterRegistry rateLimiters;
     private final TestConnectionAudit audit;
-    private final MqConnectionCheck mq;
+    private final Map<String, MqConnectionCheck> checks;
 
     /**
      * @param limit  test-connection attempts allowed per tenant + user in each {@code window}
      */
     public TestConnectionService(JdbcSystemRepository systems, TransactionOperations readOnly, OutboundHttpCheck check,
             int limit, Duration window, TestConnectionAudit audit) {
-        this(systems, readOnly, check, limit, window, audit, null);
+        this(systems, readOnly, check, limit, window, audit, (Map<String, MqConnectionCheck>) null);
     }
 
     /** @param mq the MQ adapter's check (T-126); {@code null} when no MQ adapter is wired - MQ is then not available */
     public TestConnectionService(JdbcSystemRepository systems, TransactionOperations readOnly, OutboundHttpCheck check,
             int limit, Duration window, TestConnectionAudit audit, MqConnectionCheck mq) {
-        this.mq = mq;
+        Map<String, MqConnectionCheck> typed = mq == null ? Map.of() : Map.of("MQ", mq);
+        this(systems, readOnly, check, limit, window, audit, typed);
+    }
+
+    /** @param checks per-type dispatch seam (E16-T0); a type with no registered check falls through to the shared logic */
+    public TestConnectionService(JdbcSystemRepository systems, TransactionOperations readOnly, OutboundHttpCheck check,
+            int limit, Duration window, TestConnectionAudit audit, Map<String, MqConnectionCheck> checks) {
+        this.checks = checks == null ? Map.of() : checks;
         this.systems = Objects.requireNonNull(systems, "systems");
         this.readOnly = Objects.requireNonNull(readOnly, "readOnly");
         this.check = Objects.requireNonNull(check, "check");
@@ -86,8 +93,9 @@ public class TestConnectionService {
             return answer(system, "NOT_CONFIGURED", null, null, null, null,
                     "The system has no type and settings yet; register them first");
         }
-        if (type.equals("MQ") && mq != null) {
-            Map<String, Object> result = mq.test(UUID.fromString(system.id()), system.settings());
+        MqConnectionCheck registered = checks.get(type);
+        if (registered != null) {
+            Map<String, Object> result = registered.test(UUID.fromString(system.id()), system.settings());
             audit.record(tenant, actor, system.id(), type, (String) result.get("result"), (String) result.get("reason"),
                     null);
             return result;
