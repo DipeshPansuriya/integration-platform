@@ -40,6 +40,9 @@ class MqTargetCallControlsTest {
 
     static final String LOOPBACK = "127.0.0.1";
 
+    // checkHost refuses IP literals and the guard refuses an IP showcase host, so the guard sees a name
+    static final String HOST = "localhost";
+
     final SimpleMeterRegistry meters = new SimpleMeterRegistry();
     final ObservationRegistry observations = ObservationRegistry.create();
     final List<String> stopped = new CopyOnWriteArrayList<>();
@@ -59,8 +62,8 @@ class MqTargetCallControlsTest {
     }
 
     static DestinationGuard loopbackGuard(int port) {
-        return new DestinationGuard(AllowList.of(List.of(LOOPBACK)), host -> List.of(InetAddress.getByName(host)),
-                List.of(LOOPBACK), List.of(port));
+        return new DestinationGuard(AllowList.of(List.of(HOST)), host -> List.of(InetAddress.getByName(LOOPBACK)),
+                List.of(HOST), List.of(port));
     }
 
     static int closedPort() throws IOException {
@@ -72,7 +75,7 @@ class MqTargetCallControlsTest {
     static MqOutbound outbound(int port, AtomicInteger resolves) {
         return send -> {
             resolves.incrementAndGet();
-            return Optional.of(new MqMessage(new MqSettings(LOOPBACK, port, "t98.csv"), "t98", "pw".toCharArray(),
+            return Optional.of(new MqMessage(new MqSettings(HOST, port, "t98.csv"), "t98", "pw".toCharArray(),
                     "id,qty\n1,2\n".getBytes(StandardCharsets.UTF_8)));
         };
     }

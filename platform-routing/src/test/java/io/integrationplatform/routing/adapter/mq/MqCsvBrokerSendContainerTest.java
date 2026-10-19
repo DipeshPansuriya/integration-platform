@@ -77,11 +77,11 @@ class MqCsvBrokerSendContainerTest {
     }
 
     MqTargetCall call(String password) {
-        String host = "127.0.0.1";
+        String host = "localhost";
         MqOutbound outbound = send -> Optional.of(new MqMessage(new MqSettings(host, port(), QUEUE),
                 ArtemisContainers.USER, password.toCharArray(), CSV.getBytes(StandardCharsets.UTF_8)));
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of(host)),
-                h -> List.of(InetAddress.getByName(h)), List.of(host), List.of(port()));
+                h -> List.of(InetAddress.getByName("127.0.0.1")), List.of(host), List.of(port()));
         return new MqTargetCall(outbound, guard, CircuitBreakerRegistry.ofDefaults(), meters, observations,
                 Duration.ofSeconds(5));
     }
