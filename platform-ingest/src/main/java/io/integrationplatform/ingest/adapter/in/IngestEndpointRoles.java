@@ -16,6 +16,7 @@ public class IngestEndpointRoles implements ApiOperationRules {
 
     @Override
     public List<Rule> rules() {
-        return List.of(new Rule("POST", "/api/v1/interfaces/{interfaceCode}/messages", Operation.SUBMIT_MESSAGE));
+        return List.of(new Rule("POST", "/api/v1/interfaces/{interfaceCode}/messages", Operation.SUBMIT_MESSAGE),
+                new Rule("POST", "/api/v1/interfaces/{interfaceCode}/messages:bulk", Operation.SUBMIT_MESSAGE));
     }
 }

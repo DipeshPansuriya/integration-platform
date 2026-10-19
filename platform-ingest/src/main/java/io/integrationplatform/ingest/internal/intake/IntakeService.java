@@ -11,24 +11,33 @@ import io.integrationplatform.ingest.port.OutboxWriter;
 import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.tenancy.TenantContext;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The intake transaction implementation (E11 A1 narrow, T-048; ADR-011 Decision 4, steps in order):
- * resolve published flow -> pin check -> business key -> the acceptance write (message + payload, one statement)
- * -> the outbox append (reuse of the frozen {@code OutboxWriter}, ADR-011 Decision 5) -> the INTAKE stage timing
- * row. Every step is tenant-scoped (R11), so all of them need a transaction: the {@code @Transactional} on
- * {@link #accept} is that commit boundary (REQUIRED - it joins an active caller transaction, as the container
- * proof does, and starts one for the HTTP path). A refusal throws before the write, a failure anywhere rolls
- * the whole commit back ("no tracking id without the commit", E11-F1-S1).
+ * Idempotency-Key replay (T-187) -> resolve published flow -> pin check -> business keys -> per-key ordering
+ * sequence (T-196, skipped for NONE) -> per valid record the acceptance write, the outbox append and the INTAKE
+ * timing -> the replay row. Every step is tenant-scoped (R11), so all of them need a transaction: the
+ * {@code @Transactional} methods are that commit boundary. A single call is a bulk of one whose rejection throws.
  */
 public class IntakeService implements IntakeTransaction {
 
     private static final Logger log = LoggerFactory.getLogger(IntakeService.class);
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final TypeReference<List<RecordResult>> RESULTS = new TypeReference<>() { };
 
     private final TenantContext tenantContext;
     private final IntakeStore store;
@@ -46,6 +55,38 @@ public class IntakeService implements IntakeTransaction {
     @Override
     @Transactional
     public AcceptedMessage accept(IntakeRequest request) {
+        RecordResult only = run(new BulkRequest(request.interfaceCode(), request.sourceContractVersion(),
+                List.of(request.payload()), request.idempotencyKey(), request.credentialRef())).get(0);
+        if (!RecordResult.ACCEPTED.equals(only.status())) {
+            throw new IntakeRefusedException(IntakeRefusedException.Reason.valueOf(only.code()), only.message());
+        }
+        return new AcceptedMessage(only.trackingId(), only.outboxId());
+    }
+
+    @Override
+    @Transactional
+    public List<RecordResult> acceptBulk(BulkRequest request) {
+        return run(request);
+    }
+
+    private List<RecordResult> run(BulkRequest request) {
+        String key = request.idempotencyKey();
+        boolean keyed = key != null && !key.isBlank();
+        String credential = request.credentialRef() == null ? "" : request.credentialRef();
+        String hash = null;
+        if (keyed) {
+            hash = IntakeKeys.requestHash(request.interfaceCode(), request.sourceContractVersion(),
+                    request.records().stream().map(JsonNode::toString).toList());
+            store.purgeExpired();
+            Optional<IntakeStore.StoredResults> prior = store.findIdempotency(credential, key);
+            if (prior.isPresent()) {
+                if (!prior.get().requestHash().equals(hash)) {
+                    throw new IntakeRefusedException(IntakeRefusedException.Reason.IDEMPOTENCY_KEY_REUSED,
+                            "the Idempotency-Key was already used with another request body");
+                }
+                return JSON.readValue(prior.get().results(), RESULTS);
+            }
+        }
         IntakeStore.PublishedInterface published = store.resolvePublishedInterface(request.interfaceCode())
                 .orElseThrow(() -> new IntakeRefusedException(
                         IntakeRefusedException.Reason.INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED,
@@ -54,8 +95,9 @@ public class IntakeService implements IntakeTransaction {
                 .orElseThrow(() -> new IntakeRefusedException(
                         IntakeRefusedException.Reason.INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED,
                         "interface '" + request.interfaceCode() + "' has no published version"));
-        // T-066 (T108): this payload's masked values are scrubbed from every later log line, whoever writes it.
-        MaskedFields.register(MaskedFields.valuesOf(request.payload(), version.maskedFields()));
+        List<JsonNode> records = request.records();
+        // T-066 (T108): each payload's masked values are scrubbed from every later log line, whoever writes it.
+        records.forEach(record -> MaskedFields.register(MaskedFields.valuesOf(record, version.maskedFields())));
         String pinnedLabel = store.pinnedLabel(version.sourceContractVersionId()).orElseThrow(
                 () -> new IntakeRefusedException(IntakeRefusedException.Reason.CONTRACT_PIN_MISMATCH,
                         "the interface's pinned source contract version is not approved"));
@@ -63,19 +105,50 @@ public class IntakeService implements IntakeTransaction {
             throw new IntakeRefusedException(IntakeRefusedException.Reason.CONTRACT_PIN_MISMATCH,
                     "the interface pins source contract " + pinnedLabel);
         }
-        String businessKey = BusinessKeyRule.resolve(version.businessKeyRule(), request.payload());
-        UUID messageId = UUID.randomUUID();
+        int n = records.size();
+        RecordResult[] results = new RecordResult[n];
+        String[] keys = new String[n];
+        for (int i = 0; i < n; i++) {
+            try {
+                keys[i] = BusinessKeyRule.resolve(version.businessKeyRule(), records.get(i));
+            } catch (IntakeRefusedException unresolved) {
+                results[i] = RecordResult.rejected(i, unresolved.reason().name(), unresolved.detail());
+            }
+        }
+        List<String> validKeys = Arrays.stream(keys).filter(Objects::nonNull).toList();
+        Map<String, Long> nextSeq = new HashMap<>();
+        if (IntakeKeys.ordered(published.ordering()) && !validKeys.isEmpty()) {
+            // T-196: a busy key fails inside the 2 s budget (503 + Retry-After) instead of queueing the caller.
+            store.lockTimeout();
+            IntakeKeys.orderingPlan(validKeys).forEach((businessKey, count) -> nextSeq.put(businessKey,
+                    store.nextSeq(published.interfaceId(), businessKey, count) - count + 1));
+        }
         CorrelationContext.tag(CorrelationContext.TENANT_ID, tenantContext.requireTenantId());
-        CorrelationContext.tag(CorrelationContext.MESSAGE_ID, messageId);
-        Instant startedAt = Instant.now();
-        store.accept(messageId, published.interfaceId(), version.interfaceVersionId(),
-                version.sourceContractVersionId(), businessKey, request.payload().toString());
-        // ADR-011 Decision 5: the record that sets stage 1 in motion is part of the same commit; it carries the
-        // request's journey (T107) - the relay restores the traceparent as the record's Kafka header.
-        long outboxId = outbox.append(new OutboxEntry(OutboxTopic.MESSAGE_ACCEPTED, messageId, businessKey,
-                CorrelationContext.currentTraceparent(), null, version.sourceContractVersionId()));
-        timings.record(messageId, StageTimings.Stage.INTAKE, startedAt, Instant.now());
-        log.info("intake: message {} accepted on interface {}", messageId, request.interfaceCode());
-        return new AcceptedMessage(messageId, outboxId);
+        for (int i = 0; i < n; i++) {
+            if (keys[i] == null) {
+                continue;
+            }
+            Long keySeq = nextSeq.get(keys[i]);
+            if (keySeq != null) {
+                nextSeq.put(keys[i], keySeq + 1);
+            }
+            UUID messageId = UUID.randomUUID();
+            CorrelationContext.tag(CorrelationContext.MESSAGE_ID, messageId);
+            Instant startedAt = Instant.now();
+            store.accept(messageId, published.interfaceId(), version.interfaceVersionId(),
+                    version.sourceContractVersionId(), keys[i], records.get(i).toString(), keySeq);
+            // ADR-011 Decision 5: the record that sets stage 1 in motion is part of the same commit; it carries
+            // the request's journey (T107) - the relay restores the traceparent as the record's Kafka header.
+            long outboxId = outbox.append(new OutboxEntry(OutboxTopic.MESSAGE_ACCEPTED, messageId, keys[i],
+                    CorrelationContext.currentTraceparent(), null, version.sourceContractVersionId()));
+            timings.record(messageId, StageTimings.Stage.INTAKE, startedAt, Instant.now());
+            results[i] = RecordResult.accepted(i, messageId, outboxId);
+        }
+        List<RecordResult> answer = List.of(results);
+        if (keyed && !validKeys.isEmpty()) {
+            store.saveIdempotency(credential, key, hash, JSON.writeValueAsString(answer));
+        }
+        log.info("intake: {} of {} records accepted on interface {}", validKeys.size(), n, request.interfaceCode());
+        return answer;
     }
 }
