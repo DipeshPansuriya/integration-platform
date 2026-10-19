@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -77,6 +78,18 @@ public class MessageTrackingService {
     }
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    /** T156: read-only users see lastError; enough for a status line plus a diagnostic, not a whole target body. */
+    static final int LAST_ERROR_MAX = 512;
+
+    /**
+     * T156: personal data and secrets the per-message masking cannot know (a target echoing an email or a token).
+     * shortcut: emails, bearer/basic tokens and key=value secrets only; extend if a target leaks another shape.
+     */
+    private static final Pattern FREE_TEXT_SECRETS = Pattern.compile(
+            "[\\w.+-]+@[\\w-]+(\\.[\\w-]+)+"
+                    + "|(?i)(?<=\\b(?:bearer|basic)\\s)\\S+"
+                    + "|(?i)(?<=\\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key)\\s?[=:]\\s?)[^\\s,;&\"']+");
 
     private final JdbcMessageTrackingStore store;
 
@@ -191,7 +204,9 @@ public class MessageTrackingService {
                 .map(s -> MaskedFields.redact(text, MaskedFields.valuesOf(JSON.readTree(s.bodyJson()),
                         MaskedFields.fromJson(s.maskedFieldsJson()))))
                 .orElse(text);
-        return MaskedFields.scrub(redacted);
+        String scrubbed = FREE_TEXT_SECRETS.matcher(MaskedFields.scrub(redacted)).replaceAll(MaskedFields.MARKER);
+        // cap after redaction so a cut can never leave half a secret unmatched
+        return scrubbed.length() <= LAST_ERROR_MAX ? scrubbed : scrubbed.substring(0, LAST_ERROR_MAX - 3) + "...";
     }
 
     private static int pipelineIndex(String stage) {
