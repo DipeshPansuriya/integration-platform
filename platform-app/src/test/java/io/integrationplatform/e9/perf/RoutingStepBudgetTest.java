@@ -1,4 +1,4 @@
-package io.integrationplatform.routing.e9.perf;
+package io.integrationplatform.e9.perf;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
