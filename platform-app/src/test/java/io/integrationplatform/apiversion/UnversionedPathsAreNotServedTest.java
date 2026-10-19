@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -72,7 +74,25 @@ class UnversionedPathsAreNotServedTest {
     // ---- the guard ------------------------------------------------------------------------------------------------
 
     static List<String> unversioned(Collection<Class<?>> controllers, Map<String, String> allowed) {
-        return List.of(); // RED stub
+        List<String> problems = new ArrayList<>();
+        Set<String> seen = new TreeSet<>();
+        MappingReader reader = new MappingReader();
+        for (Class<?> controller : controllers) {
+            reader.mappings(controller).forEach((method, info) -> {
+                for (String pattern : info.getPatternValues()) {
+                    seen.add(pattern);
+                    if (!pattern.equals(V1) && !pattern.startsWith(V1 + "/") && !allowed.containsKey(pattern)) {
+                        String verbs = info.getMethodsCondition().getMethods().stream().map(Enum::name)
+                                .sorted().reduce((a, b) -> a + "," + b).orElse("ANY");
+                        problems.add("unversioned path " + verbs + " " + pattern + " (" + controller.getSimpleName()
+                                + "#" + method.getName() + ")");
+                    }
+                }
+            });
+        }
+        allowed.keySet().stream().filter(path -> !seen.contains(path)).sorted()
+                .forEach(path -> problems.add("stale allow-list entry, no such path: " + path));
+        return problems;
     }
 
     private static List<Class<?>> mainSourceControllers() {
