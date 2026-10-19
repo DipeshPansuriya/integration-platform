@@ -145,4 +145,12 @@ public final class JdbcSchedulerRegistry implements SchedulerRegistry {
         args.add(query.limit());
         return jdbc.query(sql.toString(), mapper, args.toArray());
     }
+
+    private static final String UPDATE_PAUSED =
+            "update scheduler.job_definition set paused = ?, paused_by = ?, paused_at = ? where job_type = ?";
+
+    @Override
+    public int setPaused(String jobType, boolean paused, String by, Instant at) {
+        return jdbc.update(UPDATE_PAUSED, paused, paused ? by : null, paused ? Timestamp.from(at) : null, jobType);
+    }
 }
