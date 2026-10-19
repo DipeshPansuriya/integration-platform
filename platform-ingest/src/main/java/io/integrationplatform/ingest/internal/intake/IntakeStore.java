@@ -20,7 +20,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class IntakeStore extends TenantScopedRepository {
 
     /** What the first read found: the published interface and which of its versions is published. */
-    record PublishedInterface(UUID interfaceId, int publishedVersion, String ordering) {
+    record PublishedInterface(UUID interfaceId, int publishedVersion, String ordering, String mode) {
     }
 
     /** A kept idempotency entry: the SHA-256 of the request body and the per-record results it answered (T-187). */
@@ -38,10 +38,10 @@ class IntakeStore extends TenantScopedRepository {
 
     /** The tenant's PUBLISHED interface by code (unambiguous single table; the code is per-tenant unique). */
     Optional<PublishedInterface> resolvePublishedInterface(String code) {
-        List<PublishedInterface> rows = query("select i.id as interface_id, i.published_version, i.ordering from public.interface i",
+        List<PublishedInterface> rows = query("select i.id as interface_id, i.published_version, i.ordering, i.mode from public.interface i",
                 "i.code = :code and i.status = 'PUBLISHED'", Map.of("code", code),
                 (rs, rowNum) -> new PublishedInterface(UUID.fromString(rs.getString("interface_id")),
-                        rs.getInt("published_version"), rs.getString("ordering")));
+                        rs.getInt("published_version"), rs.getString("ordering"), rs.getString("mode")));
         return rows.stream().findFirst();
     }
 

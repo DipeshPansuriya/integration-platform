@@ -54,4 +54,12 @@ final class IntakeKeys {
     static boolean ordered(String ordering) {
         return !"NONE".equals(ordering);
     }
+
+    /**
+     * T-129: a SYNC single-record intake defers its outbox row past the 10 s inline budget (+5 s), so the row only
+     * re-drives stage 1 when the inline path did not finish (instance died). Bulk and ASYNC publish at once (null).
+     */
+    static java.time.Instant deferredUntil(String mode, boolean inline, java.time.Instant now) {
+        return inline && "SYNC".equals(mode) ? now.plusSeconds(15) : null;
+    }
 }
