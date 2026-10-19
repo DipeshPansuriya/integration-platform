@@ -22,6 +22,7 @@ import io.integrationplatform.routing.stage2.LayerOneWaits;
 import io.integrationplatform.routing.stage2.Stage2AttemptWriter;
 import io.integrationplatform.routing.stage2.Stage2OutcomeHandoff;
 import io.integrationplatform.routing.stage2.TargetCall;
+import io.integrationplatform.routing.stage2.TargetCallRegistry;
 import io.integrationplatform.routing.templates.JdbcRouteConfigReader;
 import io.integrationplatform.routing.templates.RouteConfigReader;
 import io.integrationplatform.routing.templates.RouteInstanceFactory;
@@ -84,6 +85,16 @@ class PipelineCompositionConfiguration {
         return new WorkerTenantBinding();
     }
 
+    /** Row 327 (E16-T0): the stage-2 target registry - MQ and API today; KAFKA_TOPIC registers itself later (T-148). */
+    @Bean
+    TargetCallRegistry targetCallRegistry(MqTargetCall mqTargetCall,
+            @Qualifier("apiTargetCall") TargetCall apiTargetCall) {
+        TargetCallRegistry targetCalls = new TargetCallRegistry();
+        targetCalls.register("MQ", mqTargetCall);
+        targetCalls.register("API", apiTargetCall);
+        return targetCalls;
+    }
+
     // ------------------------------------------------------------------ stage 2's send: layer 1 + the API route
 
     /**
@@ -93,11 +104,11 @@ class PipelineCompositionConfiguration {
      * hand-off each commit in their own short transaction, as the recorder path does.
      */
     @Bean
-    LayerOneRouteBuilder layerOneRoute(@Qualifier("apiTargetCall") TargetCall apiTargetCall, MqTargetCall mqTargetCall,
+    LayerOneRouteBuilder layerOneRoute(TargetCallRegistry targetCalls,
             JdbcMqTargets mqTargets, SendOutcomes outcomes, PlatformTransactionManager transactionManager) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         // row 327: picked by the stored system.type; an unknown type is refused PERMANENT, never dropped
-        TargetCall byType = TargetCall.byType(mqTargets::typeOf, Map.of("MQ", mqTargetCall, "API", apiTargetCall));
+        TargetCall byType = TargetCall.byType(mqTargets::typeOf, targetCalls.calls());
         TargetCall inTenantTransaction = send -> transactions.executeWithoutResult(status -> byType.call(send));
         Stage2AttemptWriter attempts = (deliveryId, layer, outcome, startedAt, finishedAt, detail) ->
                 transactions.executeWithoutResult(status ->
