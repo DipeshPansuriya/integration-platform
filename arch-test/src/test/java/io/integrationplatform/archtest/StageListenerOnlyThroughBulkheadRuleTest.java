@@ -44,4 +44,15 @@ class StageListenerOnlyThroughBulkheadRuleTest {
                 .hasMessageContaining("PlantedCallPastBulkhead")
                 .hasMessageContaining("TargetCall.call");
     }
+
+    @Test
+    void aHandlerThatSendsThroughCamelPastTheBulkheadFailsAndIsNamed() {
+        JavaClasses planted = new ClassFileImporter().importPackages(FIXTURES + ".plantedproducer");
+
+        assertThat(planted.size()).as("the planted violation is in scope").isEqualTo(1);
+        assertThatThrownBy(() -> StageListenerOnlyThroughBulkheadRule.STAGE_LISTENER_ONLY_THROUGH_BULKHEAD.check(planted))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("PlantedProducerPastBulkhead")
+                .hasMessageContaining("ProducerTemplate");
+    }
 }
