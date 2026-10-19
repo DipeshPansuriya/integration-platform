@@ -162,8 +162,27 @@ class PipelineCompositionConfiguration {
 
     @Bean(destroyMethod = "shutdown")
     BulkheadRegistry stage2Bulkheads(Environment environment) {
-        Integer max = environment.getProperty("routing.core.stage2.bulkhead.max-concurrent-sends", Integer.class);
-        return new BulkheadRegistry(max != null ? new BulkheadSettings(max) : BulkheadSettings.teamDefault());
+        return new BulkheadRegistry(stage2BulkheadSettings(environment));
+    }
+
+    /** Unset, blank, unresolved (no env var) or non-numeric size -> team default; a number is still range-checked. */
+    private static BulkheadSettings stage2BulkheadSettings(Environment environment) {
+        String raw;
+        try {
+            raw = environment.getProperty("routing.core.stage2.bulkhead.max-concurrent-sends");
+        } catch (IllegalArgumentException unresolvedPlaceholder) {
+            return BulkheadSettings.teamDefault();
+        }
+        if (raw == null || raw.isBlank()) {
+            return BulkheadSettings.teamDefault();
+        }
+        int max;
+        try {
+            max = Integer.parseInt(raw.strip());
+        } catch (NumberFormatException notANumber) {
+            return BulkheadSettings.teamDefault();
+        }
+        return new BulkheadSettings(max);
     }
 
     @Bean
