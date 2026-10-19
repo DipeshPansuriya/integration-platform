@@ -124,7 +124,7 @@ public final class DeliveryRetryTrigger {
             try {
                 Integer moved = transactions.execute(status -> {
                     settleStaleClaims(tenant);
-                    return releaseHeld() + redriveDue(tenant);
+                    return releaseHeld() + redriveDue(tenant) + reHandUnhanded();
                 });
                 reDriven += moved == null ? 0 : moved;
             } finally {
@@ -164,6 +164,18 @@ public final class DeliveryRetryTrigger {
      * T-180 (ADR-011 D6): a HELD delivery whose predecessors are all final but whose release was missed is
      * released here, writing its due record in the same transaction.
      */
+    /** T-180: a PENDING/DUE row unchanged for {@link #UNHANDED_AFTER} with no unpublished outbox row is re-handed. */
+    private int reHandUnhanded() {
+        int reHanded = 0;
+        for (UUID id : reconcileStore.lockUnhanded(Instant.now().minus(UNHANDED_AFTER), batchSize)) {
+            outboxWriter.append(new OutboxEntry(OutboxTopic.DELIVERY_DUE, id, "delivery:" + id, null, null));
+            reHanded++;
+        }
+        return reHanded;
+    }
+
+    private static final Duration UNHANDED_AFTER = Duration.ofMinutes(5);
+
     private int releaseHeld() {
         int released = 0;
         for (UUID held : reconcileStore.lockReleasableHeld(batchSize)) {

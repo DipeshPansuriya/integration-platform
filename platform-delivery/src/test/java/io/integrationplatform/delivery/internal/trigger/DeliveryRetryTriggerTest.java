@@ -425,6 +425,11 @@ class DeliveryRetryTriggerTest {
         }
 
         @Override
+        public List<UUID> lockUnhanded(Instant unchangedBefore, int limit) {
+            return List.of();
+        }
+
+        @Override
         public boolean release(UUID deliveryId) {
             if (refused.contains(deliveryId)) {
                 return false;
