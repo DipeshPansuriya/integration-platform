@@ -4,6 +4,10 @@ import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.SocketDialer;
 import io.integrationplatform.routing.stage2.TargetCall;
 import io.integrationplatform.tenancy.TenantContext;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -31,7 +35,9 @@ public class ApiAdapterConfiguration {
 
     @Bean
     TargetCall apiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort,
-            HttpSend send) {
-        return new ApiTargetCall(views, guard, bodyPort, send);
+            HttpSend send, ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations) {
+        return new ApiTargetCall(views, guard, bodyPort, send, ApiTargetCall.defaultBreakers(),
+                meters.getIfAvailable(SimpleMeterRegistry::new),
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP));
     }
 }

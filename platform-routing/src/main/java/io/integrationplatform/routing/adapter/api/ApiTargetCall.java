@@ -11,6 +11,13 @@ import io.integrationplatform.routing.stage2.TargetFaultException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.micrometer.tagged.TaggedCircuitBreakerMetrics;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
@@ -42,23 +49,38 @@ public class ApiTargetCall implements TargetCall {
     private final ApiTargetBody bodyPort;
     private final HttpSend sender;
     private final CircuitBreakerRegistry breakers;
+    private final MeterRegistry meters;
+    private final ObservationRegistry observations;
 
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender) {
-        this(views, guard, bodyPort, sender, CircuitBreakerRegistry.of(CircuitBreakerConfig.custom()
+        this(views, guard, bodyPort, sender, defaultBreakers());
+    }
+
+    static CircuitBreakerRegistry defaultBreakers() {
+        return CircuitBreakerRegistry.of(CircuitBreakerConfig.custom()
                 .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
                 .slidingWindowSize(10).minimumNumberOfCalls(5).failureRateThreshold(50)
                 .waitDurationInOpenState(Duration.ofSeconds(30))
-                .permittedNumberOfCallsInHalfOpenState(2).build()));
+                .permittedNumberOfCallsInHalfOpenState(2).build());
     }
 
     /** T96: one breaker per target endpoint; a half-open breaker lets through at most its trial-call count. */
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
             CircuitBreakerRegistry breakers) {
+        this(views, guard, bodyPort, sender, breakers, new SimpleMeterRegistry(), ObservationRegistry.NOOP);
+    }
+
+    /** T99 (T-167): every attempt is timed, counted by outcome and observed; breaker state is a gauge per target. */
+    public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
+            CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations) {
         this.views = views;
         this.guard = guard;
         this.bodyPort = bodyPort;
         this.sender = sender;
         this.breakers = breakers;
+        this.meters = meters;
+        this.observations = observations;
+        TaggedCircuitBreakerMetrics.ofCircuitBreakerRegistry(breakers).bindTo(meters);
     }
 
     @Override
@@ -90,6 +112,28 @@ public class ApiTargetCall implements TargetCall {
         headers.put("Content-Type", body.contentType());
         // the endpoint is addressed per delivery: the key ADR-011 Decision 4 requires on every call
         headers.put("Idempotency-Key", send.deliveryId().toString());
+        Observation observation = Observation.createNotStarted("api.target.send", observations).start();
+        OutcomeClass outcome = OutcomeClass.TRANSIENT;
+        long started = System.nanoTime();
+        try {
+            attempt(send, view, destination, headers, body);
+            outcome = OutcomeClass.SUCCESS;
+        } catch (TargetFaultException failed) {
+            outcome = failed.outcomeClass();
+            throw failed;
+        } finally {
+            // tags are the target type and the outcome class only - never the payload, URI or a credential
+            String tag = outcome.name();
+            Timer.builder("api.target.send").tag("target_type", "API").tag("outcome", tag).register(meters)
+                    .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+            Counter.builder("api.target.outcome").tag("target_type", "API").tag("outcome", tag).register(meters)
+                    .increment();
+            observation.lowCardinalityKeyValue("outcome", tag).stop();
+        }
+    }
+
+    private void attempt(Stage2Send send, TargetEndpointView view, CheckedDestination destination,
+            Map<String, String> headers, ApiTargetBody.ApiWireBody body) {
         CircuitBreaker breaker = breakers.circuitBreaker(send.targetEndpointId().toString());
         if (!breaker.tryAcquirePermission()) {
             throw new TargetFaultException.TransientFaultException("the breaker of target endpoint "
