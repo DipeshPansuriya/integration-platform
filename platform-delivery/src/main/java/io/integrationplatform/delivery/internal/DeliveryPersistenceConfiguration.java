@@ -1,5 +1,6 @@
 package io.integrationplatform.delivery.internal;
 
+import io.integrationplatform.delivery.port.DeliveryDailyAggregates;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.tenancy.TenantContext;
 import java.util.Optional;
@@ -30,6 +31,14 @@ class DeliveryPersistenceConfiguration {
     DeliveryRetryStore deliveryRetryStore(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts) {
         TenantContext bound = tenantContexts.getIfAvailable();
         return new JdbcDeliveryRetryStore(jdbcClient, bound != null ? bound : neverBound());
+    }
+
+    /** T-138: the daily delivery pre-aggregate, the same fail-closed binding shape as the retry store. */
+    @Bean
+    DeliveryDailyAggregates deliveryDailyAggregates(JdbcClient jdbcClient,
+            ObjectProvider<TenantContext> tenantContexts) {
+        TenantContext bound = tenantContexts.getIfAvailable();
+        return new JdbcDeliveryDailyAggregateStore(jdbcClient, bound != null ? bound : neverBound());
     }
 
     /** The fail-closed no-binding context - the anonymous shape over the two-method contract. */
