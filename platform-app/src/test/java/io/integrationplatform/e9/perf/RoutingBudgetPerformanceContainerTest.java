@@ -11,6 +11,7 @@ import io.integrationplatform.e9.isolation.TargetStub;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.List;
@@ -45,6 +46,11 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * ({@code @SpringBootTest}, E9 reopen B1). The measurement is the whole-step upper bound
  * {@link RoutingStepBudget#recordUpperBound} - the produce-to-routed interval, an upper bound of the routing step
  * (a zero-observation run still fails).
+ *
+ * <p>Over-budget failures must name the hoarded step: wall-clock milestones (produce done, first routed seen,
+ * all routed seen) plus a DB-side read of {@code public.delivery} {@code min}/{@code max} {@code created_at}
+ * (same host clock, app-side routing truth) split the stall into backlog drain, routing drain spread, or poll
+ * settle lag. The DB probe is secondary evidence and may be absent without masking the budget failure.
  *
  * <p>Ordering note: the 1,000 business keys are distinct ({@code perf-key-N}), so PER_KEY holds never interfere
  * with the measured routing step; the budget is per message, not per key.
@@ -124,8 +130,10 @@ class RoutingBudgetPerformanceContainerTest {
             producedAt[i] = Instant.now();
             env.produceAccepted(producer, messageIds[i], businessKey(i), "{\"seq\":" + i + "}");
         }
+        Instant produceDone = Instant.now();
 
         // Then: each message's routing step (load, evaluate conditions, create deliveries) within 1 s
+        Instant firstRoutedAt = null; // polls are sequential, so message 0 is the first routed observation
         for (int i = 0; i < MESSAGES; i++) {
             int index = i;
             UUID messageId = messageIds[index];
@@ -133,10 +141,36 @@ class RoutingBudgetPerformanceContainerTest {
                     () -> deliveriesCreatedFor(index),
                     "the three deliveries of business key " + businessKey(index)
                             + " (routing stage 1 T-117/T-178 did not create them)");
+            if (index == 0) {
+                firstRoutedAt = Instant.now();
+            }
             budget.recordUpperBound(messageId, Duration.between(producedAt[index], Instant.now()));
         }
+        Instant allRoutedAt = Instant.now();
 
-        budget.checkWithinBudget();
+        // DB truth (app-side routing writes) separates routing lag from this poll's settle lag; secondary
+        // evidence, so absence never masks the budget assert below.
+        Instant firstWrite = null;
+        Instant lastWrite = null;
+        try {
+            Map<String, Object> writes = env.queryOneAsApp(
+                    "select min(created_at) as first_write, max(created_at) as last_write from public.delivery"
+                            + " where tenant_id = ? and interface_id = ?",
+                    Stage1Environment.TENANT, Stage1Environment.INTERFACE_ID)
+                    .orElseGet(Map::of);
+            firstWrite = persistedInstant(writes.get("first_write"));
+            lastWrite = persistedInstant(writes.get("last_write"));
+        } catch (RuntimeException probeUnavailable) {
+            System.out.println("[perf-probe] db-write probe unavailable: " + probeUnavailable);
+        }
+
+        try {
+            budget.checkWithinBudget();
+        } catch (AssertionError overBudget) {
+            String report = hoardedStepReport(produceDone, firstWrite, lastWrite, firstRoutedAt, allRoutedAt);
+            System.out.println(report);
+            throw new AssertionError(report + overBudget.getMessage(), overBudget);
+        }
     }
 
     /** Present when all 3 deliveries exist; absent keeps the poll alive. */
@@ -151,6 +185,52 @@ class RoutingBudgetPerformanceContainerTest {
 
     private static String businessKey(int index) {
         return "perf-key-" + index;
+    }
+
+    /** Null-safe instant from the DB probe row; an unmapped JDBC type throws inside the caught RuntimeException and just drops the probe. */
+    private static Instant persistedInstant(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Instant instant) {
+            return instant;
+        }
+        if (value instanceof java.sql.Timestamp timestamp) {
+            return timestamp.toInstant();
+        }
+        if (value instanceof java.time.OffsetDateTime offsetDateTime) {
+            return offsetDateTime.toInstant();
+        }
+        return ((java.time.LocalDateTime) value).atZone(java.time.ZoneOffset.UTC).toInstant();
+    }
+
+    /** Long delta in ms, or null when a probe milestone is absent. */
+    private static Long deltaMillis(Instant from, Instant to) {
+        return from == null || to == null ? null : Duration.between(from, to).toMillis();
+    }
+
+    /** Names the hoarded step from the probe deltas - backlog drain (stage-1 writes start late), routing drain (writes spread), or poll settle lag; nulls mean the probe could not isolate it. */
+    private static String hoardedStepReport(Instant produceDone, Instant firstWrite, Instant lastWrite,
+            Instant firstRoutedAt, Instant allRoutedAt) {
+        Long backlogDrain = deltaMillis(produceDone, firstWrite);
+        Long writeSpread = deltaMillis(firstWrite, lastWrite);
+        Long settleLag = deltaMillis(lastWrite, allRoutedAt);
+        String hoarded;
+        if (writeSpread != null && (backlogDrain == null || writeSpread >= backlogDrain)
+                && (settleLag == null || writeSpread >= settleLag)) {
+            hoarded = "routing drain - stage-1 writes spread over " + writeSpread + " ms";
+        } else if (backlogDrain != null && (settleLag == null || backlogDrain >= settleLag)) {
+            hoarded = "backlog drain - first stage-1 write lands only " + backlogDrain + " ms after produce-done";
+        } else if (settleLag != null) {
+            hoarded = "poll settle lag - last delivery write visible " + settleLag + " ms before all-routed";
+        } else {
+            hoarded = "not isolated - db-write probe unavailable, see wall-clock deltas below";
+        }
+        return "[perf-probe] step deltas from produce-done (ms): backlog drain to first stage-1 write=" + backlogDrain
+                + ", stage-1 write spread=" + writeSpread
+                + ", poll settle lag after last write=" + settleLag
+                + ", produce to first routed assert=" + deltaMillis(produceDone, firstRoutedAt)
+                + " | hoarded step: " + hoarded;
     }
 
     /** The naming logic alone is proven by RoutingStepBudgetTest; this documents the same contract here. */
