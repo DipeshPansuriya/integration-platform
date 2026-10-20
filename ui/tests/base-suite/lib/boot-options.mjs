@@ -47,7 +47,13 @@ export function baseSuiteBootOptions(settings, { lockHolder } = {}) {
     // T97's save-time check refuses a saved system whose host is not on the allow-list, and the seed's
     // source system carries a fake *.partner.test fixture name (never called) - the screens boot passes
     // the same list; the exception host stays first in the entry-validation order it was composed in.
-    appEnv: { ...exception.appEnv, [ALLOWED_HOSTS_VAR]: [exception.host, ...SCREEN_ALLOWED_HOSTS].join(',') },
+    appEnv: {
+      ...exception.appEnv,
+      [ALLOWED_HOSTS_VAR]: [exception.host, ...SCREEN_ALLOWED_HOSTS].join(','),
+      // the Kafka boot composes the routing factory (ConditionalOnProperty), so the publish time scheme
+      // guard runs with the operator's list - unset it approves NOTHING (E11's DipeshExample test sets the same)
+      ROUTING_CORE_ALLOWED_SCHEMES: 'http,https'
+    },
     sourceCredentials: true,
     lockHolder
   };
