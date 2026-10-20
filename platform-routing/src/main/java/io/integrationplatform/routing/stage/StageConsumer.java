@@ -346,15 +346,25 @@ public final class StageConsumer {
                 if (breaker != null) {
                     breaker.onSuccess(0L, TimeUnit.MILLISECONDS);
                 }
-                if (paused.remove(partition) != null) {
+                boolean resumed = paused.remove(partition) != null;
+                if (resumed) {
                     // A retried record succeeded - the partition keeps its work (T-181: pauses and resumes).
+                    // T-113's unit rule: after a transient the retry's offsets commit in acceptance order,
+                    // one record at a time; only the plain bulk drain batches its commit below.
                     consumer.resume(List.of(partition));
-                }
-                handled.put(partition, new OffsetAndMetadata(record.offset() + 1));
-                if (outcome == Outcome.POISONED) {
-                    // CTO fix (T-122): a poison offset commits at once - batching it would let a crash
-                    // redeliver the batch and write the poison record a second time (one-poison-topic rule).
-                    commitHandled(handled);
+                    long commitStart = System.nanoTime();
+                    try {
+                        consumer.commitSync(Map.of(partition, new OffsetAndMetadata(record.offset() + 1)));
+                    } finally {
+                        drainTimer("commit", commitStart);
+                    }
+                } else {
+                    handled.put(partition, new OffsetAndMetadata(record.offset() + 1));
+                    if (outcome == Outcome.POISONED) {
+                        // CTO fix (T-122): a poison offset commits at once - batching it would let a crash
+                        // redeliver the batch and write the poison record a second time (one-poison-topic rule).
+                        commitHandled(handled);
+                    }
                 }
             }
         }
