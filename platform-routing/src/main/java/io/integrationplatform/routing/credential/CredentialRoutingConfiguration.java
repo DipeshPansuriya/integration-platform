@@ -27,8 +27,10 @@ class CredentialRoutingConfiguration {
 
     @Bean
     CredentialedDelivery credentialedDelivery(SendTimeCredentials credentials, KeyAvailability keyAvailability,
-            DeliveryRetryStore deliveries, PlatformTransactionManager transactions) {
+            DeliveryRetryStore deliveries, PlatformTransactionManager transactions,
+            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meters) {
         return new CredentialedDelivery(credentials, keyAvailability, deliveries, new TransactionTemplate(transactions),
-                () -> ThreadLocalRandom.current().nextDouble(), Clock.systemUTC());
+                () -> ThreadLocalRandom.current().nextDouble(), Clock.systemUTC(),
+                meters.getIfAvailable(io.micrometer.core.instrument.simple.SimpleMeterRegistry::new));
     }
 }

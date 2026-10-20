@@ -110,8 +110,13 @@ class CredentialedDeliveryTest {
     }
 
     private CredentialedDelivery delivery(List<SealedCredential> rows, KeyEncryptionKeys keys) {
+        return delivery(rows, keys, null);
+    }
+
+    private CredentialedDelivery delivery(List<SealedCredential> rows, KeyEncryptionKeys keys,
+            io.micrometer.core.instrument.MeterRegistry meters) {
         return new CredentialedDelivery(new SendTimeCredentials(target -> rows, keys), availability, store,
-                TransactionOperations.withoutTransaction(), () -> 0.5, Clock.fixed(now, ZoneOffset.UTC));
+                TransactionOperations.withoutTransaction(), () -> 0.5, Clock.fixed(now, ZoneOffset.UTC), meters);
     }
 
     @Test
@@ -206,5 +211,31 @@ class CredentialedDeliveryTest {
 
         assertThat(result.kind()).isEqualTo(CredentialedDelivery.Kind.KEY_UNAVAILABLE);
         assertThat(reportedMissing).containsExactly("K1");
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("T-200: a missing key costs no attempt - no call, one key_unavailable alert, readiness told")
+    void missingKeyCostsNoAttemptAndCountsTheAlert(CapturedOutput output) {
+        SealedCredential sealed = seal(tenantA, UUID.randomUUID(), endpoint, "never-sent", "K1");
+        when(store.deferKeyUnavailable(delivery, token, now, 0.5)).thenReturn(true);
+        io.micrometer.core.instrument.simple.SimpleMeterRegistry meters =
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        AtomicInteger calls = new AtomicInteger();
+
+        Result<String> result = delivery(List.of(sealed), keys(Map.of("K2", aesKey())), meters)
+                .send(delivery, token, endpoint, opened -> {
+                    calls.incrementAndGet();
+                    return "sent";
+                });
+
+        assertThat(result.kind()).isEqualTo(CredentialedDelivery.Kind.KEY_UNAVAILABLE);
+        assertThat(calls).as("no call ran under the missing key").hasValue(0);
+        verify(store).deferKeyUnavailable(delivery, token, now, 0.5);
+        verifyNoMoreInteractions(store);
+        assertThat(meters.counter("platform.delivery.key_unavailable").count()).as("the alert is priced")
+                .isEqualTo(1.0);
+        assertThat(reportedMissing).as("readiness is told (A3)").containsExactly("K1");
+        assertThat(output).contains("credential.key_unavailable");
     }
 }

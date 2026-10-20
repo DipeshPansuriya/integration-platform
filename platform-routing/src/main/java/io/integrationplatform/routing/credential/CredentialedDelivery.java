@@ -62,15 +62,23 @@ public final class CredentialedDelivery {
     private final TransactionOperations transactions;
     private final DoubleSupplier jitter;
     private final Clock clock;
+    private final io.micrometer.core.instrument.MeterRegistry meters;
 
     public CredentialedDelivery(SendTimeCredentials credentials, KeyAvailability keyAvailability,
             DeliveryRetryStore deliveries, TransactionOperations transactions, DoubleSupplier jitter, Clock clock) {
+        this(credentials, keyAvailability, deliveries, transactions, jitter, clock, null);
+    }
+
+    public CredentialedDelivery(SendTimeCredentials credentials, KeyAvailability keyAvailability,
+            DeliveryRetryStore deliveries, TransactionOperations transactions, DoubleSupplier jitter, Clock clock,
+            io.micrometer.core.instrument.MeterRegistry meters) {
         this.credentials = Objects.requireNonNull(credentials, "credentials");
         this.keyAvailability = Objects.requireNonNull(keyAvailability, "keyAvailability");
         this.deliveries = Objects.requireNonNull(deliveries, "deliveries");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.jitter = Objects.requireNonNull(jitter, "jitter");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.meters = meters;
     }
 
     /**
@@ -105,6 +113,9 @@ public final class CredentialedDelivery {
                 .log("event=credential.key_unavailable alert=true kekId={} delivery={} targetEndpoint={} - no call,"
                         + " the delivery waits (RETRY_WAIT) and this instance fails its readiness check", kekId,
                         deliveryId, targetEndpointId);
+        if (meters != null) {
+            meters.counter("platform.delivery.key_unavailable").increment();
+        }
         keyAvailability.reportMissing(kekId);
         double fraction = jitter.getAsDouble();
         transactions.execute(status -> deliveries.deferKeyUnavailable(deliveryId, claimToken, clock.instant(),
