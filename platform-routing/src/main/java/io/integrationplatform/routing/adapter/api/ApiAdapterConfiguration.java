@@ -1,5 +1,6 @@
 package io.integrationplatform.routing.adapter.api;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.SocketDialer;
 import io.integrationplatform.routing.stage2.TargetCall;
@@ -33,10 +34,21 @@ public class ApiAdapterConfiguration {
         return new SocketHttpSend(dialer);
     }
 
+    /**
+     * E10 T-183 (Dipesh's decision 2026-10-20): the adapter's ONE registry is a bean, so the routing-owned
+     * breaker-facts bridge ({@code RegistryTargetBreakerFacts}, the delivery-retry job's half-open cap) reads
+     * the same live breakers the sends use - never a second registry.
+     */
+    @Bean
+    CircuitBreakerRegistry apiTargetBreakers() {
+        return ApiTargetCall.defaultBreakers();
+    }
+
     @Bean
     TargetCall apiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort,
-            HttpSend send, ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations) {
-        return new ApiTargetCall(views, guard, bodyPort, send, ApiTargetCall.defaultBreakers(),
+            HttpSend send, CircuitBreakerRegistry breakers, ObjectProvider<MeterRegistry> meters,
+            ObjectProvider<ObservationRegistry> observations) {
+        return new ApiTargetCall(views, guard, bodyPort, send, breakers,
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP));
     }
