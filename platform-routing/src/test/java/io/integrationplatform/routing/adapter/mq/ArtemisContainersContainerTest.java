@@ -15,7 +15,7 @@ class ArtemisContainersContainerTest {
         try (GenericContainer<?> broker = ArtemisContainers.artemis()) {
             broker.start();
 
-            assertThat(broker.getDockerImageName()).isEqualTo("apache/activemq-artemis:2.55.0");
+            assertThat(broker.getDockerImageName()).isEqualTo("apache/activemq-artemis:2.44.0");
             assertThat(broker.execInContainer("sh", "-c", ArtemisContainers.CHECK_NODE_UP).getExitCode()).isZero();
             assertThat(broker.getContainerInfo().getNetworkSettings().getPorts().getBindings().values())
                     .allSatisfy(bindings -> assertThat(bindings)

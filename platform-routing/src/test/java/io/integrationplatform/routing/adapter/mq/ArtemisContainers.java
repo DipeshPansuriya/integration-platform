@@ -12,12 +12,12 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * T98 harness: the Artemis broker pinned to 2.55.0 (the platform-e2e E2eContainers pattern). Login generated per
+ * T98 harness: the Artemis broker pinned to 2.44.0 (the platform-e2e E2eContainers pattern; Docker Hub publishes no 2.55.0 - upstream latest is 2.44.0, the T-176 backlog line is stale). Login generated per
  * run (R07), anonymous login off, only the acceptor published and bound to loopback (CWE-668).
  */
 public final class ArtemisContainers {
 
-    public static final String IMAGE = "apache/activemq-artemis:2.55.0";
+    public static final String IMAGE = "apache/activemq-artemis:2.44.0";
     public static final int ACCEPTOR_PORT = 61616;
     public static final String USER = "t98-" + UUID.randomUUID();
     public static final String PASSWORD = UUID.randomUUID().toString();
