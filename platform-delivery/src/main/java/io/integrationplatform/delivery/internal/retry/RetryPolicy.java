@@ -96,6 +96,20 @@ public record RetryPolicy(int maxAttempts, Duration baseDelay, Duration maxDelay
         return now.plus(delay);
     }
 
+    /**
+     * ADR-010 section 4, the {@code Retry-After} rule of layer 1: a redelivery is skipped when the target sent a
+     * {@code Retry-After} longer than the layer-1 delay budget - the wait belongs to layer 2 then, not to a
+     * synchronous retry. Otherwise the waits are {@link #layerOneWaits(double)}.
+     *
+     * @param retryAfter the target's requested wait, or {@code null} when it sent none
+     */
+    public List<Duration> layerOneWaits(double jitter, Duration retryAfter) {
+        if (retryAfter != null && retryAfter.compareTo(layerOneDelayCap) > 0) {
+            return List.of();
+        }
+        return layerOneWaits(jitter);
+    }
+
     /** base x 2^(attempt-1), saturating at the ceiling without overflowing the shift. */
     private Duration exponentialCap(int attempt) {
         long capNanos = maxDelay.toNanos();

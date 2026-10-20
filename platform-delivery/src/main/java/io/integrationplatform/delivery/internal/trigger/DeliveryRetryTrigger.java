@@ -6,6 +6,7 @@ import io.integrationplatform.delivery.port.DeliveryReconcileStore;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.delivery.port.InstanceReadiness;
 import io.integrationplatform.delivery.port.RetryCandidate;
+import io.integrationplatform.delivery.port.TargetBreakerFacts;
 import io.integrationplatform.delivery.port.TargetRedriveCap;
 import io.integrationplatform.delivery.port.TargetSendFacts;
 import io.integrationplatform.ingest.port.OutboxEntry;
@@ -49,6 +50,7 @@ public final class DeliveryRetryTrigger {
     private final TargetRedriveCap redriveCap;
     private final DeliveryReconcileStore reconcileStore;
     private final TargetSendFacts targetFacts;
+    private final TargetBreakerFacts breakerFacts;
     private final RetryPolicy policy;
     private final int batchSize;
 
@@ -83,6 +85,19 @@ public final class DeliveryRetryTrigger {
     }
 
     /**
+     * T-183 (ADR-010 section 6, last row; challenge S-i): with the per-target breaker facts - a target whose
+     * breaker is not CLOSED gets at most {@code halfOpenTrialCalls} of its waiting deliveries re-driven per pass.
+     */
+    public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
+            TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
+            int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
+            TargetRedriveCap redriveCap, TargetBreakerFacts breakerFacts) {
+        this(tenants, tenantContext, transactions, store, outboxWriter, batchSize, readiness, bulkheadFacts,
+                redriveCap, DeliveryReconcileStore.none(), TargetSendFacts.unknown(), RetryPolicy.defaults(),
+                breakerFacts);
+    }
+
+    /**
      * T-180 (E9-F3-S1): with the delivery side of the reconciler sweep - in each tenant's transaction, before the
      * re-drive, stale {@code SENDING} claims are settled and held deliveries whose predecessors are final are
      * released.
@@ -92,6 +107,15 @@ public final class DeliveryRetryTrigger {
             int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
             TargetRedriveCap redriveCap, DeliveryReconcileStore reconcileStore, TargetSendFacts targetFacts,
             RetryPolicy policy) {
+        this(tenants, tenantContext, transactions, store, outboxWriter, batchSize, readiness, bulkheadFacts,
+                redriveCap, reconcileStore, targetFacts, policy, TargetBreakerFacts.unknown());
+    }
+
+    public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
+            TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
+            int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
+            TargetRedriveCap redriveCap, DeliveryReconcileStore reconcileStore, TargetSendFacts targetFacts,
+            RetryPolicy policy, TargetBreakerFacts breakerFacts) {
         if (batchSize < 1) {
             throw new IllegalArgumentException("batchSize must be at least 1");
         }
@@ -105,6 +129,7 @@ public final class DeliveryRetryTrigger {
         this.redriveCap = Objects.requireNonNull(redriveCap, "redriveCap");
         this.reconcileStore = Objects.requireNonNull(reconcileStore, "reconcileStore");
         this.targetFacts = Objects.requireNonNull(targetFacts, "targetFacts");
+        this.breakerFacts = Objects.requireNonNull(breakerFacts, "breakerFacts");
         this.policy = Objects.requireNonNull(policy, "policy");
         this.batchSize = batchSize;
     }
@@ -138,23 +163,36 @@ public final class DeliveryRetryTrigger {
         List<RetryCandidate> due = store.lockDue(Instant.now(), batchSize);
         int moved = 0;
         Map<UUID, Integer> deferredMovedPerTarget = new HashMap<>();
+        Map<UUID, Integer> breakerMovedPerTarget = new HashMap<>();
         for (RetryCandidate candidate : due) {
             if (!readiness.ready(tenant, candidate.deliveryId())) {
                 continue; // readiness stub: never false today; E10 T-201 fills the rule
             }
-            Optional<UUID> deferredTarget = bulkheadFacts.forDelivery(candidate.deliveryId())
-                    .filter(facts -> facts.bulkheadDeferrals() > 0)
+            Optional<DeliveryBulkheadFacts.BulkheadFacts> facts = bulkheadFacts.forDelivery(candidate.deliveryId());
+            Optional<UUID> deferredTarget = facts.filter(f -> f.bulkheadDeferrals() > 0)
                     .map(DeliveryBulkheadFacts.BulkheadFacts::targetEndpointId);
             if (deferredTarget.isPresent() && deferredMovedPerTarget.getOrDefault(deferredTarget.get(), 0)
                     >= redriveCap.maxDeferredRedrives(deferredTarget.get())) {
                 continue; // T-199: over this target's cap - stays RETRY_WAIT for the next run
+            }
+            // T-183 (ADR-010 section 6): a target whose breaker is not CLOSED re-drives at most its trial count
+            Optional<UUID> target = facts.map(DeliveryBulkheadFacts.BulkheadFacts::targetEndpointId);
+            Optional<TargetBreakerFacts.BreakerFacts> breaker = target.flatMap(breakerFacts::forTarget);
+            boolean trialCapped = breaker.isPresent()
+                    && breaker.get().state() != TargetBreakerFacts.BreakerFacts.State.CLOSED;
+            if (trialCapped && breakerMovedPerTarget.getOrDefault(target.get(), 0)
+                    >= breaker.get().halfOpenTrialCalls()) {
+                continue;
             }
             if (!store.markDue(candidate.deliveryId())) {
                 continue; // 0 rows: the delivery is not ours to move anymore - the store never throws on this
             }
             outboxWriter.append(new OutboxEntry(OutboxTopic.DELIVERY_DUE, candidate.deliveryId(),
                     "delivery:" + candidate.deliveryId(), null, null));
-            deferredTarget.ifPresent(target -> deferredMovedPerTarget.merge(target, 1, Integer::sum));
+            deferredTarget.ifPresent(id -> deferredMovedPerTarget.merge(id, 1, Integer::sum));
+            if (trialCapped) {
+                breakerMovedPerTarget.merge(target.get(), 1, Integer::sum);
+            }
             moved++;
         }
         return moved;

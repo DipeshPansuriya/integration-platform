@@ -34,25 +34,40 @@ public final class SystemSettings {
 
     static final int MAX_TEXT = 2048;
 
-    private enum Kind { TEXT, PORT, HTTP_URL, TIMEOUT_MS, BOOLEAN }
+    private enum Kind { TEXT, PORT, HTTP_URL, TIMEOUT_MS, BOOLEAN, TRIAL_CALLS, ERROR_DICTIONARY }
 
     private record Field(String name, Kind kind, boolean required) {
     }
+
+    /**
+     * T-182/T-183 (ADR-010 sections 5 and 6; ADR-011 Decision 1 addendum 2026-10-20): the two fields every type's
+     * settings may carry - the per-target half-open trial cap and the error dictionary that tunes the default
+     * outcome table. They live in {@code target_endpoint.settings} (JSONB, validated here on save, no migration).
+     */
+    private static final List<Field> COMMON = List.of(
+            new Field("halfOpenTrialCalls", Kind.TRIAL_CALLS, false),
+            new Field("errorDictionary", Kind.ERROR_DICTIONARY, false));
 
     private static final Map<String, List<Field>> SCHEMAS = schemas();
 
     private SystemSettings() {
     }
 
+    private static List<Field> schema(Field... typed) {
+        List<Field> fields = new ArrayList<>(List.of(typed));
+        fields.addAll(COMMON);
+        return List.copyOf(fields);
+    }
+
     private static Map<String, List<Field>> schemas() {
         Map<String, List<Field>> schemas = new LinkedHashMap<>();
-        schemas.put("API", List.of(new Field("baseUrl", Kind.HTTP_URL, true),
+        schemas.put("API", schema(new Field("baseUrl", Kind.HTTP_URL, true),
                 new Field("timeoutMs", Kind.TIMEOUT_MS, false), new Field("followRedirects", Kind.BOOLEAN, false)));
-        schemas.put("DB", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
+        schemas.put("DB", schema(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
                 new Field("database", Kind.TEXT, true)));
-        schemas.put("MQ", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
+        schemas.put("MQ", schema(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
                 new Field("queue", Kind.TEXT, true)));
-        schemas.put("FILE", List.of(new Field("rootPath", Kind.TEXT, true)));
+        schemas.put("FILE", schema(new Field("rootPath", Kind.TEXT, true)));
         return Map.copyOf(schemas);
     }
 
@@ -121,6 +136,12 @@ public final class SystemSettings {
                     : "must be a whole number of milliseconds from 100 to 300000";
             case BOOLEAN -> value.isBoolean() ? null : "must be true or false";
             case HTTP_URL -> httpUrlProblem(value);
+            case TRIAL_CALLS -> value.isIntegralNumber() && value.canConvertToInt()
+                    && value.intValue() >= 1 && value.intValue() <= 100 ? null
+                    : "must be a whole number of trial calls from 1 to 100";
+            case ERROR_DICTIONARY -> !value.isObject() ? "must be a JSON object of status to outcome class"
+                    : ErrorDictionaryCheck.entryErrors(value).isEmpty() ? null
+                            : "refused: " + String.join("; ", ErrorDictionaryCheck.entryErrors(value));
         };
     }
 
