@@ -1,10 +1,12 @@
 package io.integrationplatform.delivery.internal.trigger;
 
+import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
 import io.integrationplatform.delivery.internal.JdbcDeliveryReconcileStore;
 import io.integrationplatform.delivery.internal.retry.RetryPolicy;
 import io.integrationplatform.delivery.port.DeliveryReconcileStore;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.delivery.port.InstanceReadiness;
+import io.integrationplatform.delivery.port.TargetBreakerFacts;
 import io.integrationplatform.delivery.port.TargetRedriveCap;
 import io.integrationplatform.delivery.port.TargetSendFacts;
 import io.integrationplatform.domain.scheduler.JobHandler;
@@ -52,12 +54,16 @@ class DeliveryRetryTriggerConfiguration {
             TriggerTenantContext deliveryTriggerTenantContext, PlatformTransactionManager transactionManager,
             DeliveryRetryStore deliveryRetryStore, OutboxWriter outboxWriter,
             DeliveryReconcileStore deliveryReconcileStore, ObjectProvider<TargetSendFacts> targetSendFacts,
-            ObjectProvider<InstanceReadiness> instanceReadiness) {
+            ObjectProvider<InstanceReadiness> instanceReadiness,
+            ObjectProvider<DeliveryBulkheadFacts> deliveryBulkheadFacts,
+            ObjectProvider<TargetBreakerFacts> targetBreakerFacts) {
         return new DeliveryRetryTrigger(activeTenants::activeTenantIds, deliveryTriggerTenantContext,
                 new TransactionTemplate(transactionManager), deliveryRetryStore, outboxWriter, BATCH_SIZE,
-                instanceReadiness.getIfAvailable(InstanceReadiness::alwaysReady), deliveryId -> Optional.empty(), TargetRedriveCap.unlimited(),
+                instanceReadiness.getIfAvailable(InstanceReadiness::alwaysReady),
+                deliveryBulkheadFacts.getIfAvailable(() -> deliveryId -> Optional.empty()),
+                TargetRedriveCap.unlimited(),
                 deliveryReconcileStore, targetSendFacts.getIfAvailable(TargetSendFacts::unknown),
-                RetryPolicy.defaults());
+                RetryPolicy.defaults(), targetBreakerFacts.getIfAvailable(TargetBreakerFacts::unknown));
     }
 
     @Bean
