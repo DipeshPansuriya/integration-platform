@@ -23,6 +23,8 @@ export async function seedTenant(page, tenant, settings) {
   // every API call names its login itself; the page-wide marker is set ONLY around the designer below,
   // so an approver's call can never ride the author's marker
   await page.setExtraHTTPHeaders({});
+  // an un-navigated page is an opaque origin - document.cookie throws there; land on the console first (run 0b04aa2, 20-Oct)
+  await page.goto(`${bsEnv('consoleUrl')}/`);
   const as = (method, apiPath, body, what, login = tenant.admin) => inBrowser(page, method, apiPath, body, login).then((a) => must(a, `${tenant.key}: ${what}`));
   const port = settings.port; // F1: WireMock is published on the exception port (boot-options.mjs)
 
