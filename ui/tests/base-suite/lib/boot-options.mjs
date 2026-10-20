@@ -12,7 +12,8 @@
 //                      value in memory only), so each tenant's source credential is issued through the API
 // Not configured, or still TBD(row278): requireException throws here - before any build, lock or container.
 
-import { requireException } from './settings.mjs';
+import { SCREEN_ALLOWED_HOSTS } from '../../screens/screen-hosts.mjs';
+import { ALLOWED_HOSTS_VAR, requireException } from './settings.mjs';
 import { TENANTS, TENANT_B_PLAN } from './tenants.mjs';
 import { STUB_IDS, WIREMOCK_IMAGE, stubMapping } from './wiremock.mjs';
 
@@ -43,7 +44,10 @@ export function baseSuiteBootOptions(settings, { lockHolder } = {}) {
   return {
     extraTenants: [TENANT_B_PLAN],
     services: { wiremock: { ...BS_WIREMOCK, hostPort: exception.port }, kafka: BS_KAFKA },
-    appEnv: { ...exception.appEnv },
+    // T97's save-time check refuses a saved system whose host is not on the allow-list, and the seed's
+    // source system carries a fake *.partner.test fixture name (never called) - the screens boot passes
+    // the same list; the exception host stays first in the entry-validation order it was composed in.
+    appEnv: { ...exception.appEnv, [ALLOWED_HOSTS_VAR]: [exception.host, ...SCREEN_ALLOWED_HOSTS].join(',') },
     sourceCredentials: true,
     lockHolder
   };
