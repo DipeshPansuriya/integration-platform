@@ -79,7 +79,17 @@ public final class KafkaTopicTargetCall implements TargetCall {
         OutcomeClass outcome = OutcomeClass.TRANSIENT;
         KafkaMessage message = null;
         try {
-            var resolved = outbound.resolve(send);
+            java.util.Optional<KafkaMessage> resolved;
+            try {
+                resolved = outbound.resolve(send);
+            } catch (RuntimeException badSettings) {
+                // review T-148: a thrown resolve must still release the breaker permit and be metered
+                // classified - a malformed settings row is a permanent target fault, never a broker fault.
+                outcome = OutcomeClass.PERMANENT;
+                breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+                throw new TargetFaultException(outcome, "the Kafka settings of target endpoint "
+                        + send.targetEndpointId() + " are unusable: " + badSettings.getMessage());
+            }
             if (resolved.isEmpty()) {
                 outcome = OutcomeClass.PERMANENT;
                 breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);

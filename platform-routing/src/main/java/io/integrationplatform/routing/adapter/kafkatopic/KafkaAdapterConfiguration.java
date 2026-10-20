@@ -38,7 +38,7 @@ public class KafkaAdapterConfiguration {
 
     @Bean
     KafkaTopicTargetCall kafkaTopicTargetCall(KafkaOutbound outbound, DestinationGuard guard,
-            @Value("${IPASS_KAFKA_PLATFORM_TOPICS:}") String platformTopics,
+            @Value("${IPASS_KAFKA_PLATFORM_TOPICS}") String platformTopics,
             ObjectProvider<CircuitBreakerRegistry> breakers, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations) {
         return new KafkaTopicTargetCall(outbound, new KafkaClientsSender(), guard, topics(platformTopics),
@@ -49,7 +49,8 @@ public class KafkaAdapterConfiguration {
 
     private static Set<String> topics(String csv) {
         if (csv == null || csv.isBlank()) {
-            return Set.of();
+            // fail closed (review T-148): with no platform topics listed the refusal protects nothing
+            throw new IllegalStateException("IPASS_KAFKA_PLATFORM_TOPICS must list the platform's own topics");
         }
         return Stream.of(csv.split(",")).map(s -> s.strip().toLowerCase(Locale.ROOT))
                 .filter(s -> !s.isEmpty()).collect(Collectors.toSet());

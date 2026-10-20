@@ -108,6 +108,23 @@ class KafkaTopicTargetCallControlsTest {
     }
 
     @Test
+    void malformedSettingsIsPermanentAndReleasesTheBreakerPermit() {
+        CircuitBreakerRegistry breakers = CircuitBreakerRegistry.ofDefaults();
+        UUID endpoint = UUID.randomUUID();
+        KafkaSender sender = (st, id, body, timeout) -> {
+            throw new AssertionError("a broken settings row never reaches the sender");
+        };
+        assertThatThrownBy(() -> call(send -> {
+            throw new IllegalStateException("no bootstrap servers in the settings row");
+        }, sender, breakers, ObservationRegistry.NOOP).call(send(endpoint)))
+                .isInstanceOf(TargetFaultException.class)
+                .isNotInstanceOf(TargetFaultException.TransientFaultException.class);
+        CircuitBreaker breaker = breakers.circuitBreaker("kafka:" + endpoint, KafkaTopicTargetCall.BREAKER);
+        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(breaker.tryAcquirePermission()).as("the permit was not leaked").isTrue();
+    }
+
+    @Test
     void unreachableBrokerIsTransientUntilTheBreakerOpensAndSkipsTheSixth() {
         AtomicInteger resolved = new AtomicInteger();
         KafkaSender sender = (st, id, body, timeout) -> {
