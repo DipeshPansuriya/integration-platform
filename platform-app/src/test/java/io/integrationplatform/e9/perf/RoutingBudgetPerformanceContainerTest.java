@@ -88,6 +88,16 @@ class RoutingBudgetPerformanceContainerTest {
         }
     }
 
+    /** T-122 AC-1: the production pipeline records its named routing steps straight into the budget. */
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    static class PerStepBudgetWiring {
+        @org.springframework.context.annotation.Bean
+        io.integrationplatform.routing.stage1.RoutingStepRecorder routingStepBudgetRecorder() {
+            return (messageId, step, elapsed) -> budget.record(messageId,
+                    RoutingStepBudget.Step.valueOf(step.name()), elapsed);
+        }
+    }
+
     private static Stage1Environment env;
     private static final List<TargetStub> targets = new ArrayList<>();
     private static final RoutingStepBudget budget = new RoutingStepBudget();
@@ -139,7 +149,6 @@ class RoutingBudgetPerformanceContainerTest {
                     () -> deliveriesCreatedFor(index),
                     "the three deliveries of business key " + businessKey(index)
                             + " (routing stage 1 T-117/T-178 did not create them)");
-            budget.recordUpperBound(messageId, Duration.between(producedAt[index], Instant.now()));
         }
 
         // T-122 AC 3: the drain's per-step probes, named the way the budget names the hoard.

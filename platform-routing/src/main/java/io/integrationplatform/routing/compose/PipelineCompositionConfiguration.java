@@ -13,6 +13,7 @@ import io.integrationplatform.routing.adapter.api.TargetEndpointViews;
 import io.integrationplatform.routing.adapter.mq.JdbcMqTargets;
 import io.integrationplatform.routing.adapter.mq.MqTargetCall;
 import io.integrationplatform.routing.claim.DeliveryClaimHandler;
+import io.integrationplatform.routing.stage1.RoutingStepRecorder;
 import io.integrationplatform.routing.poison.PoisonTopic;
 import io.integrationplatform.routing.stage.StageConsumer;
 import io.integrationplatform.routing.stage1.JdbcStage1Reads;
@@ -166,9 +167,11 @@ class PipelineCompositionConfiguration {
 
     @Bean
     Stage1FanOut stage1FanOut(WorkerTenantBinding binding, PlatformTransactionManager transactionManager,
-            JdbcClient jdbcClient, TenantContext tenantContext, Stage1Deliveries stage1Deliveries) {
+            JdbcClient jdbcClient, TenantContext tenantContext, Stage1Deliveries stage1Deliveries,
+            org.springframework.beans.factory.ObjectProvider<RoutingStepRecorder> recorder) {
         return new Stage1FanOut(binding, new TransactionTemplate(transactionManager),
-                new JdbcStage1Reads(jdbcClient, tenantContext), stage1Deliveries);
+                new JdbcStage1Reads(jdbcClient, tenantContext), stage1Deliveries,
+                recorder.getIfAvailable(() -> RoutingStepRecorder.NOOP));
     }
 
     @Bean(destroyMethod = "shutdown")
