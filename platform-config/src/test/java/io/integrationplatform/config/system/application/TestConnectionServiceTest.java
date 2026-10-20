@@ -98,6 +98,36 @@ class TestConnectionServiceTest {
         verifyNoInteractions(http);
     }
 
+    /** E16 lead integration: the type-keyed checks map sends a KAFKA system to its own check, never to MQ's. */
+    @Test
+    void aKafkaTypeDispatchesToTheCheckRegisteredForKafka() {
+        String kafkaId = UUID.randomUUID().toString();
+        String kafkaSettings = "{\"bootstrapServers\":\"broker.example:9092\",\"topic\":\"events\"}";
+        when(systems.findSystem(kafkaId))
+                .thenReturn(Optional.of(new SystemDetail(kafkaId, "C", "N", "TARGET", "KAFKA", kafkaSettings)));
+        Map<String, Object> port = new LinkedHashMap<>();
+        port.put("systemId", kafkaId);
+        port.put("type", "KAFKA");
+        port.put("result", "OK");
+        port.put("httpStatus", null);
+        port.put("responseTimeMs", 4L);
+        port.put("reason", null);
+        port.put("detail", null);
+        port.put("message", null);
+        MqConnectionCheck kafka = mock(MqConnectionCheck.class);
+        when(kafka.test(UUID.fromString(kafkaId), kafkaSettings)).thenReturn(port);
+        MqConnectionCheck mq = mock(MqConnectionCheck.class);
+        Map<String, MqConnectionCheck> registry = new LinkedHashMap<>();
+        registry.put("MQ", mq);
+        registry.put("KAFKA", kafka);
+
+        Map<String, Object> answer = service(registry).test(kafkaId, TENANT, ACTOR);
+
+        assertThat(answer).isEqualTo(port);
+        verify(audit).record(TENANT, ACTOR, kafkaId, "KAFKA", "OK", null, null);
+        verifyNoInteractions(mq, http);
+    }
+
     private TestConnectionService service(MqConnectionCheck mq) {
         return new TestConnectionService(systems, TransactionOperations.withoutTransaction(), http, 10,
                 Duration.ofMinutes(1), audit, mq);

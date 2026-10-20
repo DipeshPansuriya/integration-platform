@@ -10,6 +10,7 @@ import io.integrationplatform.delivery.DeliveryClaimService;
 import io.integrationplatform.delivery.port.SendOutcomes;
 import io.integrationplatform.delivery.port.Stage1Deliveries;
 import io.integrationplatform.routing.adapter.api.TargetEndpointViews;
+import io.integrationplatform.routing.adapter.kafkatopic.KafkaTopicTargetCall;
 import io.integrationplatform.routing.adapter.mq.JdbcMqTargets;
 import io.integrationplatform.routing.adapter.mq.MqTargetCall;
 import io.integrationplatform.routing.claim.DeliveryClaimHandler;
@@ -85,13 +86,18 @@ class PipelineCompositionConfiguration {
         return new WorkerTenantBinding();
     }
 
-    /** Row 327 (E16-T0): the stage-2 target registry - MQ and API today; KAFKA_TOPIC registers itself later (T-148). */
+    /** Row 327 (E16-T0): the stage-2 target registry - MQ, API and KAFKA (T-148, only when its adapter gate is on). */
     @Bean
     TargetCallRegistry targetCallRegistry(MqTargetCall mqTargetCall,
-            @Qualifier("apiTargetCall") TargetCall apiTargetCall) {
+            @Qualifier("apiTargetCall") TargetCall apiTargetCall,
+            ObjectProvider<KafkaTopicTargetCall> kafkaTarget) {
         TargetCallRegistry targetCalls = new TargetCallRegistry();
         targetCalls.register("MQ", mqTargetCall);
         targetCalls.register("API", apiTargetCall);
+        KafkaTopicTargetCall kafka = kafkaTarget.getIfAvailable();
+        if (kafka != null) {
+            targetCalls.register("KAFKA", kafka); // key = the stored system.type; never present with the gate off
+        }
         return targetCalls;
     }
 
