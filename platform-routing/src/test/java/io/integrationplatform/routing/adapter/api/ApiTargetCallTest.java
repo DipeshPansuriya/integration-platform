@@ -235,6 +235,82 @@ class ApiTargetCallTest {
     }
 
     @Test
+    @Tag("negative")
+    @DisplayName("T-124: a name on the allow-list that resolves to 127.0.0.1 is refused AFTER the DNS lookup -"
+            + " PERMANENT, metered, nothing dialled")
+    void allowListedNameResolvingToLoopbackIpv4IsRefusedAfterDns() {
+        refusesAfterDns("127.0.0.1");
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("T-124: a name on the allow-list that resolves to ::1 is refused after the DNS lookup")
+    void allowListedNameResolvingToLoopbackIpv6IsRefusedAfterDns() {
+        refusesAfterDns("::1");
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("T-124: a name on the allow-list that resolves to a private range is refused after DNS")
+    void allowListedNameResolvingToPrivateRangeIsRefusedAfterDns() {
+        refusesAfterDns("10.11.12.13");
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("T-124: a name on the allow-list that resolves to the cloud metadata address is refused after DNS")
+    void allowListedNameResolvingToCloudMetadataIsRefusedAfterDns() {
+        refusesAfterDns("169.254.169.254");
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("T-124: a host not on the allow-list is refused, metered and never dialled")
+    void hostNotOnTheAllowListIsRefusedMetered() {
+        RecordingHttpSend sender = answering(() -> new Response(200, new byte[0]));
+        TargetEndpointView view = view("http://not-listed.e5.test:8080/api", "POST", 1500, "NO_AUTH", false, Map.of());
+
+        assertThatThrownBy(() -> metered(view, sender).call(send()))
+                .isInstanceOfSatisfying(TargetFaultException.class, fault ->
+                        assertThat(fault.outcomeClass()).isEqualTo(OutcomeClass.PERMANENT));
+        assertThat(sent).as("nothing sent to a non-allow-listed host").isEmpty();
+        assertThat(meters.get("api.target.outcome").tags("target_type", "API", "outcome", "PERMANENT").counter()
+                .count()).as("the refusal is metered").isEqualTo(1);
+    }
+
+    /** One resolve-then-refuse leg: the guard sees the address only after the (stubbed) DNS lookup. */
+    private void refusesAfterDns(String resolvesTo) {
+        RecordingHttpSend sender = answering(() -> new Response(200, new byte[0]));
+        TargetEndpointView view = view("http://target.e5.test:8080/api", "POST", 1500, "NO_AUTH", false, Map.of());
+        SimpleMeterRegistry refusedMeters = new SimpleMeterRegistry();
+
+        assertThatThrownBy(() -> new ApiTargetCall(views(view), resolveTo(resolvesTo), bodyPort, sender,
+                CircuitBreakerRegistry.ofDefaults(), refusedMeters, ObservationRegistry.NOOP).call(send()))
+                .isInstanceOfSatisfying(TargetFaultException.class, fault ->
+                        assertThat(fault.outcomeClass()).isEqualTo(OutcomeClass.PERMANENT));
+        assertThat(sent).as("nothing is dialled at a " + resolvesTo + " destination").isEmpty();
+        assertThat(refusedMeters.get("api.target.outcome").tags("target_type", "API", "outcome", "PERMANENT").counter()
+                .count()).as("the refusal is metered").isEqualTo(1);
+        assertThat(refusedMeters.get("api.target.send").tags("target_type", "API").timers().stream()
+                .mapToLong(io.micrometer.core.instrument.Timer::count).sum()).as("the refused attempt is timed")
+                .isEqualTo(1);
+    }
+
+    /** A guard whose allow-listed target always resolves to one fixed address (a stubbed DNS). */
+    private static DestinationGuard resolveTo(String address) {
+        return new DestinationGuard(AllowList.of(List.of("target.e5.test")), host -> List.of(addressLiteral(address)));
+    }
+
+    private ApiTargetCall metered(TargetEndpointView view, HttpSend sender) {
+        return new ApiTargetCall(views(view), guard(), bodyPort, sender, CircuitBreakerRegistry.ofDefaults(), meters,
+                ObservationRegistry.NOOP);
+    }
+
+    private static InetAddress addressLiteral(String literal) {
+        return address(literal); // a literal: parsed, never a DNS query
+    }
+
+    @Test
     @DisplayName("T96: a half-open breaker re-drives at most its trial-call count per target; the rest raise"
             + " TRANSIENT and never reach the socket, and another target's breaker is untouched")
     void halfOpenBreakerReDrivesAtMostItsTrialCallsPerTarget() {

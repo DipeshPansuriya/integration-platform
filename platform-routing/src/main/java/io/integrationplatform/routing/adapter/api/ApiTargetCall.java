@@ -85,37 +85,39 @@ public class ApiTargetCall implements TargetCall {
 
     @Override
     public void call(Stage2Send send) {
-        TargetEndpointView view = views.byEndpointId(send.targetEndpointId()).orElseThrow(() ->
-                new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(), "the send's endpoint "
-                        + send.targetEndpointId() + " has no target_endpoint row for the bound tenant - the"
-                        + " route resolution and the endpoint are out of step; nothing sent"));
-        if (!"NO_AUTH".equals(view.authMethod())) {
-            throw new TargetFaultException.TransientFaultException("the endpoint's auth method '"
-                    + view.authMethod() + "' is not supported in this slice (E10 credentials landing); the"
-                    + " delivery waits instead of dead-lettering on a missing feature");
-        }
-        ApiTargetBody.ApiWireBody body = bodyPort.bodyFor(send).orElseThrow(() ->
-                new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(), "no transform result exists"
-                        + " for delivery " + send.deliveryId() + " - the pipeline sent stage 2 without one;"
-                        + " the transform lane produces it"));
-        CheckedDestination destination;
-        try {
-            destination = guard.check(view.baseUri());
-        } catch (DestinationRefusedException refused) {
-            throw new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(), "the destination of "
-                    + view.baseUri() + " is refused (" + refused.refusal() + "): nothing is sent to it");
-        } catch (UnknownHostException unresolved) {
-            throw new TargetFaultException.TransientFaultException("the allow-listed host of "
-                    + view.baseUri() + " resolves to nothing (the address's fault, not the destination's)");
-        }
-        Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("Content-Type", body.contentType());
-        // the endpoint is addressed per delivery: the key ADR-011 Decision 4 requires on every call
-        headers.put("Idempotency-Key", send.deliveryId().toString());
+        // the whole attempt is metered from its first step (T-124): a guard refusal is classified PERMANENT,
+        // metered like the MQ/Kafka sends (guard at the boundary) and never reaches the socket
         Observation observation = Observation.createNotStarted("api.target.send", observations).start();
         OutcomeClass outcome = OutcomeClass.TRANSIENT;
         long started = System.nanoTime();
         try {
+            TargetEndpointView view = views.byEndpointId(send.targetEndpointId()).orElseThrow(() ->
+                    new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(), "the send's endpoint "
+                            + send.targetEndpointId() + " has no target_endpoint row for the bound tenant - the"
+                            + " route resolution and the endpoint are out of step; nothing sent"));
+            if (!"NO_AUTH".equals(view.authMethod())) {
+                throw new TargetFaultException.TransientFaultException("the endpoint's auth method '"
+                        + view.authMethod() + "' is not supported in this slice (E10 credentials landing); the"
+                        + " delivery waits instead of dead-lettering on a missing feature");
+            }
+            ApiTargetBody.ApiWireBody body = bodyPort.bodyFor(send).orElseThrow(() ->
+                    new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(), "no transform result exists"
+                            + " for delivery " + send.deliveryId() + " - the pipeline sent stage 2 without one;"
+                            + " the transform lane produces it"));
+            CheckedDestination destination;
+            try {
+                destination = guard.check(view.baseUri());
+            } catch (DestinationRefusedException refused) {
+                throw new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(), "the destination of "
+                        + view.baseUri() + " is refused (" + refused.refusal() + "): nothing is sent to it");
+            } catch (UnknownHostException unresolved) {
+                throw new TargetFaultException.TransientFaultException("the allow-listed host of "
+                        + view.baseUri() + " resolves to nothing (the address's fault, not the destination's)");
+            }
+            Map<String, String> headers = new LinkedHashMap<>();
+            headers.put("Content-Type", body.contentType());
+            // the endpoint is addressed per delivery: the key ADR-011 Decision 4 requires on every call
+            headers.put("Idempotency-Key", send.deliveryId().toString());
             attempt(send, view, destination, headers, body);
             outcome = OutcomeClass.SUCCESS;
         } catch (TargetFaultException failed) {
