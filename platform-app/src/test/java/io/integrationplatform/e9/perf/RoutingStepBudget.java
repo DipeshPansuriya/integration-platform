@@ -41,6 +41,13 @@ final class RoutingStepBudget {
 
     private final Map<UUID, List<Measurement>> byMessage = new ConcurrentHashMap<>();
 
+    /** T-122 AC 3: the drain sub-step attribution lines the perf test read from the probes, surfaced in the failure. */
+    private final List<String> drainAttribution = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    void addDrainAttribution(String line) {
+        drainAttribution.add(line);
+    }
+
     /** Records one named step's measured duration for one message. */
     void record(UUID messageId, Step step, Duration elapsed) {
         recordMeasurable(messageId, step.name(), elapsed, " took ");
@@ -72,8 +79,10 @@ final class RoutingStepBudget {
         }
         List<String> violations = overBudget();
         if (!violations.isEmpty()) {
+            String attribution = drainAttribution.isEmpty() ? ""
+                    : " | drain attribution: " + String.join(" ; ", drainAttribution);
             throw new AssertionError("Routing over the " + STEP_BUDGET.toMillis() + " ms budget. Slowest first: "
-                    + violations);
+                    + violations + attribution);
         }
     }
 

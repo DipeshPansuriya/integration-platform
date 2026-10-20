@@ -88,9 +88,20 @@ class RoutingBudgetPerformanceContainerTest {
         }
     }
 
+    /** T-122 AC-1: the production pipeline records its named routing steps straight into the budget. */
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    static class PerStepBudgetWiring {
+        @org.springframework.context.annotation.Bean
+        io.integrationplatform.routing.stage1.RoutingStepRecorder routingStepBudgetRecorder() {
+            return (messageId, step, elapsed) -> budget.record(messageId,
+                    RoutingStepBudget.Step.valueOf(step.name()), elapsed);
+        }
+    }
+
     private static Stage1Environment env;
     private static final List<TargetStub> targets = new ArrayList<>();
     private static final RoutingStepBudget budget = new RoutingStepBudget();
+    private static io.micrometer.core.instrument.MeterRegistry meters;
 
     @BeforeEach
     void givenAnInterfaceWithThreeTargets() throws Exception {
@@ -104,6 +115,11 @@ class RoutingBudgetPerformanceContainerTest {
             targets.add(stub);
             env.registerRoute("perf-target-" + t, stub.baseUrl());
         }
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void captureDrainMeters(io.micrometer.core.instrument.MeterRegistry registry) {
+        meters = registry;
     }
 
     @AfterAll
@@ -133,9 +149,10 @@ class RoutingBudgetPerformanceContainerTest {
                     () -> deliveriesCreatedFor(index),
                     "the three deliveries of business key " + businessKey(index)
                             + " (routing stage 1 T-117/T-178 did not create them)");
-            budget.recordUpperBound(messageId, Duration.between(producedAt[index], Instant.now()));
         }
 
+        // T-122 AC 3: the drain's per-step probes, named the way the budget names the hoard.
+        reportDrainAttribution();
         budget.checkWithinBudget();
     }
 
@@ -151,6 +168,37 @@ class RoutingBudgetPerformanceContainerTest {
 
     private static String businessKey(int index) {
         return "perf-key-" + index;
+    }
+
+    /** T-122 AC 3: probes wired inside the drain step (StageConsumer.drainOnce timers) report per sub-step:
+     * "backlog drain" (poll wait), "routing drain" (per-record stage-1 handling, offset commit), "poll settle"
+     * (the empty-turn waits) - the attribution the whole-step upper bound alone could not give. */
+    private static void reportDrainAttribution() {
+        if (meters == null) {
+            throw new AssertionError("the drain probes were never read: the application's MeterRegistry is not"
+                    + " autowired into this test, so AC-3 attribution cannot be proven");
+        }
+        meters.find("platform.stage.drain").timers().forEach(timer -> {
+            String step = timer.getId().getTag("step");
+            if (step != null) {
+                String line = "drain step " + step + " (" + drainStepName(step) + ") group="
+                        + timer.getId().getTag("group") + " count=" + timer.count()
+                        + " totalMs=" + timer.totalTime(java.util.concurrent.TimeUnit.MILLISECONDS)
+                        + " maxMs=" + timer.max(java.util.concurrent.TimeUnit.MILLISECONDS);
+                System.out.println(line);
+                budget.addDrainAttribution(line);
+            }
+        });
+    }
+
+    private static String drainStepName(String step) {
+        return switch (step) {
+            case "poll" -> "backlog drain: poll wait";
+            case "handle" -> "routing drain: per-record stage-1 handling";
+            case "commit" -> "routing drain: offset commit";
+            case "settle" -> "poll settle: empty-turn wait";
+            default -> step;
+        };
     }
 
     /** The naming logic alone is proven by RoutingStepBudgetTest; this documents the same contract here. */
