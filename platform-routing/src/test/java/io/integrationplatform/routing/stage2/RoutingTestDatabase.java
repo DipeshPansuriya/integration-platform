@@ -101,7 +101,7 @@ public final class RoutingTestDatabase {
         private final org.springframework.transaction.support.TransactionTemplate transactions;
         private final org.springframework.jdbc.core.simple.JdbcClient jdbcClient;
 
-        TenantTx(DataSource dataSource) {
+        public TenantTx(DataSource dataSource) {
             this.dataSource = dataSource;
             this.transactions = new org.springframework.transaction.support.TransactionTemplate(
                     new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
