@@ -52,16 +52,14 @@ test('bodyProblems: a leak and a missing mask marker are both problems', () => {
   assert.deepEqual(bodyProblems([]), [], 'an empty list carries no leak');
 });
 
-test('every T108 / T112 name fails closed and names its item', () => {
-  for (const [key, value] of Object.entries(MASK_NAMES)) {
-    assert.ok(isPendingName(value), `${key} is still pending today`);
-    assert.throws(() => maskName(key), new RegExp(`${key} is still TBD`));
-  }
+test('the landed T108 / T112 mask names hold exactly, and the fail-closed rule stays', () => {
+  assert.equal(maskName('maskApiMarker'), '[MASKED]');
+  assert.equal(maskName('maskScreenLastCell'), '[data-last-error]');
+  assert.deepEqual(declareCall(), ['PUT', '/api/v1/admin/flows/{flowId}',
+    { businessKeyRule: '$.orderId', sourceSystem: 'customer-a', destinations: ['target-b'], maskedFields: ['customerId'] }]);
+  assert.deepEqual(waitsFor(...Object.keys(MASK_NAMES)), [], 'no mask name is pending');
+  assert.ok(isPendingName('TBD(T999)') && isPendingName('') && isPendingName(undefined) && !isPendingName('[data-masked]'));
   assert.throws(() => maskName('nope'), /unknown name/);
-  assert.throws(() => declareCall(), /maskDeclareApi is still TBD\(T108\)/);
-  assert.deepEqual(waitsFor('maskDeclareApi', 'maskApiMarker'), ['T108']);
-  assert.deepEqual(waitsFor('maskDeclareApi', 'maskScreenField', 'maskScreenMarker'), ['T108', 'T112']);
-  assert.ok(isPendingName('') && isPendingName(undefined) && !isPendingName('[data-masked]'));
 });
 
 test('the echo stub reuses the fixed stub id so setStub(path, 200) restores it', () => {

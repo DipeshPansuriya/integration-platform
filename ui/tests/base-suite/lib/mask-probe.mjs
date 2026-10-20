@@ -3,9 +3,9 @@
 // MASK-PROBE-7Q3Z in it; the probe must then be found 0 times in the app log, the detail (timeline) and
 // failures API bodies and the screens, on the success path, the failure path and an intake refusal.
 //
-// Pure functions only (unit/mask-probe.test.mjs). The names T108 / T112 have not landed live HERE, not
-// in lib/pending-names.mjs (that registry is T131's; this lane adds files only). Same fail-closed rule:
-// a TBD(<item>) value is never guessed - the scenario that needs it is test.fixme naming the item.
+// Pure functions only (unit/mask-probe.test.mjs). The T108 / T112 names landed (feat/e9-e16 d5e2c6b)
+// and are held HERE; the fail-closed rule stays - a later regressed TBD(<item>) value is never guessed,
+// maskName throws naming the item and that test is red, never silent.
 //
 // Where the probe may legitimately appear (NOT scanned): the target's request (WireMock journal) - the
 // delivery must carry the real value; the platform's own payload store. Masking is about what the
@@ -20,14 +20,19 @@ export const PROBE = 'MASK-PROBE-7Q3Z';
 export const MASKED_FIELD = 'customerId';
 
 export const MASK_NAMES = Object.freeze({
-  // T108 (masking) - not on main 596eecb, no lane (git branch -a, git log --all --grep=T108: nothing).
-  // How a field is "declared masked on the interface configuration" (T108 done_when 1) is undefined.
-  maskDeclareApi: 'TBD(T108)', // "<METHOD> <path>" that marks one field masked on an interface / contract version
-  maskDeclareBody: 'TBD(T108)', // JSON template of that call's body; {field} is replaced by MASKED_FIELD
-  maskApiMarker: 'TBD(T108)', // the text the detail / failures API shows in place of a masked value
-  // T112 (screens) - lane seam-row327-t112 0f87c60, not on main; no masked-field element there yet
-  maskScreenField: 'TBD(T112)', // selector of the masked customerId on the message-detail screen
-  maskScreenMarker: 'TBD(T108|T112)' // the text that element shows
+  // T108 (masking) landed - feat/e9-e16 d5e2c6b: the flow draft-save PUT carries `maskedFields`
+  // (FlowAdminService.java:74,:111 -> JdbcFlowRepository.updateMaskedFields.java:215; the flows path is
+  // EndpointMatrix.java:174), the marker is MaskedFields.MARKER; the tracking reads redact from the
+  // interface_version snapshot (JdbcMessageTrackingStore.java:82) and every JSON log line scrubs the
+  // registered values (MaskingLogCustomizer.java:20, application.yml logging.structured.json.customizer).
+  maskDeclareApi: 'PUT /api/v1/admin/flows/{flowId}', // the draft-save that updates the interface's mask list
+  // same shape the seed's flow body carries (lib/tenants.mjs SOURCE/TARGET/FLOW); {field} -> customerId
+  maskDeclareBody: '{"businessKeyRule":"$.orderId","sourceSystem":"customer-a","destinations":["target-b"],"maskedFields":["{field}"]}',
+  maskApiMarker: '[MASKED]', // MaskedFields.MARKER - what a masked value is replaced with
+  // T112 (screens) landed showing NO payload field (MessageDetail.tsx:10, Failures.tsx:10): a masked
+  // value can reach a screen only inside a redacted lastError text, rendered as a text child in the
+  // failures row's cell - checked as the same [MASKED] marker.
+  maskScreenLastCell: '[data-last-error]' // the failures row cell whose text carries the marker, not the value
 });
 
 /** True for a placeholder ("TBD(" in any case) or an empty value - the pending-names.mjs rule. */
