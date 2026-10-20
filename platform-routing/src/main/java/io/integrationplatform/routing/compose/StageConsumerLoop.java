@@ -108,6 +108,25 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
     }
 
     private void drainUntilStopped() {
+        while (running) {
+            if (!ready.getAsBoolean()) {
+                // T-201: a not-ready instance takes no work. Closing the consumer leaves the group WITHOUT
+                // committing an offset (auto-commit is off) - the partitions move to a ready instance, and
+                // this one rejoins when readiness passes again.
+                consumer = null;
+                try {
+                    Thread.sleep(POLL.toMillis());
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                continue;
+            }
+            drainOnePass();
+        }
+    }
+
+    private void drainOnePass() {
         Map<String, Object> config = new HashMap<>(StageConsumer.consumerConfig(bootstrapServers, group));
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         try (KafkaConsumer<byte[], byte[]> kafka = new KafkaConsumer<>(config)) {
@@ -116,7 +135,7 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
             StageConsumer stage = new StageConsumer(kafka, new WorkRecordParser(), rows, handler, poison,
                     StageConsumerLoop::backoff, POLL, Clock.systemUTC(), Thread::sleep,
                     StageSettings.defaults(group), meters, observations, StageAlerts.LOG, ready);
-            while (running) {
+            while (running && ready.getAsBoolean()) {
                 try {
                     stage.drainOnce();
                 } catch (WakeupException stopping) {
@@ -135,6 +154,7 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
                     }
                 }
             }
+            // going not-ready ends the pass: the closed consumer leaves the group with no committed offset
         } catch (WakeupException stopping) {
             // stop() woke the consumer while it was subscribing or closing
         } finally {
