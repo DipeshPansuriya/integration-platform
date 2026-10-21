@@ -2,6 +2,7 @@ package io.integrationplatform.routing.compose;
 
 import io.integrationplatform.delivery.port.SendOutcomes;
 import io.integrationplatform.domain.delivery.OutcomeClass;
+import io.integrationplatform.routing.credential.CredentialedDelivery;
 import io.integrationplatform.routing.stage2.Stage2Send;
 import io.integrationplatform.routing.stage2.bulkhead.Stage2SendDispatch;
 import io.integrationplatform.routing.templates.RouteBuildRefusedException;
@@ -39,10 +40,19 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
     private final ProducerTemplate producer;
     private final SendOutcomes outcomes;
     private final Supplier<Instant> clock;
+    /** The send-time credential gate (T-200): null when the credentials slice's beans are off. */
+    private final CredentialedDelivery credentialed;
 
     public RouteInstanceSendDispatch(TransactionOperations transactions, JdbcDueDeliveries deliveries,
             TenantContext tenantContext, RouteConfigReader configRows, RouteInstanceFactory routes,
             ProducerTemplate producer, SendOutcomes outcomes, Supplier<Instant> clock) {
+        this(transactions, deliveries, tenantContext, configRows, routes, producer, outcomes, clock, null);
+    }
+
+    public RouteInstanceSendDispatch(TransactionOperations transactions, JdbcDueDeliveries deliveries,
+            TenantContext tenantContext, RouteConfigReader configRows, RouteInstanceFactory routes,
+            ProducerTemplate producer, SendOutcomes outcomes, Supplier<Instant> clock,
+            CredentialedDelivery credentialed) {
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.deliveries = Objects.requireNonNull(deliveries, "deliveries");
         this.tenantContext = Objects.requireNonNull(tenantContext, "tenantContext");
@@ -51,6 +61,7 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
         this.producer = Objects.requireNonNull(producer, "producer");
         this.outcomes = Objects.requireNonNull(outcomes, "outcomes");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.credentialed = credentialed;
     }
 
     @Override
@@ -80,7 +91,14 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
             return;
         }
         routes.touch(instance, clock.get());
-        Exchange done = producer.send(instance.consumerUri(), exchange -> exchange.getIn().setBody(send));
+        Exchange done = credentialed == null ? producer.send(instance.consumerUri(),
+                exchange -> exchange.getIn().setBody(send))
+                : credentialed.send(send.deliveryId(), send.claimToken(), send.targetEndpointId(),
+                        opened -> producer.send(instance.consumerUri(), e -> e.getIn().setBody(send)))
+                        .value();
+        if (done == null) {
+            return; // the store already moved the delivery - no call left the process, no attempt row written
+        }
         if (done.getException() != null) {
             log.error("stage 2: delivery {} - the send ended outside layer 1's classified outcomes; it stays "
                     + "SENDING for the reconciler", send.deliveryId(), done.getException());
