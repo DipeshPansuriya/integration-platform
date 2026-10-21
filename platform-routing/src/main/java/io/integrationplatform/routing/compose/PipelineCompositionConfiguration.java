@@ -57,6 +57,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -181,7 +182,9 @@ class PipelineCompositionConfiguration {
                 recorder.getIfAvailable(() -> RoutingStepRecorder.NOOP));
     }
 
+    /** The default recorder; a context that supplies its own RoutingStepRecorder (a test or ops probe) wins. */
     @Bean
+    @ConditionalOnMissingBean(RoutingStepRecorder.class)
     RoutingStepRecorder routingStepRecorder(ObjectProvider<MeterRegistry> meters) {
         MeterRegistry registry = meters.getIfAvailable();
         return registry == null ? RoutingStepRecorder.NOOP : new MicrometerRoutingStepRecorder(registry);

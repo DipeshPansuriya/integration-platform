@@ -66,6 +66,29 @@ class Stage1FanOutPlanTest {
         assertThat(Stage1FanOut.plan(message, new FlowBundle.Parsed(List.of(), List.of()))).isEmpty();
     }
 
+    @Test
+    @DisplayName("a snapshot parsed from its stored JSON plans one delivery pinning the route's mapping version")
+    void planFromStoredSnapshotJson() {
+        UUID routeId = UUID.fromString("44444444-4444-4444-8444-444444444444");
+        UUID targetId = UUID.fromString("55555555-5555-4555-8555-555555555555");
+        UUID mappingVersionId = UUID.fromString("66666666-6666-4666-8666-666666666666");
+        String snapshot = """
+                {
+                  "interface": {"code":"orders","name":"orders","ordering":"PER_KEY","businessKeyRule":"$.orderId"},
+                  "routes": [
+                    {"id":"%s","sequence":1,"condition":null,"isPrimary":true,"status":"ACTIVE","targetEndpointId":"%s"}
+                  ],
+                  "mappings": [
+                    {"id":"m1","routeId":"%s","fieldMappings":[],"compiledExpression":"$","sourceContractVersionId":"sc","targetContractVersionId":"tc","mappingVersionId":"%s"}
+                  ]
+                }
+                """.formatted(routeId, targetId, routeId, mappingVersionId);
+
+        assertThat(Stage1FanOut.plan(message, FlowBundle.parse(snapshot))).containsExactly(
+                new Stage1Delivery(MESSAGE, routeId, ACCEPTED_AT, targetId, mappingVersionId, null, INTERFACE, "K-1",
+                        3L));
+    }
+
     private static FlowBundle.SnapshotRoute route(String id, int sequence, String condition, String status,
             String endpoint) {
         return new FlowBundle.SnapshotRoute(id, sequence, condition, false, status, endpoint);
