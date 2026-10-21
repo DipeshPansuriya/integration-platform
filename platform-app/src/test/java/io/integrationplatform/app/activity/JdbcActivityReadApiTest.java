@@ -62,4 +62,14 @@ class JdbcActivityReadApiTest {
 
         assertThat(result.items().get(0).targetIds()).isNull();
     }
+
+    @Test
+    void theTraceIdTravelsFromTheServiceOntoTheContractEvent() {
+        ActivityService service = mock(ActivityService.class);
+        JdbcActivityReadApi api = new JdbcActivityReadApi(service);
+        when(service.event(5L)).thenReturn(Optional.of(new ActivityService.Activity("5", "admin-a", "CONFIG_CHANGED",
+                List.of(), null, null, "2026-10-15T10:00:00Z", "trace-5")));
+
+        assertThat(api.event(5L)).map(ActivityEvent::traceId).contains("trace-5");
+    }
 }

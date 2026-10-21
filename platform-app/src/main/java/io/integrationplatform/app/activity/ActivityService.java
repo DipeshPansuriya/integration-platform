@@ -33,7 +33,12 @@ public class ActivityService {
 
     /** One audit event as the activity view shows it; {@code at} is the event time as a UTC instant. */
     public record Activity(String id, String actor, String action, List<String> targetIds, String before,
-            String after, String at) {
+            String after, String at, String traceId) {
+
+        public Activity(String id, String actor, String action, List<String> targetIds, String before,
+                String after, String at) {
+            this(id, actor, action, targetIds, before, after, at, null);
+        }
     }
 
     /** One page of the activity view; {@code hasMore} when a later page holds older events. */
@@ -78,6 +83,6 @@ public class ActivityService {
 
     private static Activity activity(JdbcActivityStore.ActivityRow row) {
         return new Activity(Long.toString(row.id()), row.actor(), row.action(), row.targetIds(), row.before(),
-                row.after(), row.at().toString());
+                row.after(), row.at().toString(), row.traceId());
     }
 }
