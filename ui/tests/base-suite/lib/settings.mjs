@@ -1,15 +1,13 @@
 // T130 (row 323, F21 BS-B): the ONE place the base suite reads the dev-only outbound exception from.
 //
 // Dipesh "Option 1" (2026-10-16 20:38 IST): BS-07, BS-10 and BS-12 reach the one local WireMock only
-// through the dev-only exception row 278 builds - a named dev/showcase profile, one exact host, no
-// wildcard, the app's REAL host resolver (plan section 2; karan reviews it as BS-17 / T137 before it
-// lands). Its profile name, its host and the name of the app variable that carries the host are row
-// 278's - TBD(row278) until row 278's build lands; they are read from the four names in EXCEPTION_ENV and
-// nowhere else, and a value still reading TBD is refused (PLACEHOLDER). The fourth, the port the target
-// listens on behind the exception host, is one integer 1-65535 (Kavita, row 323 follow-up 18-Oct).
-// Row 278's build names them (SystemPersistenceConfiguration.java:53-60): profile `showcase`, host variable
-// PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS; this file adds the port (showcase-local-ports) and the
-// host on allowed-hosts itself, and boot-options.mjs publishes WireMock on that same port (F1/F2).
+// through the dev-only exception row 278 built - the `showcase` profile, one exact host, no wildcard, the
+// app's REAL host resolver (plan section 2). The four settings are DECIDED (karan-security note
+// 2026-10-22-e15-exception-settings.md): profile `showcase` (SystemPersistenceConfiguration.java:64), host
+// `localhost`, host variable PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS, port 8089. They are read
+// from the four names in EXCEPTION_ENV and nowhere else; this file adds the port
+// (showcase-local-ports) and the host on allowed-hosts itself, and boot-options.mjs publishes WireMock on
+// that same port (F1/F2). The fourth, the port, is one integer 1-65535.
 //
 // Unset -> not configured: every BS scenario FAILS with NOT_CONFIGURED (never a skip). There is no
 // default host and no fallback: the unnamed loopback stays what the guard refuses
@@ -23,13 +21,9 @@ export const EXCEPTION_ENV = Object.freeze({
   port: 'IPASS_BS_EXCEPTION_PORT'
 });
 
-export const NOT_CONFIGURED = 'dev-only exception not configured - waits for row 278';
-/**
- * Step 5: the placeholder the suite's docs show for the four names until row 278's build lands.
- * Any value still reading "tbd" (any case) is refused - fail closed, never a guessed name that looks final.
- */
-export const PLACEHOLDER = 'TBD(row278)';
-const STILL_TBD = 'dev-only exception still TBD(row278)';
+export const NOT_CONFIGURED = 'dev-only exception not configured';
+/** The only profile the app starts the exception under: showcase alone (SystemPersistenceConfiguration.java:64,98-101). */
+export const EXCEPTION_PROFILE = 'showcase';
 const MISCONFIGURED = 'dev-only exception misconfigured';
 
 /** The JVM option variables a hosts-file or name-service override could ride in. */
@@ -48,8 +42,9 @@ const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const NOT_A_HOST = 'is not a host name (one exact name: no wildcard, port, scheme, path, user info, space or IP literal)';
 
 function profileProblem(profile) {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(profile)) return `profile "${profile}" is not ONE profile name`;
-  if (profile.toLowerCase() === 'default') return 'profile "default" is not a named dev/showcase profile';
+  if (profile !== EXCEPTION_PROFILE) {
+    return `${EXCEPTION_ENV.profile} "${profile}" must be exactly "${EXCEPTION_PROFILE}" - the app refuses to start the exception under any other profile`;
+  }
   return null;
 }
 
@@ -96,13 +91,9 @@ export function exceptionSettings(env = process.env) {
     return {
       configured: false,
       missing,
-      reason: `${NOT_CONFIGURED}: set ${missing.join(', ')} (the named profile, the one exact host, the app`
-        + " variable name row 278's build defines and the target port)"
+      reason: `${NOT_CONFIGURED}: set ${missing.join(', ')} (profile "${EXCEPTION_PROFILE}", the one exact host, the app`
+        + ' variable that carries the host and the target port)'
     };
-  }
-  const tbd = Object.entries(EXCEPTION_ENV).filter(([key]) => /tbd/i.test(values[key])).map(([, name]) => name);
-  if (tbd.length > 0) {
-    return { configured: false, missing: [], reason: `${STILL_TBD}: ${tbd.join(', ')} - set them to the names row 278's build defines` };
   }
   const problems = [profileProblem(values.profile), hostProblem(values.host), hostVarProblem(values.hostVar),
     portProblem(values.port)].filter(Boolean);

@@ -27,11 +27,13 @@ export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {})
   // every API call names its login itself; the page-wide marker is set ONLY around the designer below,
   // so an approver's call can never ride the author's marker
   await page.setExtraHTTPHeaders({});
+  // the in-page API calls need a document (a blank page cannot read the XSRF cookie): open the signed-in console first
+  await page.goto(`${bsEnv('consoleUrl')}/#/`);
   const as = (method, apiPath, body, what, login = tenant.admin) => inBrowser(page, method, apiPath, body, login).then((a) => must(a, `${tenant.key}: ${what}`));
   // F1: WireMock is published on the exception port (boot-options.mjs)
   const targetBase = targetBaseUrl ?? targetUrl(settings, settings.port, tenant.stubPath);
 
-  // TBD(row278|T106): the API adapter's send URL - today the production body port is empty
+  // TBD(T106): the API adapter's send URL - today the production body port is empty
   // (ApiAdapterConfiguration.java:38-39) and where the delivery reads its base URL (this system setting or a
   // target-endpoint row) is the "endpoint base-URL gap" T130 step 7 waits on. Re-measure at the lock slot.
   const source = await as('POST', '/api/v1/admin/systems', {

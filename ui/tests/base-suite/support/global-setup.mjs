@@ -1,8 +1,8 @@
 // T130 (row 323, F21 BS-B): the base suite's global setup - the screens suite's protocol
 // (tests/screens/global-setup.mjs) with the base-suite boot options (lib/boot-options.mjs).
 //
-// Fail closed, cheapest first: the dev-only exception must be configured (settings.mjs - unset or still
-// TBD(row278) FAILS here, never a skip) and the app must keep its real host resolver - both checked
+// Fail closed, cheapest first: the dev-only exception must be configured (settings.mjs - unset or
+// misconfigured FAILS here, never a skip) and the app must keep its real host resolver - both checked
 // BEFORE the console build, the docker-suite lock or any container. Then: build the console, boot the
 // real backend ONCE (tenant B's admin + approver, the one WireMock inside the lock, the exception's app
 // settings, the platform-admin secret for source credentials), serve the console with the backend routes
