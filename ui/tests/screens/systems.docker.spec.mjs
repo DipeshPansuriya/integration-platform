@@ -195,6 +195,35 @@ test('a refused edit shows every validation error and keeps the stored settings'
   expect(stored.data.settings).toEqual({ host: 'mq.partner.test', port: 5672, queue: 'q1' });
 });
 
+// Lane ui-edit-merge (review blocker): the edit form lists only the fields it owns, so saving used to ERASE the stored
+// settings it does not show. The save now merges the form over the stored object: a Kafka system with securityProtocol,
+// saslMechanism, username and halfOpenTrialCalls keeps all four after only the topic is changed, and the screen lists
+// them read-only. (Authored, not run here - needs the docker stack.)
+test('editing a Kafka system keeps the security settings the form does not show', async ({ page }) => {
+  await page.goto(consoleUrl());
+  const code = `sys-kmerge-${RUN}`;
+  const kept = { securityProtocol: 'SASL_SSL', saslMechanism: 'SCRAM-SHA-512', username: 'svc-orders', halfOpenTrialCalls: 2 };
+  const seeded = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
+    code, name: 'Kafka merge', direction: 'OUTBOUND', type: 'KAFKA',
+    settings: { bootstrapServers: 'broker1.partner.test:9092', topic: 'orders.out', ...kept }
+  });
+  expect(seeded.status).toBe(201);
+
+  await openSystems(page);
+  await page.locator(`[data-system-row="${code}"] [data-action="open-system"]`).click();
+  const editor = page.locator('[data-form="edit-system"]');
+  // the non-form keys are visible, read-only (no input for them)
+  await expect(editor.locator('[data-extra-setting="securityProtocol"]')).toContainText('SASL_SSL');
+  await expect(editor.locator('[data-extra-settings] input')).toHaveCount(0);
+  await editor.locator('[data-setting="topic"]').fill('orders.v2');
+  await page.click('[data-action="save-system"]');
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
+
+  const stored = await inBrowser(page, 'GET', `/api/v1/admin/systems/${seeded.data.id}`);
+  expect(stored.status).toBe(200);
+  expect(stored.data.settings).toEqual({ bootstrapServers: 'broker1.partner.test:9092', topic: 'orders.v2', ...kept });
+});
+
 // V-3 (row 306 defect batch, lane C): the Test connection button on the systems screen calls the
 // real POST /api/v1/admin/systems/{systemId}/test-connection and shows what the endpoint answers.
 // The screens harness allow-list (screen-hosts.mjs) covers the seed host, so the test call reaches

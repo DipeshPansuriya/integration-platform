@@ -1,6 +1,5 @@
 package io.integrationplatform.routing.adapter.kafkatopic;
 
-import io.integrationplatform.config.system.application.SystemSettings;
 import java.util.Objects;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -19,6 +18,17 @@ public record KafkaTopicSettings(String bootstrapServers, String topic, String s
         String username, String truststore) {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    // the adapter re-checks a stored row with its own copy of the save-time rules (SystemSettings in config); routing
+    // may not use config's application types (arch rule RoutingConfigBoundaryRule)
+    private static final java.util.List<String> SASL_MECHANISMS = java.util.List.of("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512");
+    private static final java.util.regex.Pattern USER = java.util.regex.Pattern.compile("[A-Za-z0-9._@$:=+-]{1,256}");
+    private static final java.util.regex.Pattern TRUSTSTORE_NAME =
+            java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
+
+    private static boolean isUser(String name) {
+        return name != null && USER.matcher(name).matches();
+    }
 
     public KafkaTopicSettings(String bootstrapServers, String topic) {
         this(bootstrapServers, topic, null, null, null, null);
@@ -44,11 +54,11 @@ public record KafkaTopicSettings(String bootstrapServers, String topic, String s
         }
         KafkaSecurityProtocol protocol = KafkaSecurityProtocol.resolve(securityProtocol);
         if (protocol.sasl()) {
-            if (saslMechanism == null || !SystemSettings.KAFKA_SASL_MECHANISMS.contains(saslMechanism)) {
+            if (saslMechanism == null || !SASL_MECHANISMS.contains(saslMechanism)) {
                 throw new IllegalStateException("Kafka SASL needs saslMechanism "
-                        + String.join(", ", SystemSettings.KAFKA_SASL_MECHANISMS));
+                        + String.join(", ", SASL_MECHANISMS));
             }
-            if (!SystemSettings.isKafkaUser(username)) {
+            if (!isUser(username)) {
                 throw new IllegalStateException("Kafka SASL needs a plain username");
             }
             if (protocol == KafkaSecurityProtocol.SASL_PLAINTEXT && saslMechanism.equals("PLAIN")) {
@@ -57,7 +67,7 @@ public record KafkaTopicSettings(String bootstrapServers, String topic, String s
         } else if (saslMechanism != null || username != null) {
             throw new IllegalStateException("Kafka saslMechanism and username need a SASL securityProtocol");
         }
-        if (truststore != null && (!protocol.tls() || !SystemSettings.isTruststoreName(truststore))) {
+        if (truststore != null && (!protocol.tls() || !TRUSTSTORE_NAME.matcher(truststore).matches())) {
             throw new IllegalStateException("Kafka truststore must be a file name and needs a TLS securityProtocol");
         }
     }
