@@ -8,9 +8,12 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import io.integrationplatform.config.scheduler.JobAdminService;
 import io.integrationplatform.config.scheduler.PollingSchedulingBoundary;
 import io.integrationplatform.domain.scheduler.PollingJobSurface.JobSummary;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -51,5 +54,24 @@ class JobAdminControllerTest {
 
         assertThat(controller.summaries()).containsExactly(summary);
         verifyNoInteractions(service);
+    }
+
+    /** The summaries endpoint serialises JobSummary: pausedAt is an additive field, null while the job is not paused. */
+    @Test
+    void summariesSerialiseWithAnAdditivePausedAt() throws Exception {
+        Instant at = Instant.parse("2026-10-19T09:00:00Z");
+        boundary.attachPollingSurface(() -> List.of(
+                new JobSummary("DAILY_REPORT", "DAILY_REPORT", "PAUSED", null, null, at),
+                new JobSummary("PAYLOAD_PURGE", "PAYLOAD_PURGE", "ACTIVE", null, null)));
+
+        JsonMapper mapper = JsonMapper.builder().build();
+        JsonNode json = mapper.readTree(mapper.writeValueAsString(controller.summaries()));
+
+        assertThat(json.get(0).get("jobId").asString()).isEqualTo("DAILY_REPORT");
+        assertThat(json.get(0).get("state").asString()).isEqualTo("PAUSED");
+        assertThat(json.get(0).has("pausedAt")).isTrue();
+        assertThat(json.get(0).get("pausedAt").isNull()).isFalse();
+        assertThat(json.get(1).has("pausedAt")).isTrue();
+        assertThat(json.get(1).get("pausedAt").isNull()).isTrue();
     }
 }

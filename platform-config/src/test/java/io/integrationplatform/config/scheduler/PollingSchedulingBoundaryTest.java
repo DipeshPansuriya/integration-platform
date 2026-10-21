@@ -74,6 +74,6 @@ class PollingSchedulingBoundaryTest {
     void aSummaryHasNoPayloadAndNoTenantComponent() {
         assertThat(Arrays.stream(PollingJobSurface.JobSummary.class.getRecordComponents())
                 .map(RecordComponent::getName))
-                .containsExactly("jobId", "jobType", "state", "nextRunAt", "lastRunAt");
+                .containsExactly("jobId", "jobType", "state", "nextRunAt", "lastRunAt", "pausedAt");
     }
 }
