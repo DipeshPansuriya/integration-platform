@@ -210,11 +210,12 @@ class PipelineCompositionConfiguration {
             JdbcClient jdbcClient, TenantContext tenantContext, DeliveryClaimService claimService,
             DeliveryBulkheadFacts bulkheadFacts, BulkheadDeferrals deferrals, BulkheadRegistry stage2Bulkheads,
             RouteConfigReader routeConfigReader, RouteInstanceFactory routeInstanceFactory,
-            TargetEndpointViews targetEndpointViews, ProducerTemplate producerTemplate, SendOutcomes outcomes) {
+            TargetEndpointViews targetEndpointViews, ProducerTemplate producerTemplate, SendOutcomes outcomes,
+            org.springframework.beans.factory.ObjectProvider<io.integrationplatform.routing.credential.CredentialedDelivery> credentialed) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         RouteInstanceSendDispatch sends = new RouteInstanceSendDispatch(transactions,
                 new JdbcDueDeliveries(jdbcClient, tenantContext), tenantContext, routeConfigReader,
-                routeInstanceFactory, producerTemplate, outcomes, Instant::now);
+                routeInstanceFactory, producerTemplate, outcomes, Instant::now, credentialed.getIfAvailable());
         return new DeliveryDueDispatch(binding, transactions, bulkheadFacts, stage2Bulkheads,
                 new DeliveryClaimHandler(transactions, claimService)::claim, deferrals, sends, targetEndpointViews,
                 Instant::now, () -> ThreadLocalRandom.current().nextDouble());
