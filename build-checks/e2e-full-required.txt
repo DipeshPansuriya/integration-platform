@@ -1,0 +1,14 @@
+# T-175: the scenarios the project-close gate requires, one per line (class#method as E18Outcomes writes them).
+# Adding a scenario here makes the gate demand it; a missing PASS line is NOT_RUN and counts red.
+# T-151 - every target type, one scenario each, intake to delivered
+AllTargetTypesJourneyContainerTest#apiTargetJourney
+AllTargetTypesJourneyContainerTest#mqCsvTargetJourney
+AllTargetTypesJourneyContainerTest#kafkaTopicTargetJourney
+AllTargetTypesJourneyContainerTest#dbTargetJourney
+AllTargetTypesJourneyContainerTest#fileTargetJourney
+# T-152 - an hour-long outage of each dependency loses nothing
+HourLongOutageContainerTest#apiTargetDownForAnHourRecoversWithoutDuplicates
+HourLongOutageContainerTest#kafkaDownIntakeKeepsEveryAcceptedMessage
+HourLongOutageContainerTest#jmsBrokerDownMqCsvDeliveriesResume
+# T-153 - the measured memory budget
+MemoryBudgetContainerTest#boundedLoadStaysWithinTheMemoryBudget
