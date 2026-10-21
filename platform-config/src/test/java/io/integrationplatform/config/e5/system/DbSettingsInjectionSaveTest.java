@@ -24,7 +24,7 @@ class DbSettingsInjectionSaveTest {
     }
 
     private static String json(String host, String database) {
-        return JSON.createObjectNode().put("host", host).put("port", 5432).put("database", database).toString();
+        return JSON.createObjectNode().put("host", host).put("port", 5432).put("database", database).put("user", "ipass_orders").toString();
     }
 
     @ParameterizedTest
@@ -55,7 +55,7 @@ class DbSettingsInjectionSaveTest {
     @ParameterizedTest
     @ValueSource(strings = {"require", "verify-ca", "verify-full"})
     void anEncryptedSslmodeIsAccepted(String mode) {
-        assertThat(errors("{\"host\":\"db.example\",\"port\":5432,\"database\":\"o\",\"sslmode\":\"" + mode + "\"}"))
+        assertThat(errors("{\"host\":\"db.example\",\"port\":5432,\"database\":\"o\",\"user\":\"u\",\"sslmode\":\"" + mode + "\"}"))
                 .isEmpty();
     }
 
@@ -64,7 +64,7 @@ class DbSettingsInjectionSaveTest {
     @Tag("negative")
     @Tag("security")
     void aWeakOrUnknownSslmodeIsRefusedAtSave(String mode) {
-        assertThat(errors("{\"host\":\"db.example\",\"port\":5432,\"database\":\"o\",\"sslmode\":\"" + mode + "\"}"))
+        assertThat(errors("{\"host\":\"db.example\",\"port\":5432,\"database\":\"o\",\"user\":\"u\",\"sslmode\":\"" + mode + "\"}"))
                 .singleElement().asString().startsWith("settings.sslmode");
     }
 
