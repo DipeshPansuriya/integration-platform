@@ -52,7 +52,7 @@ class DbTargetPostgresTest {
 
     DbSettings settings(String table) {
         return new DbSettings(TARGET.getHost(), TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT),
-                TARGET.getDatabaseName(), "restricted", table, List.of("orders_in"));
+                TARGET.getDatabaseName(), "restricted", table);
     }
 
     DbTargetCall call(DbSettings settings, char[] password) {
@@ -62,7 +62,7 @@ class DbTargetPostgresTest {
         DbOutbound outbound = new DbTargetOutbound(
                 id -> Optional.of(new DbTargets.DbTarget(settings, password)),
                 s -> Optional.of(List.of(Map.of("awb", "ABX1", "pieces", 2))));
-        return new DbTargetCall(outbound, new JdbcDbSender(Duration.ofSeconds(5), "disable"), guard,
+        return new DbTargetCall(ApprovedTablesFixtures.ALL, outbound, new JdbcDbSender(Duration.ofSeconds(5), "disable"), guard,
                 List.of(TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)),
                 CircuitBreakerRegistry.ofDefaults(), meters, ObservationRegistry.create());
     }
@@ -147,8 +147,7 @@ class DbTargetPostgresTest {
             sql.execute("select 1"); // sanity: the container is up, the closed port is the refusal source
         }
         DbSettings closed = new DbSettings(TARGET.getHost(), TARGET.getMappedPort(
-                PostgreSQLContainer.POSTGRESQL_PORT) + 9000, TARGET.getDatabaseName(), "restricted", "orders_in",
-                List.of("orders_in"));
+                PostgreSQLContainer.POSTGRESQL_PORT) + 9000, TARGET.getDatabaseName(), "restricted", "orders_in");
 
         assertThatThrownBy(() -> call(closed, RESTRICTED_PASSWORD.toCharArray()).call(send()))
                 .isInstanceOf(TargetFaultException.TransientFaultException.class);
@@ -168,7 +167,7 @@ class DbTargetPostgresTest {
         assertThat(connection.test(UUID.randomUUID(), json).get("result")).isEqualTo("SUCCESS");
 
         DbSettings refused = new DbSettings(TARGET.getHost(), TARGET.getMappedPort(
-                PostgreSQLContainer.POSTGRESQL_PORT) + 9000, TARGET.getDatabaseName(), null, null, List.of());
+                PostgreSQLContainer.POSTGRESQL_PORT) + 9000, TARGET.getDatabaseName(), null, null);
         DbTestConnection stopped = new DbTestConnection(guard(TARGET.getHost()), (host, port, timeout) -> {
             throw new java.io.IOException("not answering");
         }, Duration.ofSeconds(5));

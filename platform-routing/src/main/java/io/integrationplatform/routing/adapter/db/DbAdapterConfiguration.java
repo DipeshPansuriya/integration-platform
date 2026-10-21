@@ -67,12 +67,24 @@ public class DbAdapterConfiguration {
         return new DbTargetOutbound(targets, rowsPort);
     }
 
+    /** E16 F3: the send-time and publish-time reads of the tenant's approved tables (one JDBC adapter, both ports). */
     @Bean
-    DbTargetCall dbTargetCall(DbOutbound outbound, DbSender sender, DestinationGuard guard,
+    JdbcApprovedTables jdbcApprovedTables(JdbcClient jdbcClient, TenantContext tenantContext) {
+        return new JdbcApprovedTables(jdbcClient, tenantContext);
+    }
+
+    /** E16 F3 (task 10): an interface whose DB table is not approved cannot be published (ADR-017). */
+    @Bean
+    DbTablePublishListener dbTablePublishListener(JdbcApprovedTables approved) {
+        return new DbTablePublishListener(approved);
+    }
+
+    @Bean
+    DbTargetCall dbTargetCall(ApprovedTables approvedTables, DbOutbound outbound, DbSender sender, DestinationGuard guard,
             @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts,
             ObjectProvider<CircuitBreakerRegistry> breakers, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations) {
-        return new DbTargetCall(outbound, sender, guard, allowedPorts, breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
+        return new DbTargetCall(approvedTables, outbound, sender, guard, allowedPorts, breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP));
     }
