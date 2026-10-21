@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -19,11 +20,15 @@ import tools.jackson.databind.JsonNode;
  *   <caption>Settings per type (T-102 minimal set)</caption>
  *   <tr><th>Type</th><th>Required</th><th>Optional</th></tr>
  *   <tr><td>API</td><td>baseUrl (http/https address with a host, no user info)</td>
- *       <td>timeoutMs (100-300000), followRedirects (boolean, default false)</td></tr>
+ *       <td>timeoutMs (100-300000), followRedirects (boolean, default false), errorDictionary (T-182:
+ *       status 100-599 to TRANSIENT, AMBIGUOUS or PERMANENT; never a retryable class for 400, 401, 403, 422)</td></tr>
  *   <tr><td>DB</td><td>host, port (1-65535), database</td><td>-</td></tr>
  *   <tr><td>MQ</td><td>host, port (1-65535), queue</td><td>-</td></tr>
  *   <tr><td>FILE</td><td>rootPath</td><td>-</td></tr>
  * </table>
+ *
+ * Every type also accepts {@code halfOpenTrialCalls} (T-183, 1-100, default 3 when absent): the breaker's half-open
+ * trial-call count (ADR-011 Decision 1).
  *
  * No type and no settings together is the E3 untyped registration (still valid); one without the other is refused.
  */
@@ -34,10 +39,17 @@ public final class SystemSettings {
 
     static final int MAX_TEXT = 2048;
 
-    private enum Kind { TEXT, PORT, HTTP_URL, TIMEOUT_MS, BOOLEAN }
+    private enum Kind { TEXT, PORT, HTTP_URL, TIMEOUT_MS, BOOLEAN, TRIAL_CALLS, ERROR_DICTIONARY }
 
     private record Field(String name, Kind kind, boolean required) {
     }
+
+    /** ADR-007 Decision 4, ADR-010 section 5: whatever a dictionary says, these are never retried (R13). */
+    private static final Set<Integer> NEVER_RETRYABLE = Set.of(400, 401, 403, 422);
+
+    private static final Set<String> DICTIONARY_CLASSES = Set.of("TRANSIENT", "AMBIGUOUS", "PERMANENT");
+
+    private static final Field TRIAL_CALLS = new Field("halfOpenTrialCalls", Kind.TRIAL_CALLS, false);
 
     private static final Map<String, List<Field>> SCHEMAS = schemas();
 
@@ -47,12 +59,13 @@ public final class SystemSettings {
     private static Map<String, List<Field>> schemas() {
         Map<String, List<Field>> schemas = new LinkedHashMap<>();
         schemas.put("API", List.of(new Field("baseUrl", Kind.HTTP_URL, true),
-                new Field("timeoutMs", Kind.TIMEOUT_MS, false), new Field("followRedirects", Kind.BOOLEAN, false)));
+                new Field("timeoutMs", Kind.TIMEOUT_MS, false), new Field("followRedirects", Kind.BOOLEAN, false),
+                new Field("errorDictionary", Kind.ERROR_DICTIONARY, false), TRIAL_CALLS));
         schemas.put("DB", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
-                new Field("database", Kind.TEXT, true)));
+                new Field("database", Kind.TEXT, true), TRIAL_CALLS));
         schemas.put("MQ", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
-                new Field("queue", Kind.TEXT, true)));
-        schemas.put("FILE", List.of(new Field("rootPath", Kind.TEXT, true)));
+                new Field("queue", Kind.TEXT, true), TRIAL_CALLS));
+        schemas.put("FILE", List.of(new Field("rootPath", Kind.TEXT, true), TRIAL_CALLS));
         return Map.copyOf(schemas);
     }
 
@@ -91,6 +104,10 @@ public final class SystemSettings {
                 }
                 continue;
             }
+            if (field.kind() == Kind.ERROR_DICTIONARY) {
+                errors.addAll(dictionaryProblems(value));
+                continue;
+            }
             String problem = problem(field.kind(), value);
             if (problem != null) {
                 errors.add("settings." + field.name() + " " + problem);
@@ -120,8 +137,48 @@ public final class SystemSettings {
                     && value.intValue() >= 100 && value.intValue() <= 300_000 ? null
                     : "must be a whole number of milliseconds from 100 to 300000";
             case BOOLEAN -> value.isBoolean() ? null : "must be true or false";
+            case TRIAL_CALLS -> value.isIntegralNumber() && value.canConvertToInt()
+                    && value.intValue() >= 1 && value.intValue() <= 100 ? null
+                    : "must be a whole number of trial calls from 1 to 100";
+            case ERROR_DICTIONARY -> throw new IllegalStateException("validated by dictionaryProblems");
             case HTTP_URL -> httpUrlProblem(value);
         };
+    }
+
+    /**
+     * T-182 (ADR-010 section 5): the error dictionary re-classes a status for this target only; every bad entry is
+     * listed. 400, 401, 403 and 422 may only stay PERMANENT - a save that makes one retryable is refused.
+     */
+    private static List<String> dictionaryProblems(JsonNode dictionary) {
+        if (!dictionary.isObject()) {
+            return List.of("settings.errorDictionary must be a JSON object of status to class");
+        }
+        List<String> errors = new ArrayList<>();
+        for (String key : dictionary.propertyNames()) {
+            String entry = "settings.errorDictionary." + clip(key);
+            Integer status = statusOf(key);
+            if (status == null) {
+                errors.add(entry + " is not an HTTP status from 100 to 599");
+                continue;
+            }
+            JsonNode value = dictionary.get(key);
+            String outcome = value.isString() ? value.stringValue() : null;
+            if (outcome == null || !DICTIONARY_CLASSES.contains(outcome)) {
+                errors.add(entry + " must be one of " + String.join(", ", new java.util.TreeSet<>(DICTIONARY_CLASSES)));
+            } else if (NEVER_RETRYABLE.contains(status) && !outcome.equals("PERMANENT")) {
+                errors.add(entry + " is never retryable (400, 401, 403 and 422 stay PERMANENT whatever the dictionary says)");
+            }
+        }
+        return errors;
+    }
+
+    private static Integer statusOf(String key) {
+        try {
+            int status = Integer.parseInt(key);
+            return status >= 100 && status <= 599 && String.valueOf(status).equals(key) ? status : null;
+        } catch (NumberFormatException notANumber) {
+            return null;
+        }
     }
 
     private static String httpUrlProblem(JsonNode value) {

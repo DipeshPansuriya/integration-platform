@@ -2,10 +2,12 @@ package io.integrationplatform.delivery.internal.trigger;
 
 import io.integrationplatform.delivery.internal.retry.RetryPolicy;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
+import io.integrationplatform.delivery.port.DeliveryCircuitFacts;
 import io.integrationplatform.delivery.port.DeliveryReconcileStore;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.delivery.port.InstanceReadiness;
 import io.integrationplatform.delivery.port.RetryCandidate;
+import io.integrationplatform.delivery.port.TargetHalfOpenCap;
 import io.integrationplatform.delivery.port.TargetRedriveCap;
 import io.integrationplatform.delivery.port.TargetSendFacts;
 import io.integrationplatform.ingest.port.OutboxEntry;
@@ -50,6 +52,8 @@ public final class DeliveryRetryTrigger {
     private final DeliveryReconcileStore reconcileStore;
     private final TargetSendFacts targetFacts;
     private final RetryPolicy policy;
+    private final DeliveryCircuitFacts circuitFacts;
+    private final TargetHalfOpenCap halfOpenCap;
     private final int batchSize;
 
     public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
@@ -92,6 +96,21 @@ public final class DeliveryRetryTrigger {
             int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
             TargetRedriveCap redriveCap, DeliveryReconcileStore reconcileStore, TargetSendFacts targetFacts,
             RetryPolicy policy) {
+        this(tenants, tenantContext, transactions, store, outboxWriter, batchSize, readiness, bulkheadFacts,
+                redriveCap, reconcileStore, targetFacts, policy, DeliveryCircuitFacts.none(),
+                TargetHalfOpenCap.unlimited());
+    }
+
+    /**
+     * T-183 (ADR-010 section 6): with the half-open cap - at most {@code halfOpenCap.trialCalls(target)}
+     * circuit-deferred deliveries of one target move to {@code DUE} per pass; the rest stay in {@code RETRY_WAIT}
+     * and a breaker that re-opens is tried again with the same count on the next pass.
+     */
+    public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
+            TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
+            int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
+            TargetRedriveCap redriveCap, DeliveryReconcileStore reconcileStore, TargetSendFacts targetFacts,
+            RetryPolicy policy, DeliveryCircuitFacts circuitFacts, TargetHalfOpenCap halfOpenCap) {
         if (batchSize < 1) {
             throw new IllegalArgumentException("batchSize must be at least 1");
         }
@@ -106,6 +125,8 @@ public final class DeliveryRetryTrigger {
         this.reconcileStore = Objects.requireNonNull(reconcileStore, "reconcileStore");
         this.targetFacts = Objects.requireNonNull(targetFacts, "targetFacts");
         this.policy = Objects.requireNonNull(policy, "policy");
+        this.circuitFacts = Objects.requireNonNull(circuitFacts, "circuitFacts");
+        this.halfOpenCap = Objects.requireNonNull(halfOpenCap, "halfOpenCap");
         this.batchSize = batchSize;
     }
 
@@ -138,6 +159,7 @@ public final class DeliveryRetryTrigger {
         List<RetryCandidate> due = store.lockDue(Instant.now(), batchSize);
         int moved = 0;
         Map<UUID, Integer> deferredMovedPerTarget = new HashMap<>();
+        Map<UUID, Integer> circuitMovedPerTarget = new HashMap<>();
         for (RetryCandidate candidate : due) {
             if (!readiness.ready(tenant, candidate.deliveryId())) {
                 continue; // readiness stub: never false today; E10 T-201 fills the rule
@@ -149,12 +171,18 @@ public final class DeliveryRetryTrigger {
                     >= redriveCap.maxDeferredRedrives(deferredTarget.get())) {
                 continue; // T-199: over this target's cap - stays RETRY_WAIT for the next run
             }
+            Optional<UUID> circuitTarget = circuitFacts.circuitDeferredTarget(candidate.deliveryId());
+            if (circuitTarget.isPresent() && circuitMovedPerTarget.getOrDefault(circuitTarget.get(), 0)
+                    >= halfOpenCap.trialCalls(circuitTarget.get())) {
+                continue; // T-183: over this target's half-open trial count - waits until the breaker closes
+            }
             if (!store.markDue(candidate.deliveryId())) {
                 continue; // 0 rows: the delivery is not ours to move anymore - the store never throws on this
             }
             outboxWriter.append(new OutboxEntry(OutboxTopic.DELIVERY_DUE, candidate.deliveryId(),
                     "delivery:" + candidate.deliveryId(), null, null));
             deferredTarget.ifPresent(target -> deferredMovedPerTarget.merge(target, 1, Integer::sum));
+            circuitTarget.ifPresent(target -> circuitMovedPerTarget.merge(target, 1, Integer::sum));
             moved++;
         }
         return moved;
