@@ -38,7 +38,7 @@ export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {})
   // target-endpoint row) is the "endpoint base-URL gap" T130 step 7 waits on. Re-measure at the lock slot.
   const source = await as('POST', '/api/v1/admin/systems', {
     code: SOURCE_CONTRACT.system, name: SOURCE_CONTRACT.name, direction: 'INBOUND', type: 'API',
-    settings: { baseUrl: `https://${SOURCE_CONTRACT.system}.partner.test/` }
+    settings: { baseUrl: `${new URL(targetBase).origin}/${SOURCE_CONTRACT.system}/` } // the guard checks every API system's host: the source rides the one allow-listed host too
   }, 'source system');
   const target = await as('POST', '/api/v1/admin/systems', {
     code: TARGET_CONTRACT.system, name: TARGET_CONTRACT.name, direction: 'OUTBOUND', type: 'API',
