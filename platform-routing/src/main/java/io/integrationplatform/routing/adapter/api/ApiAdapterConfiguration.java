@@ -2,6 +2,7 @@ package io.integrationplatform.routing.adapter.api;
 
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.SocketDialer;
+import io.integrationplatform.delivery.port.TargetHalfOpenCap;
 import io.integrationplatform.routing.stage2.TargetCall;
 import io.integrationplatform.tenancy.TenantContext;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -28,6 +29,13 @@ public class ApiAdapterConfiguration {
     @Bean
     TargetEndpointViews targetEndpointViews(JdbcClient jdbcClient, TenantContext tenantContext) {
         return new JdbcTargetEndpointViews(jdbcClient, tenantContext);
+    }
+
+    /** E10 T96: the delivery-retry trigger's per-target half-open cap, from the target's system settings. */
+    @Bean
+    TargetHalfOpenCap targetHalfOpenCap(JdbcClient jdbcClient,
+            TenantContext tenantContext) {
+        return new JdbcTargetHalfOpenCap(jdbcClient, tenantContext);
     }
 
     @Bean
