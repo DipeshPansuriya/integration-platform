@@ -22,7 +22,7 @@ import { eventually, postRecord, sameAppProcess, sourceToken } from '../support/
 import { bsEnv } from '../support/boot-state.mjs';
 import { readRows } from '../support/db.mjs';
 import { addTracking, readRun } from '../support/run-file.mjs';
-import { rotatedSecret } from '../support/seed.mjs';
+import { intakeCode, rotatedSecret } from '../support/seed.mjs';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -103,7 +103,7 @@ test('the counts move without a restart: one more tenant-A post, the same 0 diff
   await page.goto(`${bsEnv('consoleUrl')}/`);
   const before = (await settled(TENANTS.A)).messages.length;
   const { clientId, secretValue } = await rotatedSecret(page, TENANTS.A, readRun().seed.A.credentialId);
-  const answer = await postRecord(await sourceToken(clientId, secretValue), FLOW.code, SOURCE_CONTRACT.versionLabel, orderRecord(TENANTS.A, 2));
+  const answer = await postRecord(await sourceToken(clientId, secretValue), intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, orderRecord(TENANTS.A, 2));
   expect(answer.status, JSON.stringify(answer.data)).toBe(202);
   addTracking('A', [answer.data.trackingId]);
 

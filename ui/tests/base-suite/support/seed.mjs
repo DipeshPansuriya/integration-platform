@@ -12,6 +12,7 @@ import { expect } from '@playwright/test';
 import { targetUrl } from '../lib/settings.mjs';
 import { FLOW, LINKS, SOURCE_CONTRACT, TARGET_CONTRACT, orderRecord, expectedTargetBody } from '../lib/tenants.mjs';
 import { activeCredentialId } from '../lib/credentials.mjs';
+import { interfaceCodeOf } from '../lib/interface-code.mjs';
 import { bsEnv } from './boot-state.mjs';
 import { readRun } from './run-file.mjs';
 import { inBrowser, must } from './api.mjs';
@@ -75,7 +76,7 @@ export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {})
   expect(credential.customerId, 'the credential is bound to the tenant\'s own customer').toBe(tenant.customerId);
   // ids only - the secret in `credential` is dropped here
   return {
-    sourceSystemId: source.id, targetSystemId: target.id, flowId: flow.id, routeId: route.id, mappingId: route.mappingId,
+    sourceSystemId: source.id, targetSystemId: target.id, flowId: flow.id, interfaceCode: flow.code, routeId: route.id, mappingId: route.mappingId,
     credentialId: credential.id, clientId: credential.clientId, versionIds
   };
 }
@@ -115,6 +116,9 @@ export async function runSample(page, record, state) {
     expect(JSON.parse(await page.locator('[data-sample-output]').textContent())).toEqual(expectedTargetBody(record));
   }
 }
+
+/** The code the common intake is addressed by for this tenant (the flow's generated interface code, lib/interface-code.mjs). */
+export const intakeCode = (tenant) => interfaceCodeOf(readRun(), tenant.key);
 
 /** A usable source secret for this scenario only: rotate the seeded credential, keep the answer in memory. */
 export async function rotatedSecret(page, tenant, credentialId) {

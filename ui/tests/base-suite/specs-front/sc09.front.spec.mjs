@@ -9,7 +9,7 @@ import { FLOW, SOURCE_CONTRACT, TENANTS, orderRecord } from '../lib/tenants.mjs'
 import { eventually, inBrowser, postRecord, sourceToken } from '../support/api.mjs';
 import { bsEnv } from '../support/boot-state.mjs';
 import { addTracking, readRun } from '../support/run-file.mjs';
-import { rotatedSecret } from '../support/seed.mjs';
+import { intakeCode, rotatedSecret } from '../support/seed.mjs';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -18,7 +18,7 @@ for (const tenant of [TENANTS.A, TENANTS.B]) {
     const { seed } = readRun();
     await page.goto(`${bsEnv('consoleUrl')}/`);
     const { clientId, secretValue } = await rotatedSecret(page, tenant, seed[tenant.key].credentialId);
-    const answer = await postRecord(await sourceToken(clientId, secretValue), FLOW.code, SOURCE_CONTRACT.versionLabel, orderRecord(tenant, 901));
+    const answer = await postRecord(await sourceToken(clientId, secretValue), intakeCode(tenant), SOURCE_CONTRACT.versionLabel, orderRecord(tenant, 901));
     expect(answer.status, JSON.stringify(answer.data)).toBe(202);
     const trackingId = answer.data.trackingId;
     addTracking(tenant.key, [trackingId]);

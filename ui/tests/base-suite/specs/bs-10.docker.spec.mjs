@@ -35,7 +35,7 @@ import { eventually, inBrowser, journal, must, postRecord, setStub, sourceToken 
 import { bsEnv } from '../support/boot-state.mjs';
 import { readOne, readRows } from '../support/db.mjs';
 import { addTracking, readRun } from '../support/run-file.mjs';
-import { rotatedSecret } from '../support/seed.mjs';
+import { intakeCode, rotatedSecret } from '../support/seed.mjs';
 
 // BS-10 needs features not on main yet: ONE flag per T-item (ON_MAIN in pending-names.mjs). While one is
 // missing the file is test.fixme - reported as fixme with the item named, never a silent pass.
@@ -105,7 +105,7 @@ test('BS-10: a 403 dead letter on the failures screen, replayed after the target
   await test.step('post: the delivery dead-letters after ONE send that reached the stub', async () => {
     await page.goto(`${bsEnv('consoleUrl')}/`);
     const { clientId, secretValue } = await rotatedSecret(page, A, readRun().seed.A.credentialId);
-    const answer = await postRecord(await sourceToken(clientId, secretValue), FLOW.code, SOURCE_CONTRACT.versionLabel, record);
+    const answer = await postRecord(await sourceToken(clientId, secretValue), intakeCode(A), SOURCE_CONTRACT.versionLabel, record);
     expect(answer.status, JSON.stringify(answer.data)).toBe(202);
     messageId = answer.data.trackingId;
     addTracking('A', [messageId]);

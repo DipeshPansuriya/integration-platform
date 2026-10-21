@@ -20,7 +20,7 @@ import { bsEnv } from '../support/boot-state.mjs';
 import { readRows } from '../support/db.mjs';
 import { rawIntake } from '../support/front-api.mjs';
 import { addTracking, readRun } from '../support/run-file.mjs';
-import { rotatedSecret } from '../support/seed.mjs';
+import { intakeCode, rotatedSecret } from '../support/seed.mjs';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -41,7 +41,7 @@ test.beforeAll(async ({ browser }) => {
 
 test('BS-06.1: accepted - 202 with a tracking id, and message, outbox and INTAKE timing rows exist for it', async () => {
   const before = messageCount();
-  const answer = await postRecord(token, FLOW.code, SOURCE_CONTRACT.versionLabel, orderRecord(TENANTS.A, 601));
+  const answer = await postRecord(token, intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, orderRecord(TENANTS.A, 601));
   expect(answer.status, JSON.stringify(answer.data)).toBe(202);
   const trackingId = answer.data.trackingId;
   expect(uuidShaped(trackingId), `tracking id ${trackingId}`).toBe(true);
@@ -55,15 +55,15 @@ test('BS-06.1: accepted - 202 with a tracking id, and message, outbox and INTAKE
 test('BS-06.2: refusals persist nothing - off-pin 422, headers 400, malformed 400, content type 415, unknown 404, no token 401', async () => {
   const good = JSON.stringify(orderRecord(TENANTS.A, 602));
   const cases = [
-    ['off-pin contract version 9.9', 422, () => rawIntake(token, FLOW.code, { version: '9.9', body: good })],
-    ['missing X-Source-Contract-Version', 400, () => rawIntake(token, FLOW.code, { version: null, body: good })],
-    ['missing Idempotency-Key', 400, () => rawIntake(token, FLOW.code, { idempotencyKey: null, body: good })],
-    ['malformed JSON', 400, () => rawIntake(token, FLOW.code, { body: '{not json' })],
-    ['wrong Content-Type (text/plain)', 415, () => rawIntake(token, FLOW.code, { contentType: 'text/plain', body: good })],
-    ['no Content-Type', 415, () => rawIntake(token, FLOW.code, { contentType: null, body: good })],
+    ['off-pin contract version 9.9', 422, () => rawIntake(token, intakeCode(TENANTS.A), { version: '9.9', body: good })],
+    ['missing X-Source-Contract-Version', 400, () => rawIntake(token, intakeCode(TENANTS.A), { version: null, body: good })],
+    ['missing Idempotency-Key', 400, () => rawIntake(token, intakeCode(TENANTS.A), { idempotencyKey: null, body: good })],
+    ['malformed JSON', 400, () => rawIntake(token, intakeCode(TENANTS.A), { body: '{not json' })],
+    ['wrong Content-Type (text/plain)', 415, () => rawIntake(token, intakeCode(TENANTS.A), { contentType: 'text/plain', body: good })],
+    ['no Content-Type', 415, () => rawIntake(token, intakeCode(TENANTS.A), { contentType: null, body: good })],
     ['unknown interface', 404, () => rawIntake(token, 'no-such-interface', { body: good })],
-    ['no token', 401, () => rawIntake(null, FLOW.code, { body: good })],
-    ['a token that is not one', 401, () => rawIntake('not-a-token', FLOW.code, { body: good })]
+    ['no token', 401, () => rawIntake(null, intakeCode(TENANTS.A), { body: good })],
+    ['a token that is not one', 401, () => rawIntake('not-a-token', intakeCode(TENANTS.A), { body: good })]
   ];
   const before = messageCount();
   const problems = [];
@@ -78,7 +78,7 @@ test('BS-06.2: refusals persist nothing - off-pin 422, headers 400, malformed 40
 
 test('BS-06.3: a body over 1 MB is refused 413 PAYLOAD_OVER_LIMIT, the limit named, nothing persisted', async () => {
   const before = messageCount();
-  const answer = await rawIntake(token, FLOW.code, { body: exactBytesBody(orderRecord(TENANTS.A, 603), LIMIT + 1) });
+  const answer = await rawIntake(token, intakeCode(TENANTS.A), { body: exactBytesBody(orderRecord(TENANTS.A, 603), LIMIT + 1) });
   expect(answer.status, JSON.stringify(answer.data).slice(0, 200)).toBe(413);
   expect(answer.data.code).toBe('PAYLOAD_OVER_LIMIT');
   expect(answer.data.limitBytes).toBe(LIMIT);
@@ -87,7 +87,7 @@ test('BS-06.3: a body over 1 MB is refused 413 PAYLOAD_OVER_LIMIT, the limit nam
 
 test('BS-06.4: a body of exactly 1 MB is accepted 202 (the cap is a strict ">")', async () => {
   const before = messageCount();
-  const answer = await rawIntake(token, FLOW.code, { body: exactBytesBody(orderRecord(TENANTS.A, 604), LIMIT) });
+  const answer = await rawIntake(token, intakeCode(TENANTS.A), { body: exactBytesBody(orderRecord(TENANTS.A, 604), LIMIT) });
   expect(answer.status, JSON.stringify(answer.data).slice(0, 200)).toBe(202);
   expect(uuidShaped(answer.data.trackingId)).toBe(true);
   addTracking('A', [answer.data.trackingId]);

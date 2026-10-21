@@ -19,7 +19,7 @@ import { bsEnv } from '../support/boot-state.mjs';
 import { readRows } from '../support/db.mjs';
 import { rawIntake } from '../support/front-api.mjs';
 import { addTracking, readRun } from '../support/run-file.mjs';
-import { rotatedSecret } from '../support/seed.mjs';
+import { intakeCode, rotatedSecret } from '../support/seed.mjs';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -41,7 +41,7 @@ test.beforeAll(async ({ browser }) => {
   await page.goto(`${bsEnv('consoleUrl')}/`);
   const { seed } = readRun();
   aSecret = await rotatedSecret(page, TENANTS.A, seed.A.credentialId);
-  const answer = await postRecord(await sourceToken(aSecret.clientId, aSecret.secretValue), FLOW.code, SOURCE_CONTRACT.versionLabel, orderRecord(TENANTS.A, 701));
+  const answer = await postRecord(await sourceToken(aSecret.clientId, aSecret.secretValue), intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, orderRecord(TENANTS.A, 701));
   expect(answer.status, JSON.stringify(answer.data)).toBe(202);
   aTrackingId = answer.data.trackingId;
   addTracking('A', [aTrackingId]);
@@ -91,7 +91,7 @@ test("SC-07.5: tenant B's source posting tenant A's customerId with forged tenan
   const beforeA = countOf(TENANTS.A);
   const beforeB = countOf(TENANTS.B);
   const forged = { 'X-Tenant-Id': codeOf(TENANTS.A), 'X-Tenant': codeOf(TENANTS.A), 'X-Tenant-Code': codeOf(TENANTS.A) };
-  const answer = await rawIntake(bToken, FLOW.code, { body: JSON.stringify(forgedRecord(701)), extraHeaders: forged });
+  const answer = await rawIntake(bToken, intakeCode(TENANTS.B), { body: JSON.stringify(forgedRecord(701)), extraHeaders: forged });
   expect(answer.status, JSON.stringify(answer.data)).toBe(202);
   addTracking('B', [answer.data.trackingId]);
   expect(countOf(TENANTS.A), "A's message count did not move").toBe(beforeA);
