@@ -24,6 +24,6 @@ public class ReportConfiguration {
 
     @Bean
     public io.integrationplatform.tracking.api.ReportReadApi reportReadApi(ReportFacade facade) {
-        return new JdbcReportReadApi(facade);
+        return new ReportReadApiAdapter(facade);
     }
 }

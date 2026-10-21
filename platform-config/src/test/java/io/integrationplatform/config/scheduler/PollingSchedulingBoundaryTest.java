@@ -50,10 +50,9 @@ class PollingSchedulingBoundaryTest {
         when(definitions.all()).thenReturn(List.of(
                 new JobDefinitionRow("DELIVERY_RETRY", "FIXED_DELAY", "PT5S", true, false, 300, 60, "{}"),
                 new JobDefinitionRow("DAILY_REPORT", "CRON", "0 5 0 * * *", true, true, 600, 300, "{}")));
-        when(runs.search("DELIVERY_RETRY", null, null, null, 1)).thenReturn(List.of(
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT)).thenReturn(List.of(
                 new JobRunView(null, "DELIVERY_RETRY", LAST.minusSeconds(60), LAST, LAST, "instance", "SUCCEEDED",
                         false, null, null)));
-        when(runs.search("DAILY_REPORT", null, null, null, 1)).thenReturn(List.of());
         when(client.getScheduledExecution(org.mockito.ArgumentMatchers.any())).thenReturn(Optional.empty());
 
         try (AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext()) {
@@ -75,6 +74,6 @@ class PollingSchedulingBoundaryTest {
     void aSummaryHasNoPayloadAndNoTenantComponent() {
         assertThat(Arrays.stream(PollingJobSurface.JobSummary.class.getRecordComponents())
                 .map(RecordComponent::getName))
-                .containsExactly("jobId", "jobType", "state", "nextRunAt", "lastRunAt");
+                .containsExactly("jobId", "jobType", "state", "nextRunAt", "lastRunAt", "pausedAt");
     }
 }

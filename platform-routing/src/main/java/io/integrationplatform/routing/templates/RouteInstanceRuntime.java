@@ -12,7 +12,11 @@ import org.apache.camel.impl.DefaultCamelContext;
  * Small concrete runtime slice for the routing/Camel core (T-116 / T-68 start): owns one started
  * {@link CamelContext}, the {@link RouteInstanceFactory} bound to it and the lazy runtime path that builds
  * route instances from configuration rows on demand. The context is started by {@link #start()} and stopped by
- * {@link #stop()} - the running system the route instances are built on (0 deploys, 0 restarts).
+ * {@link #stop()} - the running system the route instances are built on (0 deploys, 0 restarts). {@code start} and
+ * {@code stop} are synchronized, so they are safe from more than one thread. Build route instances through
+ * {@link #factory()} only after {@link #start()}: before it the context is not running and a route cannot join it.
+ * Nothing in the application owns this lifecycle yet (no Spring wiring); the owner arrives with the routing
+ * runtime wiring slice.
  */
 public final class RouteInstanceRuntime {
 
@@ -32,7 +36,7 @@ public final class RouteInstanceRuntime {
                 Objects.requireNonNull(idleTimeout, "idleTimeout"), Objects.requireNonNull(clock, "clock"));
     }
 
-    public void start() throws Exception {
+    public synchronized void start() throws Exception {
         if (started) {
             return;
         }
@@ -40,7 +44,7 @@ public final class RouteInstanceRuntime {
         started = true;
     }
 
-    public void stop() throws Exception {
+    public synchronized void stop() throws Exception {
         if (!started) {
             return;
         }

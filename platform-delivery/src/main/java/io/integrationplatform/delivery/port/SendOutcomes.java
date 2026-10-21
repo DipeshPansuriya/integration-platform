@@ -33,4 +33,15 @@ public interface SendOutcomes {
      */
     void recordFailure(UUID deliveryId, UUID claimToken, int attemptsSoFar, OutcomeClass outcome,
             boolean targetDeclaresIdempotentReceive);
+
+    /**
+     * E10 T96 (ADR-010 sections 5 and 6): the target's circuit breaker refused the call. {@code SENDING -> RETRY_WAIT}
+     * at {@code nextAttemptAt} under the claim token, a {@code CIRCUIT_DEFER} delivery event and NO attempt row (no call
+     * left the process); the delivery-retry trigger then re-drives at most the breaker's trial-call count per target.
+     *
+     * @return {@code false} on a stale or foreign token: no state change, a {@code LATE_OUTCOME} event recorded
+     */
+    default boolean deferCircuitOpen(UUID deliveryId, UUID claimToken, Instant nextAttemptAt) {
+        throw new UnsupportedOperationException("this outcome store cannot defer a delivery for an open circuit");
+    }
 }

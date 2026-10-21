@@ -27,4 +27,22 @@ class MicrometerRoutingStepRecorderTest {
     void aNullRegistryFallsBackToTheNoop() {
         assertThat(new MicrometerRoutingStepRecorder(null)).isNotNull();
     }
+
+    @Test
+    void aNullOrNegativeInputRecordsNothing() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        MicrometerRoutingStepRecorder recorder = new MicrometerRoutingStepRecorder(registry);
+
+        recorder.record(UUID.randomUUID(), null, Duration.ofMillis(1));
+        recorder.record(UUID.randomUUID(), RoutingStep.EVALUATE_CONDITIONS, null);
+        recorder.record(UUID.randomUUID(), RoutingStep.EVALUATE_CONDITIONS, Duration.ofMillis(-1));
+
+        assertThat(registry.getMeters()).as("no timer was even created").isEmpty();
+    }
+
+    @Test
+    void aNullRegistryRecordsNothingAndDoesNotThrow() {
+        new MicrometerRoutingStepRecorder(null).record(UUID.randomUUID(), RoutingStep.EVALUATE_CONDITIONS,
+                Duration.ofMillis(5));
+    }
 }

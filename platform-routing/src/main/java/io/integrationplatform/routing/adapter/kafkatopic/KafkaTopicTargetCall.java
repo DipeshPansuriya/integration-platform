@@ -71,8 +71,7 @@ public final class KafkaTopicTargetCall implements TargetCall {
     public void call(Stage2Send send) {
         CircuitBreaker breaker = breakers.circuitBreaker("kafka:" + send.targetEndpointId(), BREAKER);
         if (!breaker.tryAcquirePermission()) {
-            throw new TargetFaultException.TransientFaultException("the breaker of target endpoint "
-                    + send.targetEndpointId() + " is open");
+            throw TargetFaultException.CircuitOpenException.of(breaker, send.targetEndpointId());
         }
         long started = System.nanoTime();
         Observation observation = Observation.createNotStarted("kafka.target.send", observations).start();
@@ -116,6 +115,12 @@ public final class KafkaTopicTargetCall implements TargetCall {
                 breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
                 throw new TargetFaultException(outcome, "the broker of target endpoint " + send.targetEndpointId()
                         + " refused the send (" + refused.getClass().getSimpleName() + ")");
+            } catch (java.util.concurrent.TimeoutException unacknowledged) {
+                // the record was handed to the broker and no answer came: it may be on the topic (ADR-010 s5)
+                outcome = OutcomeClass.AMBIGUOUS;
+                breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, unacknowledged);
+                throw new TargetFaultException(outcome, "the broker of target endpoint " + send.targetEndpointId()
+                        + " did not acknowledge the record in time: it may have been written");
             } catch (Exception failed) {
                 breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, failed);
                 throw new TargetFaultException.TransientFaultException("the send to the broker of target endpoint "

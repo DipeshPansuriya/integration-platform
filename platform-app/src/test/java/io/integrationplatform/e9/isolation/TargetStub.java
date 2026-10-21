@@ -22,13 +22,41 @@ public final class TargetStub {
 
     final String path;
     final int status;
-    volatile int calls;
+    private final java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicInteger inFlight = new java.util.concurrent.atomic.AtomicInteger();
+    /** Opened by {@link #stop()}: a hanging stub holds every call until then. */
+    private final java.util.concurrent.CountDownLatch released = new java.util.concurrent.CountDownLatch(1);
+    private final boolean hangs;
+    private final long delayMillis;
 
     private TargetStub(String path, int status) {
+        this(path, status, false, 0);
+    }
+
+    private TargetStub(String path, int status, boolean hangs, long delayMillis) {
         this.path = path;
         this.status = status;
+        this.hangs = hangs;
+        this.delayMillis = delayMillis;
         server().createContext(path, exchange -> {
-            calls++;
+            calls.incrementAndGet();
+            inFlight.incrementAndGet();
+            try {
+                if (hangs) {
+                    released.await(); // never answers while the test runs (a hung target, E9-C9)
+                    exchange.close();
+                    return;
+                }
+                if (delayMillis > 0) {
+                    Thread.sleep(delayMillis);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                exchange.close();
+                return;
+            } finally {
+                inFlight.decrementAndGet();
+            }
             byte[] body = ("stub-" + path).getBytes(java.nio.charset.StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(status, body.length);
@@ -45,7 +73,12 @@ public final class TargetStub {
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
-            server.setExecutor(Executors.newFixedThreadPool(4));
+            // one thread per open call: a hanging stub holds its threads, and must never starve another stub's calls
+            server.setExecutor(Executors.newCachedThreadPool(runnable -> {
+                Thread thread = new Thread(runnable, "target-stub");
+                thread.setDaemon(true);
+                return thread;
+            }));
             server.start();
         }
         return server;
@@ -54,6 +87,16 @@ public final class TargetStub {
     /** A stub answering {@code status} on {@code path}. */
     public static TargetStub answering(String path, int status) {
         return new TargetStub(path, status);
+    }
+
+    /** A stub that accepts the call and never answers until {@link #stop()} (a hanging target). */
+    public static TargetStub hanging(String path) {
+        return new TargetStub(path, 200, true, 0);
+    }
+
+    /** A stub answering {@code status} on {@code path} after {@code delayMillis}. */
+    public static TargetStub answeringAfter(String path, int status, long delayMillis) {
+        return new TargetStub(path, status, false, delayMillis);
     }
 
     /** The loopback port the test network dials the pinned address to. */
@@ -67,10 +110,16 @@ public final class TargetStub {
     }
 
     public int calls() {
-        return calls;
+        return calls.get();
+    }
+
+    /** Calls accepted and not yet answered (a hanging stub: every call that arrived). */
+    public int inFlight() {
+        return inFlight.get();
     }
 
     public void stop() {
+        released.countDown();
         server().removeContext(path);
     }
 }

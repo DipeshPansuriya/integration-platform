@@ -7,6 +7,7 @@ import io.integrationplatform.delivery.internal.retry.FakeDeliveryRetryStore;
 import io.integrationplatform.delivery.internal.retry.RetryPolicy;
 import io.integrationplatform.delivery.port.DeliveryReconcileStore;
 import io.integrationplatform.delivery.port.TargetSendFacts;
+import io.integrationplatform.delivery.port.UnroutedMessageSweep;
 import io.integrationplatform.domain.delivery.OutcomeClass;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts.BulkheadFacts;
 import io.integrationplatform.delivery.port.InstanceReadiness;
@@ -16,6 +17,9 @@ import io.integrationplatform.ingest.port.OutboxEntry;
 import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.ingest.port.OutboxWriter;
 import io.integrationplatform.tenancy.NoTenantBoundException;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -32,6 +36,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -440,6 +445,124 @@ class DeliveryRetryTriggerTest {
         assertThat(store.stateOf(D1)).isEqualTo(DeliveryState.SENDING);
     }
 
+    // ---------- T72: the routing leg of the reconciler sweep, and the delivery ids in the log ----------
+
+    @Test
+    void theUnroutedMessageSweepRunsOncePerActiveTenantWithTheTriggerContextUnbound() {
+        List<UUID> swept = new ArrayList<>();
+        List<Boolean> boundDuringSweep = new ArrayList<>();
+        UnroutedMessageSweep sweep = tenant -> {
+            swept.add(tenant);
+            boundDuringSweep.add(context.currentTenantId().isPresent());
+            return 1;
+        };
+
+        sweepingTrigger(() -> List.of(TENANT_A, TENANT_B), sweep).runOnce();
+
+        assertThat(swept).as("the routing leg binds its own tenant; the trigger's stays out of its way")
+                .containsExactly(TENANT_A, TENANT_B);
+        assertThat(boundDuringSweep).containsOnly(false);
+    }
+
+    @Test
+    void aSweepFailureForOneTenantIsLoggedAndNeverStopsTheNextTenant() {
+        store.seed(TENANT_B, D2, DeliveryState.RETRY_WAIT, 1, BASE, null);
+        List<UUID> swept = new ArrayList<>();
+        UnroutedMessageSweep sweep = tenant -> {
+            swept.add(tenant);
+            if (tenant.equals(TENANT_A)) {
+                throw new IllegalStateException("boom");
+            }
+            return 0;
+        };
+
+        ListAppender<ILoggingEvent> log = capture();
+        int moved;
+        try {
+            moved = sweepingTrigger(() -> List.of(TENANT_A, TENANT_B), sweep).runOnce();
+        } finally {
+            release(log);
+        }
+
+        assertThat(swept).containsExactly(TENANT_A, TENANT_B);
+        assertThat(moved).as("tenant B's re-drive still ran").isEqualTo(1);
+        assertThat(log.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains(TENANT_A.toString());
+        });
+    }
+
+    @Test
+    void aReleasedHeldDeliveryIsLoggedWithItsId() {
+        reconcile.held(TENANT_A, D1);
+
+        ListAppender<ILoggingEvent> log = capture();
+        try {
+            reconcilingTrigger(() -> List.of(TENANT_A)).runOnce();
+        } finally {
+            release(log);
+        }
+
+        assertThat(messages(log)).as("the release of a held delivery names it")
+                .anyMatch(m -> m.contains("released") && m.contains(D1.toString()));
+    }
+
+    @Test
+    void aReHandedUnhandedDeliveryIsLoggedWithItsId() {
+        reconcile.unhanded(TENANT_A, D2);
+
+        ListAppender<ILoggingEvent> log = capture();
+        try {
+            reconcilingTrigger(() -> List.of(TENANT_A)).runOnce();
+        } finally {
+            release(log);
+        }
+
+        assertThat(outbox.committedEntries()).extracting(OutboxEntry::aggregateId).containsExactly(D2);
+        assertThat(messages(log)).as("the re-hand of an unhanded delivery names it")
+                .anyMatch(m -> m.contains("re-handed") && m.contains(D2.toString()));
+    }
+
+    @Test
+    void aSettledStaleClaimIsLoggedWithItsId() {
+        staleClaim(TENANT_A, D1, 1, Duration.ofMinutes(10));
+        targetFacts.put(TARGET, new TargetSendFacts.Facts(Duration.ofSeconds(1), false));
+
+        ListAppender<ILoggingEvent> log = capture();
+        try {
+            reconcilingTrigger(() -> List.of(TENANT_A)).runOnce();
+        } finally {
+            release(log);
+        }
+
+        assertThat(messages(log)).anyMatch(m -> m.contains("stale claim") && m.contains(D1.toString()));
+    }
+
+    private ListAppender<ILoggingEvent> capture() {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(DeliveryRetryTrigger.class))
+                .addAppender(appender);
+        return appender;
+    }
+
+    private void release(ListAppender<ILoggingEvent> appender) {
+        ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(DeliveryRetryTrigger.class))
+                .detachAppender(appender);
+    }
+
+    private static List<String> messages(ListAppender<ILoggingEvent> appender) {
+        return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+    }
+
+    private DeliveryRetryTrigger sweepingTrigger(ActiveTenants tenants, UnroutedMessageSweep sweep) {
+        return new DeliveryRetryTrigger(tenants, context, transactions, store, outbox, BATCH,
+                InstanceReadiness.alwaysReady(), delivery -> Optional.empty(), TargetRedriveCap.unlimited(),
+                reconcile, TargetSendFacts.unknown(), RetryPolicy.defaults(),
+                io.integrationplatform.delivery.port.DeliveryCircuitFacts.none(),
+                io.integrationplatform.delivery.port.TargetHalfOpenCap.unlimited(), sweep);
+    }
+
     private void staleClaim(UUID tenant, UUID delivery, int attempts, Duration age) {
         store.seed(tenant, delivery, DeliveryState.SENDING, attempts, null, TOKEN);
         reconcile.claim(tenant, new DeliveryReconcileStore.SendingClaim(delivery, TOKEN, Instant.now().minus(age),
@@ -458,6 +581,7 @@ class DeliveryRetryTriggerTest {
         private final TriggerTenantContext tenantContext;
         private final Map<UUID, List<SendingClaim>> claims = new HashMap<>();
         private final Map<UUID, List<UUID>> held = new HashMap<>();
+        private final Map<UUID, List<UUID>> unhanded = new HashMap<>();
         private final List<UUID> refused = new ArrayList<>();
         private final List<Tuple> released = new CopyOnWriteArrayList<>();
 
@@ -471,6 +595,10 @@ class DeliveryRetryTriggerTest {
 
         void held(UUID tenant, UUID delivery) {
             held.computeIfAbsent(tenant, t -> new ArrayList<>()).add(delivery);
+        }
+
+        void unhanded(UUID tenant, UUID delivery) {
+            unhanded.computeIfAbsent(tenant, t -> new ArrayList<>()).add(delivery);
         }
 
         void refuseRelease(UUID delivery) {
@@ -494,7 +622,7 @@ class DeliveryRetryTriggerTest {
 
         @Override
         public List<UUID> lockUnhanded(Instant unchangedBefore, int limit) {
-            return List.of();
+            return unhanded.getOrDefault(tenantContext.requireTenantId(), List.of()).stream().limit(limit).toList();
         }
 
         @Override

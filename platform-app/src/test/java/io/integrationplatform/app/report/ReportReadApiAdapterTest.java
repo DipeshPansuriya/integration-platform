@@ -1,6 +1,7 @@
 package io.integrationplatform.app.report;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -12,12 +13,12 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-class JdbcReportReadApiTest {
+class ReportReadApiAdapterTest {
 
     @Test
     void reportMapsFacadeReportOntoContractReport() {
         ReportFacade facade = mock(ReportFacade.class);
-        JdbcReportReadApi api = new JdbcReportReadApi(facade);
+        ReportReadApiAdapter api = new ReportReadApiAdapter(facade);
         UUID trackingId = UUID.randomUUID();
         UUID flowId = UUID.randomUUID();
         LocalDate day = LocalDate.of(2026, 1, 1);
@@ -34,9 +35,10 @@ class JdbcReportReadApiTest {
     }
 
     @Test
-    void reportWorksWhenBackedByService() {
+    void reportWorksOverTheRealFacadeAndTheTrackingService() {
         MessageTrackingService service = mock(MessageTrackingService.class);
-        JdbcReportReadApi api = new JdbcReportReadApi(service);
+        ReportReadApiAdapter api = new ReportReadApiAdapter(
+                new DefaultReportFacade(new MessageTrackingReportDataProvider(service)));
         UUID trackingId = UUID.randomUUID();
         UUID flowId = UUID.randomUUID();
         LocalDate day = LocalDate.of(2026, 1, 1);
@@ -49,5 +51,10 @@ class JdbcReportReadApiTest {
 
         assertThat(result.trackingId()).isEqualTo(trackingId);
         assertThat(result.timeline()).isNotNull();
+    }
+
+    @Test
+    void aMissingFacadeIsRefusedAtConstruction() {
+        assertThatThrownBy(() -> new ReportReadApiAdapter(null)).isInstanceOf(NullPointerException.class);
     }
 }

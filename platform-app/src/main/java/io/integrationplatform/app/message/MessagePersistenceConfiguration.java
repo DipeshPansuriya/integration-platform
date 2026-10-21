@@ -30,7 +30,7 @@ class MessagePersistenceConfiguration {
 
     @Bean
     io.integrationplatform.tracking.api.TrackingReadApi trackingReadApi(MessageTrackingService service) {
-        return new JdbcTrackingReadApi(service);
+        return new TrackingReadApiAdapter(service);
     }
 
     /** The fail-closed no-binding context - the anonymous shape over the two-method contract. */
