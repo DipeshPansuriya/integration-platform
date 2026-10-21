@@ -108,7 +108,8 @@ export function exceptionSettings(env = process.env) {
       SPRING_PROFILES_ACTIVE: values.profile,
       [values.hostVar]: values.host,
       [SHOWCASE_PORTS_VAR]: values.port, // the port WireMock is published on (boot-options.mjs hostPort)
-      [ALLOWED_HOSTS_VAR]: values.host
+      [ALLOWED_HOSTS_VAR]: values.host,
+      [ALLOWED_SCHEMES_VAR]: 'http'
     })
   });
 }
