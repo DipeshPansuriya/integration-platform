@@ -30,11 +30,11 @@ public final class SystemTopicRefusal {
             return Optional.of("a topic is required");
         }
         String name = topic.strip();
-        if (PLATFORM_TOPICS.contains(name)) {
+        if (PLATFORM_TOPICS.stream().anyMatch(t -> t.equalsIgnoreCase(name))) {
             return Optional.of(name + " is a platform topic - the platform's own register is never a tenant "
                     + "destination (T-184 SF-2)");
         }
-        if (name.startsWith("platform.") || name.startsWith("platform_")) {
+        if (name.toLowerCase().startsWith("platform.") || name.toLowerCase().startsWith("platform_")) {
             return Optional.of(name + " rides the platform's record register - not a tenant topic (T-184 SF-2)");
         }
         if (!name.matches("[A-Za-z0-9._\\-]+")) {
