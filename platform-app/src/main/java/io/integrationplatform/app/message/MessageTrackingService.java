@@ -89,21 +89,29 @@ public class MessageTrackingService {
     public Optional<Timeline> timeline(UUID trackingId) {
         return store.message(trackingId).map(message -> {
             List<JdbcMessageTrackingStore.StageRow> rows = store.stages(trackingId).stream()
-                    .sorted(Comparator.comparing(JdbcMessageTrackingStore.StageRow::startedAt)
+                    .sorted(Comparator.comparing(JdbcMessageTrackingStore.StageRow::startedAt,
+                                    Comparator.nullsLast(Comparator.<Instant>naturalOrder()))
                             .thenComparing(row -> pipelineIndex(row.stage())))
                     .toList();
             List<StageTime> stages = new ArrayList<>();
             Instant previousEnd = null;
             Instant latest = null;
             for (JdbcMessageTrackingStore.StageRow row : rows) {
-                Instant end = row.finishedAt() != null ? row.finishedAt() : row.startedAt();
-                stages.add(new StageTime(row.stage(), row.startedAt().toString(), text(row.finishedAt()),
-                        row.finishedAt() == null ? null : millis(row.startedAt(), row.finishedAt()),
-                        previousEnd == null ? null : millis(previousEnd, row.startedAt())));
-                previousEnd = end;
-                latest = latest == null || end.isAfter(latest) ? end : latest;
+                Instant end = row.finishedAt() != null ? row.finishedAt()
+                        : row.startedAt() != null ? row.startedAt() : null;
+                stages.add(new StageTime(row.stage(),
+                        row.startedAt() == null ? null : row.startedAt().toString(), text(row.finishedAt()),
+                        row.startedAt() == null || row.finishedAt() == null ? null
+                                : millis(row.startedAt(), row.finishedAt()),
+                        previousEnd == null || row.startedAt() == null ? null
+                                : millis(previousEnd, row.startedAt())));
+                if (end != null) {
+                    previousEnd = end;
+                    latest = latest == null || end.isAfter(latest) ? end : latest;
+                }
             }
-            Long total = rows.isEmpty() ? null : millis(rows.get(0).startedAt(), latest);
+            Instant firstStart = rows.isEmpty() ? null : rows.get(0).startedAt();
+            Long total = firstStart == null || latest == null ? null : millis(firstStart, latest);
             List<JdbcMessageTrackingStore.DeliveryAttemptRow> deliveryRows = store.deliveries(trackingId);
             return new Timeline(message.id(), message.flowId(), message.state(), text(message.acceptedAt()), stages,
                     total, failingStage(message.state(), deliveryRows), deliveryTimes(deliveryRows));
@@ -160,7 +168,8 @@ public class MessageTrackingService {
                                 Comparator.nullsLast(Comparator.<String>naturalOrder()))
                         .thenComparing(JdbcMessageTrackingStore.DeliveryAttemptRow::deliveryId))
                 .map(row -> new DeliveryTime(row.deliveryId(), row.targetId(),
-                        row.attemptId() == null ? null : millis(row.startedAt(), row.finishedAt()),
+                        row.attemptId() == null || row.startedAt() == null || row.finishedAt() == null ? null
+                                : millis(row.startedAt(), row.finishedAt()),
                         row.attemptId() == null ? null : row.outcomeClass(),
                         DeliveryState.valueOf(row.state())))
                 .toList();
@@ -174,7 +183,8 @@ public class MessageTrackingService {
         if (b.attemptId() == null) {
             return a;
         }
-        int byFinish = a.finishedAt().compareTo(b.finishedAt());
+        int byFinish = Comparator.<Instant>nullsLast(Comparator.naturalOrder()).compare(a.finishedAt(),
+                b.finishedAt());
         if (byFinish != 0) {
             return byFinish > 0 ? a : b;
         }
