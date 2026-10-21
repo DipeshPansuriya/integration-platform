@@ -14,6 +14,7 @@ import io.integrationplatform.routing.adapter.kafkatopic.KafkaTopicTargetCall;
 import io.integrationplatform.routing.adapter.mq.JdbcMqTargets;
 import io.integrationplatform.routing.adapter.mq.MqTargetCall;
 import io.integrationplatform.routing.claim.DeliveryClaimHandler;
+import io.integrationplatform.routing.stage1.MicrometerRoutingStepRecorder;
 import io.integrationplatform.routing.stage1.RoutingStepRecorder;
 import io.integrationplatform.routing.poison.PoisonTopic;
 import io.integrationplatform.routing.stage.StageConsumer;
@@ -178,6 +179,12 @@ class PipelineCompositionConfiguration {
         return new Stage1FanOut(binding, new TransactionTemplate(transactionManager),
                 new JdbcStage1Reads(jdbcClient, tenantContext), stage1Deliveries,
                 recorder.getIfAvailable(() -> RoutingStepRecorder.NOOP));
+    }
+
+    @Bean
+    RoutingStepRecorder routingStepRecorder(ObjectProvider<MeterRegistry> meters) {
+        MeterRegistry registry = meters.getIfAvailable();
+        return registry == null ? RoutingStepRecorder.NOOP : new MicrometerRoutingStepRecorder(registry);
     }
 
     @Bean(destroyMethod = "shutdown")
