@@ -346,11 +346,9 @@ public final class StageConsumer {
                 if (breaker != null) {
                     breaker.onSuccess(0L, TimeUnit.MILLISECONDS);
                 }
-                boolean resumed = paused.remove(partition) != null;
-                if (resumed) {
+                boolean recovered = paused.remove(partition) != null;
+                if (recovered) {
                     // A retried record succeeded - the partition keeps its work (T-181: pauses and resumes).
-                    // T-113's unit rule: after a transient the retry's offsets commit in acceptance order,
-                    // one record at a time; only the plain bulk drain batches its commit below.
                     consumer.resume(List.of(partition));
                     long commitStart = System.nanoTime();
                     try {
