@@ -22,8 +22,10 @@ class KafkaSecuritySettingsTest {
     private static final String BASE = "\"bootstrapServers\":\"k.partner.example:9093\",\"topic\":\"orders-out\"";
 
     private static List<String> errors(String extra) {
+        // the operator's clear-text switch is ON here: these tests are about the other cross-field rules
+        // (KafkaPlaintextSettingTest covers the switch itself)
         return SystemSettings.validate(JSON.getNodeFactory().stringNode("KAFKA"),
-                JSON.readTree("{" + BASE + (extra.isEmpty() ? "" : "," + extra) + "}"));
+                JSON.readTree("{" + BASE + (extra.isEmpty() ? "" : "," + extra) + "}"), true);
     }
 
     @Test
