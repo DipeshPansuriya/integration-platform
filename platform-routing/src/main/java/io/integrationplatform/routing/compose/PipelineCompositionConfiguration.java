@@ -20,6 +20,8 @@ import io.integrationplatform.routing.poison.PoisonTopic;
 import io.integrationplatform.routing.stage.StageConsumer;
 import io.integrationplatform.routing.stage1.JdbcStage1Reads;
 import io.integrationplatform.routing.stage1.Stage1FanOut;
+import io.integrationplatform.routing.stage1.Stage1Reconciler;
+import io.integrationplatform.delivery.port.UnroutedMessageSweep;
 import io.integrationplatform.routing.stage2.LayerOneRouteBuilder;
 import io.integrationplatform.routing.stage2.LayerOneWaits;
 import io.integrationplatform.routing.stage2.Stage2AttemptWriter;
@@ -181,6 +183,22 @@ class PipelineCompositionConfiguration {
                 new JdbcStage1Reads(jdbcClient, tenantContext), stage1Deliveries,
                 recorder.getIfAvailable(() -> RoutingStepRecorder.NOOP));
     }
+
+    /**
+     * T72 (T-180 routing leg): the production caller of {@link Stage1Reconciler#sweepOnce}. Typed as the delivery
+     * module's {@link UnroutedMessageSweep} port, which the delivery-retry trigger takes: a message stuck
+     * {@code ACCEPTED} for {@link #RECONCILE_STUCK_AFTER} (the delivery leg's own threshold) is handed back to
+     * stage 1 on the next {@code DELIVERY_RETRY} run.
+     */
+    @Bean
+    UnroutedMessageSweep stage1Reconciler(WorkerTenantBinding binding, PlatformTransactionManager transactionManager,
+            JdbcClient jdbcClient, TenantContext tenantContext, Stage1FanOut stage1FanOut) {
+        return new Stage1Reconciler(binding, new TransactionTemplate(transactionManager),
+                new JdbcStage1Reads(jdbcClient, tenantContext), stage1FanOut, RECONCILE_STUCK_AFTER, Instant::now);
+    }
+
+    // ponytail: 5 minutes, the same figure as the delivery leg's unhanded threshold; a property when an operator needs it
+    static final Duration RECONCILE_STUCK_AFTER = Duration.ofMinutes(5);
 
     /** The default recorder; a context that supplies its own RoutingStepRecorder (a test or ops probe) wins. */
     @Bean
