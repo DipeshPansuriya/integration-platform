@@ -22,7 +22,7 @@ import tools.jackson.databind.JsonNode;
  *   <tr><td>API</td><td>baseUrl (http/https address with a host, no user info)</td>
  *       <td>timeoutMs (100-300000), followRedirects (boolean, default false), errorDictionary (T-182:
  *       status 100-599 to TRANSIENT, AMBIGUOUS or PERMANENT; never a retryable class for 400, 401, 403, 422)</td></tr>
- *   <tr><td>DB</td><td>host, port (1-65535), database</td><td>user, table, approvedTables (plain identifiers; E16)</td></tr>
+ *   <tr><td>DB</td><td>host, port (1-65535), database, user (E16 C3: the restricted account)</td><td>table, approvedTables (plain identifiers; E16)</td></tr>
  *   <tr><td>MQ</td><td>host, port (1-65535), queue</td><td>-</td></tr>
  *   <tr><td>FILE</td><td>rootPath</td><td>-</td></tr>
  *   <tr><td>KAFKA</td><td>bootstrapServers (host:port list), topic (never a platform topic)</td><td>-</td></tr>
@@ -75,7 +75,7 @@ public final class SystemSettings {
                 new Field("timeoutMs", Kind.TIMEOUT_MS, false), new Field("followRedirects", Kind.BOOLEAN, false),
                 new Field("errorDictionary", Kind.ERROR_DICTIONARY, false), TRIAL_CALLS));
         schemas.put("DB", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
-                new Field("database", Kind.TEXT, true), new Field("user", Kind.IDENTIFIER, false),
+                new Field("database", Kind.TEXT, true), new Field("user", Kind.IDENTIFIER, true),
                 new Field("table", Kind.IDENTIFIER, false), new Field("approvedTables", Kind.IDENTIFIER_LIST, false),
                 TRIAL_CALLS));
         schemas.put("MQ", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),

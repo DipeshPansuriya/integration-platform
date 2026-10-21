@@ -253,7 +253,7 @@ class TestConnectionContainerTest {
 
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', value = {
-        "DB   | {\"host\":\"db.e5.test\",\"port\":5432,\"database\":\"orders\"} | E16",
+        "DB   | {\"host\":\"db.e5.test\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\"} | E16",
         "MQ   | {\"host\":\"mq.e5.test\",\"port\":1414,\"queue\":\"Q\"}           | E10",
         "FILE | {\"rootPath\":\"/data/out\"}                                       | E16"})
     @Tag("negative")

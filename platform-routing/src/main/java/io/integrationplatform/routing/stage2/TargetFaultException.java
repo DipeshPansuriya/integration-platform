@@ -37,11 +37,15 @@ public class TargetFaultException extends RuntimeException {
      */
     public static final class CircuitOpenException extends TransientFaultException {
 
+        private static final java.time.Duration MIN_RETRY_AFTER = java.time.Duration.ofSeconds(1);
+
         private final java.time.Duration retryAfter;
 
         public CircuitOpenException(String message, java.time.Duration retryAfter) {
             super(message);
-            this.retryAfter = java.util.Objects.requireNonNull(retryAfter, "retryAfter");
+            java.util.Objects.requireNonNull(retryAfter, "retryAfter");
+            // E16 C2: a deferral is never re-driven sooner than a second, whatever the breaker's wait says
+            this.retryAfter = retryAfter.compareTo(MIN_RETRY_AFTER) < 0 ? MIN_RETRY_AFTER : retryAfter;
         }
 
         /** How long from now the breaker stays closed to calls (its open-state wait). */
