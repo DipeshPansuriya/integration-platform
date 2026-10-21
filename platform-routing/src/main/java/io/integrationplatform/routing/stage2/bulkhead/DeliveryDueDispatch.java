@@ -9,6 +9,7 @@ import io.integrationplatform.routing.adapter.api.TargetEndpointViews;
 import io.integrationplatform.routing.stage.WorkKind;
 import io.integrationplatform.routing.stage.WorkRecord;
 import io.integrationplatform.routing.stage2.Stage2Send;
+import io.integrationplatform.ingest.port.CorrelationContext;
 import io.integrationplatform.tenancy.WorkerTenantBinding;
 import java.time.Instant;
 import java.util.Objects;
@@ -80,10 +81,10 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
             throw new IllegalArgumentException("the delivery.due dispatch handles DELIVERY work records only,"
                     + " got: " + record.type());
         }
-        binding.runAs(tenantId, () -> dispatch(tenantId, record.id()));
+        binding.runAs(tenantId, () -> dispatch(tenantId, record.id(), record.traceparent()));
     }
 
-    private void dispatch(UUID tenantId, UUID deliveryId) {
+    private void dispatch(UUID tenantId, UUID deliveryId, String traceparent) {
         Optional<BulkheadFacts> read = facts.forDelivery(deliveryId);
         if (read.isEmpty()) {
             return; // no visible row: acknowledged with no effect
@@ -106,7 +107,9 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
             Stage2Send send = new Stage2Send(deliveryId, claimToken, delivery.orderingKey(),
                     delivery.targetEndpointId(), idempotent);
             Runnable task = () -> {
-                try {
+                try (CorrelationContext.Scope journey = CorrelationContext.open(traceparent)) {
+                    CorrelationContext.tag(CorrelationContext.DELIVERY_ID, deliveryId);
+                    CorrelationContext.tag(CorrelationContext.TENANT_ID, tenantId);
                     // B19 F3: the binding is thread-confined, so the pool thread binds the record's tenant itself;
                     // runAs unbinds in its own finally, before the permit returns - nothing leaks to the next task
                     binding.runAs(tenantId, () -> sends.dispatch(send));
