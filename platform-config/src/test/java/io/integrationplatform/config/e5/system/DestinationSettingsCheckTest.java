@@ -5,8 +5,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.integrationplatform.config.destination.AllowList;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.system.application.DestinationSettingsCheck;
+import io.integrationplatform.config.destination.FileRoots;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -63,8 +68,29 @@ class DestinationSettingsCheckTest {
         assertThat(errors("API", "{\"baseUrl\":\"https://api.partner.example/v1\"}")).isEmpty();
         assertThat(errors("MQ", "{\"host\":\"mq.partner.example\",\"port\":1414,\"queue\":\"Q\"}")).isEmpty();
         assertThat(errors("DB", "{\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"d\"}")).isEmpty();
-        assertThat(errors("FILE", "{\"rootPath\":\"/data/out\"}")).isEmpty();
         assertThat(lookups).isEmpty();
+    }
+
+    @Test
+    @Tag("security")
+    @DisplayName("F4: a FILE rootPath is confined to the operator's base folders, per tenant; none configured refuses")
+    void fileRootPathIsConfinedToTheTenantsFolderUnderABase(@TempDir Path base) {
+        UUID tenant = UUID.randomUUID();
+        FileRoots roots = FileRoots.of(List.of(base.toString()));
+        JsonNode inside = JSON.valueToTree(Map.of("rootPath", base.resolve(tenant.toString()).resolve("out").toString()));
+        JsonNode outside = JSON.valueToTree(Map.of("rootPath", base.resolve("other").toString()));
+        JsonNode relative = JSON.readTree("{\"rootPath\":\"out\"}");
+
+        assertThat(DestinationSettingsCheck.errors("FILE", inside, guard, roots, tenant)).isEmpty();
+        assertThat(DestinationSettingsCheck.errors("FILE", outside, guard, roots, tenant))
+                .hasSize(1).first().asString().contains("settings.rootPath");
+        assertThat(DestinationSettingsCheck.errors("FILE", relative, guard, roots, tenant)).hasSize(1);
+        assertThat(DestinationSettingsCheck.errors("FILE", inside, guard, FileRoots.none(), tenant))
+                .as("no base configured").hasSize(1);
+        assertThat(DestinationSettingsCheck.errors("FILE", inside, guard))
+                .as("the 3-argument form has no base: fail closed").hasSize(1);
+        assertThat(DestinationSettingsCheck.errors("API",
+                JSON.readTree("{\"baseUrl\":\"https://api.partner.example/v1\"}"), guard, roots, tenant)).isEmpty();
     }
 
     @Test

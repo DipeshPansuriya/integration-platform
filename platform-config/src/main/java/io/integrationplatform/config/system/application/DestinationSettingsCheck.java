@@ -2,17 +2,19 @@ package io.integrationplatform.config.system.application;
 
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.DestinationRefusedException;
+import io.integrationplatform.config.destination.FileRoots;
 import io.integrationplatform.config.destination.Refusal;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import tools.jackson.databind.JsonNode;
 
 /**
  * T-124 save time (ADR-010 section 8): every target type's host field goes through the ONE destination guard when a
  * system is saved - API {@code settings.baseUrl}, MQ and DB {@code settings.host}, every KAFKA bootstrap server;
- * a FILE root has no host. No DNS
+ * a FILE root has no host but is confined to the operator's base folders ({@link FileRoots}, F4). No DNS
  * query (the guard's {@link DestinationGuard#checkHost}). A malformed or missing host is the schema's error
  * ({@link SystemSettings#validate}) and is not repeated here.
  */
@@ -23,10 +25,25 @@ public final class DestinationSettingsCheck {
 
     /** The refusal of the type's host field, as one error naming the field and the reason; empty when allowed. */
     public static List<String> errors(String type, JsonNode settings, DestinationGuard guard) {
+        return errors(type, settings, guard, FileRoots.none(), null);
+    }
+
+    /**
+     * As above, and (F4, CWE-73/22) a FILE system's {@code settings.rootPath} must lie inside the bound tenant's folder
+     * under an operator base folder; with no base configured, or no tenant, a FILE root is refused (fail closed).
+     */
+    public static List<String> errors(String type, JsonNode settings, DestinationGuard guard, FileRoots roots,
+            UUID tenantId) {
         if (type == null || settings == null) {
             return List.of();
         }
         String upper = type.toUpperCase(Locale.ROOT);
+        if (upper.equals("FILE")) {
+            JsonNode root = settings.get("rootPath");
+            return root == null || !root.isString() || root.stringValue().isBlank() ? List.of()
+                    : roots.saveProblem(root.stringValue(), tenantId).map(p -> List.of("settings.rootPath " + p))
+                            .orElse(List.of());
+        }
         if (upper.equals("KAFKA")) {
             return kafkaErrors(settings, guard);
         }

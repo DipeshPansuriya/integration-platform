@@ -2,6 +2,7 @@ package io.integrationplatform.config.system.application;
 
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.destination.DestinationGuard;
+import io.integrationplatform.config.destination.FileRoots;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemDetail;
 import io.integrationplatform.tenancy.port.LoginBinding;
@@ -12,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -33,10 +36,18 @@ public class SystemAdminService {
     private final JdbcSystemRepository systems;
     private final TestConnectionService testConnection;
     private final DestinationGuard guard;
+    private final FileRoots fileRoots;
+    private final Supplier<Optional<UUID>> tenant;
 
-    /** @param guard T-124: the ONE destination guard, run on every type's host field at save (no DNS) */
+    /**
+     * @param guard     T-124: the ONE destination guard, run on every type's host field at save (no DNS)
+     * @param fileRoots F4: the operator's FILE base folders - a FILE rootPath must lie in the tenant's folder under one
+     * @param tenant    the tenant bound to the request (empty = none, a FILE root is then refused)
+     */
     public SystemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
-            DestinationGuard guard) {
+            DestinationGuard guard, FileRoots fileRoots, Supplier<Optional<UUID>> tenant) {
+        this.fileRoots = Objects.requireNonNull(fileRoots, "fileRoots");
+        this.tenant = Objects.requireNonNull(tenant, "tenant");
         this.systems = Objects.requireNonNull(systems, "systems");
         this.testConnection = Objects.requireNonNull(testConnection, "testConnection");
         this.guard = Objects.requireNonNull(guard, "guard");
@@ -190,7 +201,8 @@ public class SystemAdminService {
         List<String> schema = SystemSettings.validate(type, settings);
         String typeName = SystemSettings.typeOf(type);
         return !schema.isEmpty() || typeName == null ? schema
-                : DestinationSettingsCheck.errors(typeName, settings, guard);
+                : DestinationSettingsCheck.errors(typeName, settings, guard, fileRoots,
+                        tenant.get().orElse(null));
     }
 
     private static JsonNode field(JsonNode body, String name) {

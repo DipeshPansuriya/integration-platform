@@ -32,6 +32,7 @@ class FileTargetCallTest {
     private void deliver(Path directory, String fileName, byte[] body) {
         new FileTargetCall(
                 send -> Optional.of(new FileMessage(new FileSettings(directory.toString()), fileName, body)),
+                root -> Files.isDirectory(Path.of(root)) ? Optional.of(Path.of(root)) : Optional.empty(),
                 breakers, meters, ObservationRegistry.create())
                 .call(new Stage2Send(UUID.randomUUID(), UUID.randomUUID(), null, UUID.randomUUID(), false));
     }
@@ -87,7 +88,7 @@ class FileTargetCallTest {
         Path absent = folder.resolve("absent");
         assertThatThrownBy(() -> deliver(absent, "row.csv", "x".getBytes(StandardCharsets.UTF_8)))
                 .isInstanceOf(TargetFaultException.class)
-                .hasMessageContaining("does not exist")
+                .hasMessageContaining("is not available")
                 .extracting(f -> ((TargetFaultException) f).outcomeClass())
                 .isEqualTo(OutcomeClass.PERMANENT);
 

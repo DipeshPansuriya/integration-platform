@@ -13,6 +13,10 @@ import java.util.function.Function;
 /**
  * T-150: test-connection for a FILE system, answered from the registry - the folder must exist and be
  * writable; a failed answer is a FAILED answer with a reason, never an exception.
+ *
+ * <p>F4 (CWE-73/22): the probe runs only inside the folder the {@link FolderResolver} returns (the tenant folder under
+ * an operator base). A folder outside it and a folder that does not exist get ONE identical answer that does not echo
+ * the path, so test-connection is no file-system oracle.
  */
 public class FileTestConnection {
 
@@ -23,14 +27,16 @@ public class FileTestConnection {
     }
 
     private final Function<UUID, Optional<FileSettings>> registry;
+    private final FolderResolver folders;
     private final Probe probe;
 
-    public FileTestConnection(Function<UUID, Optional<FileSettings>> registry) {
-        this(registry, FileTestConnection::defaultProbe);
+    public FileTestConnection(Function<UUID, Optional<FileSettings>> registry, FolderResolver folders) {
+        this(registry, folders, FileTestConnection::defaultProbe);
     }
 
-    public FileTestConnection(Function<UUID, Optional<FileSettings>> registry, Probe probe) {
+    public FileTestConnection(Function<UUID, Optional<FileSettings>> registry, FolderResolver folders, Probe probe) {
         this.registry = Objects.requireNonNull(registry, "registry");
+        this.folders = Objects.requireNonNull(folders, "folders");
         this.probe = Objects.requireNonNull(probe, "probe");
     }
 
@@ -50,14 +56,14 @@ public class FileTestConnection {
         if (settings.isEmpty()) {
             return answer(systemId, "FAILED", "NOT_FOUND", 0, "no FILE system with this id");
         }
-        Path directory = Path.of(settings.get().directory());
-        if (!Files.isDirectory(directory)) {
-            return answer(systemId, "FAILED", "NOT_A_DIRECTORY", 0,
-                    "'" + settings.get().directory() + "' is not a reachable folder");
+        Optional<Path> directory = folders.resolve(settings.get().directory());
+        if (directory.isEmpty()) {
+            // one answer for "outside the allowed folders", "no such folder", "no base configured": no oracle
+            return answer(systemId, "FAILED", "NOT_A_DIRECTORY", 0, "the folder is not available for this target");
         }
         long start = System.nanoTime();
         try {
-            probe.probe(directory);
+            probe.probe(directory.get());
         } catch (IOException unwritable) {
             return answer(systemId, "FAILED", "DIRECTORY_UNWRITABLE", elapsedMs(start),
                     "the folder could not take and remove a probe file");

@@ -254,8 +254,7 @@ class TestConnectionContainerTest {
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', value = {
         "DB   | {\"host\":\"db.e5.test\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\"} | E16",
-        "MQ   | {\"host\":\"mq.e5.test\",\"port\":1414,\"queue\":\"Q\"}           | E10",
-        "FILE | {\"rootPath\":\"/data/out\"}                                       | E16"})
+        "MQ   | {\"host\":\"mq.e5.test\",\"port\":1414,\"queue\":\"Q\"}           | E10"})
     @Tag("negative")
     @DisplayName("Scenario: Other types are not tested yet - the answer names the adapter's epic")
     void otherTypesAreNotTestedYet(String type, String settings, String epic) {
