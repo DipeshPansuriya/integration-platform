@@ -11,6 +11,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The API target adapter's wiring (E10 narrow, ADR-015): the adapter is THE {@link TargetCall} bean the layer-1
@@ -35,7 +37,19 @@ public class ApiAdapterConfiguration {
 
     @Bean
     TargetCall apiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort,
-            HttpSend send, ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations) {
+            HttpSend send, ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
+            ObjectProvider<PlatformTransactionManager> transactionManager) {
+        PlatformTransactionManager transactions = transactionManager.getIfAvailable();
+        if (transactions != null) {
+            // E9-C9 (T71): the endpoint and body reads each run in their OWN short tenant-stamped transaction. The
+            // network call between them holds no pooled connection - a hanging target must never pin the shared
+            // database pool, or every stage and every other target starves behind it.
+            TransactionTemplate tx = new TransactionTemplate(transactions);
+            TargetEndpointViews endpointViews = views;
+            ApiTargetBody body = bodyPort;
+            views = endpointId -> tx.execute(status -> endpointViews.byEndpointId(endpointId));
+            bodyPort = delivery -> tx.execute(status -> body.bodyFor(delivery));
+        }
         return new ApiTargetCall(views, guard, bodyPort, send, ApiTargetCall.defaultBreakers(),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP));

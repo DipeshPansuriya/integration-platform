@@ -132,8 +132,14 @@ class PipelineCompositionConfiguration {
             JdbcMqTargets mqTargets, SendOutcomes outcomes, PlatformTransactionManager transactionManager) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         // row 327: picked by the stored system.type; an unknown type is refused PERMANENT, never dropped
-        TargetCall byType = TargetCall.byType(mqTargets::typeOf, targetCalls.calls());
-        TargetCall inTenantTransaction = send -> transactions.executeWithoutResult(status -> byType.call(send));
+        // E9-C9 (T71): a call that leaves the process must not hold a pooled connection while it waits on the
+        // target. The API adapter opens its own short tenant-stamped reads (ApiAdapterConfiguration); the other
+        // types still run whole inside one tenant-stamped transaction until their adapters do the same.
+        java.util.Map<String, TargetCall> perType = new java.util.LinkedHashMap<>();
+        targetCalls.calls().forEach((type, call) -> perType.put(type,
+                "API".equals(type) ? call : send -> transactions.executeWithoutResult(status -> call.call(send))));
+        TargetCall inTenantTransaction = TargetCall.byType(
+                endpointId -> transactions.execute(status -> mqTargets.typeOf(endpointId)), perType);
         Stage2AttemptWriter attempts = (deliveryId, layer, outcome, startedAt, finishedAt, detail) ->
                 transactions.executeWithoutResult(status ->
                         outcomes.recordAttempt(deliveryId, layer, outcome, startedAt, finishedAt, detail));
