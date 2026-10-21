@@ -43,7 +43,12 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-transform</artifactId>
     </dependency>
+    <!-- E12 seam (arjun-fullstack): contract types for the tenant activity view (platform-audit), backed by the
+         activity runtime slice in io.integrationplatform.app.activity. -->
     <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-audit</artifactId>
+    </dependency>    <dependency>
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>
     </dependency>
