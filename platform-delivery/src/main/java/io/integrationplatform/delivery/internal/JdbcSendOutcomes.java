@@ -5,6 +5,7 @@ import io.integrationplatform.delivery.internal.retry.OutcomeRecorder;
 import io.integrationplatform.delivery.internal.retry.RetryPolicy;
 import io.integrationplatform.delivery.port.SendOutcomes;
 import io.integrationplatform.domain.delivery.OutcomeClass;
+import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.tenancy.TenantContext;
 import java.time.Instant;
 import java.util.UUID;
@@ -21,11 +22,19 @@ public final class JdbcSendOutcomes implements SendOutcomes {
 
     private final JdbcDeliveryRepository repository;
     private final OutcomeRecorder recorder;
+    private final StageTimings timings;
 
     public JdbcSendOutcomes(JdbcClient jdbcClient, TenantContext tenantContext) {
         this.repository = new JdbcDeliveryRepository(jdbcClient, tenantContext);
         this.recorder = new OutcomeRecorder(new JdbcDeliveryRetryStore(jdbcClient, tenantContext),
                 RetryPolicy.defaults(), () -> ThreadLocalRandom.current().nextDouble());
+        this.timings = null;
+    }
+
+    JdbcSendOutcomes(JdbcDeliveryRepository repository, OutcomeRecorder recorder, StageTimings timings) {
+        this.repository = repository;
+        this.recorder = recorder;
+        this.timings = timings;
     }
 
     @Override

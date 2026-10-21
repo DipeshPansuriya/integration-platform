@@ -4,6 +4,7 @@ import io.integrationplatform.delivery.DeliveryClaimService;
 import io.integrationplatform.delivery.internal.stage1.JdbcStage1Deliveries;
 import io.integrationplatform.delivery.port.SendOutcomes;
 import io.integrationplatform.delivery.port.Stage1Deliveries;
+import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.tenancy.TenantContext;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
@@ -22,7 +23,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class DeliveryPipelineConfiguration {
 
     @Bean
-    Stage1Deliveries stage1Deliveries(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts) {
+    Stage1Deliveries stage1Deliveries(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts,
+            ObjectProvider<StageTimings> timings) {
         return new JdbcStage1Deliveries(new JdbcDeliveryRepository(jdbcClient, boundAtCall(tenantContexts)));
     }
 
@@ -32,7 +34,8 @@ class DeliveryPipelineConfiguration {
     }
 
     @Bean
-    SendOutcomes sendOutcomes(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts) {
+    SendOutcomes sendOutcomes(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts,
+            ObjectProvider<StageTimings> timings) {
         return new JdbcSendOutcomes(jdbcClient, boundAtCall(tenantContexts));
     }
 
