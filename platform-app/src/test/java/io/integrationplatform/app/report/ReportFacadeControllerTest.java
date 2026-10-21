@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.integrationplatform.app.message.MessageTrackingService;
 import io.integrationplatform.app.report.ReportFacade.Report;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -19,7 +20,8 @@ class ReportFacadeControllerTest {
         UUID trackingId = UUID.randomUUID();
         UUID flowId = UUID.randomUUID();
         LocalDate day = LocalDate.of(2026, 10, 16);
-        Report report = new ReportFacade.Report(trackingId, null, java.util.List.of(), java.util.List.of());
+        MessageTrackingService.Timeline timeline = new MessageTrackingService.Timeline(trackingId.toString(), flowId.toString(), "ROUTED", "2026-10-16T10:00:00Z", java.util.List.of(), null, null, java.util.List.of());
+        Report report = new ReportFacade.Report(trackingId, timeline, java.util.List.of(), java.util.List.of());
         when(facade.report(trackingId, flowId, day)).thenReturn(report);
 
         ResponseEntity<ReportFacade.Report> answer = controller.report(trackingId, flowId, day);
