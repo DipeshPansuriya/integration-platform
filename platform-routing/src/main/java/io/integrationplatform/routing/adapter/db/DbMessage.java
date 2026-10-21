@@ -23,6 +23,12 @@ public record DbMessage(DbSettings settings, String user, char[] password, Strin
         if (columns == null || columns.isEmpty() || !columns.stream().allMatch(DbSettings::validIdentifier)) {
             throw new IllegalStateException("the DB target's insert needs plain-identifier column names");
         }
+        if (columns.stream().anyMatch(c -> c.equalsIgnoreCase(JdbcDbSender.DELIVERY_ID_COLUMN))) {
+            throw new IllegalStateException("a mapped column may not be the platform's idempotency column");
+        }
+        if (user == null || user.isBlank()) {
+            throw new IllegalStateException("the DB target names no restricted account - the send never guesses one");
+        }
         if (values == null || values.stream().anyMatch(row -> row.size() != columns.size())) {
             throw new IllegalStateException("the DB target's insert rows must match the column count");
         }

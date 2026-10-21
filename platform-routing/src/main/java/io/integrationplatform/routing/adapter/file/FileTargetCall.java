@@ -51,6 +51,11 @@ public final class FileTargetCall implements TargetCall {
         this.observations = observations;
     }
 
+    private static boolean plainName(String name) {
+        return name != null && !name.isBlank() && !name.equals(".") && !name.equals("..")
+                && name.indexOf('/') < 0 && name.indexOf('\\') < 0 && name.indexOf(':') < 0;
+    }
+
     @Override
     public void call(Stage2Send send) {
         CircuitBreaker breaker = breakers.circuitBreaker("file:" + send.targetEndpointId(), BREAKER);
@@ -93,10 +98,23 @@ public final class FileTargetCall implements TargetCall {
                         + " is refused for target endpoint " + send.targetEndpointId()
                         + " (outside the target's folder)");
             }
+            if (!plainName(message.fileName())) {
+                // a file name is a name: no folders, drive letters or dot names even when they stay inside
+                outcome = OutcomeClass.PERMANENT;
+                breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+                throw new TargetFaultException(outcome, "the mapped file name of delivery " + send.deliveryId()
+                        + " is not a plain file name for target endpoint " + send.targetEndpointId());
+            }
             try {
                 FileWrite.deliver(message.settings(), message.fileName(), message.body());
                 outcome = OutcomeClass.SUCCESS;
                 breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+            } catch (FileWrite.FileNameTakenException taken) {
+                // the answer is final: the name holds another file and is never overwritten, a retry cannot help
+                outcome = OutcomeClass.PERMANENT;
+                breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+                throw new TargetFaultException(outcome, "the file name of delivery " + send.deliveryId()
+                        + " is already taken in the folder of endpoint " + send.targetEndpointId());
             } catch (IOException failed) {
                 breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, failed);
                 throw new TargetFaultException.TransientFaultException("the write to the target folder of "

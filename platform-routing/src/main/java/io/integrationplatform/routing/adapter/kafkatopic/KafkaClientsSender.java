@@ -44,20 +44,38 @@ final class KafkaClientsSender implements KafkaSender {
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
         props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, String.valueOf(timeout.toMillis()));
         props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, String.valueOf(timeout.toMillis()));
-        // the delivery id is the record key: one stable identity per delivery for dedup and trace lookups
-        ProducerRecord<byte[], byte[]> record = new ProducerRecord<>(settings.topic(),
-                deliveryId.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), body);
+        ProducerRecord<byte[], byte[]> record = record(settings, deliveryId, body,
+                io.integrationplatform.ingest.port.CorrelationContext.currentTraceparent());
         try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(props)) {
+            // metadata first: a broker or topic that cannot be reached fails HERE, before any record is handed
+            // over - nothing was sent, so the call classes it TRANSIENT (a timeout later is AMBIGUOUS)
+            producer.partitionsFor(settings.topic());
             try {
                 producer.send(record).get(timeout.toMillis(), TimeUnit.MILLISECONDS);
             } catch (ExecutionException refused) {
                 // the broker answered with a typed error: surface it unwrapped so the call can classify it
+                if (refused.getCause() instanceof org.apache.kafka.common.errors.TimeoutException) {
+                    // the record was handed over and its delivery expired unanswered: it may be on the topic
+                    throw new java.util.concurrent.TimeoutException("no acknowledgement for the record");
+                }
                 if (refused.getCause() instanceof Exception cause) {
                     throw cause;
                 }
                 throw refused;
             }
         }
+    }
+
+    /** The record: the delivery id as key (one stable identity per delivery for dedup and trace lookups) and the
+     * W3C traceparent of the open journey as its header, so the target's consumer continues the trace. */
+    static ProducerRecord<byte[], byte[]> record(KafkaTopicSettings settings, UUID deliveryId, byte[] body,
+            String traceparent) {
+        ProducerRecord<byte[], byte[]> record = new ProducerRecord<>(settings.topic(),
+                deliveryId.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), body);
+        if (traceparent != null) {
+            record.headers().add("traceparent", traceparent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        return record;
     }
 
     /** Resolves each bootstrap server's host once and pins the producer to the resolved address (no re-resolution). */

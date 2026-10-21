@@ -11,7 +11,8 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * T-124 save time (ADR-010 section 8): every target type's host field goes through the ONE destination guard when a
- * system is saved - API {@code settings.baseUrl}, MQ and DB {@code settings.host}; a FILE root has no host. No DNS
+ * system is saved - API {@code settings.baseUrl}, MQ and DB {@code settings.host}, every KAFKA bootstrap server;
+ * a FILE root has no host. No DNS
  * query (the guard's {@link DestinationGuard#checkHost}). A malformed or missing host is the schema's error
  * ({@link SystemSettings#validate}) and is not repeated here.
  */
@@ -26,6 +27,9 @@ public final class DestinationSettingsCheck {
             return List.of();
         }
         String upper = type.toUpperCase(Locale.ROOT);
+        if (upper.equals("KAFKA")) {
+            return kafkaErrors(settings, guard);
+        }
         String field = upper.equals("API") ? "baseUrl" : upper.equals("MQ") || upper.equals("DB") ? "host" : null;
         JsonNode value = field == null ? null : settings.get(field);
         if (value == null || !value.isString() || value.stringValue().isBlank()) {
@@ -41,6 +45,22 @@ public final class DestinationSettingsCheck {
         } catch (DestinationRefusedException refused) {
             return List.of("settings." + field + " is refused: " + reason(refused));
         }
+    }
+
+    /** E16 (T-148): every bootstrap server's host goes through the one guard; the first refusal is reported. */
+    private static List<String> kafkaErrors(JsonNode settings, DestinationGuard guard) {
+        JsonNode value = settings.get("bootstrapServers");
+        if (value == null || !value.isString() || value.stringValue().isBlank()) {
+            return List.of();
+        }
+        for (String host : SystemSettings.bootstrapHosts(value.stringValue())) {
+            try {
+                guard.checkHost(host);
+            } catch (DestinationRefusedException refused) {
+                return List.of("settings.bootstrapServers is refused: " + reason(refused));
+            }
+        }
+        return List.of();
     }
 
     private static String hostOf(String address) {
