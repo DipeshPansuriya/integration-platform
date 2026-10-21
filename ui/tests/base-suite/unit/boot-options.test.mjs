@@ -2,20 +2,20 @@
 //
 // The base suite boots the SAME harness as the screens suite plus four additive options and nothing else:
 // tenant B (its own admin and approver), the DECLARED WireMock (started by the boot inside its lock, never
-// here), the dev-only exception's app settings (through mergeAppEnv - their real names are TBD(row278) and
+// here), the dev-only exception's app settings (through mergeAppEnv - their names are DECIDED and
 // arrive only through the environment) and source credentials (the realm's admin client secret by NAME,
-// a random value in memory only). Not configured, or still TBD(row278) -> no options at all: the run
+// a random value in memory only). Not configured, or misconfigured -> no options at all: the run
 // stops before any build, lock or container.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { HARNESS_APP_ENV, HARNESS_LOGINS, extraTenantPlan, mergeAppEnv, servicePlan } from '../../../scripts/boot-backend.mjs';
 import { BS_CONSOLE_LOGINS, BS_KAFKA, BS_WIREMOCK, KAFKA_IMAGE, baseSuiteBootOptions } from '../lib/boot-options.mjs';
-import { NOT_CONFIGURED, PLACEHOLDER, exceptionSettings } from '../lib/settings.mjs';
+import { NOT_CONFIGURED, exceptionSettings } from '../lib/settings.mjs';
 import { TENANT_B_PLAN } from '../lib/tenants.mjs';
 import { STUB_IDS, WIREMOCK_IMAGE, stubMapping } from '../lib/wiremock.mjs';
 
-// Fixture values only: row 278's real profile, host and app setting name are TBD(row278).
+// Fixture values for the unit tests (the host does not resolve); the decided real values are in settings.test.mjs.
 const CONFIGURED = exceptionSettings({
   IPASS_BS_EXCEPTION_PROFILE: 'showcase',
   IPASS_BS_EXCEPTION_HOST: 'target.showcase.test',
@@ -42,13 +42,13 @@ test('Kafka is DECLARED here, never started: the pinned broker image and the thr
   for (const name of Object.keys(plan.appEnv)) assert.ok(HARNESS_APP_ENV.includes(name), `${name} is harness-owned - appEnv cannot replace it`);
 });
 
-test('not configured or still TBD(row278): no options at all - the run stops before any build, lock or container', () => {
+test('not configured or misconfigured: no options at all - the run stops before any build, lock or container', () => {
   assert.throws(() => baseSuiteBootOptions(exceptionSettings({}), { lockHolder: 'x' }), (e) => e.message.startsWith(NOT_CONFIGURED));
-  const tbd = exceptionSettings({
-    IPASS_BS_EXCEPTION_PROFILE: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST_VAR: PLACEHOLDER,
-    IPASS_BS_EXCEPTION_PORT: PLACEHOLDER
+  const wrongProfile = exceptionSettings({
+    IPASS_BS_EXCEPTION_PROFILE: 'dev-showcase', IPASS_BS_EXCEPTION_HOST: 'localhost',
+    IPASS_BS_EXCEPTION_HOST_VAR: 'PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS', IPASS_BS_EXCEPTION_PORT: '8089'
   });
-  assert.throws(() => baseSuiteBootOptions(tbd, { lockHolder: 'x' }), /TBD\(row278\)/);
+  assert.throws(() => baseSuiteBootOptions(wrongProfile, { lockHolder: 'x' }), /dev-only exception misconfigured.*showcase/);
 });
 
 test('configured: tenant B, the declared WireMock, the exception through mergeAppEnv, source credentials - nothing else', () => {
