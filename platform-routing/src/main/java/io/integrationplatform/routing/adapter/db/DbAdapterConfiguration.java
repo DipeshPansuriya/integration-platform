@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,6 +22,10 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * T-149 wiring: the DB adapter's beans - the "DB" test-connection check (the checks-map shape the MQ adapter
  * answers too) and the production target call. Gated by its own property so no existing context changes until
  * the lead wires the two register() seams and flips the gate the way {@code KafkaAdapterConfiguration} is wired.
+ *
+ * <p>E16 security: {@code platform.config.destinations.db-allowed-ports} (default 5432) lists the database ports a
+ * target may use; {@code platform.config.destinations.db-sslmode} (default {@code require}) is the TLS mode of a
+ * target that names none.
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty("IPASS_DB_TARGET_ENABLED")
@@ -49,8 +54,8 @@ public class DbAdapterConfiguration {
     }
 
     @Bean
-    DbSender dbSender() {
-        return new JdbcDbSender(Duration.ofSeconds(5));
+    DbSender dbSender(@Value("${platform.config.destinations.db-sslmode:require}") String sslmode) {
+        return new JdbcDbSender(Duration.ofSeconds(5), sslmode);
     }
 
     @Bean
@@ -64,9 +69,10 @@ public class DbAdapterConfiguration {
 
     @Bean
     DbTargetCall dbTargetCall(DbOutbound outbound, DbSender sender, DestinationGuard guard,
+            @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts,
             ObjectProvider<CircuitBreakerRegistry> breakers, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations) {
-        return new DbTargetCall(outbound, sender, guard, breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
+        return new DbTargetCall(outbound, sender, guard, allowedPorts, breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP));
     }

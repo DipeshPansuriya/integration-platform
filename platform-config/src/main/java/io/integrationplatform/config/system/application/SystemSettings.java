@@ -51,7 +51,9 @@ public final class SystemSettings {
         /** E16: a Kafka topic that is not one of the platform's own (T-184 SF-2). */
         KAFKA_TOPIC,
         /** E16: a plain file name with only the {deliveryId} and {ext} placeholders (the FILE target's name). */
-        FILE_NAME_PATTERN
+        FILE_NAME_PATTERN,
+        /** E16 F5: the DB target's optional TLS mode, a closed list of encrypted modes. */
+        SSL_MODE
     }
 
     private static final java.util.regex.Pattern IDENTIFIER = java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z_0-9]{0,62}");
@@ -65,6 +67,11 @@ public final class SystemSettings {
     private static final Set<String> DICTIONARY_CLASSES = Set.of("TRANSIENT", "AMBIGUOUS", "PERMANENT");
 
     private static final Field TRIAL_CALLS = new Field("halfOpenTrialCalls", Kind.TRIAL_CALLS, false);
+
+    /** F5: the TLS modes a DB target may ask for; no unencrypted mode can be chosen per target. */
+    static final List<String> DB_SSL_MODES = List.of("require", "verify-ca", "verify-full");
+
+    private static final java.util.regex.Pattern DB_NAME = java.util.regex.Pattern.compile("[A-Za-z0-9_.-]{1,63}");
 
     private static final Map<String, List<Field>> SCHEMAS = schemas();
 
@@ -80,6 +87,9 @@ public final class SystemSettings {
                 new Field("database", Kind.TEXT, true), new Field("user", Kind.IDENTIFIER, true),
                 new Field("table", Kind.IDENTIFIER, false), new Field("approvedTables", Kind.IDENTIFIER_LIST, false),
                 TRIAL_CALLS));
+        List<Field> dbWithTls = new ArrayList<>(schemas.get("DB")); // F5: optional encrypted-only sslmode
+        dbWithTls.add(new Field("sslmode", Kind.SSL_MODE, false));
+        schemas.put("DB", List.copyOf(dbWithTls));
         schemas.put("MQ", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
                 new Field("queue", Kind.TEXT, true), TRIAL_CALLS));
         schemas.put("FILE", List.of(new Field("rootPath", Kind.TEXT, true),
@@ -129,6 +139,9 @@ public final class SystemSettings {
                 continue;
             }
             String problem = problem(field.kind(), value);
+            if (problem == null && typeName.equals("DB")) {
+                problem = dbTextProblem(field.name(), value); // F2: host and database become parts of a JDBC URL
+            }
             if (problem != null) {
                 errors.add("settings." + field.name() + " " + problem);
             }
@@ -165,6 +178,8 @@ public final class SystemSettings {
             case IDENTIFIER -> value.isString() && IDENTIFIER.matcher(value.stringValue()).matches() ? null
                     : "must be a plain identifier (letters, digits, underscore)";
             case IDENTIFIER_LIST -> identifierListProblem(value);
+            case SSL_MODE -> value.isString() && DB_SSL_MODES.contains(value.stringValue()) ? null
+                    : "must be one of " + String.join(", ", DB_SSL_MODES);
             case BOOTSTRAP_SERVERS -> bootstrapServersProblem(value);
             case KAFKA_TOPIC -> value.isString()
                     ? io.integrationplatform.config.destination.SystemTopicRefusal.topicProblem(value.stringValue())
@@ -186,6 +201,18 @@ public final class SystemSettings {
                 && bare.indexOf('/') < 0 && bare.indexOf('\\') < 0 && bare.indexOf(':') < 0
                 && bare.indexOf('{') < 0 && bare.indexOf('}') < 0;
         return plain ? null : expected;
+    }
+
+    /** F2 (CWE-74): the DB host is a host name or IP literal and the database a plain name - no URL syntax. */
+    private static String dbTextProblem(String field, JsonNode value) {
+        if (field.equals("host") && value.isString()
+                && !io.integrationplatform.config.destination.DestinationGuard.isHostNameOrIpLiteral(value.stringValue())) {
+            return "must be a host name or an IP address (no port, path, query or other URL characters)";
+        }
+        if (field.equals("database") && value.isString() && !DB_NAME.matcher(value.stringValue()).matches()) {
+            return "must be 1 to 63 letters, digits, dot, hyphen or underscore";
+        }
+        return null;
     }
 
     private static String identifierListProblem(JsonNode value) {
