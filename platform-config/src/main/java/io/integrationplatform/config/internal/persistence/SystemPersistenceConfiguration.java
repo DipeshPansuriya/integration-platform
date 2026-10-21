@@ -2,6 +2,7 @@ package io.integrationplatform.config.internal.persistence;
 
 import io.integrationplatform.config.destination.AllowList;
 import io.integrationplatform.config.destination.DestinationGuard;
+import io.integrationplatform.config.destination.FileRoots;
 import io.integrationplatform.config.destination.HostResolver;
 import io.integrationplatform.config.destination.MqConnectionCheck;
 import io.integrationplatform.config.destination.OutboundHttpCheck;
@@ -18,6 +19,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -160,9 +162,20 @@ class SystemPersistenceConfiguration {
                 Map.copyOf(checks));
     }
 
+    /**
+     * F4 (CWE-73/22): the operator's FILE base folders, {@code platform.config.destinations.file-base-dirs}; absent or
+     * empty, every FILE target is refused at save and at send (fail closed).
+     */
+    @Bean
+    FileRoots fileRoots(Environment environment) {
+        return FileRoots.of(Binder.get(environment).bind(FileRoots.PROPERTY, Bindable.listOf(String.class))
+                .orElse(List.of()));
+    }
+
     @Bean
     SystemAdminService systemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
-            DestinationGuard guard) {
-        return new SystemAdminService(systems, testConnection, guard);
+            DestinationGuard guard, FileRoots fileRoots, ObjectProvider<TenantContext> tenantContexts) {
+        return new SystemAdminService(systems, testConnection, guard, fileRoots,
+                () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId());
     }
 }

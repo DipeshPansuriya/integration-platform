@@ -8,6 +8,11 @@ platform:
       # Loopback, private, link-local, CGNAT, multicast and broadcast resolutions are refused even when
       # a name is listed here.
       allowed-hosts: []
+      # F4 (CWE-73/22): the operator's base folders for FILE targets, absolute paths, e.g. ["D:/ipass-exchange"]. A tenant's
+      # FILE root must lie inside <base>/<tenant id>/ (create that folder when onboarding the tenant); symbolic
+      # links out of it are refused. EMPTY REFUSES EVERY FILE TARGET at save, send and test-connection (fail closed).
+      # No value is set here on purpose - the folders are the operator's decision. Property: file-base-dirs.
+      # file-base-dirs: []
       # SHOWCASE ONLY (T138): showcase-local-hosts lists EXACT allow-listed host names (no wildcard, no IP) that may
       # resolve to a loopback or private address. Honoured only under the "showcase" profile, with a startup WARN;
       # set without that profile the application refuses to start. Not set here - set it only for a showcase run.
