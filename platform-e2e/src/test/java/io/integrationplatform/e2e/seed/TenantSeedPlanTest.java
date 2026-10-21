@@ -61,7 +61,8 @@ class TenantSeedPlanTest {
         SeedUser admin = plan.user(TenantSeedPlan.TENANT_ADMIN);
         SeedUser readOnly = plan.user(TenantSeedPlan.READ_ONLY);
 
-        assertThat(admin.password()).hasSizeGreaterThanOrEqualTo(24).isNotEqualTo(readOnly.password());
+        assertThat(admin.password().length()).isGreaterThanOrEqualTo(24);
+        assertThat(admin.password()).isNotEqualTo(readOnly.password());
         assertThat(admin.password()).doesNotContain(admin.username());
         assertThat(plan.toString()).doesNotContain(admin.password()).doesNotContain(readOnly.password());
         assertThat(admin.toString()).contains(admin.username()).doesNotContain(admin.password());

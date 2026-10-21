@@ -17,7 +17,8 @@ import org.springframework.core.env.Profiles;
  * {@code platform.test-clock.offset} ahead (ISO-8601 duration, default {@code PT0S}). The offset property is read
  * only under {@code e2e}. Creating the e2e clock logs a WARN, and refuses to start when a production-like profile
  * (ADR-010 section 8: prod, production, staging, uat) is active too (T152): the class ships in the jar, so the guard is
- * the profile pair, not the classpath.
+ * the profile pair, not the classpath. T153 adds the deployment marker {@code platform.environment=production}: the first
+ * deploy manifest sets it, and the clock also refuses to start when it is present.
  */
 @Configuration(proxyBeanMethods = false)
 public class PlatformClockConfiguration {
@@ -39,6 +40,11 @@ public class PlatformClockConfiguration {
         if (environment.acceptsProfiles(Profiles.of(PRODUCTION_LIKE_PROFILES))) {
             throw new IllegalStateException(
                     "the e2e AdjustableClock must never run with a production-like profile (" + PRODUCTION_LIKE_PROFILES + ")");
+        }
+        String environmentMarker = environment.getProperty("platform.environment");
+        if (environmentMarker != null && environmentMarker.trim().equalsIgnoreCase("production")) {
+            throw new IllegalStateException(
+                    "the e2e AdjustableClock must never run with the production marker platform.environment=production");
         }
         AdjustableClock clock = new AdjustableClock(Clock.systemUTC(), offset);
         LOG.warn("e2e profile active: AdjustableClock in use, offset {} - test profile only, never production", offset);
