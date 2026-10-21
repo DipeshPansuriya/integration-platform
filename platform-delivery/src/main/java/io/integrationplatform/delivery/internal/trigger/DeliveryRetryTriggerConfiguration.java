@@ -2,9 +2,12 @@ package io.integrationplatform.delivery.internal.trigger;
 
 import io.integrationplatform.delivery.internal.JdbcDeliveryReconcileStore;
 import io.integrationplatform.delivery.internal.retry.RetryPolicy;
+import io.integrationplatform.delivery.internal.JdbcDeliveryCircuitFacts;
+import io.integrationplatform.delivery.port.DeliveryCircuitFacts;
 import io.integrationplatform.delivery.port.DeliveryReconcileStore;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.delivery.port.InstanceReadiness;
+import io.integrationplatform.delivery.port.TargetHalfOpenCap;
 import io.integrationplatform.delivery.port.TargetRedriveCap;
 import io.integrationplatform.delivery.port.TargetSendFacts;
 import io.integrationplatform.domain.scheduler.JobHandler;
@@ -47,17 +50,24 @@ class DeliveryRetryTriggerConfiguration {
         return new JdbcDeliveryReconcileStore(jdbcClient, tenantContext);
     }
 
+    /** E10 T96: which deliveries wait on an open circuit - the last delivery event is {@code CIRCUIT_DEFER}. */
+    @Bean
+    DeliveryCircuitFacts deliveryCircuitFacts(JdbcClient jdbcClient, TenantContext tenantContext) {
+        return new JdbcDeliveryCircuitFacts(jdbcClient, tenantContext);
+    }
+
     @Bean
     DeliveryRetryTrigger deliveryRetryTrigger(ActiveTenantDirectory activeTenants,
             TriggerTenantContext deliveryTriggerTenantContext, PlatformTransactionManager transactionManager,
             DeliveryRetryStore deliveryRetryStore, OutboxWriter outboxWriter,
             DeliveryReconcileStore deliveryReconcileStore, ObjectProvider<TargetSendFacts> targetSendFacts,
-            ObjectProvider<InstanceReadiness> instanceReadiness) {
+            ObjectProvider<InstanceReadiness> instanceReadiness, DeliveryCircuitFacts deliveryCircuitFacts,
+            ObjectProvider<TargetHalfOpenCap> halfOpenCap) {
         return new DeliveryRetryTrigger(activeTenants::activeTenantIds, deliveryTriggerTenantContext,
                 new TransactionTemplate(transactionManager), deliveryRetryStore, outboxWriter, BATCH_SIZE,
                 instanceReadiness.getIfAvailable(InstanceReadiness::alwaysReady), deliveryId -> Optional.empty(), TargetRedriveCap.unlimited(),
                 deliveryReconcileStore, targetSendFacts.getIfAvailable(TargetSendFacts::unknown),
-                RetryPolicy.defaults());
+                RetryPolicy.defaults(), deliveryCircuitFacts, halfOpenCap.getIfAvailable(TargetHalfOpenCap::defaults));
     }
 
     @Bean

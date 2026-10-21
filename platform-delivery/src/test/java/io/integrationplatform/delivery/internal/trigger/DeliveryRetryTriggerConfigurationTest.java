@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import io.integrationplatform.delivery.internal.JdbcDeliveryReconcileStore;
+import io.integrationplatform.delivery.internal.JdbcDeliveryCircuitFacts;
+import io.integrationplatform.delivery.port.TargetHalfOpenCap;
 import io.integrationplatform.delivery.port.DeliveryReconcileStore;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.delivery.port.TargetSendFacts;
@@ -14,6 +16,7 @@ import io.integrationplatform.tenancy.port.ActiveTenantDirectory;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -83,6 +86,28 @@ class DeliveryRetryTriggerConfigurationTest {
         runner().withPropertyValues("IPASS_KAFKA_BOOTSTRAP_SERVERS=localhost:9092")
                 .run(context -> assertThat(context.getBean(DeliveryRetryTrigger.class))
                         .extracting("targetFacts").isNotNull());
+    }
+
+    @Test
+    void theTriggerReadsTheCircuitFactsFromTheDeliveryLedgerAndCapsAtTheAdrDefaultOfThree() {
+        runner().withPropertyValues("IPASS_KAFKA_BOOTSTRAP_SERVERS=localhost:9092")
+                .run(context -> {
+                    DeliveryRetryTrigger trigger = context.getBean(DeliveryRetryTrigger.class);
+                    assertThat(trigger).extracting("circuitFacts").isInstanceOf(JdbcDeliveryCircuitFacts.class);
+                    TargetHalfOpenCap cap = (TargetHalfOpenCap) org.springframework.test.util.ReflectionTestUtils
+                            .getField(trigger, "halfOpenCap");
+                    assertThat(cap.trialCalls(UUID.randomUUID())).isEqualTo(TargetHalfOpenCap.DEFAULT_TRIAL_CALLS)
+                            .isEqualTo(3);
+                });
+    }
+
+    @Test
+    void anApplicationsPerTargetHalfOpenCapReplacesTheDefault() {
+        TargetHalfOpenCap five = target -> 5;
+        runner().withPropertyValues("IPASS_KAFKA_BOOTSTRAP_SERVERS=localhost:9092")
+                .withBean(TargetHalfOpenCap.class, () -> five)
+                .run(context -> assertThat(context.getBean(DeliveryRetryTrigger.class))
+                        .extracting("halfOpenCap").isSameAs(five));
     }
 
     @Test

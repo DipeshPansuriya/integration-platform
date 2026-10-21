@@ -38,6 +38,9 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
     /** Exchange property: the classified outcome of the last performed call. */
     static final String LAST_OUTCOME = "stage2.lastOutcome";
 
+    /** Exchange property: how long the open circuit refuses calls (set only by a breaker refusal). */
+    static final String CIRCUIT_RETRY_AFTER = "stage2.circuitRetryAfter";
+
     private static final Logger log = LoggerFactory.getLogger(LayerOneRouteBuilder.class);
 
     private final TargetCall targetCall;
@@ -62,6 +65,11 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
 
     @Override
     public void configure() {
+        // E10 T96: a call the breaker refused is not a call - no redelivery, no attempt row, one deferral
+        onException(TargetFaultException.CircuitOpenException.class)
+                .maximumRedeliveries(0)
+                .handled(true)
+                .process(this::deferCircuitOpen);
         // only a TRANSIENT call failure redelivers (ADR-010 section 5); the wait cap is delay time only
         onException(TargetFaultException.TransientFaultException.class)
                 .maximumRedeliveries(waits.maxRedeliveries())
@@ -95,6 +103,11 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
             attempts.record(send.deliveryId(), 1, OutcomeClass.SUCCESS, started, clock.get(),
                     "layer-1 try " + tryNumber + ": success");
             log.info("stage 2: delivery {} - layer-1 try {}: SUCCESS", send.deliveryId(), tryNumber);
+        } catch (TargetFaultException.CircuitOpenException open) {
+            exchange.setProperty(CIRCUIT_RETRY_AFTER, open.retryAfter());
+            log.info("stage 2: delivery {} - layer-1 try {}: refused by the open circuit, nothing sent",
+                    send.deliveryId(), tryNumber);
+            throw open; // no attempt row: the call never left the process
         } catch (TargetFaultException fault) {
             exchange.setProperty(LAST_OUTCOME, fault.outcomeClass());
             attempts.record(send.deliveryId(), 1, fault.outcomeClass(), started, clock.get(),
@@ -102,6 +115,13 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
             log.info("stage 2: delivery {} - layer-1 try {}: {}", send.deliveryId(), tryNumber, fault.outcomeClass());
             throw fault; // redelivery follows the class: TRANSIENT redelivers, AMBIGUOUS/PERMANENT never
         }
+    }
+
+    /** The breaker refused the call: the delivery waits until the breaker may let a trial call through. */
+    private void deferCircuitOpen(Exchange exchange) {
+        Stage2Send send = exchange.getIn().getBody(Stage2Send.class);
+        java.time.Duration retryAfter = exchange.getProperty(CIRCUIT_RETRY_AFTER, java.time.Duration.class);
+        outcomeHandoff.deferCircuitOpen(send.deliveryId(), send.claimToken(), clock.get().plus(retryAfter));
     }
 
     /** Layer 1 ended without success: the exchange goes to the outcome path, exactly once. */
