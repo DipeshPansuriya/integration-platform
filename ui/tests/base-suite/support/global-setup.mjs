@@ -29,7 +29,14 @@ export default async function globalSetup() {
   const options = baseSuiteBootOptions(settings, {
     lockHolder: `aditya-qa-automation base-suite pid=${process.pid} started=${new Date().toISOString()}`
   });
+  await bootBaseSuite(options, { wiremock: true });
+}
 
+/**
+ * The boot every base-suite config shares. `wiremock: false` (the front half, support/front-setup.mjs) boots
+ * without the local target: no WireMock is expected and its BS_* names are not set.
+ */
+export async function bootBaseSuite(options, { wiremock: withWiremock }) {
   const { default: bootBackend } = await import(new URL('../../../scripts/boot-backend.mjs', import.meta.url).href);
   const { startConsole } = await import(new URL('../../screens/console-server.mjs', import.meta.url).href);
   const { browserLogin } = await import(new URL('../../screens/keycloak-login.mjs', import.meta.url).href);
@@ -47,7 +54,7 @@ export default async function globalSetup() {
     const tenantB = backend.extraTenants[TENANT_B_PLAN.key];
     const wiremock = backend.services.wiremock;
     const kafka = backend.services.kafka;
-    if (!tenantB || !wiremock || !kafka) throw new Error('base-suite global-setup: the boot came up without tenant B, the WireMock or the Kafka broker');
+    if (!tenantB || !kafka || (withWiremock && !wiremock)) throw new Error('base-suite global-setup: the boot came up without tenant B, the Kafka broker or (when expected) the WireMock');
     consoleServer = await startConsole(backend.baseUrl, backend.sessions);
     setBooted(backend, consoleServer);
     // T131 (BS-09): the app's log stays in this process's memory; workers read it over the loopback tap
@@ -71,8 +78,10 @@ export default async function globalSetup() {
     process.env[BS_ENV.tenantA] = backend.tenantCode;
     process.env[BS_ENV.tenantB] = tenantB.code;
     process.env[BS_ENV.pgContainer] = backend.pgName;
-    process.env[BS_ENV.wiremockPort] = String(wiremock.port);
-    process.env[BS_ENV.wiremockAdmin] = wiremock.adminUrl;
+    if (withWiremock) {
+      process.env[BS_ENV.wiremockPort] = String(wiremock.port);
+      process.env[BS_ENV.wiremockAdmin] = wiremock.adminUrl;
+    }
     process.env[BS_ENV.kafkaContainer] = kafka.name;
     process.env[BS_ENV.appPid] = String(backend.appPid);
     process.env[BS_ENV.appLog] = logTap.url;
