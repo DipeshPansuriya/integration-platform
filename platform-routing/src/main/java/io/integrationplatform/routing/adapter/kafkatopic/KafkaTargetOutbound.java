@@ -21,9 +21,18 @@ final class KafkaTargetOutbound implements KafkaOutbound {
     private final java.util.function.Function<UUID, Optional<String>> settingsJson;
     private final KafkaTargetBody body;
 
+    /** E16: the SASL password per endpoint from the vault seam - opened only for a SASL system, the call zeroes it. */
+    private final java.util.function.Function<UUID, Optional<char[]>> saslPassword;
+
     KafkaTargetOutbound(java.util.function.Function<UUID, Optional<String>> settingsJson, KafkaTargetBody body) {
+        this(settingsJson, body, id -> Optional.empty());
+    }
+
+    KafkaTargetOutbound(java.util.function.Function<UUID, Optional<String>> settingsJson, KafkaTargetBody body,
+            java.util.function.Function<UUID, Optional<char[]>> saslPassword) {
         this.settingsJson = Objects.requireNonNull(settingsJson, "settingsJson");
         this.body = Objects.requireNonNull(body, "body");
+        this.saslPassword = Objects.requireNonNull(saslPassword, "saslPassword");
     }
 
     @Override
@@ -43,6 +52,14 @@ final class KafkaTargetOutbound implements KafkaOutbound {
         if (rendered.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new KafkaMessage(settings, rendered.get()));
+        char[] password = null;
+        if (settings.protocol().sasl()) {
+            password = saslPassword.apply(send.targetEndpointId()).filter(p -> p.length > 0).orElse(null);
+            if (password == null) {
+                throw new TargetFaultException(OutcomeClass.PERMANENT,
+                        "the SASL credential of target endpoint " + send.targetEndpointId() + " is not stored");
+            }
+        }
+        return Optional.of(new KafkaMessage(settings, rendered.get(), password));
     }
 }

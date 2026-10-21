@@ -56,6 +56,16 @@ public final class SystemSettings {
     private static final java.util.regex.Pattern TRUSTSTORE_NAME =
             java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
 
+    /** E16: whether {@code name} is an acceptable Kafka SASL user name (the adapter re-checks a stored row). */
+    public static boolean isKafkaUser(String name) {
+        return name != null && KAFKA_USER.matcher(name).matches();
+    }
+
+    /** E16: whether {@code name} is a plain truststore file name - no path, so it cannot leave its directory. */
+    public static boolean isTruststoreName(String name) {
+        return name != null && TRUSTSTORE_NAME.matcher(name).matches();
+    }
+
     private enum Kind {
         TEXT, PORT, HTTP_URL, TIMEOUT_MS, BOOLEAN, TRIAL_CALLS, ERROR_DICTIONARY,
         /** E16: a plain SQL identifier (the DB target's account and table). */

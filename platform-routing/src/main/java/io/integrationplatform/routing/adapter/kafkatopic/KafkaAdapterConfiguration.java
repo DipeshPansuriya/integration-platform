@@ -1,13 +1,17 @@
 package io.integrationplatform.routing.adapter.kafkatopic;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.integrationplatform.config.credential.api.TargetCredentialField;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.MqConnectionCheck;
 import io.integrationplatform.config.destination.SocketDialer;
+import io.integrationplatform.routing.credential.OpenedCredentials;
+import io.integrationplatform.routing.credential.SendTimeCredentials;
 import io.integrationplatform.tenancy.TenantContext;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Optional;
@@ -44,17 +48,32 @@ public class KafkaAdapterConfiguration {
     }
 
     @Bean
-    KafkaOutbound kafkaOutbound(JdbcKafkaTargets targets, ObjectProvider<KafkaTargetBody> bodies) {
+    KafkaOutbound kafkaOutbound(JdbcKafkaTargets targets, ObjectProvider<KafkaTargetBody> bodies,
+            ObjectProvider<SendTimeCredentials> vault) {
         KafkaTargetBody body = bodies.getIfAvailable(() -> send -> Optional.empty());
-        return new KafkaTargetOutbound(targets::settingsOf, body);
+        SendTimeCredentials credentials = vault.getIfAvailable();
+        // the SASL password is the KAFKA_TOPIC credential in the vault - opened per send, only for a SASL system;
+        // with no credential slice composed a SASL system has none and is refused PERMANENT
+        return new KafkaTargetOutbound(targets::settingsOf, body, endpointId -> {
+            if (credentials == null) {
+                return Optional.empty();
+            }
+            try (OpenedCredentials opened = credentials.open(endpointId)) {
+                return opened.value(TargetCredentialField.SASL_PASSWORD.name()).map(char[]::clone);
+                // copy: close() zeroes the original
+            }
+        });
     }
 
     @Bean
     KafkaTopicTargetCall kafkaTopicTargetCall(KafkaOutbound outbound, DestinationGuard guard,
             @Value("${IPASS_KAFKA_PLATFORM_TOPICS}") String platformTopics,
+            @Value("${IPASS_KAFKA_TRUSTSTORE_DIR:}") String truststoreDir,
             ObjectProvider<CircuitBreakerRegistry> breakers, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations) {
-        return new KafkaTopicTargetCall(outbound, new KafkaClientsSender(guard), guard, topics(platformTopics),
+        // the operator's directory of truststore files; unset = a system that names a truststore is refused PERMANENT
+        Path trustDir = truststoreDir == null || truststoreDir.isBlank() ? null : Path.of(truststoreDir.strip());
+        return new KafkaTopicTargetCall(outbound, new KafkaClientsSender(guard, trustDir), guard, topics(platformTopics),
                 breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP), Duration.ofSeconds(5));

@@ -15,9 +15,9 @@ import io.micrometer.core.instrument.Timer;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.AuthorizationException;
 import org.apache.kafka.common.errors.InvalidTopicException;
 import org.slf4j.Logger;
@@ -106,7 +106,8 @@ public final class KafkaTopicTargetCall implements TargetCall {
                         + send.targetEndpointId() + " is refused: " + refused.getMessage());
             }
             try {
-                sender.send(message.settings(), send.deliveryId(), message.body(), Duration.ofMillis(timeoutMillis));
+                sender.send(message.settings(), message.saslPassword(), send.deliveryId(), message.body(),
+                        Duration.ofMillis(timeoutMillis));
                 outcome = OutcomeClass.SUCCESS;
                 breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
             } catch (AuthorizationException | InvalidTopicException refused) {
@@ -115,6 +116,23 @@ public final class KafkaTopicTargetCall implements TargetCall {
                 breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
                 throw new TargetFaultException(outcome, "the broker of target endpoint " + send.targetEndpointId()
                         + " refused the send (" + refused.getClass().getSimpleName() + ")");
+            } catch (AuthenticationException failed) {
+                // E16: a wrong password or an untrusted certificate - a retry cannot fix it and could lock the account
+                outcome = OutcomeClass.PERMANENT;
+                breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+                throw new TargetFaultException(outcome, "the broker of target endpoint " + send.targetEndpointId()
+                        + " refused the login (" + failed.getClass().getSimpleName() + ")");
+            } catch (DestinationRefusedException refused) {
+                // E16 F7: a broker the cluster advertised is behind the guard - the address stays out of the text
+                outcome = OutcomeClass.PERMANENT;
+                breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+                throw new TargetFaultException(outcome, "a broker advertised by the cluster of target endpoint "
+                        + send.targetEndpointId() + " is refused by the destination guard");
+            } catch (KafkaSecurityException misconfigured) {
+                outcome = OutcomeClass.PERMANENT;
+                breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+                throw new TargetFaultException(outcome, "the Kafka security of target endpoint "
+                        + send.targetEndpointId() + " is unusable: " + misconfigured.getMessage());
             } catch (java.util.concurrent.TimeoutException unacknowledged) {
                 // the record was handed to the broker and no answer came: it may be on the topic (ADR-010 s5)
                 outcome = OutcomeClass.AMBIGUOUS;
@@ -137,7 +155,7 @@ public final class KafkaTopicTargetCall implements TargetCall {
             LOG.info("kafka send delivery={} endpoint={} outcome={} ms={}", send.deliveryId(), send.targetEndpointId(),
                     tag, TimeUnit.NANOSECONDS.toMillis(elapsed));
             if (message != null) {
-                Arrays.fill(message.body(), (byte) 0); // the body is this call's copy; the port keeps the source
+                message.wipe(); // the body and the SASL password are this call's copies; the port keeps the source
             }
         }
     }

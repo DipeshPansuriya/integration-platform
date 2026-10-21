@@ -65,7 +65,7 @@ class KafkaTopicTargetKafkaContainerTest {
         String host = hostOf(servers);
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of(host)),
                 name -> List.of(InetAddress.getLoopbackAddress()), List.of(host), List.of(portOf(servers)));
-        KafkaTopicSettings settings = new KafkaTopicSettings(servers.replace("PLAINTEXT://", ""), topic);
+        KafkaTopicSettings settings = new KafkaTopicSettings(servers.replace("PLAINTEXT://", ""), topic, "PLAINTEXT", null, null, null);
         return new KafkaTopicTargetCall(send -> Optional.of(new KafkaMessage(settings, body.clone())),
                 new KafkaClientsSender(guard), guard, PLATFORM_TOPICS, CircuitBreakerRegistry.ofDefaults(), meters,
                 ObservationRegistry.NOOP, timeout);
@@ -126,7 +126,7 @@ class KafkaTopicTargetKafkaContainerTest {
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of(host)),
                 name -> List.of(InetAddress.getLoopbackAddress()), List.of(host), List.of(portOf(servers)));
         KafkaTopicTargetCall call = new KafkaTopicTargetCall(
-                send -> Optional.of(new KafkaMessage(new KafkaTopicSettings(servers, topic), new byte[] {1})),
+                send -> Optional.of(new KafkaMessage(new KafkaTopicSettings(servers, topic, "PLAINTEXT", null, null, null), new byte[] {1})),
                 new KafkaClientsSender(guard), guard, platform, CircuitBreakerRegistry.ofDefaults(), meters,
                 ObservationRegistry.NOOP, Duration.ofSeconds(10));
 
