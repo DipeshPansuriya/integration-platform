@@ -33,6 +33,8 @@
     <module>platform-transform</module>
     <!-- E12 seam (arjun-fullstack): low-conflict contract surface for logging and activity tracking. -->
     <module>platform-audit</module>
+    <!-- E13 seam (arjun-fullstack): low-conflict contract surface for tracking and report reads. -->
+    <module>platform-tracking</module>
     <module>platform-tenancy</module>
     <module>platform-app</module>
     <!-- Test-only module: ArchUnit rules over every module's package (ADR-001 item 2, R08). Not part of the deployable. -->
