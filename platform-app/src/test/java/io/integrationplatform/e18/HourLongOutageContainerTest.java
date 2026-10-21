@@ -94,7 +94,11 @@ class HourLongOutageContainerTest extends E18Base {
             round++;
             awaitAllWaiting(tenant, messages, "round " + round + ": every delivery to reach RETRY_WAIT");
             double longest = longestWaitSeconds(tenant);
-            double cap = Math.min(30.0 * Math.pow(2, round), 3600.0) + 5; // ADR-010: base 30 s, doubling, 1 h ceiling
+            // ADR-010: base 30 s, doubling, 1 h ceiling. The real DELIVERY_RETRY job also runs on its own, so the
+            // attempts already made are read from the ledger (rows >= layer-2 attempts: a sound upper bound).
+            long rows = ownerLong("select coalesce(max(c), 1) from (select count(*) c from public.delivery_attempt"
+                    + " where tenant_id = ?::uuid group by delivery_id) t", tenant.id());
+            double cap = Math.min(30.0 * Math.pow(2, Math.max(round, rows)), 3600.0) + 5;
             assertThat(longest).as("round %d: the scheduled wait stays inside the backoff bound/cap", round)
                     .isLessThanOrEqualTo(cap);
             waitsSeconds.add(longest);
