@@ -71,7 +71,7 @@ class DbTargetControlsTest {
         row.put("awb", "ABX1");
         row.put("pieces", 2);
         DbOutbound outbound = new DbTargetOutbound(targets, s -> Optional.of(List.of(row)));
-        return new DbTargetCall(outbound, sender, guard("broker.example", 61616),
+        return new DbTargetCall(outbound, sender, guard("broker.example", 61616), List.of(61616),
                 breakers, meters, ObservationRegistry.create());
     }
 
@@ -81,7 +81,7 @@ class DbTargetControlsTest {
         org.mockito.Mockito.doAnswer(onCall -> {
             inserted.set(onCall.getArgument(0));
             return null;
-        }).when(sender).insert(any(DbMessage.class), any(UUID.class));
+        }).when(sender).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
 
         call(targets(STORED_SETTINGS, "db-pass".toCharArray()), sender).call(send);
 
@@ -103,7 +103,7 @@ class DbTargetControlsTest {
                 .extracting(f -> ((TargetFaultException) f).outcomeClass())
                 .isEqualTo(OutcomeClass.PERMANENT);
 
-        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class));
+        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
         assertThat(meters.get("db.target.outcome").tag("outcome", "PERMANENT").counter()).isNotNull();
     }
 
@@ -111,7 +111,7 @@ class DbTargetControlsTest {
     void theTargetDatabaseDownIsTransient() throws Exception {
         DbSender down = mock(DbSender.class);
         org.mockito.Mockito.doThrow(new SQLException("connect refused", "08001"))
-                .when(down).insert(any(DbMessage.class), any(UUID.class));
+                .when(down).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
 
         assertThatThrownBy(() -> call(targets(STORED_SETTINGS, "db-pass".toCharArray()), down).call(send))
                 .isInstanceOf(TargetFaultException.TransientFaultException.class);
@@ -121,7 +121,7 @@ class DbTargetControlsTest {
     void aChannelDropAfterTheStatementMayHaveBeenSentIsAmbiguous() throws Exception {
         DbSender dropped = mock(DbSender.class);
         org.mockito.Mockito.doThrow(new SQLException("connection closed", "08006"))
-                .when(dropped).insert(any(DbMessage.class), any(UUID.class));
+                .when(dropped).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
 
         assertThatThrownBy(() -> call(targets(STORED_SETTINGS, "db-pass".toCharArray()), dropped).call(send))
                 .isInstanceOf(TargetFaultException.class)
@@ -143,35 +143,35 @@ class DbTargetControlsTest {
         DestinationGuard closedGuard = closedGuard(); // an empty allow-list refuses every host
 
         DbOutbound outbound = new DbTargetOutbound(targets(STORED_SETTINGS, "db-pass".toCharArray()), s -> Optional.of(List.of(Map.of("awb", "1"))));
-        DbTargetCall call = new DbTargetCall(outbound, sender, closedGuard, breakers, meters,
+        DbTargetCall call = new DbTargetCall(outbound, sender, closedGuard, java.util.List.of(61616), breakers, meters,
                 ObservationRegistry.create());
 
         assertThatThrownBy(() -> call.call(send))
                 .isInstanceOf(TargetFaultException.class)
                 .extracting(f -> ((TargetFaultException) f).outcomeClass())
                 .isEqualTo(OutcomeClass.PERMANENT);
-        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class));
+        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
     }
 
     @Test
     void noMappedRowsRefuseTheSendAsPermanent() throws Exception {
         DbOutbound outbound = new DbTargetOutbound(targets(STORED_SETTINGS, "db-pass".toCharArray()),
                 s -> Optional.empty());
-        DbTargetCall call = new DbTargetCall(outbound, sender, guard("broker.example", 61616), breakers, meters,
+        DbTargetCall call = new DbTargetCall(outbound, sender, guard("broker.example", 61616), List.of(61616), breakers, meters,
                 ObservationRegistry.create());
 
         assertThatThrownBy(() -> call.call(send))
                 .isInstanceOf(TargetFaultException.class)
                 .extracting(f -> ((TargetFaultException) f).outcomeClass())
                 .isEqualTo(OutcomeClass.PERMANENT);
-        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class));
+        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
     }
 
     @Test
     void aBrokenSettingsRowRefusesTheSendAsPermanent() throws Exception {
         DbTargets broken = id -> { throw new IllegalStateException("bad json"); };
         DbOutbound outbound = new DbTargetOutbound(broken, s -> Optional.of(List.of(Map.of("awb", "1"))));
-        DbTargetCall call = new DbTargetCall(outbound, sender, guard("broker.example", 61616), breakers, meters,
+        DbTargetCall call = new DbTargetCall(outbound, sender, guard("broker.example", 61616), List.of(61616), breakers, meters,
                 ObservationRegistry.create());
 
         assertThatThrownBy(() -> call.call(send))
@@ -179,7 +179,7 @@ class DbTargetControlsTest {
                     assertThat(fault.outcomeClass()).isEqualTo(OutcomeClass.PERMANENT);
                     assertThat(fault.getMessage()).contains("are unusable: bad json");
                 });
-        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class));
+        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
     }
 
     @Test

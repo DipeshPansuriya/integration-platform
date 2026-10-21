@@ -48,14 +48,14 @@ class DbTargetHardeningTest {
         DbTargets targets = id -> Optional.of(new DbTargets.DbTarget(settings, "pw".toCharArray()));
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of("db.example")),
                 name -> List.of(InetAddress.getLoopbackAddress()), List.of("db.example"), List.of(5432));
-        return new DbTargetCall(new DbTargetOutbound(targets, s -> Optional.of(List.of(row))), sender, guard,
+        return new DbTargetCall(new DbTargetOutbound(targets, s -> Optional.of(List.of(row))), sender, guard, List.of(5432),
                 CircuitBreakerRegistry.ofDefaults(), new SimpleMeterRegistry(), ObservationRegistry.create());
     }
 
     private void assertPermanentAndNothingSent(Runnable attempt) throws Exception {
         assertThatThrownBy(attempt::run).isInstanceOfSatisfying(TargetFaultException.class,
                 fault -> assertThat(fault.outcomeClass()).isEqualTo(OutcomeClass.PERMANENT));
-        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class));
+        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
     }
 
     @Test

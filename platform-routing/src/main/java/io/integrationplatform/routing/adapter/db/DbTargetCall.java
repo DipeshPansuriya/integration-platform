@@ -3,6 +3,7 @@ package io.integrationplatform.routing.adapter.db;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.integrationplatform.config.destination.CheckedDestination;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.DestinationRefusedException;
 import io.integrationplatform.domain.delivery.OutcomeClass;
@@ -45,20 +46,30 @@ public final class DbTargetCall implements TargetCall {
         }
     }
 
+    /** F1: the database ports a target may use; the operator lists them (default 5432). Anything else is refused. */
+    public static void requireAllowedPort(int port, java.util.Set<Integer> allowedPorts) {
+        if (!allowedPorts.contains(port)) {
+            throw new IllegalStateException("port " + port + " is not an allowed database port");
+        }
+    }
+
     private static final Logger LOG = LoggerFactory.getLogger(DbTargetCall.class);
 
     private final DbOutbound outbound;
     private final DbSender sender;
     private final DestinationGuard guard;
+    private final java.util.Set<Integer> allowedPorts;
     private final CircuitBreakerRegistry breakers;
     private final MeterRegistry meters;
     private final ObservationRegistry observations;
 
     public DbTargetCall(DbOutbound outbound, DbSender sender, DestinationGuard guard,
+            java.util.Collection<Integer> allowedPorts,
             CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations) {
         this.outbound = outbound;
         this.sender = sender;
         this.guard = guard;
+        this.allowedPorts = java.util.Set.copyOf(allowedPorts);
         this.breakers = breakers;
         this.meters = meters;
         this.observations = observations;
@@ -92,18 +103,27 @@ public final class DbTargetCall implements TargetCall {
                 throw new TargetFaultException(outcome, "delivery " + send.deliveryId() + " has no DB message");
             }
             message = resolved.get();
+            CheckedDestination checked;
             try {
-                // shortcut: checkHost has no DNS pinning; the database host is re-resolved at connect time
-                guard.checkHost(message.settings().host());
+                // F1 (CWE-918): the port first (no DNS spent on a refused port), then the approved table, then the
+                // FULL guard: allow-list, platform hosts, refused ranges on EVERY resolved address; the host is
+                // resolved ONCE here and the checked address is what the sender dials
+                requireAllowedPort(message.settings().port(), allowedPorts);
                 requireApprovedTable(message.table(), message.settings().approvedTables());
-            } catch (DestinationRefusedException | IllegalStateException refused) {
+                checked = guard.check(java.net.URI.create("http://" + message.settings().host() + ":"
+                        + message.settings().port()));
+            } catch (DestinationRefusedException | IllegalStateException | IllegalArgumentException refused) {
                 outcome = OutcomeClass.PERMANENT;
                 breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
                 throw new TargetFaultException(outcome, "the DB destination of target endpoint "
                         + send.targetEndpointId() + " is refused, destination refused: " + refused.getMessage());
+            } catch (java.net.UnknownHostException unresolved) {
+                breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, unresolved);
+                throw new TargetFaultException.TransientFaultException("the database host of target endpoint "
+                        + send.targetEndpointId() + " does not resolve");
             }
             try {
-                sender.insert(message, send.deliveryId());
+                sender.insert(message, send.deliveryId(), checked.pinnedAddress());
                 outcome = OutcomeClass.SUCCESS;
                 breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
             } catch (SQLException refused) {
