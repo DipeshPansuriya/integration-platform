@@ -48,7 +48,14 @@
     <dependency>
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-audit</artifactId>
-    </dependency>    <dependency>
+    </dependency>
+    <!-- E13 seam (arjun-fullstack): contract types for tracking and report reads (platform-tracking), backed by the
+         tracking runtime slice in io.integrationplatform.app.message. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-tracking</artifactId>
+    </dependency>
+    <dependency>
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>
     </dependency>

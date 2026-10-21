@@ -196,6 +196,12 @@
         <artifactId>platform-audit</artifactId>
         <version>${project.version}</version>
       </dependency>
+      <!-- E13 seam (arjun-fullstack): the tracking/report contract module - the deployable backs it with the tracking runtime slice. -->
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-tracking</artifactId>
+        <version>${project.version}</version>
+      </dependency>
       <!-- E3 seam: OpenAPI document generation for the UI's typed client (T-158) and the contract test (T-094). -->
       <dependency>
         <groupId>org.springdoc</groupId>

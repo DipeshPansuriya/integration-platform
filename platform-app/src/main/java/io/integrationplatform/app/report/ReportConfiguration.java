@@ -21,4 +21,9 @@ public class ReportConfiguration {
     public ReportFacade reportFacade(ReportDataProvider provider) {
         return new DefaultReportFacade(provider);
     }
+
+    @Bean
+    public io.integrationplatform.tracking.api.ReportReadApi reportReadApi(ReportFacade facade) {
+        return new JdbcReportReadApi(facade);
+    }
 }

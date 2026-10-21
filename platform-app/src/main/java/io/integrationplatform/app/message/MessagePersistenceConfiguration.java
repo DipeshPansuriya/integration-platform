@@ -28,6 +28,11 @@ class MessagePersistenceConfiguration {
         return new MessageTrackingService(store);
     }
 
+    @Bean
+    io.integrationplatform.tracking.api.TrackingReadApi trackingReadApi(MessageTrackingService service) {
+        return new JdbcTrackingReadApi(service);
+    }
+
     /** The fail-closed no-binding context - the anonymous shape over the two-method contract. */
     private static TenantContext neverBound() {
         return new TenantContext() {
