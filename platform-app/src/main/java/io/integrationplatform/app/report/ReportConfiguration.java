@@ -1,19 +1,24 @@
 package io.integrationplatform.app.report;
 
 import io.integrationplatform.app.message.MessageTrackingService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration(proxyBeanMethods = false)
-class ReportConfiguration {
+public class ReportConfiguration {
 
     @Bean
-    MessageTrackingReportDataProvider messageTrackingReportDataProvider(MessageTrackingService service) {
-        return new MessageTrackingReportDataProvider(service);
+    public ReportDataProvider reportDataProvider(ObjectProvider<MessageTrackingService> service) {
+        MessageTrackingService tracking = service.getIfAvailable();
+        if (tracking != null) {
+            return new MessageTrackingReportDataProvider(tracking);
+        }
+        return new StubReportDataProvider();
     }
 
     @Bean
-    ReportFacade reportFacade(MessageTrackingReportDataProvider provider) {
+    public ReportFacade reportFacade(ReportDataProvider provider) {
         return new DefaultReportFacade(provider);
     }
 }
