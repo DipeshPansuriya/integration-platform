@@ -2,16 +2,26 @@ package io.integrationplatform.config.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.github.kagkarlsson.scheduler.ScheduledExecution;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
 import io.integrationplatform.domain.scheduler.PollingJobSurface;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 class JobPollingSurfaceTest {
 
@@ -41,11 +51,8 @@ class JobPollingSurfaceTest {
                 300, 300, "{}");
 
         when(definitions.all()).thenReturn(List.of(active, paused, disabled));
-        when(runs.search("DELIVERY_RETRY", null, null, null, 1))
-                .thenReturn(List.of(new JobRunView(null, "DELIVERY_RETRY", NEXT.minusSeconds(300), LAST, LAST,
-                        "instance", "SUCCEEDED", false, null, null)));
-        when(runs.search("DAILY_REPORT", null, null, null, 1)).thenReturn(List.of());
-        when(runs.search("PAYLOAD_PURGE", null, null, null, 1)).thenReturn(List.of());
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT))
+                .thenReturn(List.of(run("DELIVERY_RETRY", LAST)));
 
         @SuppressWarnings("unchecked")
         ScheduledExecution<Object> execution = (ScheduledExecution<Object>) mock(ScheduledExecution.class);
@@ -65,10 +72,8 @@ class JobPollingSurfaceTest {
 
     @Test
     void pollToleratesMissingClientExecution() {
-        JobDefinitionRow active = new JobDefinitionRow("CREDENTIAL_CLEANUP", "CRON", "0 0 * * *", true, false,
-                60, 30, "{}");
-        when(definitions.all()).thenReturn(List.of(active));
-        when(runs.search("CREDENTIAL_CLEANUP", null, null, null, 1)).thenReturn(List.of());
+        when(definitions.all()).thenReturn(List.of(row("CREDENTIAL_CLEANUP")));
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT)).thenReturn(List.of());
         when(client.getScheduledExecution(any())).thenReturn(Optional.empty());
 
         List<PollingJobSurface.JobSummary> polled = surface.poll();
@@ -83,14 +88,118 @@ class JobPollingSurfaceTest {
 
     @Test
     void pollToleratesClientFailure() {
-        JobDefinitionRow active = new JobDefinitionRow("CREDENTIAL_CLEANUP", "CRON", "0 0 * * *", true, false,
-                60, 30, "{}");
-        when(definitions.all()).thenReturn(List.of(active));
-        when(runs.search("CREDENTIAL_CLEANUP", null, null, null, 1)).thenReturn(List.of());
+        when(definitions.all()).thenReturn(List.of(row("CREDENTIAL_CLEANUP")));
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT)).thenReturn(List.of());
         when(client.getScheduledExecution(any())).thenThrow(new RuntimeException("boom"));
 
         List<PollingJobSurface.JobSummary> polled = surface.poll();
 
         assertThat(polled).singleElement().extracting(PollingJobSurface.JobSummary::nextRunAt).isNull();
+    }
+
+    @Test
+    void pollReadsLatestRunsInOneBatchNotOnePerJob() {
+        when(definitions.all()).thenReturn(List.of(row("A"), row("B"), row("C")));
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT)).thenReturn(
+                List.of(run("A", LAST), run("B", LAST.minusSeconds(60)), run("A", LAST.minusSeconds(900))));
+        when(client.getScheduledExecution(any())).thenReturn(Optional.empty());
+
+        List<PollingJobSurface.JobSummary> polled = surface.poll();
+
+        assertThat(polled).extracting(PollingJobSurface.JobSummary::lastRunAt)
+                .containsExactly(LAST, LAST.minusSeconds(60), null);
+        verify(runs, times(1)).search(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void truncatedBatchFallsBackToPerJobLookupOnlyForJobsMissingFromIt() {
+        when(definitions.all()).thenReturn(List.of(row("A"), row("OLD")));
+        List<JobRunView> full = IntStream.range(0, JobRunSearch.MAX_LIMIT).mapToObj(i -> run("A", LAST)).toList();
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT)).thenReturn(full);
+        when(runs.search("OLD", null, null, null, 1)).thenReturn(List.of(run("OLD", LAST.minusSeconds(86400))));
+        when(client.getScheduledExecution(any())).thenReturn(Optional.empty());
+
+        assertThat(surface.poll()).extracting(PollingJobSurface.JobSummary::lastRunAt)
+                .containsExactly(LAST, LAST.minusSeconds(86400));
+        verify(runs, never()).search(eq("A"), any(), any(), any(), any());
+    }
+
+    @Test
+    void pollSinceKeepsOnlyJobsThatRanSinceAndSkipsTheClientForTheRest() {
+        Instant since = LAST.minusSeconds(30);
+        when(definitions.all()).thenReturn(List.of(row("RAN"), row("STALE"), row("NEVER")));
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT))
+                .thenReturn(List.of(run("RAN", LAST), run("STALE", LAST.minusSeconds(600))));
+        @SuppressWarnings("unchecked")
+        ScheduledExecution<Object> execution = (ScheduledExecution<Object>) mock(ScheduledExecution.class);
+        when(execution.getExecutionTime()).thenReturn(NEXT);
+        when(client.getScheduledExecution(any())).thenReturn(Optional.of(execution));
+
+        List<PollingJobSurface.JobSummary> changed = surface.pollSince(since);
+
+        assertThat(changed).singleElement().satisfies(summary -> {
+            assertThat(summary.jobId()).isEqualTo("RAN");
+            assertThat(summary.nextRunAt()).isEqualTo(NEXT);
+        });
+        verify(client, times(1)).getScheduledExecution(any());
+        assertThat(surface.pollSince(null)).hasSize(3);
+    }
+
+    @Test
+    void clientFailureIsLoggedAtWarnWithTheJobId() {
+        when(definitions.all()).thenReturn(List.of(row("BROKEN_JOB")));
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT)).thenReturn(List.of());
+        when(client.getScheduledExecution(any())).thenThrow(new RuntimeException("boom"));
+
+        List<ILoggingEvent> events = capture(surface::poll);
+
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("BROKEN_JOB");
+        });
+    }
+
+    @Test
+    void runLookupFailureIsLoggedAtWarnAndTheJobIsStillListed() {
+        when(definitions.all()).thenReturn(List.of(row("BROKEN_JOB")));
+        when(runs.search(any(), any(), any(), any(), any())).thenThrow(new IllegalStateException("db down"));
+        when(client.getScheduledExecution(any())).thenReturn(Optional.empty());
+
+        List<PollingJobSurface.JobSummary>[] polled = newHolder();
+        List<ILoggingEvent> events = capture(() -> polled[0] = surface.poll());
+
+        assertThat(polled[0]).singleElement()
+                .extracting(PollingJobSurface.JobSummary::lastRunAt).isNull();
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("BROKEN_JOB");
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<PollingJobSurface.JobSummary>[] newHolder() {
+        return new List[1];
+    }
+
+    private static JobRunView run(String jobType, Instant finished) {
+        return new JobRunView(null, jobType, finished.minusSeconds(300), finished.minusSeconds(10), finished,
+                "instance", "SUCCEEDED", false, null, null);
+    }
+
+    private static JobDefinitionRow row(String jobType) {
+        return new JobDefinitionRow(jobType, "CRON", "0 0 * * *", true, false, 60, 30, "{}");
+    }
+
+    private static List<ILoggingEvent> capture(Runnable action) {
+        Logger logger = (Logger) LoggerFactory.getLogger(JobPollingSurface.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            action.run();
+        } finally {
+            logger.detachAppender(appender);
+        }
+        return List.copyOf(appender.list);
     }
 }
