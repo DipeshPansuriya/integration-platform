@@ -148,7 +148,7 @@ class KafkaTopicTargetKafkaContainerTest {
         try (ServerSocket probe = new ServerSocket(0)) {
             closedPort = probe.getLocalPort();
         }
-        String down = "127.0.0.1:" + closedPort;
+        String down = "localhost:" + closedPort;
 
         assertThatThrownBy(() -> call(down, "orders-out", new byte[] {1}, Duration.ofSeconds(3))
                 .call(new Stage2Send(UUID.randomUUID(), UUID.randomUUID(), null, UUID.randomUUID(), false)))
