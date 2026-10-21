@@ -153,7 +153,9 @@ final class KafkaClientsSender implements KafkaSender {
             if (out.length() > 0) {
                 out.append(',');
             }
-            out.append(pin ? checked.pinnedAddress().getHostAddress() : host).append(':').append(port);
+            String dial = pin ? checked.pinnedAddress().getHostAddress() : host;
+            out.append(dial.contains(":") && !dial.startsWith("[") ? "[" + dial + "]" : dial) // IPv6 literal
+                    .append(':').append(port);
         }
         return out.toString();
     }
