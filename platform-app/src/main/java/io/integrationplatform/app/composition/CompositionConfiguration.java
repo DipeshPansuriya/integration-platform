@@ -1,5 +1,6 @@
 package io.integrationplatform.app.composition;
 
+import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.routing.adapter.api.ApiTargetBody;
 import io.integrationplatform.routing.adapter.mq.MqTargetBody;
 import io.integrationplatform.tenancy.TenantContext;
@@ -23,10 +24,11 @@ class CompositionConfiguration {
 
     @Bean
     ApiTargetBody transformedApiBody(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts,
-            TransformPort transformPort, LookupSource lookupSource) {
+            TransformPort transformPort, LookupSource lookupSource, ObjectProvider<StageTimings> timings) {
         TenantContext boundAtCall =
                 () -> Optional.ofNullable(tenantContexts.getIfAvailable()).flatMap(TenantContext::currentTenantId);
-        return new TransformedApiBody(jdbcClient, boundAtCall, transformPort, lookupSource);
+        return new TransformedApiBody(jdbcClient, boundAtCall, transformPort, lookupSource,
+                timings.getIfAvailable());
     }
 
     /** Row 327: the MQ message is the transformed API body's bytes - one transform lookup, inside the same tenant transaction. */
