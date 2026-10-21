@@ -45,12 +45,12 @@ export function QueueDashboard() {
       <table>
         <thead>
           <tr>
-            <th>Flow</th>
-            <th>Day</th>
-            <th>Queued</th>
-            <th>Processed</th>
-            <th>Converted</th>
-            <th>Failed</th>
+            <th scope="col">Flow</th>
+            <th scope="col">Day</th>
+            <th scope="col">Queued</th>
+            <th scope="col">Processed</th>
+            <th scope="col">Converted</th>
+            <th scope="col">Failed</th>
           </tr>
         </thead>
         <tbody>

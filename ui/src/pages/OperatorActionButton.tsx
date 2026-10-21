@@ -7,7 +7,8 @@ import { useState } from 'react';
 import { replayDelivery, retryDelivery } from '../api/operator';
 import { actionAnswerText, type OperatorAction } from './operator-actions';
 
-export function OperatorActionButton({ action }: { action: OperatorAction }) {
+// onDone: called once, after the server accepted the action (200) - the detail screen re-reads its timeline there.
+export function OperatorActionButton({ action, onDone }: { action: OperatorAction; onDone?: (action: OperatorAction) => void }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [text, setText] = useState('');
@@ -20,6 +21,7 @@ export function OperatorActionButton({ action }: { action: OperatorAction }) {
       const answer = await send(action.deliveryId);
       if (answer.ok) setDone(true);
       setText(actionAnswerText(action.kind, answer));
+      if (answer.ok) onDone?.(action);
     } catch {
       setText(actionAnswerText(action.kind, { ok: false, status: 0 }));
     } finally {

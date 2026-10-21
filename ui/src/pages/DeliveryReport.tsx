@@ -61,7 +61,7 @@ export default function DeliveryReport() {
           <thead>
             <tr>
               {reportColumns().map((column) => (
-                <th key={column}>{column}</th>
+                <th scope="col" key={column}>{column}</th>
               ))}
             </tr>
           </thead>
