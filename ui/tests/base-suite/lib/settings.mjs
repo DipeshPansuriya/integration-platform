@@ -36,6 +36,8 @@ const RESOLVER_OVERRIDES = /jdk\.net\.hosts\.file|sun\.net\.spi\.nameservice/i;
  */
 const SHOWCASE_PORTS_VAR = 'PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS';
 const ALLOWED_HOSTS_VAR = 'PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS';
+/** Publish refuses an endpoint URI whose scheme is not approved (PipelineCompositionConfiguration.allowedSchemes; unset = none): the exception target is plain http. */
+const ALLOWED_SCHEMES_VAR = 'ROUTING_CORE_ALLOWED_SCHEMES';
 /** Names the exception's app variable may never be: the profile switch, the JVM's own settings, the two set here. */
 const RESERVED_VARS = new Set(['SPRING_PROFILES_ACTIVE', 'JAVA_HOME', 'PATH', ...JVM_OPTION_VARS, SHOWCASE_PORTS_VAR, ALLOWED_HOSTS_VAR]);
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;

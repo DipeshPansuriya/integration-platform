@@ -17,6 +17,7 @@ import { TENANT_B_PLAN } from './tenants.mjs';
 export const FRONT_TARGET_HOST = 'target-b.partner.test';
 export const FRONT_TARGET_BASE = `https://${FRONT_TARGET_HOST}`;
 const ALLOWED_HOSTS_VAR = 'PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS';
+const ALLOWED_SCHEMES_VAR = 'ROUTING_CORE_ALLOWED_SCHEMES';
 
 export function frontSuiteBootOptions({ lockHolder } = {}) {
   if (typeof lockHolder !== 'string' || lockHolder.trim() === '') {
@@ -25,7 +26,8 @@ export function frontSuiteBootOptions({ lockHolder } = {}) {
   return {
     extraTenants: [TENANT_B_PLAN],
     services: { kafka: BS_KAFKA },
-    appEnv: { [ALLOWED_HOSTS_VAR]: FRONT_TARGET_HOST },
+    // publish refuses an endpoint whose URI scheme is not approved (PipelineCompositionConfiguration.allowedSchemes: unset = none)
+    appEnv: { [ALLOWED_HOSTS_VAR]: FRONT_TARGET_HOST, [ALLOWED_SCHEMES_VAR]: 'https' },
     sourceCredentials: true,
     lockHolder
   };
