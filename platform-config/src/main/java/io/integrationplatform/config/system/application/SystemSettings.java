@@ -25,7 +25,10 @@ import tools.jackson.databind.JsonNode;
  *   <tr><td>DB</td><td>host, port (1-65535), database, user (E16 C3: the restricted account)</td><td>table, approvedTables (plain identifiers; E16)</td></tr>
  *   <tr><td>MQ</td><td>host, port (1-65535), queue</td><td>-</td></tr>
  *   <tr><td>FILE</td><td>rootPath</td><td>-</td></tr>
- *   <tr><td>KAFKA</td><td>bootstrapServers (host:port list), topic (never a platform topic)</td><td>-</td></tr>
+ *   <tr><td>KAFKA</td><td>bootstrapServers (host:port list), topic (never a platform topic)</td>
+ *       <td>securityProtocol (PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL; absent = {@value #KAFKA_DEFAULT_PROTOCOL} at
+ *       send), saslMechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512; required with SASL), username (required with SASL),
+ *       truststore (a file NAME in the operator's truststore directory, never a path; TLS only)</td></tr>
  * </table>
  *
  * Every type also accepts {@code halfOpenTrialCalls} (T-183, 1-100, default 3 when absent): the breaker's half-open
@@ -40,6 +43,19 @@ public final class SystemSettings {
 
     static final int MAX_TEXT = 2048;
 
+    /** E16: the protocol a KAFKA system without {@code securityProtocol} is dialled with - TLS, never clear text. */
+    public static final String KAFKA_DEFAULT_PROTOCOL = "SSL";
+
+    /** E16: the closed sets the KAFKA security fields accept; the Kafka adapter reads the same names. */
+    public static final List<String> KAFKA_PROTOCOLS = List.of("PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL");
+
+    public static final List<String> KAFKA_SASL_MECHANISMS = List.of("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512");
+
+    private static final java.util.regex.Pattern KAFKA_USER = java.util.regex.Pattern.compile("[A-Za-z0-9._@$:=+-]{1,256}");
+
+    private static final java.util.regex.Pattern TRUSTSTORE_NAME =
+            java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
+
     private enum Kind {
         TEXT, PORT, HTTP_URL, TIMEOUT_MS, BOOLEAN, TRIAL_CALLS, ERROR_DICTIONARY,
         /** E16: a plain SQL identifier (the DB target's account and table). */
@@ -49,7 +65,15 @@ public final class SystemSettings {
         /** E16: comma-separated host:port list (the Kafka target's bootstrap servers). */
         BOOTSTRAP_SERVERS,
         /** E16: a Kafka topic that is not one of the platform's own (T-184 SF-2). */
-        KAFKA_TOPIC
+        KAFKA_TOPIC,
+        /** E16: one of {@link #KAFKA_PROTOCOLS}. */
+        KAFKA_PROTOCOL,
+        /** E16: one of {@link #KAFKA_SASL_MECHANISMS}. */
+        KAFKA_MECHANISM,
+        /** E16: the SASL user name (the password is the vault's KAFKA_TOPIC credential, never a setting). */
+        KAFKA_USER,
+        /** E16: a truststore file name - no path separator, so it cannot leave the operator's directory. */
+        TRUSTSTORE_NAME
     }
 
     private static final java.util.regex.Pattern IDENTIFIER = java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z_0-9]{0,62}");
@@ -82,7 +106,9 @@ public final class SystemSettings {
                 new Field("queue", Kind.TEXT, true), TRIAL_CALLS));
         schemas.put("FILE", List.of(new Field("rootPath", Kind.TEXT, true), TRIAL_CALLS));
         schemas.put("KAFKA", List.of(new Field("bootstrapServers", Kind.BOOTSTRAP_SERVERS, true),
-                new Field("topic", Kind.KAFKA_TOPIC, true), TRIAL_CALLS));
+                new Field("topic", Kind.KAFKA_TOPIC, true), new Field("securityProtocol", Kind.KAFKA_PROTOCOL, false),
+                new Field("saslMechanism", Kind.KAFKA_MECHANISM, false), new Field("username", Kind.KAFKA_USER, false),
+                new Field("truststore", Kind.TRUSTSTORE_NAME, false), TRIAL_CALLS));
         return Map.copyOf(schemas);
     }
 
@@ -130,6 +156,9 @@ public final class SystemSettings {
                 errors.add("settings." + field.name() + " " + problem);
             }
         }
+        if (typeName.equals("KAFKA")) {
+            errors.addAll(kafkaSecurityProblems(settings));
+        }
         for (String name : settings.propertyNames()) {
             if (schema.stream().noneMatch(field -> field.name().equals(name))) {
                 errors.add("settings." + clip(name) + " is not a known " + typeName + " setting");
@@ -163,11 +192,56 @@ public final class SystemSettings {
                     : "must be a plain identifier (letters, digits, underscore)";
             case IDENTIFIER_LIST -> identifierListProblem(value);
             case BOOTSTRAP_SERVERS -> bootstrapServersProblem(value);
+            case KAFKA_PROTOCOL -> value.isString() && KAFKA_PROTOCOLS.contains(value.stringValue()) ? null
+                    : "must be one of " + String.join(", ", KAFKA_PROTOCOLS);
+            case KAFKA_MECHANISM -> value.isString() && KAFKA_SASL_MECHANISMS.contains(value.stringValue()) ? null
+                    : "must be one of " + String.join(", ", KAFKA_SASL_MECHANISMS);
+            case KAFKA_USER -> value.isString() && KAFKA_USER.matcher(value.stringValue()).matches() ? null
+                    : "must be a plain user name (letters, digits and . _ @ $ : = + -), at most 256 characters";
+            case TRUSTSTORE_NAME -> value.isString() && TRUSTSTORE_NAME.matcher(value.stringValue()).matches() ? null
+                    : "must be a file name (letters, digits, . _ -), never a path";
             case KAFKA_TOPIC -> value.isString()
                     ? io.integrationplatform.config.destination.SystemTopicRefusal.topicProblem(value.stringValue())
                             .map(SystemSettings::clip).orElse(null)
                     : "must be a topic name";
         };
+    }
+
+    /**
+     * E16: the cross-field rules of the KAFKA client security. SASL needs a mechanism and a user name and nothing else
+     * may carry them; PLAIN is refused over SASL_PLAINTEXT (the password would cross the wire in clear); a truststore
+     * needs a TLS protocol. An absent protocol is {@link #KAFKA_DEFAULT_PROTOCOL}.
+     */
+    private static List<String> kafkaSecurityProblems(JsonNode settings) {
+        JsonNode protocolNode = settings.get("securityProtocol");
+        String protocol = absent(protocolNode) ? KAFKA_DEFAULT_PROTOCOL
+                : protocolNode.isString() ? protocolNode.stringValue() : null;
+        if (protocol == null || !KAFKA_PROTOCOLS.contains(protocol)) {
+            return List.of(); // the field's own error is reported
+        }
+        boolean sasl = protocol.startsWith("SASL_");
+        boolean tls = protocol.endsWith("SSL");
+        List<String> errors = new ArrayList<>();
+        JsonNode mechanism = settings.get("saslMechanism");
+        if (absent(mechanism) && sasl) {
+            errors.add("settings.saslMechanism is required with securityProtocol " + protocol);
+        } else if (!absent(mechanism) && !sasl) {
+            errors.add("settings.saslMechanism needs securityProtocol SASL_SSL or SASL_PLAINTEXT");
+        } else if (sasl && protocol.equals("SASL_PLAINTEXT") && mechanism.isString()
+                && mechanism.stringValue().equals("PLAIN")) {
+            errors.add("settings.saslMechanism PLAIN over SASL_PLAINTEXT would send the password in clear; "
+                    + "use SASL_SSL or a SCRAM mechanism");
+        }
+        JsonNode username = settings.get("username");
+        if (absent(username) && sasl) {
+            errors.add("settings.username is required with securityProtocol " + protocol);
+        } else if (!absent(username) && !sasl) {
+            errors.add("settings.username needs securityProtocol SASL_SSL or SASL_PLAINTEXT");
+        }
+        if (!absent(settings.get("truststore")) && !tls) {
+            errors.add("settings.truststore needs a TLS securityProtocol (SSL or SASL_SSL)");
+        }
+        return errors;
     }
 
     private static String identifierListProblem(JsonNode value) {
