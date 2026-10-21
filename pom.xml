@@ -31,6 +31,8 @@
     <!-- E7||E8 seam (arjun-fullstack, F5): platform-transform registered EMPTY (skeleton + api only). Lane A's spike
          (T-030..T-032) uses it test scope only; lane B1's port (T-108) fills src/main inside its own diff. -->
     <module>platform-transform</module>
+    <!-- E12 seam (arjun-fullstack): low-conflict contract surface for logging and activity tracking. -->
+    <module>platform-audit</module>
     <module>platform-tenancy</module>
     <module>platform-app</module>
     <!-- Test-only module: ArchUnit rules over every module's package (ADR-001 item 2, R08). Not part of the deployable. -->
