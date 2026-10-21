@@ -41,6 +41,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
+import io.integrationplatform.domain.delivery.OutcomeClass;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -124,9 +126,20 @@ class PipelineCompositionConfiguration {
         Stage2AttemptWriter attempts = (deliveryId, layer, outcome, startedAt, finishedAt, detail) ->
                 transactions.executeWithoutResult(status ->
                         outcomes.recordAttempt(deliveryId, layer, outcome, startedAt, finishedAt, detail));
-        Stage2OutcomeHandoff handoff = (deliveryId, claimToken, attemptsSoFar, outcome, idempotent) ->
+        Stage2OutcomeHandoff handoff = new Stage2OutcomeHandoff() {
+            @Override
+            public void handOffAfterLayerOne(UUID deliveryId, UUID claimToken, int attemptsSoFar,
+                    OutcomeClass outcome, boolean idempotent) {
                 transactions.executeWithoutResult(status ->
                         outcomes.recordFailure(deliveryId, claimToken, attemptsSoFar, outcome, idempotent));
+            }
+
+            @Override
+            public void deferCircuitOpen(UUID deliveryId, UUID claimToken, Instant nextAttemptAt) {
+                transactions.executeWithoutResult(status ->
+                        outcomes.deferCircuitOpen(deliveryId, claimToken, nextAttemptAt));
+            }
+        };
         return new LayerOneRouteBuilder(inTenantTransaction, attempts, handoff, LayerOneWaits.defaults());
     }
 

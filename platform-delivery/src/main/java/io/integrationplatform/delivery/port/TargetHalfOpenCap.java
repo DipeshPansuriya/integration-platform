@@ -17,6 +17,11 @@ public interface TargetHalfOpenCap {
     /** The per-pass cap for circuit-deferred deliveries of {@code targetEndpointId}; always at least 1. */
     int trialCalls(UUID targetEndpointId);
 
+    /** The ADR-011 default for every target - {@link #DEFAULT_TRIAL_CALLS} per pass - when no per-target setting is known. */
+    static TargetHalfOpenCap defaults() {
+        return target -> DEFAULT_TRIAL_CALLS;
+    }
+
     /** No cap: every due circuit-deferred delivery is re-driven (the behaviour before T-183). */
     static TargetHalfOpenCap unlimited() {
         return target -> Integer.MAX_VALUE;
