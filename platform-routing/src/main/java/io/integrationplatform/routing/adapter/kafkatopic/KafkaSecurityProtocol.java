@@ -28,6 +28,18 @@ enum KafkaSecurityProtocol {
     static final String DEFAULT_PROTOCOL = "SSL";
     static final java.util.List<String> PROTOCOLS = java.util.List.of("PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL");
 
+    /**
+     * R1/R2: clear text is never a tenant's choice. PLAINTEXT and SASL_PLAINTEXT are refused unless the operator set
+     * {@code platform.config.destinations.kafka-allow-plaintext=true} (default false). With TLS and hostname
+     * verification a rogue advertised node fails the handshake instead of receiving Kafka requests in clear.
+     */
+    static void requireAllowed(KafkaSecurityProtocol protocol, boolean allowPlaintext) {
+        if (!protocol.tls() && !allowPlaintext) {
+            throw new KafkaSecurityException("clear-text Kafka (" + protocol.name() + ") is not allowed; the operator "
+                    + "property platform.config.destinations.kafka-allow-plaintext is off");
+        }
+    }
+
     /** The configured protocol; {@code null} (not set) is {@link #DEFAULT_PROTOCOL}. */
     static KafkaSecurityProtocol resolve(String configured) {
         String name = configured == null ? DEFAULT_PROTOCOL : configured;

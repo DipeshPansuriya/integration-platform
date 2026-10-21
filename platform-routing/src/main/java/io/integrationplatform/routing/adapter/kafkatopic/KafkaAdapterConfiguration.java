@@ -83,11 +83,13 @@ public class KafkaAdapterConfiguration {
     KafkaTopicTargetCall kafkaTopicTargetCall(KafkaOutbound outbound, DestinationGuard guard,
             @Value("${IPASS_KAFKA_PLATFORM_TOPICS}") String platformTopics,
             @Value("${IPASS_KAFKA_TRUSTSTORE_DIR:}") String truststoreDir,
+            // R1/R2: clear text is the operator's decision only (default off); the save-time rule reads the same property
+            @Value("${platform.config.destinations.kafka-allow-plaintext:false}") boolean allowPlaintext,
             ObjectProvider<CircuitBreakerRegistry> breakers, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations) {
         // the operator's directory of truststore files; unset = a system that names a truststore is refused PERMANENT
         Path trustDir = truststoreDir == null || truststoreDir.isBlank() ? null : Path.of(truststoreDir.strip());
-        return new KafkaTopicTargetCall(outbound, new KafkaClientsSender(guard, trustDir), guard, topics(platformTopics),
+        return new KafkaTopicTargetCall(outbound, new KafkaClientsSender(guard, trustDir, allowPlaintext), guard, topics(platformTopics),
                 breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP), Duration.ofSeconds(5));
