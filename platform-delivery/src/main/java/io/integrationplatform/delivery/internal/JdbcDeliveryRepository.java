@@ -191,6 +191,20 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                 id, DeliveryEventType.KEY_UNAVAILABLE, "retry at " + nextAttemptAt, at);
     }
 
+    /**
+     * E10 T96 (ADR-010 sections 5 and 6): {@code SENDING -> RETRY_WAIT} because the target's circuit breaker refused the
+     * call - conditional on the claim token, a {@code CIRCUIT_DEFER} event, and no attempt row (it is not a call).
+     */
+    public boolean deferCircuitOpen(UUID id, UUID claimToken, Instant nextAttemptAt, Instant at) {
+        return transition(
+                "update public.delivery set state = 'RETRY_WAIT', updated_at = :at,"
+                        + " next_attempt_at = :next_attempt_at, claim_token = null, claimed_at = null",
+                "id = :id::uuid and state = 'SENDING' and claim_token = :claim_token::uuid",
+                params("at", at, "next_attempt_at", nextAttemptAt,
+                        "claim_token", claimToken.toString(), "id", id.toString()),
+                id, DeliveryEventType.CIRCUIT_DEFER, "retry at " + nextAttemptAt, at);
+    }
+
     /** E5 T-185: how many events of {@code type} the delivery has (the consecutive key deferrals). */
     public int countEvents(UUID deliveryId, DeliveryEventType type) {
         return query("select count(*)::int from public.delivery_event",

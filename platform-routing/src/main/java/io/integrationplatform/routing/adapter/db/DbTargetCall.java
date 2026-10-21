@@ -68,8 +68,7 @@ public final class DbTargetCall implements TargetCall {
     public void call(Stage2Send send) {
         CircuitBreaker breaker = breakers.circuitBreaker("db:" + send.targetEndpointId(), BREAKER);
         if (!breaker.tryAcquirePermission()) {
-            throw new TargetFaultException.TransientFaultException("the breaker of target endpoint "
-                    + send.targetEndpointId() + " is open");
+            throw TargetFaultException.CircuitOpenException.of(breaker, send.targetEndpointId());
         }
         long started = System.nanoTime();
         Observation observation = Observation.createNotStarted("db.target.send", observations).start();

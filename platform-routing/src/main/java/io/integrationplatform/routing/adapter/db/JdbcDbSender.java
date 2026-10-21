@@ -33,7 +33,7 @@ public final class JdbcDbSender implements DbSender {
     public void insert(DbMessage message, UUID deliveryId) throws SQLException {
         DbSettings settings = message.settings();
         Properties account = new Properties();
-        account.setProperty("user", settings.user() == null ? settings.database() : settings.user());
+        account.setProperty("user", message.user());
         if (message.password() != null) {
             account.setProperty("password", new String(message.password()));
         }

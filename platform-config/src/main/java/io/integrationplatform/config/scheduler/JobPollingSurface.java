@@ -21,12 +21,12 @@ import org.springframework.stereotype.Service;
  * execution ({@link SchedulerClient}) and the latest recorded run ({@link JobRunSearch}). It carries no payload and
  * no tenant id (ADR-012 sections 4 and 5); scheduling decisions stay inside the scheduler.
  *
- * <p><b>"Changed since"</b> ({@link #pollSince}): a job counts when it ran since the cutoff, that is its
- * {@code lastRunAt} (the latest run's finish, or its start when it never finished) is at or after {@code since}.
- * The pending {@code nextRunAt} is the schedule, not a change. PAUSED / DISABLED state is not a change either: the
- * register row has a {@code paused_at} column, but the platform crossing does not read it and a {@link JobSummary}
- * has no field for it, so there is no honest timestamp to compare - a job whose state flipped and that did not run
- * is therefore not returned. Reading state changes needs {@code paused_at} exposed by the crossing first.
+ * <p><b>"Changed since"</b> ({@link #pollSince}): a job counts when it ran since the cutoff (its {@code lastRunAt},
+ * the latest run's finish or its start when it never finished, is at or after {@code since}) or when it was paused
+ * since the cutoff (the register row's {@code paused_at}, reported as {@code pausedAt}, is at or after
+ * {@code since}). The pending {@code nextRunAt} is the schedule, not a change. A job that is only DISABLED has no
+ * timestamp for when that happened ({@code paused_at} is set by pausing alone), so it is returned when it ran, not
+ * for the flip itself.
  *
  * <p>The latest runs of every job are read in one batch (newest first, {@link JobRunSearch#MAX_LIMIT} rows) instead
  * of one query per job; only when that batch is full - so a quiet job's latest run may lie beyond it - does a job
@@ -59,7 +59,7 @@ public class JobPollingSurface implements PollingJobSurface {
         return rows.stream().map(row -> toSummary(row, lastRuns.of(row.jobType()))).toList();
     }
 
-    /** Ran since the cutoff (see the class note); the pending execution is only resolved for jobs that qualify. */
+    /** Ran or paused since the cutoff (see the class note); the pending execution is only resolved for jobs that qualify. */
     @Override
     public List<JobSummary> pollSince(Instant since) {
         if (since == null) {
@@ -69,7 +69,7 @@ public class JobPollingSurface implements PollingJobSurface {
         LastRuns lastRuns = latestRuns();
         return rows.stream()
                 .map(row -> new Candidate(row, lastRuns.of(row.jobType())))
-                .filter(candidate -> candidate.lastRunAt() != null && !candidate.lastRunAt().isBefore(since))
+                .filter(candidate -> changedSince(candidate, since))
                 .map(candidate -> toSummary(candidate.row(), candidate.lastRunAt()))
                 .toList();
     }
@@ -77,8 +77,16 @@ public class JobPollingSurface implements PollingJobSurface {
     private record Candidate(JobDefinitionRow row, Instant lastRunAt) {
     }
 
+    private static boolean changedSince(Candidate candidate, Instant since) {
+        Instant pausedAt = candidate.row().pausedAt();
+        boolean ran = candidate.lastRunAt() != null && !candidate.lastRunAt().isBefore(since);
+        boolean paused = pausedAt != null && !pausedAt.isBefore(since);
+        return ran || paused;
+    }
+
     private JobSummary toSummary(JobDefinitionRow row, Instant lastRunAt) {
-        return new JobSummary(row.jobType(), row.jobType(), state(row), pendingExecutionTime(row.jobType()), lastRunAt);
+        return new JobSummary(row.jobType(), row.jobType(), state(row), pendingExecutionTime(row.jobType()), lastRunAt,
+                row.pausedAt());
     }
 
     private String state(JobDefinitionRow row) {

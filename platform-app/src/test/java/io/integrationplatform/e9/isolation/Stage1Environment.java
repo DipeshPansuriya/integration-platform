@@ -82,6 +82,11 @@ public final class Stage1Environment {
      * whether a 408/5xx is TRANSIENT (retried) or AMBIGUOUS (dead-lettered), ADR-010 outcome table.
      */
     public RouteRows registerRoute(String endpointCode, String baseUrl, boolean idempotentReceive) {
+        return registerRoute(endpointCode, baseUrl, idempotentReceive, 30000);
+    }
+
+    /** As above with the endpoint's {@code timeout_ms} (100..300000, the config table's check). */
+    public RouteRows registerRoute(String endpointCode, String baseUrl, boolean idempotentReceive, int timeoutMs) {
         UUID systemId = UUID.randomUUID();
         UUID endpointId = UUID.randomUUID();
         UUID routeId = UUID.randomUUID();
@@ -91,7 +96,7 @@ public final class Stage1Environment {
         insertAsOwner("insert into public.target_endpoint (id, tenant_id, system_id, code, name, base_url,"
                 + " http_method, auth_method, timeout_ms, idempotent_receive)"
                 + " values ('" + endpointId + "', '" + TENANT + "', '" + systemId + "', '" + endpointCode
-                + "', '" + endpointCode + " endpoint', '" + baseUrl + "', 'POST', 'NO_AUTH', 30000, " + idempotentReceive + ")");
+                + "', '" + endpointCode + " endpoint', '" + baseUrl + "', 'POST', 'NO_AUTH', " + timeoutMs + ", " + idempotentReceive + ")");
         insertAsOwner("insert into public.route (id, tenant_id, interface_id, target_endpoint_id, sequence,"
                 + " status) values ('" + routeId + "', '" + TENANT + "', '" + INTERFACE_ID + "', '" + endpointId
                 + "', 1, 'ACTIVE')");
@@ -206,7 +211,20 @@ public final class Stage1Environment {
      * published version, and its payload. The version is laid once, on the first message, with the routes
      * registered by then (stage 1 routes from the pinned snapshot, Stage1FanOut).
      */
-    private synchronized void seedAcceptedMessage(UUID messageId, String businessKey, String payloadJson) {
+    private void seedAcceptedMessage(UUID messageId, String businessKey, String payloadJson) {
+        seedAcceptedMessage(messageId, businessKey, payloadJson, Instant.now());
+    }
+
+    /**
+     * T72: an ACCEPTED message whose {@code message.accepted} record is never produced - the lost-record case the
+     * reconciler's routing leg repairs - accepted {@code acceptedAt} (past the stuck threshold).
+     */
+    public void seedStuckAcceptedMessage(UUID messageId, String businessKey, String payloadJson, Instant acceptedAt) {
+        seedAcceptedMessage(messageId, businessKey, payloadJson, acceptedAt);
+    }
+
+    private synchronized void seedAcceptedMessage(UUID messageId, String businessKey, String payloadJson,
+            Instant acceptedAtInstant) {
         if (!versionSeeded) {
             StringBuilder snapshot = new StringBuilder("{\"routes\":[");
             for (int i = 0; i < routes.size(); i++) {
@@ -242,7 +260,7 @@ public final class Stage1Environment {
                     + mappingRows + " set session_replication_role = origin");
             versionSeeded = true;
         }
-        String acceptedAt = Instant.now().toString();
+        String acceptedAt = acceptedAtInstant.toString();
         insertAsOwner("insert into public.message (id, tenant_id, interface_id, interface_version_id,"
                 + " source_contract_version_id, business_key, state, accepted_at, updated_at) values ('" + messageId
                 + "', '" + TENANT + "', '" + INTERFACE_ID + "', '" + INTERFACE_VERSION_ID + "', '" + UUID.randomUUID()

@@ -63,10 +63,15 @@ public class E9TestNetwork {
 
     /** The three ADR-010 topics (auto-create is off on the broker). */
     public static void createTheThreeTopics(String bootstrapServers) {
+        createTheThreeTopics(bootstrapServers, 3);
+    }
+
+    /** As above with {@code partitions} per topic - 1 puts every record on one partition thread. */
+    public static void createTheThreeTopics(String bootstrapServers, int partitions) {
         try (AdminClient admin = AdminClient.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
                 bootstrapServers))) {
             admin.createTopics(List.of("platform.message.accepted", "platform.delivery.due", "platform.poison")
-                    .stream().map(topic -> new NewTopic(topic, 3, (short) 1)).toList())
+                    .stream().map(topic -> new NewTopic(topic, partitions, (short) 1)).toList())
                     .all().get(1, TimeUnit.MINUTES);
         } catch (Exception e) {
             if (!(e.getCause() instanceof org.apache.kafka.common.errors.TopicExistsException)) {

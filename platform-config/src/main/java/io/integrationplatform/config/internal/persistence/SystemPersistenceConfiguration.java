@@ -128,7 +128,9 @@ class SystemPersistenceConfiguration {
     TestConnectionService testConnectionService(Environment environment, JdbcSystemRepository systems,
             PlatformTransactionManager transactions, OutboundHttpCheck check,
             @Qualifier("mqConnectionCheck") ObjectProvider<MqConnectionCheck> mq,
-            @Qualifier("kafkaTopicConnectionCheck") ObjectProvider<MqConnectionCheck> kafka) {
+            @Qualifier("kafkaTopicConnectionCheck") ObjectProvider<MqConnectionCheck> kafka,
+            @Qualifier("dbConnectionCheck") ObjectProvider<MqConnectionCheck> db,
+            @Qualifier("fileConnectionCheck") ObjectProvider<MqConnectionCheck> file) {
         Binder binder = Binder.get(environment);
         int limit = binder.bind(RATE_LIMIT, Integer.class).orElse(10);
         Duration window = binder.bind(RATE_WINDOW, Duration.class).orElse(Duration.ofMinutes(1));
@@ -144,6 +146,15 @@ class SystemPersistenceConfiguration {
         MqConnectionCheck kafkaCheck = kafka.getIfAvailable();
         if (kafkaCheck != null) {
             checks.put("KAFKA", kafkaCheck);
+        }
+        // E16 (T-149, T-150): "DB" and "FILE" the same way, each only behind its own adapter gate
+        MqConnectionCheck dbCheck = db.getIfAvailable();
+        if (dbCheck != null) {
+            checks.put("DB", dbCheck);
+        }
+        MqConnectionCheck fileCheck = file.getIfAvailable();
+        if (fileCheck != null) {
+            checks.put("FILE", fileCheck);
         }
         return new TestConnectionService(systems, readOnly, check, limit, window, new TestConnectionAudit(),
                 Map.copyOf(checks));

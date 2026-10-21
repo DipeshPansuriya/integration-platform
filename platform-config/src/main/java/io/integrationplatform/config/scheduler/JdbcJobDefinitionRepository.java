@@ -1,6 +1,8 @@
 package io.integrationplatform.config.scheduler;
 
 import io.integrationplatform.tenancy.port.SchedulerRegistry;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -26,7 +28,12 @@ public class JdbcJobDefinitionRepository implements JobDefinitionRepository {
             rs.getBoolean("paused"),
             rs.getInt("max_run_seconds"),
             rs.getInt("late_threshold_seconds"),
-            rs.getString("parameters"));
+            rs.getString("parameters"),
+            toInstant(rs.getTimestamp("paused_at")));
+
+    private static Instant toInstant(Timestamp timestamp) {
+        return timestamp == null ? null : timestamp.toInstant();
+    }
 
     private final SchedulerRegistry registry;
 

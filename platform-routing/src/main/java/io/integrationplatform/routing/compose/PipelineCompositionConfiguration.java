@@ -20,6 +20,8 @@ import io.integrationplatform.routing.poison.PoisonTopic;
 import io.integrationplatform.routing.stage.StageConsumer;
 import io.integrationplatform.routing.stage1.JdbcStage1Reads;
 import io.integrationplatform.routing.stage1.Stage1FanOut;
+import io.integrationplatform.routing.stage1.Stage1Reconciler;
+import io.integrationplatform.delivery.port.UnroutedMessageSweep;
 import io.integrationplatform.routing.stage2.LayerOneRouteBuilder;
 import io.integrationplatform.routing.stage2.LayerOneWaits;
 import io.integrationplatform.routing.stage2.Stage2AttemptWriter;
@@ -39,6 +41,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
+import io.integrationplatform.domain.delivery.OutcomeClass;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -93,13 +97,24 @@ class PipelineCompositionConfiguration {
     @Bean
     TargetCallRegistry targetCallRegistry(MqTargetCall mqTargetCall,
             @Qualifier("apiTargetCall") TargetCall apiTargetCall,
-            ObjectProvider<KafkaTopicTargetCall> kafkaTarget) {
+            ObjectProvider<KafkaTopicTargetCall> kafkaTarget,
+            ObjectProvider<io.integrationplatform.routing.adapter.db.DbTargetCall> dbTarget,
+            ObjectProvider<io.integrationplatform.routing.adapter.file.FileTargetCall> fileTarget) {
         TargetCallRegistry targetCalls = new TargetCallRegistry();
         targetCalls.register("MQ", mqTargetCall);
         targetCalls.register("API", apiTargetCall);
         KafkaTopicTargetCall kafka = kafkaTarget.getIfAvailable();
         if (kafka != null) {
             targetCalls.register("KAFKA", kafka); // key = the stored system.type; never present with the gate off
+        }
+        // E16 (T-149, T-150): DB and FILE the same way - registered only when their adapter gate built the call
+        io.integrationplatform.routing.adapter.db.DbTargetCall db = dbTarget.getIfAvailable();
+        if (db != null) {
+            targetCalls.register("DB", db);
+        }
+        io.integrationplatform.routing.adapter.file.FileTargetCall file = fileTarget.getIfAvailable();
+        if (file != null) {
+            targetCalls.register("FILE", file);
         }
         return targetCalls;
     }
@@ -117,14 +132,31 @@ class PipelineCompositionConfiguration {
             JdbcMqTargets mqTargets, SendOutcomes outcomes, PlatformTransactionManager transactionManager) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         // row 327: picked by the stored system.type; an unknown type is refused PERMANENT, never dropped
-        TargetCall byType = TargetCall.byType(mqTargets::typeOf, targetCalls.calls());
-        TargetCall inTenantTransaction = send -> transactions.executeWithoutResult(status -> byType.call(send));
+        // E9-C9 (T71): a call that leaves the process must not hold a pooled connection while it waits on the
+        // target. The API adapter opens its own short tenant-stamped reads (ApiAdapterConfiguration); the other
+        // types still run whole inside one tenant-stamped transaction until their adapters do the same.
+        java.util.Map<String, TargetCall> perType = new java.util.LinkedHashMap<>();
+        targetCalls.calls().forEach((type, call) -> perType.put(type,
+                "API".equals(type) ? call : send -> transactions.executeWithoutResult(status -> call.call(send))));
+        TargetCall inTenantTransaction = TargetCall.byType(
+                endpointId -> transactions.execute(status -> mqTargets.typeOf(endpointId)), perType);
         Stage2AttemptWriter attempts = (deliveryId, layer, outcome, startedAt, finishedAt, detail) ->
                 transactions.executeWithoutResult(status ->
                         outcomes.recordAttempt(deliveryId, layer, outcome, startedAt, finishedAt, detail));
-        Stage2OutcomeHandoff handoff = (deliveryId, claimToken, attemptsSoFar, outcome, idempotent) ->
+        Stage2OutcomeHandoff handoff = new Stage2OutcomeHandoff() {
+            @Override
+            public void handOffAfterLayerOne(UUID deliveryId, UUID claimToken, int attemptsSoFar,
+                    OutcomeClass outcome, boolean idempotent) {
                 transactions.executeWithoutResult(status ->
                         outcomes.recordFailure(deliveryId, claimToken, attemptsSoFar, outcome, idempotent));
+            }
+
+            @Override
+            public void deferCircuitOpen(UUID deliveryId, UUID claimToken, Instant nextAttemptAt) {
+                transactions.executeWithoutResult(status ->
+                        outcomes.deferCircuitOpen(deliveryId, claimToken, nextAttemptAt));
+            }
+        };
         return new LayerOneRouteBuilder(inTenantTransaction, attempts, handoff, LayerOneWaits.defaults());
     }
 
@@ -181,6 +213,22 @@ class PipelineCompositionConfiguration {
                 new JdbcStage1Reads(jdbcClient, tenantContext), stage1Deliveries,
                 recorder.getIfAvailable(() -> RoutingStepRecorder.NOOP));
     }
+
+    /**
+     * T72 (T-180 routing leg): the production caller of {@link Stage1Reconciler#sweepOnce}. Typed as the delivery
+     * module's {@link UnroutedMessageSweep} port, which the delivery-retry trigger takes: a message stuck
+     * {@code ACCEPTED} for {@link #RECONCILE_STUCK_AFTER} (the delivery leg's own threshold) is handed back to
+     * stage 1 on the next {@code DELIVERY_RETRY} run.
+     */
+    @Bean
+    UnroutedMessageSweep stage1Reconciler(WorkerTenantBinding binding, PlatformTransactionManager transactionManager,
+            JdbcClient jdbcClient, TenantContext tenantContext, Stage1FanOut stage1FanOut) {
+        return new Stage1Reconciler(binding, new TransactionTemplate(transactionManager),
+                new JdbcStage1Reads(jdbcClient, tenantContext), stage1FanOut, RECONCILE_STUCK_AFTER, Instant::now);
+    }
+
+    // ponytail: 5 minutes, the same figure as the delivery leg's unhanded threshold; a property when an operator needs it
+    static final Duration RECONCILE_STUCK_AFTER = Duration.ofMinutes(5);
 
     /** The default recorder; a context that supplies its own RoutingStepRecorder (a test or ops probe) wins. */
     @Bean

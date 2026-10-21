@@ -10,6 +10,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import io.integrationplatform.tenancy.TenantContext;
 
 /**
  * T-150: the File adapter's beans - the "FILE" test-connection check (same MqConnectionCheck interface the
@@ -24,6 +26,17 @@ public class FileAdapterConfiguration {
     MqConnectionCheck fileConnectionCheck() {
         return (systemId, settingsJson) -> new FileTestConnection(id -> Optional.of(FileSettings.fromJson(settingsJson)))
                 .test(systemId);
+    }
+
+    @Bean
+    JdbcFileTargets fileTargets(JdbcClient jdbcClient, TenantContext tenantContext) {
+        return new JdbcFileTargets(jdbcClient, tenantContext);
+    }
+
+    /** Until the composition supplies the mapped name and body, a FILE delivery has no message (PERMANENT). */
+    @Bean
+    FileOutbound fileOutbound(JdbcFileTargets targets, ObjectProvider<FileTargetContent> contents) {
+        return new FileTargetOutbound(targets::settingsOf, contents.getIfAvailable(() -> send -> Optional.empty()));
     }
 
     @Bean

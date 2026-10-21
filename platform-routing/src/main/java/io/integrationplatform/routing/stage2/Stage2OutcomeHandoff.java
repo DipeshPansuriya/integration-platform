@@ -29,4 +29,14 @@ public interface Stage2OutcomeHandoff {
      */
     void handOffAfterLayerOne(UUID deliveryId, UUID claimToken, int attemptsSoFar, OutcomeClass outcome,
             boolean targetDeclaresIdempotentReceive);
+
+    /**
+     * E10 T96 (ADR-010 sections 5 and 6): the target's circuit breaker refused the call - no call left the process, so
+     * no attempt row and no attempt used up. The delivery waits in {@code RETRY_WAIT} until {@code nextAttemptAt} with a
+     * {@code CIRCUIT_DEFER} event. A hand-off that cannot record the deferral treats it as the transient failure it was
+     * before this seam existed.
+     */
+    default void deferCircuitOpen(UUID deliveryId, UUID claimToken, java.time.Instant nextAttemptAt) {
+        handOffAfterLayerOne(deliveryId, claimToken, 0, OutcomeClass.TRANSIENT, false);
+    }
 }

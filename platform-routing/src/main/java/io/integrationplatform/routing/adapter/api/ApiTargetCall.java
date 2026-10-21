@@ -138,8 +138,7 @@ public class ApiTargetCall implements TargetCall {
             Map<String, String> headers, ApiTargetBody.ApiWireBody body) {
         CircuitBreaker breaker = breakers.circuitBreaker(send.targetEndpointId().toString());
         if (!breaker.tryAcquirePermission()) {
-            throw new TargetFaultException.TransientFaultException("the breaker of target endpoint "
-                    + send.targetEndpointId() + " is " + breaker.getState() + " - nothing sent; the delivery waits");
+            throw TargetFaultException.CircuitOpenException.of(breaker, send.targetEndpointId());
         }
         long started = System.nanoTime();
         try {

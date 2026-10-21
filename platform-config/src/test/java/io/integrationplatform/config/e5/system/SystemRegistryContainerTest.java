@@ -70,7 +70,9 @@ class SystemRegistryContainerTest {
         "API  | OUTBOUND | {\"baseUrl\":\"https://api.partner.example/v1\",\"timeoutMs\":3000}",
         "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\"}",
         "MQ   | OUTBOUND | {\"host\":\"mq.partner.example\",\"port\":1414,\"queue\":\"ORDERS.IN\"}",
-        "FILE | OUTBOUND | {\"rootPath\":\"/data/outbound\"}"})
+        "FILE | OUTBOUND | {\"rootPath\":\"/data/outbound\"}",
+        "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\",\"table\":\"orders_in\",\"approvedTables\":[\"orders_in\"]}",
+        "KAFKA | OUTBOUND | {\"bootstrapServers\":\"kafka.partner.example:9092\",\"topic\":\"orders-out\"}"})
     @DisplayName("Scenario Outline: Register a system of each type - stored in the systems table's extension")
     void registerASystemOfEachType(String type, String direction, String settings) {
         String code = randomCode("sys-" + type.toLowerCase());
@@ -187,6 +189,19 @@ class SystemRegistryContainerTest {
         assertThat(errorsOf(refused)).hasSize(2);
         assertThat(scalar("SELECT settings->>'queue' FROM public.system WHERE id = ?::uuid", id))
                 .as("a refused edit changes nothing").isEqualTo("Q1");
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("E16 T-148: a Kafka system saved onto a platform topic is refused at save, nothing stored")
+    void aKafkaSystemOnAPlatformTopicIsRefused() {
+        Response refused = call(port, "POST", SYSTEMS, configuratorOfA(), systemBody(randomCode("sys-kafka-bad"),
+                "OUTBOUND", "KAFKA",
+                "{\"bootstrapServers\":\"kafka.partner.example:9092\",\"topic\":\"platform.poison\"}"));
+
+        assertThat(refused.status()).as("body: %s", refused.body()).isEqualTo(400);
+        assertThat(String.join(", ", errorsOf(refused))).contains("settings.topic").contains("platform topic");
     }
 
     @Test
