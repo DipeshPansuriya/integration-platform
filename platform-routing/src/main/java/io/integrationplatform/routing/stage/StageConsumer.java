@@ -346,11 +346,15 @@ public final class StageConsumer {
                 if (breaker != null) {
                     breaker.onSuccess(0L, TimeUnit.MILLISECONDS);
                 }
-                if (paused.remove(partition) != null) {
+                boolean recovered = paused.remove(partition) != null;
+                if (recovered) {
                     // A retried record succeeded - the partition keeps its work (T-181: pauses and resumes).
                     consumer.resume(List.of(partition));
                 }
                 handled.put(partition, new OffsetAndMetadata(record.offset() + 1));
+                if (recovered) {
+                    commitHandled(handled); // acceptance order: the recovered offset commits after its work, before the rest
+                }
                 if (outcome == Outcome.POISONED) {
                     // CTO fix (T-122): a poison offset commits at once - batching it would let a crash
                     // redeliver the batch and write the poison record a second time (one-poison-topic rule).

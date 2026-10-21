@@ -15,19 +15,29 @@ public final class BulkheadRegistry {
 
     private final BulkheadSettings settings;
     private final Map<UUID, TargetBulkhead> byTarget = new ConcurrentHashMap<>();
+    private volatile java.util.function.Consumer<TargetBulkhead> onCreated = pool -> {
+    };
 
     public BulkheadRegistry(BulkheadSettings settings) {
         this.settings = Objects.requireNonNull(settings, "settings");
+    }
+
+    /** Mahesh 1g: the metric binder hooks pool creation this way - compose's zero-arg wiring stays untouched. */
+    public void onTargetCreated(java.util.function.Consumer<TargetBulkhead> consumer) {
+        this.onCreated = Objects.requireNonNull(consumer, "consumer");
     }
 
     BulkheadRegistry(int maxConcurrentSends) {
         this(new BulkheadSettings(maxConcurrentSends));
     }
 
-    /** This target's bounded pool, created on first use. */
+    /** This target's bounded pool, created on first use - the metric binder is told on first creation only. */
     public TargetBulkhead of(UUID targetEndpointId) {
-        return byTarget.computeIfAbsent(Objects.requireNonNull(targetEndpointId, "targetEndpointId"),
-                target -> new TargetBulkhead(settings, target));
+        return byTarget.computeIfAbsent(Objects.requireNonNull(targetEndpointId, "targetEndpointId"), target -> {
+            TargetBulkhead pool = new TargetBulkhead(settings, target);
+            onCreated.accept(pool);
+            return pool;
+        });
     }
 
     /** Instance shutdown: stop accepting new work on every pool. */
