@@ -169,8 +169,8 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     // ----------------------------------------------------------------------------------------------------- DB
 
     @Test
-    @BlockedBy(lane = "e16", assertion = "stage 2 dispatches system.type DB to DbTargetCall (TargetCallRegistry"
-            + " registers DB) and the delivery reaches DELIVERED with one row in the approved table partner_orders")
+    // Not BlockedBy: the first run was refused earlier than the DB dispatch (endpoint URI scheme jdbc is not in
+    // allowedSchemes), so the e16 cause is unproven until the scheme question is answered (run report, Decisions).
     @DisplayName("DB: one row lands in the partner's approved table")
     void dbTargetJourney() throws Exception {
         try (Connection partner = java.sql.DriverManager.getConnection(TARGET_DB.getJdbcUrl(),
@@ -197,8 +197,8 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     // ---------------------------------------------------------------------------------------------------- File
 
     @Test
-    @BlockedBy(lane = "e16", assertion = "stage 2 dispatches system.type FILE to FileTargetCall (TargetCallRegistry"
-            + " registers FILE, a FileOutbound bean exists) and exactly one file with the order lands in the directory")
+    // Not BlockedBy: the first run was refused earlier than the FILE dispatch (endpoint URI scheme file is not in
+    // allowedSchemes), so the e16 cause is unproven until the scheme question is answered (run report, Decisions).
     @DisplayName("File: one file with the order lands in the partner's directory")
     void fileTargetJourney() throws Exception {
         Path directory = Files.createDirectories(FILE_DIR.resolve("file-journey"));
