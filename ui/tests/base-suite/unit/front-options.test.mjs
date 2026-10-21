@@ -29,7 +29,7 @@ test('front boot: no profile switch, no showcase property, none of the four exce
 
 test('front boot: the normal allow-list names exactly one exact host - no wildcard, no IP, no port', () => {
   const o = frontSuiteBootOptions({ lockHolder: LOCK });
-  assert.deepEqual(o.appEnv, { PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: FRONT_TARGET_HOST });
+  assert.deepEqual(o.appEnv, { PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: FRONT_TARGET_HOST, ROUTING_CORE_ALLOWED_SCHEMES: 'https' });
   assert.match(FRONT_TARGET_HOST, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/);
   assert.ok(!/^\d+(\.\d+){3}$/.test(FRONT_TARGET_HOST));
   assert.equal(FRONT_TARGET_BASE, `https://${FRONT_TARGET_HOST}`);
