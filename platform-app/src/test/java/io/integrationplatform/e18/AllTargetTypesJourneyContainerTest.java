@@ -154,8 +154,6 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     // ------------------------------------------------------------------------------------------------ Kafka topic
 
     @Test
-    @BlockedBy(lane = "e16-kafka-timeout-fix", assertion = "a Kafka-topic send succeeds (Varun: every Kafka send fails until the"
-            + " timeout fix lands) so the delivery reaches DELIVERED with one record on the partner topic")
     @DisplayName("Kafka topic: the partner's own topic receives one record keyed by the delivery id")
     void kafkaTopicTargetJourney() throws Exception {
         String topic = "e18.partner.orders";
