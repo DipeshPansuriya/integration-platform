@@ -19,11 +19,12 @@ export function listedAnswer<T>(data: T | undefined, error: unknown, response: R
 }
 
 /** The closed register of system types (SystemSettings.TYPES), with each type's settings fields. */
-export const SYSTEM_TYPES = ['API', 'DB', 'MQ', 'FILE'] as const;
+export const SYSTEM_TYPES = ['API', 'DB', 'MQ', 'FILE', 'KAFKA'] as const;
 export type SystemType = (typeof SYSTEM_TYPES)[number];
 
-export type SettingKind = 'text' | 'number' | 'boolean';
-export type SettingField = { name: string; label: string; kind: SettingKind; required: boolean };
+/** 'list' = a comma-separated list on screen, an array on the wire (the DB target's approved tables). */
+export type SettingKind = 'text' | 'number' | 'boolean' | 'list';
+export type SettingField = { name: string; label: string; kind: SettingKind; required: boolean; hint?: string };
 
 export const SETTINGS_BY_TYPE: Record<SystemType, SettingField[]> = {
   API: [
@@ -34,23 +35,39 @@ export const SETTINGS_BY_TYPE: Record<SystemType, SettingField[]> = {
   DB: [
     { name: 'host', label: 'Host', kind: 'text', required: true },
     { name: 'port', label: 'Port', kind: 'number', required: true },
-    { name: 'database', label: 'Database', kind: 'text', required: true }
+    { name: 'database', label: 'Database', kind: 'text', required: true },
+    { name: 'user', label: 'Account name', kind: 'text', required: false, hint: 'A plain identifier. The password is a credential, stored separately.' },
+    { name: 'table', label: 'Table', kind: 'text', required: false },
+    { name: 'approvedTables', label: 'Approved tables', kind: 'list', required: false, hint: 'Comma-separated plain table names.' }
   ],
   MQ: [
     { name: 'host', label: 'Host', kind: 'text', required: true },
     { name: 'port', label: 'Port', kind: 'number', required: true },
     { name: 'queue', label: 'Queue', kind: 'text', required: true }
   ],
-  FILE: [{ name: 'rootPath', label: 'Root path', kind: 'text', required: true }]
+  FILE: [{ name: 'rootPath', label: 'Root path', kind: 'text', required: true }],
+  KAFKA: [
+    { name: 'bootstrapServers', label: 'Bootstrap servers', kind: 'text', required: true, hint: 'Comma-separated host:port list, for example broker1:9092,broker2:9092.' },
+    { name: 'topic', label: 'Topic', kind: 'text', required: true, hint: "A tenant topic name. The platform's own topics are refused." }
+  ]
 };
 
-export const TYPE_LABELS: Record<SystemType, string> = { API: 'API', DB: 'DB', MQ: 'MQ', FILE: 'File' };
+export const TYPE_LABELS: Record<SystemType, string> = { API: 'API', DB: 'DB', MQ: 'MQ', FILE: 'File', KAFKA: 'Kafka' };
+
+/** A line of guidance shown under a type's settings; Kafka's credential is a reference, never typed into this form. */
+const NOTES_BY_TYPE: Partial<Record<SystemType, string>> = {
+  KAFKA: 'The SASL or TLS password is a credential of type KAFKA_TOPIC, stored separately. It is never entered here.'
+};
+
+export function settingsNoteOf(type: string): string | undefined {
+  return (NOTES_BY_TYPE as Record<string, string | undefined>)[type.trim()];
+}
 
 export function settingsFieldsOf(type: string): SettingField[] {
   return (SETTINGS_BY_TYPE as Record<string, SettingField[] | undefined>)[type.trim()] ?? [];
 }
 
-export type SystemSettingsValue = Record<string, string | number | boolean>;
+export type SystemSettingsValue = Record<string, string | number | boolean | string[]>;
 
 export type SystemView = {
   id: string;
@@ -133,6 +150,11 @@ export function settingsFromForm(type: string, values: Record<string, string | b
     }
     const text = typeof value === 'string' ? value.trim() : '';
     if (text === '') continue;
+    if (field.kind === 'list') {
+      const entries = text.split(',').map((entry) => entry.trim()).filter((entry) => entry !== '');
+      if (entries.length > 0) settings[field.name] = entries;
+      continue;
+    }
     settings[field.name] = field.kind === 'number' && /^-?\d+$/.test(text) ? Number(text) : text;
   }
   return settings;
@@ -142,7 +164,39 @@ export function settingsFromForm(type: string, values: Record<string, string | b
 export function formFromSettings(settings: SystemSettingsValue | null): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {};
   for (const [name, value] of Object.entries(settings ?? {})) {
-    values[name] = typeof value === 'boolean' ? value : String(value);
+    values[name] = typeof value === 'boolean' ? value : Array.isArray(value) ? value.join(', ') : String(value);
   }
   return values;
+}
+
+const BOOTSTRAP_WORDS = 'settings.bootstrapServers must be a comma-separated list of host:port, port 1 to 65535';
+
+/** Mirrors SystemSettings.bootstrapServersProblem: every entry is host:port, no blanks, '/' or '@' in the host, port 1-65535. */
+function bootstrapServersOk(text: string): boolean {
+  if (text.length > 2048) return false;
+  return text.split(',').every((server) => {
+    const entry = server.trim();
+    const at = entry.lastIndexOf(':');
+    if (at <= 0) return false;
+    const host = entry.slice(0, at);
+    if (host.trim() === '' || /[\s/@]/.test(host)) return false;
+    const port = entry.slice(at + 1);
+    return /^[+-]?\d+$/.test(port) && Number(port) >= 1 && Number(port) <= 65535;
+  });
+}
+
+/**
+ * The errors the client can name before a save, in the server's own words. Only the KAFKA shape is
+ * mirrored (required fields and the bootstrap-servers list); the platform-topic refusal and every other
+ * type's rules stay the server's - the API is the one authority, its message shown as-is.
+ */
+export function clientSettingsErrors(type: string, values: Record<string, string | boolean>): string[] {
+  if (type.trim() !== 'KAFKA') return [];
+  const settings = settingsFromForm('KAFKA', values);
+  const errors: string[] = [];
+  const servers = settings.bootstrapServers;
+  if (servers === undefined) errors.push('settings.bootstrapServers is required for type KAFKA');
+  else if (typeof servers !== 'string' || !bootstrapServersOk(servers)) errors.push(BOOTSTRAP_WORDS);
+  if (settings.topic === undefined) errors.push('settings.topic is required for type KAFKA');
+  return errors;
 }

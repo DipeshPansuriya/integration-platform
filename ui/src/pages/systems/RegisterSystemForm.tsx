@@ -1,9 +1,9 @@
-// T-159 (E5 lane D): register a system of type API, DB, MQ or File with its type-specific
+// T-159 (E5 lane D): register a system of type API, DB, MQ, File or Kafka with its type-specific
 // settings (E5-F1-S1). The API validates every save and names every problem; this form shows
 // them all and never pre-filters what it sends.
 
 import { useState, type FormEvent } from 'react';
-import { registerSystem, settingsFromForm } from '../../api/systems';
+import { clientSettingsErrors, registerSystem, settingsFromForm } from '../../api/systems';
 import { SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
 
 export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promise<void> }) {
@@ -23,6 +23,12 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
     setErrors([]);
     try {
       const typed = type.trim() !== '';
+      // the one shape the client mirrors (KAFKA): same words as the server, no round trip
+      const local = clientSettingsErrors(type, values);
+      if (local.length > 0) {
+        setErrors(local);
+        return;
+      }
       const result = await registerSystem({
         code: code.trim(),
         name: name.trim(),
@@ -67,7 +73,7 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
         </select>
       </label>
       <TypeField value={type} onChange={setType} />
-      <SettingsFields type={type} values={values} onChange={(field, value) => setValues((v) => ({ ...v, [field]: value }))} />
+      <SettingsFields type={type} values={values} onChange={(field, value) => setValues((v) => ({ ...v, [field]: value }))} errors={errors} />
       <button type="submit" data-action="register-system" disabled={busy}>
         Register system
       </button>
