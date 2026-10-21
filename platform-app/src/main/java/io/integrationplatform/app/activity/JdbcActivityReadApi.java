@@ -43,6 +43,6 @@ public final class JdbcActivityReadApi implements ActivityReadApi {
         long id = Long.parseLong(value.id());
         List<String> targetIds = value.targetIds() == null ? null : List.copyOf(value.targetIds());
         return new ActivityEvent(id, value.actor(), value.action(), targetIds, value.before(), value.after(),
-                value.at());
+                value.at(), value.traceId());
     }
 }
