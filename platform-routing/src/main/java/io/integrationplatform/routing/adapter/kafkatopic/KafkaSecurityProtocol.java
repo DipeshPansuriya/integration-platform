@@ -1,6 +1,5 @@
 package io.integrationplatform.routing.adapter.kafkatopic;
 
-import io.integrationplatform.config.system.application.SystemSettings;
 
 /**
  * E16: a KAFKA system's {@code securityProtocol}. A system that does not set one is dialled with
@@ -25,12 +24,16 @@ enum KafkaSecurityProtocol {
         return sasl;
     }
 
-    /** The configured protocol; {@code null} (not set) is {@link SystemSettings#KAFKA_DEFAULT_PROTOCOL}. */
+    /** An unset securityProtocol is TLS; PLAINTEXT only when written explicitly (mirrors the save-time rule in config). */
+    static final String DEFAULT_PROTOCOL = "SSL";
+    static final java.util.List<String> PROTOCOLS = java.util.List.of("PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL");
+
+    /** The configured protocol; {@code null} (not set) is {@link #DEFAULT_PROTOCOL}. */
     static KafkaSecurityProtocol resolve(String configured) {
-        String name = configured == null ? SystemSettings.KAFKA_DEFAULT_PROTOCOL : configured;
-        if (!SystemSettings.KAFKA_PROTOCOLS.contains(name)) {
+        String name = configured == null ? DEFAULT_PROTOCOL : configured;
+        if (!PROTOCOLS.contains(name)) {
             throw new IllegalStateException("Kafka securityProtocol must be one of "
-                    + String.join(", ", SystemSettings.KAFKA_PROTOCOLS));
+                    + String.join(", ", PROTOCOLS));
         }
         return valueOf(name);
     }
