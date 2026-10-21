@@ -21,18 +21,22 @@ public interface PollingJobSurface {
     List<JobSummary> poll();
 
     /**
-     * Poll job state observed since {@code since}. A real incremental read: only summaries carrying an observed
-     * scheduling time ({@code lastRunAt} or {@code nextRunAt}) at or after {@code since} are returned, so a caller
-     * that already saw an earlier snapshot receives just the changed tail instead of the full register. A {@code null}
-     * {@code since} and an implementation without such timestamps both degrade to the full {@link #poll()}.
+     * Poll the jobs that changed since {@code since}. "Changed" means the job <em>ran</em> since the cutoff: its
+     * {@code lastRunAt} is at or after {@code since}. {@code nextRunAt} is deliberately not a change - every
+     * scheduled job has a future one, so counting it would return the whole register on every call. State alone
+     * (PAUSED / DISABLED) does not count either, because a summary carries no timestamp for when the state was set;
+     * an implementation whose data has one may override this method. A {@code null} {@code since} degrades to the
+     * full {@link #poll()}.
      */
     default List<JobSummary> pollSince(Instant since) {
         if (since == null) {
             return poll();
         }
-        return poll().stream()
-                .filter(summary -> (summary.lastRunAt() != null && !summary.lastRunAt().isBefore(since))
-                        || (summary.nextRunAt() != null && !summary.nextRunAt().isBefore(since)))
-                .toList();
+        return poll().stream().filter(summary -> ranSince(summary, since)).toList();
+    }
+
+    /** True when the job's last run is at or after {@code since}. */
+    static boolean ranSince(JobSummary summary, Instant since) {
+        return summary.lastRunAt() != null && !summary.lastRunAt().isBefore(since);
     }
 }
