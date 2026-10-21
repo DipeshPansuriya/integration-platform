@@ -24,7 +24,7 @@ import tools.jackson.databind.JsonNode;
  *       status 100-599 to TRANSIENT, AMBIGUOUS or PERMANENT; never a retryable class for 400, 401, 403, 422)</td></tr>
  *   <tr><td>DB</td><td>host, port (1-65535), database, user (E16 C3: the restricted account)</td><td>table, approvedTables (plain identifiers; E16)</td></tr>
  *   <tr><td>MQ</td><td>host, port (1-65535), queue</td><td>-</td></tr>
- *   <tr><td>FILE</td><td>rootPath</td><td>-</td></tr>
+ *   <tr><td>FILE</td><td>rootPath</td><td>fileNamePattern (plain name; {deliveryId}, {ext}; E16)</td></tr>
  *   <tr><td>KAFKA</td><td>bootstrapServers (host:port list), topic (never a platform topic)</td><td>-</td></tr>
  * </table>
  *
@@ -49,7 +49,9 @@ public final class SystemSettings {
         /** E16: comma-separated host:port list (the Kafka target's bootstrap servers). */
         BOOTSTRAP_SERVERS,
         /** E16: a Kafka topic that is not one of the platform's own (T-184 SF-2). */
-        KAFKA_TOPIC
+        KAFKA_TOPIC,
+        /** E16: a plain file name with only the {deliveryId} and {ext} placeholders (the FILE target's name). */
+        FILE_NAME_PATTERN
     }
 
     private static final java.util.regex.Pattern IDENTIFIER = java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z_0-9]{0,62}");
@@ -80,7 +82,8 @@ public final class SystemSettings {
                 TRIAL_CALLS));
         schemas.put("MQ", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
                 new Field("queue", Kind.TEXT, true), TRIAL_CALLS));
-        schemas.put("FILE", List.of(new Field("rootPath", Kind.TEXT, true), TRIAL_CALLS));
+        schemas.put("FILE", List.of(new Field("rootPath", Kind.TEXT, true),
+                new Field("fileNamePattern", Kind.FILE_NAME_PATTERN, false), TRIAL_CALLS));
         schemas.put("KAFKA", List.of(new Field("bootstrapServers", Kind.BOOTSTRAP_SERVERS, true),
                 new Field("topic", Kind.KAFKA_TOPIC, true), TRIAL_CALLS));
         return Map.copyOf(schemas);
@@ -167,7 +170,22 @@ public final class SystemSettings {
                     ? io.integrationplatform.config.destination.SystemTopicRefusal.topicProblem(value.stringValue())
                             .map(SystemSettings::clip).orElse(null)
                     : "must be a topic name";
+            case FILE_NAME_PATTERN -> fileNamePatternProblem(value);
         };
+    }
+
+    private static String fileNamePatternProblem(JsonNode value) {
+        String expected = "must be a plain file name (at most 128 characters, no folder separator) using only"
+                + " the {deliveryId} and {ext} placeholders";
+        if (!value.isString()) {
+            return expected;
+        }
+        String name = value.stringValue();
+        String bare = name.replace("{deliveryId}", "").replace("{ext}", "");
+        boolean plain = !name.isBlank() && name.length() <= 128 && !name.equals(".") && !name.equals("..")
+                && bare.indexOf('/') < 0 && bare.indexOf('\\') < 0 && bare.indexOf(':') < 0
+                && bare.indexOf('{') < 0 && bare.indexOf('}') < 0;
+        return plain ? null : expected;
     }
 
     private static String identifierListProblem(JsonNode value) {
