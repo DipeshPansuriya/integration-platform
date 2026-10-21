@@ -188,6 +188,12 @@
         <artifactId>platform-transform</artifactId>
         <version>${project.version}</version>
       </dependency>
+      <!-- E12 seam (arjun-fullstack): the audit contract module - the deployable backs it with the activity runtime slice. -->
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-audit</artifactId>
+        <version>${project.version}</version>
+      </dependency>
       <!-- E3 seam: OpenAPI document generation for the UI's typed client (T-158) and the contract test (T-094). -->
       <dependency>
         <groupId>org.springdoc</groupId>

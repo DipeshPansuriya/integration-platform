@@ -27,6 +27,11 @@ class ActivityPersistenceConfiguration {
         return new ActivityService(store);
     }
 
+    @Bean
+    io.integrationplatform.audit.api.ActivityReadApi activityReadApi(ActivityService service) {
+        return new JdbcActivityReadApi(service);
+    }
+
     /** The fail-closed no-binding context - the anonymous shape over the two-method contract. */
     private static TenantContext neverBound() {
         return new TenantContext() {
