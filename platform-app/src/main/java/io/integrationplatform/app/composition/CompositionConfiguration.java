@@ -2,6 +2,9 @@ package io.integrationplatform.app.composition;
 
 import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.routing.adapter.api.ApiTargetBody;
+import io.integrationplatform.routing.adapter.db.DbRows;
+import io.integrationplatform.routing.adapter.file.FileTargetContent;
+import io.integrationplatform.routing.adapter.file.JdbcFileTargets;
 import io.integrationplatform.routing.adapter.kafkatopic.KafkaTargetBody;
 import io.integrationplatform.routing.adapter.mq.MqTargetBody;
 import io.integrationplatform.tenancy.TenantContext;
@@ -42,6 +45,20 @@ class CompositionConfiguration {
     @Bean
     KafkaTargetBody transformedKafkaBody(ApiTargetBody transformedApiBody) {
         return send -> transformedApiBody.bodyFor(send).map(ApiTargetBody.ApiWireBody::bytes);
+    }
+
+    /** E16: the DB rows are the transformed payload (object = one row, array of objects = rows); see {@link TransformedDbRows}. */
+    @Bean
+    DbRows transformedDbRows(ApiTargetBody transformedApiBody) {
+        return new TransformedDbRows(transformedApiBody);
+    }
+
+    /** E16: the file body is the transformed payload, named by the target's pattern or the delivery id; see {@link TransformedFileContent}. */
+    @Bean
+    FileTargetContent transformedFileContent(ApiTargetBody transformedApiBody,
+            ObjectProvider<JdbcFileTargets> fileTargets) {
+        return TransformedFileContent.of(transformedApiBody,
+                endpointId -> Optional.ofNullable(fileTargets.getIfAvailable()).flatMap(t -> t.settingsOf(endpointId)));
     }
 
     /**
