@@ -50,3 +50,8 @@ export function errorAnchor(error: string): string | null {
   const field = /^(code|name|direction|type)\b/.exec(error);
   return field ? `sys-field-${field[1]}` : null;
 }
+
+/** True when one of the API's errors names this settings field (the field then carries aria-invalid). */
+export function fieldHasError(errors: string[], settingName: string): boolean {
+  return errors.some((error) => errorAnchor(error) === `sys-setting-${settingName}`);
+}
