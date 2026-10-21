@@ -2,6 +2,8 @@ package io.integrationplatform.config.scheduler.adapter.in;
 
 import io.integrationplatform.config.scheduler.JobAdminService;
 import io.integrationplatform.config.scheduler.JobDefinitionRow;
+import io.integrationplatform.config.scheduler.PollingSchedulingBoundary;
+import io.integrationplatform.domain.scheduler.PollingJobSurface.JobSummary;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -27,13 +29,22 @@ public class JobAdminController {
 
     private final JobAdminService service;
 
-    public JobAdminController(JobAdminService service) {
+    private final PollingSchedulingBoundary boundary;
+
+    public JobAdminController(JobAdminService service, PollingSchedulingBoundary boundary) {
         this.service = Objects.requireNonNull(service, "service");
+        this.boundary = Objects.requireNonNull(boundary, "boundary");
     }
 
     @GetMapping
     public List<JobDefinitionRow> list() {
         return service.list(agent());
+    }
+
+    /** The polling summaries (identity and scheduling state only - ADR-012: no payload, no tenant id). */
+    @GetMapping("/summaries")
+    public List<JobSummary> summaries() {
+        return boundary.summaries();
     }
 
     @GetMapping("/{jobType}")

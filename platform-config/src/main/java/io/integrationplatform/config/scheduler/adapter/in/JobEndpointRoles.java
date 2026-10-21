@@ -15,6 +15,7 @@ public class JobEndpointRoles implements ApiOperationRules {
     public List<Rule> rules() {
         return List.of(
                 new Rule("GET", JOBS, Operation.LIST_JOBS),
+                new Rule("GET", JOBS + "/summaries", Operation.LIST_JOBS),
                 new Rule("GET", JOBS + "/{jobType}", Operation.INSPECT_JOB),
                 new Rule("POST", JOBS + "/{jobType}/run", Operation.RUN_JOB_NOW),
                 new Rule("POST", JOBS + "/{jobType}/pause", Operation.PAUSE_JOB),
