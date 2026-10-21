@@ -9,7 +9,9 @@ import java.util.List;
 import java.util.function.Consumer;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.context.annotation.Bean;
+import io.integrationplatform.suitesupport.SuiteSchedulerConfig;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 
@@ -29,6 +31,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
  * javadoc names the trap).
  */
 @EnableAutoConfiguration
+@Import(SuiteSchedulerConfig.class)
 @ComponentScan(basePackages = {
         "io.integrationplatform.config",
         "io.integrationplatform.tenancy.internal.persistence",
