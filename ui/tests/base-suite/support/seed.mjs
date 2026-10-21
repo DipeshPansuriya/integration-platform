@@ -18,13 +18,18 @@ const DESIGNER = '[data-page="mapping-designer"]';
 const sourceNode = (page, field) => page.locator(`[data-tree="source"] [data-node="${field}"]`);
 const targetNode = (page, field) => page.locator(`[data-tree="target"] [data-node="${field}"]`);
 
-/** Seeds `tenant` (lib/tenants.mjs TENANTS.A / .B) as its own admin; returns ids only (no secret). */
-export async function seedTenant(page, tenant, settings) {
+/**
+ * Seeds `tenant` (lib/tenants.mjs TENANTS.A / .B) as its own admin; returns ids only (no secret).
+ * `targetBaseUrl` (front half, no exception): the target system's base URL when it is not the tenant's path on
+ * the exception host - then `settings` is not read at all.
+ */
+export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {}) {
   // every API call names its login itself; the page-wide marker is set ONLY around the designer below,
   // so an approver's call can never ride the author's marker
   await page.setExtraHTTPHeaders({});
   const as = (method, apiPath, body, what, login = tenant.admin) => inBrowser(page, method, apiPath, body, login).then((a) => must(a, `${tenant.key}: ${what}`));
-  const port = settings.port; // F1: WireMock is published on the exception port (boot-options.mjs)
+  // F1: WireMock is published on the exception port (boot-options.mjs)
+  const targetBase = targetBaseUrl ?? targetUrl(settings, settings.port, tenant.stubPath);
 
   // TBD(row278|T106): the API adapter's send URL - today the production body port is empty
   // (ApiAdapterConfiguration.java:38-39) and where the delivery reads its base URL (this system setting or a
@@ -35,7 +40,7 @@ export async function seedTenant(page, tenant, settings) {
   }, 'source system');
   const target = await as('POST', '/api/v1/admin/systems', {
     code: TARGET_CONTRACT.system, name: TARGET_CONTRACT.name, direction: 'OUTBOUND', type: 'API',
-    settings: { baseUrl: targetUrl(settings, port, tenant.stubPath) }
+    settings: { baseUrl: targetBase }
   }, 'target system on the exception host');
 
   const versionIds = {};
@@ -54,30 +59,7 @@ export async function seedTenant(page, tenant, settings) {
   expect(routes, 'single target: flow orders has exactly one route').toHaveLength(1);
   const [route] = routes;
 
-  // The drawing, as T92 draws it - the designer's save and its "Run sample" through the real endpoints,
-  // as the tenant's admin (the console proxy swaps in that login's session for the marker).
-  // The browser loads the page first, so the console bundle itself never carries the marker.
-  await page.goto(`${bsEnv('consoleUrl')}/`);
-  await page.setExtraHTTPHeaders({ 'X-Harness-Login': tenant.admin });
-  await page.goto(`${bsEnv('consoleUrl')}/#/mappings/${route.id}`);
-  await expect(page.locator(`${DESIGNER}[data-mapping-loaded="true"]`)).toBeVisible();
-  await page.locator('[data-field="source-version"]').selectOption(versionIds.SOURCE_REQUEST);
-  await page.locator('[data-field="target-version"]').selectOption(versionIds.TARGET_REQUEST);
-  await expect(targetNode(page, 'invoiceValue')).toBeVisible();
-  for (const [from, to] of LINKS) {
-    await sourceNode(page, from).click();
-    await targetNode(page, to).click();
-    await page.click('[data-action="add-link"]');
-  }
-  await expect(page.locator('[data-link-row]')).toHaveCount(LINKS.length);
-  await page.click('[data-action="save"]');
-  await expect(page.locator('[data-saved="true"]')).toHaveText('Mapping saved.');
-  const sample = orderRecord(tenant, 9000);
-  await page.locator('[data-sample-input]').fill(JSON.stringify(sample));
-  await page.click('[data-sample-run]');
-  await expect(page.locator('[data-sample-result]')).toHaveAttribute('data-state', 'ok');
-  expect(JSON.parse(await page.locator('[data-sample-output]').textContent())).toEqual(expectedTargetBody(sample));
-  await page.setExtraHTTPHeaders({});
+  await drawMapping(page, tenant, route.id, versionIds);
 
   // the flow's draft pins what it read (FlowAdminService.saveDraft), then the two-person lifecycle
   await as('PUT', `/api/v1/admin/flows/${flow.id}`, flowBody, 'draft save of orders');
@@ -90,8 +72,44 @@ export async function seedTenant(page, tenant, settings) {
   // ids only - the secret in `credential` is dropped here
   return {
     sourceSystemId: source.id, targetSystemId: target.id, flowId: flow.id, routeId: route.id, mappingId: route.mappingId,
-    credentialId: credential.id, clientId: credential.clientId
+    credentialId: credential.id, clientId: credential.clientId, versionIds
   };
+}
+
+/**
+ * The drawing, as T92 draws it - the designer's save and its "Run sample" through the real endpoints, as the
+ * tenant's admin (the console proxy swaps in that login's session for the marker). The browser loads the page
+ * first, so the console bundle itself never carries the marker. `links` defaults to the whole Dipesh drawing;
+ * `sample: false` saves the drawing without running a sample (BS-04's no-sample leg).
+ */
+export async function drawMapping(page, tenant, routeId, versionIds, { links = LINKS, sample = true } = {}) {
+  await page.goto(`${bsEnv('consoleUrl')}/`);
+  await page.setExtraHTTPHeaders({ 'X-Harness-Login': tenant.admin });
+  await page.goto(`${bsEnv('consoleUrl')}/#/mappings/${routeId}`);
+  await expect(page.locator(`${DESIGNER}[data-mapping-loaded="true"]`)).toBeVisible();
+  await page.locator('[data-field="source-version"]').selectOption(versionIds.SOURCE_REQUEST);
+  await page.locator('[data-field="target-version"]').selectOption(versionIds.TARGET_REQUEST);
+  await expect(targetNode(page, 'invoiceValue')).toBeVisible();
+  for (const [from, to] of links) {
+    await sourceNode(page, from).click();
+    await targetNode(page, to).click();
+    await page.click('[data-action="add-link"]');
+  }
+  await expect(page.locator('[data-link-row]')).toHaveCount(links.length);
+  await page.click('[data-action="save"]');
+  await expect(page.locator('[data-saved="true"]')).toHaveText('Mapping saved.');
+  if (sample) await runSample(page, orderRecord(tenant, 9000), 'ok');
+  await page.setExtraHTTPHeaders({});
+}
+
+/** "Run sample" on the open designer with `record`; asserts data-state, and for ok the whole contract translation. */
+export async function runSample(page, record, state) {
+  await page.locator('[data-sample-input]').fill(JSON.stringify(record));
+  await page.click('[data-sample-run]');
+  await expect(page.locator('[data-sample-result]')).toHaveAttribute('data-state', state);
+  if (state === 'ok') {
+    expect(JSON.parse(await page.locator('[data-sample-output]').textContent())).toEqual(expectedTargetBody(record));
+  }
 }
 
 /** A usable source secret for this scenario only: rotate the seeded credential, keep the answer in memory. */
