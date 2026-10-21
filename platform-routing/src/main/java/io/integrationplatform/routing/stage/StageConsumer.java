@@ -350,15 +350,19 @@ public final class StageConsumer {
                 if (recovered) {
                     // A retried record succeeded - the partition keeps its work (T-181: pauses and resumes).
                     consumer.resume(List.of(partition));
-                }
-                handled.put(partition, new OffsetAndMetadata(record.offset() + 1));
-                if (recovered) {
-                    commitHandled(handled); // acceptance order: the recovered offset commits after its work, before the rest
-                }
-                if (outcome == Outcome.POISONED) {
-                    // CTO fix (T-122): a poison offset commits at once - batching it would let a crash
-                    // redeliver the batch and write the poison record a second time (one-poison-topic rule).
-                    commitHandled(handled);
+                    long commitStart = System.nanoTime();
+                    try {
+                        consumer.commitSync(Map.of(partition, new OffsetAndMetadata(record.offset() + 1)));
+                    } finally {
+                        drainTimer("commit", commitStart);
+                    }
+                } else {
+                    handled.put(partition, new OffsetAndMetadata(record.offset() + 1));
+                    if (outcome == Outcome.POISONED) {
+                        // CTO fix (T-122): a poison offset commits at once - batching it would let a crash
+                        // redeliver the batch and write the poison record a second time (one-poison-topic rule).
+                        commitHandled(handled);
+                    }
                 }
             }
         }

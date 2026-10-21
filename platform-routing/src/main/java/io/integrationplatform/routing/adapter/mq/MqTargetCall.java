@@ -74,7 +74,17 @@ public final class MqTargetCall implements TargetCall {
         OutcomeClass outcome = OutcomeClass.TRANSIENT;
         MqMessage message = null;
         try {
-            Optional<MqMessage> resolved = outbound.resolve(send);
+            Optional<MqMessage> resolved;
+            try {
+                resolved = outbound.resolve(send);
+            } catch (CsvContractException contract) {
+                // a row the contract cannot express is permanent: the broker was never contacted, so it never counts
+                outcome = OutcomeClass.PERMANENT;
+                breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+                throw new TargetFaultException(outcome, "the CSV contract of target endpoint "
+                        + send.targetEndpointId() + " cannot express delivery " + send.deliveryId()
+                        + " (" + contract.getMessage() + ")");
+            }
             if (resolved.isEmpty()) {
                 outcome = OutcomeClass.PERMANENT;
                 breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
