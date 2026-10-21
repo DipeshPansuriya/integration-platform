@@ -2,7 +2,9 @@ package io.integrationplatform.config.rule.parity;
 
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.context.annotation.Bean;
+import io.integrationplatform.suitesupport.SuiteSchedulerConfig;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 
@@ -16,6 +18,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
  * is never picked up by their scans. It is registered only where a test names it in {@code @SpringBootTest(classes)}.
  */
 @EnableAutoConfiguration
+@Import(SuiteSchedulerConfig.class)
 @ComponentScan(basePackages = {
         "io.integrationplatform.config",
         "io.integrationplatform.tenancy.internal.persistence",
