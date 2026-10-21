@@ -177,7 +177,7 @@ class TargetCredentialContainerTest {
         UUID mq = endpointOf(createSystem(port, admin, "OUTBOUND", "MQ",
                 "{\"host\":\"mq.partner.example\",\"port\":1414,\"queue\":\"ORDERS\"}"));
         UUID db = endpointOf(createSystem(port, admin, "OUTBOUND", "DB",
-                "{\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\"}"));
+                "{\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\"}"));
 
         Response mqSaved = call(port, "PUT", credentialsPath(mq), admin, "{\"fields\":{"
                 + "\"queueManagerPassword\":\"" + secret("qm") + "\",\"tlsKeystorePassword\":\"" + secret("ks")
