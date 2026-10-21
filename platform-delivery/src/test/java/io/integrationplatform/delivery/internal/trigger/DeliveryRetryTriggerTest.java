@@ -274,6 +274,74 @@ class DeliveryRetryTriggerTest {
         assertThat(List.of(trigger.runOnce(), trigger.runOnce(), trigger.runOnce())).containsExactly(3, 3, 1);
     }
 
+    // ---------- T-183: the half-open re-drive cap (ADR-010 section 6, S-i) ----------
+
+    @Test
+    void aRunReDrivesAtMostTheTrialCallCountOfCircuitDeferredDeliveriesPerTarget() {
+        Map<UUID, UUID> circuitDeferred = new HashMap<>();
+        List<UUID> waiting = new ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            UUID delivery = id("circuit-" + i);
+            waiting.add(delivery);
+            store.seed(TENANT_A, delivery, DeliveryState.RETRY_WAIT, 1, BASE.plusMillis(i), null);
+            circuitDeferred.put(delivery, TARGET_A);
+        }
+
+        int reDriven = halfOpenTrigger(circuitDeferred, 3).runOnce();
+
+        assertThat(reDriven).as("50 waiting on one open breaker, trial-call count 3").isEqualTo(3);
+        assertThat(waiting).filteredOn(d -> store.stateOf(d) == DeliveryState.DUE).hasSize(3);
+        assertThat(waiting.subList(0, 3)).as("oldest retry time first")
+                .allMatch(d -> store.stateOf(d) == DeliveryState.DUE);
+        assertThat(waiting).filteredOn(d -> store.stateOf(d) == DeliveryState.RETRY_WAIT).hasSize(47);
+        assertThat(outbox.committedEntries()).as("the rows-whatever-moved set is the 3 moved").hasSize(3);
+    }
+
+    @Test
+    void ifTheBreakerReOpensTheNextPassReDrivesAtMostTheTrialCountAgain() {
+        Map<UUID, UUID> circuitDeferred = new HashMap<>();
+        for (int i = 0; i < 7; i++) {
+            UUID delivery = id("reopen-" + i);
+            store.seed(TENANT_A, delivery, DeliveryState.RETRY_WAIT, 1, BASE.plusMillis(i), null);
+            circuitDeferred.put(delivery, TARGET_A);
+        }
+        DeliveryRetryTrigger trigger = halfOpenTrigger(circuitDeferred, 3);
+
+        assertThat(List.of(trigger.runOnce(), trigger.runOnce(), trigger.runOnce())).containsExactly(3, 3, 1);
+    }
+
+    @Test
+    void theHalfOpenCapIsPerTargetAndNeverCountsDeliveriesThatWereNotCircuitDeferred() {
+        Map<UUID, UUID> circuitDeferred = new HashMap<>();
+        for (int i = 0; i < 5; i++) {
+            UUID a = id("ha-" + i);
+            store.seed(TENANT_A, a, DeliveryState.RETRY_WAIT, 1, BASE.plusMillis(i), null);
+            circuitDeferred.put(a, TARGET_A);
+            UUID b = id("hb-" + i);
+            store.seed(TENANT_A, b, DeliveryState.RETRY_WAIT, 1, BASE.plusMillis(i), null);
+            circuitDeferred.put(b, TARGET_B);
+            store.seed(TENANT_A, id("plain-" + i), DeliveryState.RETRY_WAIT, 2, BASE.plusMillis(i), null);
+        }
+
+        int reDriven = halfOpenTrigger(circuitDeferred, 2).runOnce();
+
+        assertThat(reDriven).as("2 per target + 5 ordinary retries").isEqualTo(9);
+        assertThat(store.stateOf(id("ha-1"))).isEqualTo(DeliveryState.DUE);
+        assertThat(store.stateOf(id("ha-2"))).isEqualTo(DeliveryState.RETRY_WAIT);
+        assertThat(store.stateOf(id("hb-1"))).isEqualTo(DeliveryState.DUE);
+        assertThat(store.stateOf(id("hb-2"))).isEqualTo(DeliveryState.RETRY_WAIT);
+        assertThat(store.stateOf(id("plain-4"))).isEqualTo(DeliveryState.DUE);
+    }
+
+    @Test
+    void aTargetWithNoHalfOpenFactsIsNotCappedAndTheDefaultIsUnlimited() {
+        for (int i = 0; i < 4; i++) {
+            store.seed(TENANT_A, id("free-" + i), DeliveryState.RETRY_WAIT, 1, BASE.plusMillis(i), null);
+        }
+
+        assertThat(trigger(() -> List.of(TENANT_A)).runOnce()).isEqualTo(4);
+    }
+
     // ---------- T-180: the delivery side of the reconciler sweep ----------
 
     private static final UUID TARGET = id("target");
@@ -443,6 +511,13 @@ class DeliveryRetryTriggerTest {
 
     private DeliveryRetryTrigger trigger(ActiveTenants tenants) {
         return new DeliveryRetryTrigger(tenants, context, transactions, store, outbox, BATCH);
+    }
+
+    private DeliveryRetryTrigger halfOpenTrigger(Map<UUID, UUID> circuitDeferred, int trialCalls) {
+        return new DeliveryRetryTrigger(() -> List.of(TENANT_A), context, transactions, store, outbox, 1000,
+                InstanceReadiness.alwaysReady(), delivery -> Optional.empty(), TargetRedriveCap.unlimited(),
+                DeliveryReconcileStore.none(), TargetSendFacts.unknown(), RetryPolicy.defaults(),
+                delivery -> Optional.ofNullable(circuitDeferred.get(delivery)), target -> trialCalls);
     }
 
     private DeliveryRetryTrigger cappedTrigger(Map<UUID, BulkheadFacts> facts, int maxConcurrentSends,
