@@ -167,6 +167,43 @@ class JobPollingSurfaceTest {
                 .containsExactly(since.plusSeconds(10), since);
     }
 
+    /** E14 state-change stamp: a DISABLED-only job and a resumed job are changes, though neither ran nor is paused. */
+    @Test
+    void pollSinceCountsADisabledOnlyAndAResumedJobByTheirStateChangeStamp() {
+        Instant since = LAST.minusSeconds(30);
+        when(definitions.all()).thenReturn(List.of(
+                stateChanged("DISABLED_AFTER", false, false, since.plusSeconds(10)),
+                stateChanged("RESUMED_BOUNDARY", true, false, since),
+                stateChanged("DISABLED_BEFORE", false, false, since.minusSeconds(1)),
+                stateChanged("NO_STAMP", false, false, null),
+                row("QUIET")));
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT)).thenReturn(List.of());
+        when(client.getScheduledExecution(any())).thenReturn(Optional.empty());
+
+        List<PollingJobSurface.JobSummary> changed = surface.pollSince(since);
+
+        assertThat(changed).extracting(PollingJobSurface.JobSummary::jobId)
+                .containsExactly("DISABLED_AFTER", "RESUMED_BOUNDARY");
+        assertThat(changed).extracting(PollingJobSurface.JobSummary::state).containsExactly("DISABLED", "ACTIVE");
+        assertThat(changed).extracting(PollingJobSurface.JobSummary::stateChangedAt)
+                .containsExactly(since.plusSeconds(10), since);
+    }
+
+    @Test
+    void pollReportsStateChangedAtOnTheSummary() {
+        Instant at = LAST.minusSeconds(90);
+        when(definitions.all()).thenReturn(List.of(stateChanged("DISABLED_JOB", false, false, at), row("PLAIN")));
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT)).thenReturn(List.of());
+        when(client.getScheduledExecution(any())).thenReturn(Optional.empty());
+
+        assertThat(surface.poll()).extracting(PollingJobSurface.JobSummary::stateChangedAt)
+                .containsExactly(at, null);
+    }
+
+    private static JobDefinitionRow stateChanged(String jobType, boolean enabled, boolean paused, Instant at) {
+        return new JobDefinitionRow(jobType, "CRON", "0 0 * * *", enabled, paused, 60, 30, "{}", null, at);
+    }
+
     @Test
     void pollReportsPausedAtOnTheSummaryAndNullWhenNotPaused() {
         Instant at = LAST.minusSeconds(120);

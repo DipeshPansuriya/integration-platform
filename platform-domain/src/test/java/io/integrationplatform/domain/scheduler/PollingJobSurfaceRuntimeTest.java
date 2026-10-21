@@ -52,6 +52,51 @@ class PollingJobSurfaceRuntimeTest {
         assertThat(new PollingJobSurface.JobSummary("j", "T", "ACTIVE", null, null).pausedAt()).isNull();
     }
 
+    /** E14 state-change stamp: the seven-argument form carries it; the five- and six-argument forms give null. */
+    @Test
+    void theSevenArgumentSummaryCarriesStateChangedAtAndTheOlderFormsGiveNull() {
+        Instant at = SINCE.plusSeconds(7);
+
+        assertThat(new PollingJobSurface.JobSummary("j", "T", "DISABLED", null, null, null, at).stateChangedAt())
+                .isEqualTo(at);
+        assertThat(new PollingJobSurface.JobSummary("j", "T", "ACTIVE", null, null).stateChangedAt()).isNull();
+        assertThat(new PollingJobSurface.JobSummary("j", "T", "PAUSED", null, null, at).stateChangedAt()).isNull();
+    }
+
+    /** A DISABLED-only job (never ran, never paused) is changed at T: in pollSince(T-1s), not in pollSince(T+1s). */
+    @Test
+    void aDisabledOnlyJobIsChangedAtItsStateChangeInstant() {
+        Instant t = SINCE.plusSeconds(100);
+        PollingJobSurface surface = () -> List.of(
+                new PollingJobSurface.JobSummary("disabled", "A", "DISABLED", null, null, null, t));
+
+        assertThat(surface.pollSince(t.minusSeconds(1))).extracting(PollingJobSurface.JobSummary::jobId)
+                .containsExactly("disabled");
+        assertThat(surface.pollSince(t)).hasSize(1);
+        assertThat(surface.pollSince(t.plusSeconds(1))).isEmpty();
+    }
+
+    /** A resumed job has no pausedAt any more (resume clears it) but its state change is still visible. */
+    @Test
+    void aResumedJobIsChangedAtItsStateChangeInstantThoughPausedAtIsNull() {
+        Instant t = SINCE.plusSeconds(200);
+        PollingJobSurface surface = () -> List.of(
+                new PollingJobSurface.JobSummary("resumed", "B", "ACTIVE", null, null, null, t));
+
+        assertThat(surface.pollSince(t.minusSeconds(1))).extracting(PollingJobSurface.JobSummary::jobId)
+                .containsExactly("resumed");
+        assertThat(surface.pollSince(t.plusSeconds(1))).isEmpty();
+    }
+
+    /** The six-argument callers still work: a summary with no stateChangedAt is judged by ran / pausedAt alone. */
+    @Test
+    void aSummaryWithoutStateChangedAtIsNeverChangedByIt() {
+        PollingJobSurface surface = () -> List.of(
+                new PollingJobSurface.JobSummary("legacy", "C", "DISABLED", null, null, null, null));
+
+        assertThat(surface.pollSince(SINCE)).isEmpty();
+    }
+
     @Test
     void nullSinceDegradesToFullPoll() {
         PollingJobSurface surface = () -> List.of(

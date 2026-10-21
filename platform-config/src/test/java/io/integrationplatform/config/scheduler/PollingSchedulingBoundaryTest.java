@@ -43,6 +43,20 @@ class PollingSchedulingBoundaryTest {
     }
 
     @Test
+    void summariesSinceReadsTheSurfacePollSinceAndIsEmptyWithoutASurface() {
+        PollingSchedulingBoundary boundary = new PollingSchedulingBoundary(null);
+        Instant since = LAST.minusSeconds(5);
+        assertThat(boundary.summariesSince(since)).isEmpty();
+
+        JobSummary changed = new JobSummary("A", "A", "DISABLED", null, null, null, LAST);
+        JobSummary quiet = new JobSummary("B", "B", "ACTIVE", null, null);
+        boundary.attachPollingSurface(() -> List.of(changed, quiet));
+
+        assertThat(boundary.summariesSince(since)).containsExactly(changed);
+        assertThat(boundary.summariesSince(null)).containsExactly(changed, quiet);
+    }
+
+    @Test
     void theSpringContextAttachesTheJobPollingSurfaceBeanAtStartup() {
         JobDefinitionRepository definitions = mock(JobDefinitionRepository.class);
         JobRunSearch runs = mock(JobRunSearch.class);
@@ -74,6 +88,7 @@ class PollingSchedulingBoundaryTest {
     void aSummaryHasNoPayloadAndNoTenantComponent() {
         assertThat(Arrays.stream(PollingJobSurface.JobSummary.class.getRecordComponents())
                 .map(RecordComponent::getName))
-                .containsExactly("jobId", "jobType", "state", "nextRunAt", "lastRunAt", "pausedAt");
+                .containsExactly("jobId", "jobType", "state", "nextRunAt", "lastRunAt", "pausedAt",
+                        "stateChangedAt");
     }
 }

@@ -56,9 +56,35 @@ class SystemRegistryContainerTest {
     @LocalServerPort
     private int port;
 
+    /** F4: the operator's FILE base folder of this suite (the tenant's folder under it is lexical at save). */
+    private static final String FILE_BASE = System.getProperty("java.io.tmpdir") + java.io.File.separator
+            + "ipass-file-base-e5";
+
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
         E5SystemFixture.wire(registry);
+        registry.add("platform.config.destinations.file-base-dirs", () -> FILE_BASE);
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("F4: a FILE system's rootPath must lie in the tenant's own folder under the operator base; anything else is 400")
+    void aFileRootIsConfinedToTheTenantsFolderUnderTheBase() {
+        String own = (FILE_BASE + java.io.File.separator + E5SystemFixture.tenantA().id() + java.io.File.separator
+                + "outbound").replace("\\", "\\\\");
+
+        Response created = call(port, "POST", SYSTEMS, configuratorOfA(),
+                systemBody(randomCode("sys-file"), "OUTBOUND", "FILE", "{\"rootPath\":\"" + own + "\"}"));
+        assertThat(created.status()).as("body: %s", created.body()).isEqualTo(201);
+
+        for (String bad : List.of("/data/outbound", "C:\\\\Windows\\\\Temp", "out",
+                FILE_BASE.replace("\\", "\\\\"))) {
+            Response refused = call(port, "POST", SYSTEMS, configuratorOfA(),
+                    systemBody(randomCode("sys-file"), "OUTBOUND", "FILE", "{\"rootPath\":\"" + bad + "\"}"));
+            assertThat(refused.status()).as("%s body: %s", bad, refused.body()).isEqualTo(400);
+            assertThat(refused.body()).contains("settings.rootPath");
+        }
     }
 
     private static String configuratorOfA() {
@@ -68,9 +94,8 @@ class SystemRegistryContainerTest {
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', value = {
         "API  | OUTBOUND | {\"baseUrl\":\"https://api.partner.example/v1\",\"timeoutMs\":3000}",
-        "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\"}",
+        "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\"}",
         "MQ   | OUTBOUND | {\"host\":\"mq.partner.example\",\"port\":1414,\"queue\":\"ORDERS.IN\"}",
-        "FILE | OUTBOUND | {\"rootPath\":\"/data/outbound\"}",
         "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\",\"table\":\"orders_in\",\"approvedTables\":[\"orders_in\"]}",
         "KAFKA | OUTBOUND | {\"bootstrapServers\":\"kafka.partner.example:9092\",\"topic\":\"orders-out\"}"})
     @DisplayName("Scenario Outline: Register a system of each type - stored in the systems table's extension")

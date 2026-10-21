@@ -39,6 +39,36 @@ public final class DestinationGuard {
 
     private static final Pattern IPV4_LITERAL = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
 
+    /** F2: dot-separated DNS labels only (letters, digits, inner hyphens); used for the part in front of a wildcard suffix. */
+    public static boolean isDnsLabels(String text) {
+        return text != null && text.length() <= 253 && HOST_NAME.matcher(text).matches();
+    }
+
+    /**
+     * F2 (CWE-74): true when {@code host} is an exact DNS host name (letters, digits, inner hyphens, dot-separated
+     * labels; the last label is never all digits or 0x-hex, which would be an IPv4 encoding). Nothing else - no
+     * URL syntax, no port, no whitespace - passes. Pure text, never a lookup.
+     */
+    public static boolean isHostName(String host) {
+        if (host == null || host.length() > 253) {
+            return false;
+        }
+        String name = AllowList.normalise(host);
+        String lastLabel = name.substring(name.lastIndexOf('.') + 1);
+        return HOST_NAME.matcher(name).matches() && !lastLabel.matches("[0-9]+|0x[0-9a-f]*");
+    }
+
+    /** F2: a plain host name, a dotted-quad IPv4 literal, or a bracketed IPv6 literal - the only shapes a DB host may take. */
+    public static boolean isHostNameOrIpLiteral(String host) {
+        if (host == null || host.length() > 253 || !host.equals(host.strip())) {
+            return false;
+        }
+        return isHostName(host)
+                || IPV4_LITERAL.matcher(host).matches()
+                        && java.util.Arrays.stream(host.split("\\.")).allMatch(octet -> Integer.parseInt(octet) <= 255)
+                || host.matches("\\[[0-9A-Fa-f:.]{2,45}\\]");
+    }
+
     /** An exact host name: dot-separated labels of letters, digits and inner hyphens - no wildcard, port or IP. */
     private static final Pattern HOST_NAME =
             Pattern.compile("[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*");

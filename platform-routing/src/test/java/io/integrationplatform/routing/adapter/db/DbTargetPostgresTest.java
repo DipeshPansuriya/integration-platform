@@ -62,7 +62,8 @@ class DbTargetPostgresTest {
         DbOutbound outbound = new DbTargetOutbound(
                 id -> Optional.of(new DbTargets.DbTarget(settings, password)),
                 s -> Optional.of(List.of(Map.of("awb", "ABX1", "pieces", 2))));
-        return new DbTargetCall(outbound, new JdbcDbSender(Duration.ofSeconds(5)), guard,
+        return new DbTargetCall(outbound, new JdbcDbSender(Duration.ofSeconds(5), "disable"), guard,
+                List.of(TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)),
                 CircuitBreakerRegistry.ofDefaults(), meters, ObservationRegistry.create());
     }
 

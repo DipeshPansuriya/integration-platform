@@ -33,7 +33,7 @@ class SystemSettingsTest {
     @CsvSource(delimiter = '|', value = {
         "API  | {\"baseUrl\":\"https://api.partner.example/v1\"}",
         "API  | {\"baseUrl\":\"http://api.partner.example:8080\",\"timeoutMs\":2500,\"followRedirects\":true}",
-        "DB   | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\"}",
+        "DB   | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\"}",
         "MQ   | {\"host\":\"mq.partner.example\",\"port\":1414,\"queue\":\"ORDERS.IN\"}",
         "FILE | {\"rootPath\":\"/data/outbound\"}",
         "FILE | {\"rootPath\":\"D:/exchange/out\"}"})
@@ -71,8 +71,8 @@ class SystemSettingsTest {
     @DisplayName("Every missing setting is listed, not only the first")
     void everyErrorIsListed() {
         List<String> errors = errors("DB", "{}");
-        assertThat(errors).hasSize(3);
-        assertThat(String.join("\n", errors)).contains("host").contains("port").contains("database");
+        assertThat(errors).hasSize(4);
+        assertThat(String.join("\n", errors)).contains("host").contains("port").contains("database").contains("user");
     }
 
     @Test
@@ -152,7 +152,7 @@ class SystemSettingsTest {
     @Test
     @DisplayName("T-183: every type may carry the trial count; only an API target has a status dictionary")
     void theTrialCountIsOnEveryTypeTheDictionaryOnlyOnApi() {
-        assertThat(errors("DB", "{\"host\":\"h\",\"port\":5432,\"database\":\"d\",\"halfOpenTrialCalls\":2}")).isEmpty();
+        assertThat(errors("DB", "{\"host\":\"h\",\"port\":5432,\"database\":\"d\",\"user\":\"u\",\"halfOpenTrialCalls\":2}")).isEmpty();
         assertThat(errors("FILE", "{\"rootPath\":\"/o\",\"halfOpenTrialCalls\":2}")).isEmpty();
         assertThat(errors("FILE", "{\"rootPath\":\"/o\",\"errorDictionary\":{\"500\":\"TRANSIENT\"}}"))
                 .singleElement().asString().contains("errorDictionary");

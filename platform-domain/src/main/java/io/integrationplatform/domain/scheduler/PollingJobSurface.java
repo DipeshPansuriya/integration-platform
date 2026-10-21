@@ -15,15 +15,22 @@ public interface PollingJobSurface {
 
     /**
      * One polled job summary - identity and scheduling state only, no payload and no tenant data. {@code pausedAt}
-     * is when the job was paused (null while it is not paused); it is the only state-change timestamp the register
-     * keeps.
+     * is when the job was paused (null while it is not paused). {@code stateChangedAt} is when its enabled / paused
+     * state last changed (a disable, an enable, a pause or a resume; null when the source does not know) - unlike
+     * {@code pausedAt} it survives a resume and sees a job that was only disabled.
      */
     record JobSummary(String jobId, String jobType, String state, Instant nextRunAt, Instant lastRunAt,
-            Instant pausedAt) {
+            Instant pausedAt, Instant stateChangedAt) {
 
         /** A summary without a pause timestamp (additive: the pre-pausedAt shape stays constructible). */
         public JobSummary(String jobId, String jobType, String state, Instant nextRunAt, Instant lastRunAt) {
-            this(jobId, jobType, state, nextRunAt, lastRunAt, null);
+            this(jobId, jobType, state, nextRunAt, lastRunAt, null, null);
+        }
+
+        /** A summary without a state-change stamp (additive: the pre-stateChangedAt shape stays constructible). */
+        public JobSummary(String jobId, String jobType, String state, Instant nextRunAt, Instant lastRunAt,
+                Instant pausedAt) {
+            this(jobId, jobType, state, nextRunAt, lastRunAt, pausedAt, null);
         }
     }
 
@@ -32,11 +39,12 @@ public interface PollingJobSurface {
 
     /**
      * Poll the jobs that changed since {@code since}. "Changed" means the job <em>ran</em> since the cutoff (its
-     * {@code lastRunAt} is at or after {@code since}) or was <em>paused</em> since it (its {@code pausedAt} is).
-     * {@code nextRunAt} is deliberately not a change - every scheduled job has a future one, so counting it would
-     * return the whole register on every call. State alone does not count: a job that is merely DISABLED has no
-     * timestamp for when it was disabled, so it appears only when it ran. A {@code null} {@code since} degrades to
-     * the full {@link #poll()}.
+     * {@code lastRunAt} is at or after {@code since}), was <em>paused</em> since it (its {@code pausedAt} is), or had
+     * its enabled / paused <em>state changed</em> since it (its {@code stateChangedAt} is) - the last one also sees a
+     * job that was only disabled or only resumed. {@code nextRunAt} is deliberately not a change - every scheduled
+     * job has one, so counting it would return the whole register on every call. State alone does not count: a
+     * summary with no timestamps (an older source) appears only when it ran. A {@code null} {@code since} degrades
+     * to the full {@link #poll()}.
      */
     default List<JobSummary> pollSince(Instant since) {
         if (since == null) {
@@ -45,9 +53,14 @@ public interface PollingJobSurface {
         return poll().stream().filter(summary -> changedSince(summary, since)).toList();
     }
 
-    /** True when the job ran, or was paused, at or after {@code since}. */
+    /** True when the job ran, was paused, or had its state changed, at or after {@code since}. */
     static boolean changedSince(JobSummary summary, Instant since) {
-        return ranSince(summary, since) || pausedSince(summary, since);
+        return ranSince(summary, since) || stateChangedSince(summary, since) || pausedSince(summary, since);
+    }
+
+    /** True when the job's enabled / paused state changed at or after {@code since}. */
+    static boolean stateChangedSince(JobSummary summary, Instant since) {
+        return summary.stateChangedAt() != null && !summary.stateChangedAt().isBefore(since);
     }
 
     /** True when the job was paused at or after {@code since}. */

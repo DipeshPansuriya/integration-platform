@@ -97,10 +97,11 @@ class JdbcSchedulerRegistryTest {
     @Test
     void theRegisterReadIncludesPausedAt() {
         registry.jobDefinitions(mapper);
-        assertThat(jdbc.sql).contains("paused, paused_at,").endsWith("from scheduler.job_definition");
+        assertThat(jdbc.sql).contains("paused, paused_at, state_changed_at,")
+                .endsWith("from scheduler.job_definition");
 
         registry.jobDefinition("DAILY_REPORT", mapper);
-        assertThat(jdbc.sql).contains("paused_at").endsWith(" where job_type = ?");
+        assertThat(jdbc.sql).contains("paused_at, state_changed_at").endsWith(" where job_type = ?");
         assertThat(jdbc.args).containsExactly("DAILY_REPORT");
     }
 

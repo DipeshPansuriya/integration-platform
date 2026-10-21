@@ -29,7 +29,8 @@ public class JdbcJobDefinitionRepository implements JobDefinitionRepository {
             rs.getInt("max_run_seconds"),
             rs.getInt("late_threshold_seconds"),
             rs.getString("parameters"),
-            toInstant(rs.getTimestamp("paused_at")));
+            toInstant(rs.getTimestamp("paused_at")),
+            toInstant(rs.getTimestamp("state_changed_at")));
 
     private static Instant toInstant(Timestamp timestamp) {
         return timestamp == null ? null : timestamp.toInstant();
