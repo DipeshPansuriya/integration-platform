@@ -76,7 +76,7 @@ test('the decided values (showcase / localhost / PLATFORM_CONFIG_DESTINATIONS_SH
   assert.equal(settings.configured, true, settings.reason);
   assert.equal(settings.port, 8089);
   assert.deepEqual(settings.appEnv, { SPRING_PROFILES_ACTIVE: 'showcase', PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS: 'localhost',
-    PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '8089', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'localhost', ROUTING_CORE_ALLOWED_SCHEMES: 'http' });
+    PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '8089', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'localhost', ROUTING_CORE_ALLOWED_SCHEMES: 'http,https' });
 });
 
 test('configured: the app gets the named profile and the one host through the variable row 278 names', () => {
@@ -86,7 +86,7 @@ test('configured: the app gets the named profile and the one host through the va
   assert.equal(settings.host, 'target.showcase.test', 'trimmed and lower-cased like the guard normalises');
   assert.equal(settings.port, 32768, 'the exception port as a number');
   assert.deepEqual(settings.appEnv, { SPRING_PROFILES_ACTIVE: 'showcase', SHOWCASE_TARGET_HOST: 'target.showcase.test',
-    PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '32768', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'target.showcase.test', ROUTING_CORE_ALLOWED_SCHEMES: 'http' });
+    PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '32768', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'target.showcase.test', ROUTING_CORE_ALLOWED_SCHEMES: 'http,https' });
 });
 
 test('F1/F2: the host variable can never be the port or allow-list property the exception sets itself', () => {

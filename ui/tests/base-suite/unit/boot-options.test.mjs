@@ -57,7 +57,7 @@ test('configured: tenant B, the declared WireMock, the exception through mergeAp
     extraTenants: [TENANT_B_PLAN],
     services: { wiremock: { ...BS_WIREMOCK, hostPort: 32768 }, kafka: BS_KAFKA },
     appEnv: { SPRING_PROFILES_ACTIVE: 'showcase', SHOWCASE_TARGET_HOST: 'target.showcase.test',
-      PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '32768', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'target.showcase.test', ROUTING_CORE_ALLOWED_SCHEMES: 'http' },
+      PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '32768', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'target.showcase.test', ROUTING_CORE_ALLOWED_SCHEMES: 'http,https' },
     sourceCredentials: true,
     lockHolder: 'aditya-qa-automation base-suite'
   });
