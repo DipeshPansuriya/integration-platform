@@ -29,6 +29,11 @@ public class ReportFacadeController {
             @RequestParam(value = "flowId", required = false) UUID flowId,
             @RequestParam(value = "day", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate day) {
-        return ResponseEntity.ok(facade.report(trackingId, flowId, day));
+        ReportFacade.Report report = facade.report(trackingId, flowId, day);
+        // a tracking id the bound tenant cannot see behaves like the timeline endpoint: 404, never a 200 with null
+        if (report == null || report.timeline() == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(report);
     }
 }
