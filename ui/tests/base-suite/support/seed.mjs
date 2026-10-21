@@ -72,11 +72,13 @@ export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {})
   await as('POST', `/api/v1/admin/flows/${flow.id}/approve`, undefined, 'approve orders', tenant.approver);
   await as('POST', `/api/v1/admin/flows/${flow.id}/publish`, undefined, 'publish orders');
 
+  // the flow create answer carries no code; the interface's generated code (flow-<uuid>) is what the intake is addressed by
+  const published = await as('GET', `/api/v1/admin/flows/${flow.id}`, undefined, 'read published orders');
   const credential = await as('POST', `/api/v1/admin/systems/${source.id}/source-credentials`, { customerId: tenant.customerId }, 'source credential');
   expect(credential.customerId, 'the credential is bound to the tenant\'s own customer').toBe(tenant.customerId);
   // ids only - the secret in `credential` is dropped here
   return {
-    sourceSystemId: source.id, targetSystemId: target.id, flowId: flow.id, interfaceCode: flow.code, routeId: route.id, mappingId: route.mappingId,
+    sourceSystemId: source.id, targetSystemId: target.id, flowId: flow.id, interfaceCode: published.code, routeId: route.id, mappingId: route.mappingId,
     credentialId: credential.id, clientId: credential.clientId, versionIds
   };
 }
