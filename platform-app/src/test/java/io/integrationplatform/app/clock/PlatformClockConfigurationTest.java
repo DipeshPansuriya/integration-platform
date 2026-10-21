@@ -99,6 +99,19 @@ class PlatformClockConfigurationTest {
     }
 
     @Test
+    void theE2eClockRefusesToStartWhenTheProductionMarkerIsPresent() {
+        runner.withPropertyValues("spring.profiles.active=e2e", "platform.environment=production").run(context -> assertThat(context).hasFailed()
+                .getFailure().hasRootCauseInstanceOf(IllegalStateException.class)
+                .hasRootCauseMessage("the e2e AdjustableClock must never run with the production marker platform.environment=production"));
+    }
+
+    @Test
+    void theE2eClockStartsWhenTheProductionMarkerIsAbsent() {
+        runner.withPropertyValues("spring.profiles.active=e2e", "platform.environment=dev").run(context ->
+                assertThat(context).hasNotFailed().hasSingleBean(AdjustableClock.class));
+    }
+
+    @Test
     void theE2eClockStartsBesideANonProductionProfile() {
         runner.withPropertyValues("spring.profiles.active=e2e,dev").run(context ->
                 assertThat(context).hasNotFailed().hasSingleBean(AdjustableClock.class));

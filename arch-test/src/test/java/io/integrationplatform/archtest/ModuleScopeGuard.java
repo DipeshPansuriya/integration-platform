@@ -34,9 +34,10 @@ final class ModuleScopeGuard {
      */
     static final Set<String> SEED_MARKERS = Set.of("io.integrationplatform.e2e.seed", "e2e-seed");
 
-    /** Production files outside the Maven modules' src/main: the console source and the compose realm import. */
+    /** Production files outside the Maven modules' src/main: the console source, the whole compose tree and its
+     *  provisioning scripts, and the build-check scripts. */
     private static final List<String> OTHER_PRODUCTION_ROOTS =
-            List.of("ui/src", "compose/keycloak/platform-realm.json");
+            List.of("ui", "compose", "build-checks");
 
     private ModuleScopeGuard() {
     }
