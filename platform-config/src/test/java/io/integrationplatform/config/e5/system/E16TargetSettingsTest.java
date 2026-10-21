@@ -7,6 +7,7 @@ import io.integrationplatform.config.destination.AllowList;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.system.application.DestinationSettingsCheck;
 import io.integrationplatform.config.system.application.SystemSettings;
+import io.integrationplatform.config.system.application.SystemValidationException;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -60,10 +61,31 @@ class E16TargetSettingsTest {
     }
 
     @Test
-    @DisplayName("The DB type carries its restricted account name, target table and approved tables")
-    void dbCarriesTheApprovedTableContract() {
+    @DisplayName("The DB type carries its restricted account name and target table (the approved tables are no setting)")
+    void dbCarriesTheTargetTableContract() {
         assertThat(errors("DB", "{\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\","
-                + "\"user\":\"ipass_orders\",\"table\":\"orders_in\",\"approvedTables\":[\"orders_in\"]}")).isEmpty();
+                + "\"user\":\"ipass_orders\",\"table\":\"orders_in\"}")).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[\"users\"]", "[]", "\"users\"", "null"})
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("E16 F3: approvedTables in the settings is refused FIELD_NOT_ALLOWED - tables are approved through the approval API, never in settings")
+    void approvedTablesIsNoLongerASetting(String value) {
+        List<String> found = errors("DB", "{\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\","
+                + "\"user\":\"ipass_orders\",\"table\":\"orders_in\",\"approvedTables\":" + value + "}");
+        assertThat(found).singleElement().asString().contains("settings.approvedTables")
+                .contains(SystemSettings.FIELD_NOT_ALLOWED).contains("approved-tables");
+        assertThat(new SystemValidationException(found).body()).containsEntry("refusal", "FIELD_NOT_ALLOWED");
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("A refusal that is not about approvedTables carries no refusal code")
+    void otherValidationErrorsCarryNoRefusalCode() {
+        assertThat(new SystemValidationException(List.of("settings.host is required")).body())
+                .doesNotContainKey("refusal");
     }
 
     @Test
@@ -83,8 +105,6 @@ class E16TargetSettingsTest {
         String base = "{\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\",";
         assertThat(errors("DB", base + "\"table\":\"" + table + "\"}"))
                 .singleElement().asString().contains("settings.table");
-        assertThat(errors("DB", base + "\"approvedTables\":[\"" + table + "\"]}"))
-                .singleElement().asString().contains("settings.approvedTables");
     }
 
     @ParameterizedTest

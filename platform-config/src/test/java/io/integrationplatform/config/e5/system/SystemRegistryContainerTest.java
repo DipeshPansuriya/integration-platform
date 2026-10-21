@@ -96,7 +96,7 @@ class SystemRegistryContainerTest {
         "API  | OUTBOUND | {\"baseUrl\":\"https://api.partner.example/v1\",\"timeoutMs\":3000}",
         "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\"}",
         "MQ   | OUTBOUND | {\"host\":\"mq.partner.example\",\"port\":1414,\"queue\":\"ORDERS.IN\"}",
-        "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\",\"table\":\"orders_in\",\"approvedTables\":[\"orders_in\"]}",
+        "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\",\"table\":\"orders_in\"}",
         "KAFKA | OUTBOUND | {\"bootstrapServers\":\"kafka.partner.example:9092\",\"topic\":\"orders-out\"}"})
     @DisplayName("Scenario Outline: Register a system of each type - stored in the systems table's extension")
     void registerASystemOfEachType(String type, String direction, String settings) {

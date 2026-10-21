@@ -61,6 +61,10 @@ class RolePolicyTest {
     @CsvSource({
         "CONFIGURATOR, ISSUE_SOURCE_CREDENTIAL",
         "CONFIGURATOR, MANAGE_TARGET_CREDENTIAL",
+        // E16 F3 (D1): a configurator requests a DB table but never approves one; read-only and support cannot either
+        "CONFIGURATOR, APPROVE_DB_TABLE",
+        "READ_ONLY,    APPROVE_DB_TABLE",
+        "SUPPORT,      APPROVE_DB_TABLE",
         "SUPPORT,      EDIT_CONFIGURATION",
         "READ_ONLY,    REPLAY_DEAD_LETTER",
         // approver-is-never-author is the record's CHECK, not the role: the role check lets an approver through,
@@ -89,6 +93,7 @@ class RolePolicyTest {
                 Map.entry(ISSUE_SOURCE_CREDENTIAL, EnumSet.of(Role.TENANT_ADMIN)),
                 Map.entry(REVOKE_SOURCE_CREDENTIAL, EnumSet.of(Role.TENANT_ADMIN)),
                 Map.entry(MANAGE_TARGET_CREDENTIAL, EnumSet.of(Role.TENANT_ADMIN)),
+                Map.entry(Operation.APPROVE_DB_TABLE, EnumSet.of(Role.TENANT_ADMIN, Role.APPROVER)),
                 Map.entry(READ_MESSAGE_TIMELINE, EnumSet.of(Role.TENANT_ADMIN, Role.SUPPORT, Role.READ_ONLY)),
                 Map.entry(REPLAY_DEAD_LETTER, EnumSet.of(Role.TENANT_ADMIN, Role.SUPPORT)),
                 Map.entry(READ_OWN_IDENTITY, EnumSet.noneOf(Role.class)),
