@@ -12,4 +12,14 @@ import java.util.UUID;
 public interface KafkaSender {
 
     void send(KafkaTopicSettings settings, UUID deliveryId, byte[] body, Duration timeout) throws Exception;
+
+    /**
+     * E16: the send of a system that logs in with SASL. {@code saslPassword} is the call's own copy of the vault's
+     * password (null for a system without SASL); the caller zeroes it afterwards. A sender with no security support
+     * ignores it.
+     */
+    default void send(KafkaTopicSettings settings, char[] saslPassword, UUID deliveryId, byte[] body, Duration timeout)
+            throws Exception {
+        send(settings, deliveryId, body, timeout);
+    }
 }
