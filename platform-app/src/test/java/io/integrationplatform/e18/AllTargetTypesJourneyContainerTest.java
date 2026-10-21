@@ -137,7 +137,7 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     @DisplayName("MQ-CSV: a CSV in the tenant's contract lands once on the partner's queue")
     void mqCsvTargetJourney() throws Exception {
         String queue = "e18.orders.mqcsv";
-        String settings = "{\"host\":\"mq.e18.test\",\"port\":" + ARTEMIS.getMappedPort(ARTEMIS_PORT)
+        String settings = "{\"host\":\"localhost\",\"port\":" + ARTEMIS.getMappedPort(ARTEMIS_PORT)
                 + ",\"queue\":\"" + queue + "\",\"contract\":{\"columns\":[{\"name\":\"order_no\",\"type\":\"text\"},"
                 + "{\"name\":\"customer\",\"type\":\"text\"},{\"name\":\"total\",\"type\":\"number\"}],"
                 + "\"delimiter\":\",\",\"quote\":\"\\\"\",\"quoteAll\":false,\"encoding\":\"UTF-8\","
@@ -157,7 +157,7 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     @DisplayName("Kafka topic: the partner's own topic receives one record keyed by the delivery id")
     void kafkaTopicTargetJourney() throws Exception {
         String topic = "e18.partner.orders";
-        String settings = "{\"bootstrapServers\":\"kafka.e18.test:" + TARGET_KAFKA.getMappedPort(9092)
+        String settings = "{\"bootstrapServers\":\"localhost:" + TARGET_KAFKA.getMappedPort(9092)
                 + "\",\"topic\":\"" + topic + "\"}";
         Run run = journey("kafka", "KAFKA", settings, "kafka://kafka.e18.test/" + topic, true);
         assertJourneyReads(run);
@@ -177,7 +177,7 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     void dbTargetJourney() throws Exception {
         try (Connection partner = java.sql.DriverManager.getConnection(TARGET_DB.getJdbcUrl(),
                 TARGET_DB.getUsername(), TARGET_DB.getPassword()); Statement create = partner.createStatement()) {
-            create.execute("create table if not exists partner_orders (order_no text, customer text, total numeric, delivery_id text)");
+            create.execute("create table if not exists partner_orders (order_no text, customer text, total numeric, delivery_id text unique)");
         }
         String settings = "{\"host\":\"db.e18.test\",\"port\":" + TARGET_DB.getMappedPort(5432) + ",\"database\":\""
                 + TARGET_DB.getDatabaseName() + "\",\"user\":\"" + TARGET_DB.getUsername()

@@ -205,7 +205,7 @@ class HourLongOutageContainerTest extends E18Base {
         String queue = "e18.orders.outage";
         int messages = 3;
         ClientCredentials source = newSource("e18-jms-out");
-        String settings = "{\"host\":\"mq.e18.test\",\"port\":" + ARTEMIS.getMappedPort(ARTEMIS_PORT)
+        String settings = "{\"host\":\"localhost\",\"port\":" + ARTEMIS.getMappedPort(ARTEMIS_PORT)
                 + ",\"queue\":\"" + queue + "\",\"contract\":{\"columns\":[{\"name\":\"order_no\",\"type\":\"text\"},"
                 + "{\"name\":\"customer\",\"type\":\"text\"},{\"name\":\"total\",\"type\":\"number\"}],"
                 + "\"delimiter\":\",\",\"quote\":\"\\\"\",\"quoteAll\":false,\"encoding\":\"UTF-8\","

@@ -132,9 +132,9 @@ abstract class E18Base {
         registry.add("CONSOLE_URL", () -> "/");
         registry.add("IPASS_KAFKA_BOOTSTRAP_SERVERS", KAFKA::getBootstrapServers);
         registry.add("IPASS_KAFKA_PUBLISH_CLIENT_ID", () -> "e18-relay");
-        registry.add("platform.config.destinations.allowed-hosts", () -> "*.e18.test");
+        registry.add("platform.config.destinations.allowed-hosts", () -> "*.e18.test,localhost");
         registry.add("platform.config.destinations.showcase-local-hosts",
-                () -> "api.e18.test,mq.e18.test,kafka.e18.test,db.e18.test");
+                () -> "api.e18.test,mq.e18.test,kafka.e18.test,db.e18.test,localhost");
         registry.add("platform.config.destinations.showcase-local-ports", () -> PARTNER.port() + ","
                 + ARTEMIS.getMappedPort(ARTEMIS_PORT) + "," + TARGET_KAFKA.getMappedPort(9092) + ","
                 + TARGET_DB.getMappedPort(5432));
@@ -171,7 +171,7 @@ abstract class E18Base {
         @Primary
         HostResolver e18PartnerNames() {
             return host -> {
-                if (host.endsWith(".e18.test")) {
+                if (host.endsWith(".e18.test") || host.equals("localhost")) {
                     return List.of(InetAddress.getByAddress(host, new byte[] {127, 0, 0, 1}));
                 }
                 throw new UnknownHostException(host);
