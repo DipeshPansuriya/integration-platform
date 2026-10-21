@@ -47,7 +47,8 @@ final class TenantFilterRule {
             "ipaas_work_tenant",
             "ipaas_active_tenants",
             "ADR-007 Decision 6",
-            "ADR-012 section 4");
+            "ADR-012 section 4",
+            "T6");
 
     /** Types whose every method runs or prepares SQL. */
     private static final List<String> SQL_TYPES = List.of(
