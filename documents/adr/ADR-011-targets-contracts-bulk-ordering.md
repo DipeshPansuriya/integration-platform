@@ -334,3 +334,36 @@ dead letter from that day is unresolved.
   Target A) - that is orchestration, out of scope today (`ws/_specs/project-plan.md:226`).
 - A consumer outside the platform needs payloads from Kafka.
 - More than 50 held deliveries older than 1 hour on any day for two weeks.
+
+## Amendment 2026-10-22 - who approves a DB target's tables, and where it is enforced (E16 finding F3)
+
+Dipesh decided D1-D4 on 2026-10-22; design note: option B of the E16 F3 note (`_documents/2026-10-22-design-job-state-change-and-approved-tables.md`
+in the project workspace). This amends the `DB` row of Decision 1 ("only tables on the target's approved list").
+
+- **Where the list lives.** Not in the system's `settings` (a configurator wrote both `table` and the list that was meant
+  to restrict it). It is the tenant table `public.db_target_approved_table` (`V2_4_1330`): forced row-level security, the
+  app role holds SELECT and INSERT only, and a decision moves only through the `SECURITY DEFINER` function
+  `config_decide_db_table_approval(id, decision)` (pinned `search_path`, no PUBLIC execute).
+- **Who approves (D1).** The tenant's approver (`APPROVE_DB_TABLE`: TENANT_ADMIN, APPROVER), not the platform operator. A
+  configurator (`EDIT_CONFIGURATION`) only requests. **D4:** the requester can never approve their own request, even in a
+  one-admin tenant (same rule as contract approval, `V2_2_5_1`). Revoking is the safe direction and is open to the
+  approver roles including the requester. **D3:** no column-level list; column control belongs in the target database's own
+  column grants. **D2:** existing `approvedTables` entries migrated as `PENDING_APPROVAL` and the key was stripped from
+  the stored settings; a DB send is refused until someone approves.
+- **Approval is bound to the target** (Karan, 2026-10-22). Each row stores a SHA-256 fingerprint of host, port, database
+  and account; an approval is refused if the system was repointed since the request, and a send or publish counts an
+  approval only while the system's current settings still hash to it. Editing the host or database of a system therefore
+  invalidates its approvals (revoke and request again).
+- **Enforcement points.** (1) Save: a settings body carrying `approvedTables` is 400 `FIELD_NOT_ALLOWED`. (2) Publish: an
+  interface whose DB table is not approved is refused through the ADR-017 contract (`InterfacePublishRefused`). (3) Send:
+  `DbTargetCall` asks the approval table per send; unapproved or revoked is PERMANENT (destination refused); a failed
+  lookup is TRANSIENT and retried, never read as allowed. (4) Every request, approval and revoke leaves an `AuditEvent`
+  (`DB_TABLE_REQUESTED/APPROVED/REVOKED`) and, refused or not, a log line.
+- **Honest limits.** Four-eyes inside one tenant is an audit trail and a separation of duties, **not an authorization
+  boundary**: a tenant whose admin and approver collude can approve any table - but only in a database whose credentials
+  that tenant supplied itself. The decider is stamped into the transaction (`app.actor_id`) by the platform from the
+  validated session, not authenticated by the database (the app connects as one role); a database-authenticated actor
+  needs a tenancy-module change and stays open. The privilege probe at test-connection (the restricted account's real
+  grants: `has_table_privilege`, no CREATE) is **not built**; until it is, the account's real privileges are the target
+  database owner's responsibility, and this approval list is the platform-side control only. A platform-operator
+  ceiling (option A) waits for the operator login (ADR-012).
