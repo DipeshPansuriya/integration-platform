@@ -10,6 +10,7 @@ import io.integrationplatform.tenancy.TenantContext;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.DoubleSupplier;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
@@ -24,11 +25,22 @@ public final class JdbcSendOutcomes implements SendOutcomes {
     private final OutcomeRecorder recorder;
     private final StageTimings timings;
 
+    /** Records no stage timing - for a database without the message family (this module's own tests). */
     public JdbcSendOutcomes(JdbcClient jdbcClient, TenantContext tenantContext) {
+        this(jdbcClient, tenantContext, null);
+    }
+
+    /**
+     * T105 wiring: the success move records the message's DELIVER stage, and a dead letter through the recorder
+     * does too, each in the caller's transaction (the writer takes the tenant from its own stamped context).
+     */
+    public JdbcSendOutcomes(JdbcClient jdbcClient, TenantContext tenantContext, StageTimings timings) {
         this.repository = new JdbcDeliveryRepository(jdbcClient, tenantContext);
-        this.recorder = new OutcomeRecorder(new JdbcDeliveryRetryStore(jdbcClient, tenantContext),
-                RetryPolicy.defaults(), () -> ThreadLocalRandom.current().nextDouble());
-        this.timings = null;
+        JdbcDeliveryRetryStore store = new JdbcDeliveryRetryStore(jdbcClient, tenantContext);
+        DoubleSupplier jitter = () -> ThreadLocalRandom.current().nextDouble();
+        this.recorder = timings == null ? new OutcomeRecorder(store, RetryPolicy.defaults(), jitter)
+                : new OutcomeRecorder(store, RetryPolicy.defaults(), jitter, timings);
+        this.timings = timings;
     }
 
     JdbcSendOutcomes(JdbcDeliveryRepository repository, OutcomeRecorder recorder, StageTimings timings) {
@@ -45,7 +57,15 @@ public final class JdbcSendOutcomes implements SendOutcomes {
 
     @Override
     public boolean markDelivered(UUID deliveryId, UUID claimToken) {
-        return repository.markDelivered(deliveryId, claimToken, Instant.now());
+        Instant at = Instant.now();
+        boolean delivered = repository.markDelivered(deliveryId, claimToken, at);
+        if (delivered && timings != null) {
+            // E13: the message's DELIVER stage, finished at this move, in the move's transaction; a redelivered
+            // record matches nothing here (0 rows), so it writes no second timing, and the writer's ON CONFLICT
+            // keeps one row per message and stage
+            timings.recordDeliverFinished(deliveryId, at);
+        }
+        return delivered;
     }
 
     @Override
