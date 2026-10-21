@@ -19,4 +19,3 @@ public class ReportFacadeEndpointRoles implements ApiOperationRules {
         return List.of(new Rule("GET", FACADE, Operation.READ_MESSAGE_TIMELINE));
     }
 }
-EOF
