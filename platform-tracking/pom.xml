@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/xsd/maven-4.0.0.xsd https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.integrationplatform</groupId>
+    <artifactId>integration-platform-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>platform-tracking</artifactId>
+  <name>platform-tracking</name>
+  <description>E13 seam (low-conflict): tracking and report read contract surface - timeline, failure and report DTOs and read APIs only; implementation stays in platform-app until the lane fills this module. No coupling to E9/E10 runtime.</description>
+
+  <!-- Low-conflict contract surface only: depend on platform-domain for the shared delivery value type. No Spring, no core. -->
+  <dependencies>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-domain</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+</project>
