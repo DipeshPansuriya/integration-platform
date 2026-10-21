@@ -52,6 +52,7 @@ public final class BulkheadMeterBinder implements MeterBinder {
 
     /** The wiring: one binder on the composed registry (this module's scan picks the configuration). */
     @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty("IPASS_KAFKA_BOOTSTRAP_SERVERS")
     static class Wiring {
 
         @org.springframework.context.annotation.Bean
