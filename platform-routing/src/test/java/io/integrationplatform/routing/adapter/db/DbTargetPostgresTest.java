@@ -116,7 +116,7 @@ class DbTargetPostgresTest {
     void rowsLandInAnApprovedTableThroughTheRestrictedAccount() throws Exception {
         call(settings("orders_in"), RESTRICTED_PASSWORD.toCharArray()).call(send());
 
-        assertThat(count("select count(*) from orders_in where awb = 'ABX1' and pieces = 2")).isEqualTo(1);
+        assertThat(count("select count(*) from orders_in where delivery_id = '" + deliveryId + "' and awb = 'ABX1' and pieces = 2")).isEqualTo(1);
         assertThat(meters.get("db.target.outcome").tag("target_type", "DB").tag("outcome", "SUCCESS").counter())
                 .isNotNull();
     }
