@@ -63,8 +63,8 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>Test network: the partner names are {@code *.e18.test}. The destination guard is NOT relaxed beyond its own
  * showcase exception (T138/B21): the {@code showcase} profile lets these EXACT host names resolve to loopback on
- * these EXACT ports only. Adapters not yet wired on main are switched on by {@code -De18.gates=kafka,db,file}
- * (default {@code kafka,file}; db stays off: without a DbRows bean DbOutbound is null and its gate stops the context) because switching a gate on without its beans stops the whole context from starting.
+ * these EXACT ports only. The adapter and route-template gates are switched on by {@code -De18.gates=kafka,db,file}
+ * (default {@code kafka,db,file}: all three adapters and their route templates are on main) because switching a gate on without its beans stops the whole context from starting.
  */
 @Tag("container")
 @Tag("e2e-full")
@@ -96,7 +96,8 @@ abstract class E18Base {
     static final KafkaContainer TARGET_KAFKA = new KafkaContainer(TestImages.KAFKA)
             .withEnv("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "true");
     /** The DB partner's database; the approved table is created by the suite. */
-    static final PostgreSQLContainer TARGET_DB = new PostgreSQLContainer(TestImages.POSTGRES);
+    static final PostgreSQLContainer TARGET_DB = new PostgreSQLContainer(TestImages.POSTGRES)
+            .withEnv("POSTGRES_HOST_AUTH_METHOD", "trust"); // the partner account's password lives in the vault, not under test
     static final E18TargetStub PARTNER = new E18TargetStub();
     static final Path FILE_DIR;
 
@@ -140,8 +141,13 @@ abstract class E18Base {
         // harness only: the endpoint rows carry mq://, kafka://, jdbc: and file:// base URLs; the code fixes no scheme per type
         // (dispatch is by system.type, the scheme is only guarded), so the test environment approves exactly these
         registry.add("ROUTING_CORE_ALLOWED_SCHEMES", () -> "http,https,mq,kafka,jdbc,file");
-        // adapter gates: kafka is wired on main; db and file stay off until their beans are merged (e16-adapters)
-        String gates = System.getProperty("e18.gates", "kafka,file");
+        // test environment only: the partner database has no TLS and listens on a mapped port; FILE targets live under
+        // <base>/<tenantId> (FileRoots) with the temp directory as the one approved base
+        registry.add("platform.config.destinations.db-sslmode", () -> "disable");
+        registry.add("platform.config.destinations.db-allowed-ports", () -> String.valueOf(TARGET_DB.getMappedPort(5432)));
+        registry.add("platform.config.destinations.file-base-dirs", () -> FILE_DIR.toString().replace((char) 92, '/'));
+        // adapter and route-template gates (all on main since 8bec282)
+        String gates = System.getProperty("e18.gates", "kafka,db,file");
         if (gates.contains("kafka")) {
             registry.add("IPASS_KAFKA_TOPIC_TARGET_ENABLED", () -> "true");
             registry.add("IPASS_KAFKA_PLATFORM_TOPICS",
@@ -172,10 +178,47 @@ abstract class E18Base {
             };
         }
 
+        /**
+         * The restricted login joins ipaas_app strictly after Flyway and before the relay loops and the scheduler start
+         * (a deployment grants the role before the app starts). Without it EXECUTE on ipaas_active_tenants() and the scheduler
+         * schema are denied (SQLSTATE 42501 shown as BadSqlGrammar). Spring Boot applies every Callback bean to Flyway.
+         */
+        @Bean
+        org.flywaydb.core.api.callback.Callback e18GrantAppRoleAfterMigrate() {
+            return new GrantAppRole();
+        }
+
         /** Not primary: the application's composite tenant context lists every other TenantContext as a source. */
         @Bean
         ReadTenant e18ReadTenant() {
             return new ReadTenant();
+        }
+    }
+
+    /** AFTER_MIGRATE: grants ipaas_app to the runtime login on the owner connection; idempotent. */
+    static final class GrantAppRole implements org.flywaydb.core.api.callback.Callback {
+        @Override
+        public boolean supports(org.flywaydb.core.api.callback.Event event, org.flywaydb.core.api.callback.Context context) {
+            return event == org.flywaydb.core.api.callback.Event.AFTER_MIGRATE;
+        }
+
+        @Override
+        public boolean canHandleInTransaction(org.flywaydb.core.api.callback.Event event, org.flywaydb.core.api.callback.Context context) {
+            return false;
+        }
+
+        @Override
+        public void handle(org.flywaydb.core.api.callback.Event event, org.flywaydb.core.api.callback.Context context) {
+            try {
+                PlatformTestWiring.grantApplicationRole(POSTGRES, login);
+            } catch (java.sql.SQLException e) {
+                throw new IllegalStateException("the app login could not join ipaas_app after migration", e);
+            }
+        }
+
+        @Override
+        public String getCallbackName() {
+            return "e18GrantAppRoleAfterMigrate";
         }
     }
 

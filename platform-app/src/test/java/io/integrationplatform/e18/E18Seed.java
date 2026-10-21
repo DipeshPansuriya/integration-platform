@@ -41,6 +41,8 @@ final class E18Seed {
     static Tenant onboard(Connection owner, String word, String customerId, String clientId, String issuer,
             String systemType, String settings, String baseUrl, boolean idempotent) throws Exception {
         UUID tenantId = UUID.randomUUID();
+        settings = settings.replace("{tenant}", tenantId.toString()); // FILE roots live under <base>/<tenantId>
+        baseUrl = baseUrl.replace("{tenant}", tenantId.toString());
         execute(owner, "INSERT INTO public.tenant (id, code, status, time_zone) VALUES (?::uuid, ?, 'ACTIVE',"
                 + " 'Etc/UTC')", tenantId, "tnt-e18-" + word + "-" + tenantId.toString().substring(0, 8));
         UUID author = UUID.randomUUID();

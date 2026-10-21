@@ -62,6 +62,11 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
 
     private Run journey(String word, String systemType, String settings, String baseUrl, boolean idempotent)
             throws Exception {
+        return journey(word, systemType, settings, baseUrl, idempotent, tenant -> { });
+    }
+
+    private Run journey(String word, String systemType, String settings, String baseUrl, boolean idempotent,
+            java.util.function.Consumer<UUID> beforePost) throws Exception {
         grantAppRoleOnce();
         ClientCredentials source = newSource("e18-" + word);
         String customer = "CUST-" + word.toUpperCase();
@@ -70,6 +75,7 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
             tenant = E18Seed.onboard(owner, word, customer, source.clientId(), KEYCLOAK.issuerUri(), systemType,
                     settings, baseUrl, idempotent);
         }
+        beforePost.accept(tenant.id());
         String orderId = "ORD-" + word.toUpperCase() + "-1";
         UUID message = post(source, E18Seed.INTERFACE_CODE,
                 "{\"customerId\":\"" + customer + "\",\"orderId\":\"" + orderId + "\",\"amount\":12.5}", TRACEPARENT);
@@ -175,7 +181,7 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     void dbTargetJourney() throws Exception {
         try (Connection partner = java.sql.DriverManager.getConnection(TARGET_DB.getJdbcUrl(),
                 TARGET_DB.getUsername(), TARGET_DB.getPassword()); Statement create = partner.createStatement()) {
-            create.execute("create table if not exists partner_orders (order_no text, customer text, total numeric)");
+            create.execute("create table if not exists partner_orders (order_no text, customer text, total numeric, delivery_id text)");
         }
         String settings = "{\"host\":\"db.e18.test\",\"port\":" + TARGET_DB.getMappedPort(5432) + ",\"database\":\""
                 + TARGET_DB.getDatabaseName() + "\",\"user\":\"" + TARGET_DB.getUsername()
@@ -201,9 +207,16 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
             + " file content and exactly one file with the order lands in the directory")
     @DisplayName("File: one file with the order lands in the partner's directory")
     void fileTargetJourney() throws Exception {
-        Path directory = Files.createDirectories(FILE_DIR.resolve("file-journey"));
-        Run run = journey("file", "FILE", "{\"directory\":\"" + directory.toString().replace("\\", "\\\\") + "\"}",
-                "file://" + directory.getFileName(), true);
+        String base = FILE_DIR.toString().replace((char) 92, '/');
+        Run run = journey("file", "FILE", "{\"directory\":\"" + base + "/{tenant}\"}", "file://{tenant}", true,
+                tenantId -> {
+                    try {
+                        Files.createDirectories(FILE_DIR.resolve(tenantId.toString())); // <base>/<tenantId> (FileRoots)
+                    } catch (java.io.IOException e) {
+                        throw new IllegalStateException(e);
+                    }
+                });
+        Path directory = FILE_DIR.resolve(run.tenant().id().toString());
         assertJourneyReads(run);
 
         try (Stream<Path> files = Files.list(directory)) {
