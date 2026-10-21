@@ -37,13 +37,7 @@ final class KafkaClientsSender implements KafkaSender {
         if (guard != null) {
             bootstrapServers = pinnedBootstrapServers(settings.bootstrapServers(), guard);
         }
-        Properties props = new Properties();
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ProducerConfig.ACKS_CONFIG, "1");
-        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
-        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, String.valueOf(timeout.toMillis()));
-        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, String.valueOf(timeout.toMillis()));
+        Properties props = producerProperties(bootstrapServers, timeout);
         ProducerRecord<byte[], byte[]> record = record(settings, deliveryId, body,
                 io.integrationplatform.ingest.port.CorrelationContext.currentTraceparent());
         try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(props)) {
@@ -64,6 +58,24 @@ final class KafkaClientsSender implements KafkaSender {
                 throw refused;
             }
         }
+    }
+
+    /** The producer's configuration for one attempt bounded by {@code timeout}. */
+    static Properties producerProperties(String bootstrapServers, java.time.Duration timeout) {
+        Properties props = new Properties();
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(ProducerConfig.ACKS_CONFIG, "1");
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
+        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, String.valueOf(timeout.toMillis()));
+        // kafka-clients refuses delivery.timeout.ms < linger.ms + request.timeout.ms. The send timeout is the whole
+        // bound of one attempt, so: no batching delay (linger 0), one request may use all of it, and the delivery
+        // bound is exactly request + linger = the send timeout. A record unacknowledged at that point is AMBIGUOUS
+        // (the Future.get below carries the same bound); the cluster-unreachable pre-check stays TRANSIENT.
+        props.put(ProducerConfig.LINGER_MS_CONFIG, "0");
+        props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, String.valueOf(timeout.toMillis()));
+        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, String.valueOf(timeout.toMillis()));
+        return props;
     }
 
     /** The record: the delivery id as key (one stable identity per delivery for dedup and trace lookups) and the
