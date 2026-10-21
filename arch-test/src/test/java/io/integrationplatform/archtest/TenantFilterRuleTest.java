@@ -125,6 +125,66 @@ class TenantFilterRuleTest {
                 .as("the crossing's reviewed reason").contains("ADR-012 section 4");
     }
 
+    /**
+     * E16-T2 (T-149) review item for security: {@code JdbcDbSender} writes to a customer's external target database
+     * over its own driver connection, never the platform datasource, so it is the one named exemption of R08's scan.
+     * The exemption is exact-class and covers only the target connection's statements.
+     */
+    @Test
+    void theTargetDbSenderIsTheOneNamedExemptionAndExistsInTheProductionScan() {
+        JavaClasses production = TenantFilterRule.importProductionClasses();
+
+        assertThat(TenantFilterRule.TARGET_DB_SENDER)
+                .isEqualTo("io.integrationplatform.routing.adapter.db.JdbcDbSender");
+        assertThat(production.contain(TenantFilterRule.TARGET_DB_SENDER))
+                .as("the exempt class still exists (a rename must not leave a dead exemption)").isTrue();
+        assertThat(production.get(TenantFilterRule.TARGET_DB_SENDER).isAssignableTo(
+                "org.springframework.data.repository.Repository")).as("not a repository type").isFalse();
+        assertThat(production.get(TenantFilterRule.TARGET_DB_SENDER).isAssignableTo(
+                "org.springframework.jdbc.core.support.JdbcDaoSupport")).as("not a JdbcDaoSupport").isFalse();
+    }
+
+    @Test
+    void theTargetDbSenderNeverTouchesThePlatformDataSource() {
+        JavaClasses production = TenantFilterRule.importProductionClasses();
+
+        assertThat(production.get(TenantFilterRule.TARGET_DB_SENDER).getDirectDependenciesFromSelf().stream()
+                .map(dependency -> dependency.getTargetClass().getName()))
+                .as("JdbcDbSender must open its own driver connection, not a platform DataSource or Spring JDBC type")
+                .noneMatch(name -> name.equals("javax.sql.DataSource") || name.startsWith("org.springframework.jdbc.")
+                        || name.startsWith("org.springframework.data."));
+    }
+
+    @Test
+    void aDifferentClassMakingTheSameJdbcCallsIsStillFlagged() {
+        JavaClasses lookalike = new ClassFileImporter().importPackages(FIXTURES + ".e16.archfixture.planted")
+                .that(com.tngtech.archunit.base.DescribedPredicate.describe("the lookalike",
+                        c -> c.getSimpleName().equals("PlantedTargetDbLookalike")));
+        assertThat(lookalike.size()).isEqualTo(1);
+
+        assertThatThrownBy(() -> TenantFilterRule.NO_QUERY_WITHOUT_TENANT_FILTER.check(lookalike))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("PlantedTargetDbLookalike.insert(java.lang.String)")
+                .hasMessageContaining("java.sql.Connection.prepareStatement");
+    }
+
+    @Test
+    void theExemptClassStillCannotUseThePlatformDataSource() {
+        JavaClasses sender = new ClassFileImporter().importPackages(FIXTURES + ".e16.archfixture.planted")
+                .that(com.tngtech.archunit.base.DescribedPredicate.describe("the datasource sender",
+                        c -> c.getSimpleName().equals("PlantedTargetSenderOnPlatformDataSource")));
+        assertThat(sender.size()).isEqualTo(1);
+        String exempt = FIXTURES + ".e16.archfixture.planted.PlantedTargetSenderOnPlatformDataSource";
+
+        EvaluationResult result = TenantFilterRule.noQueryWithoutTenantFilterExempting(exempt).evaluate(sender);
+
+        assertThat(result.getFailureReport().getDetails())
+                .as("DataSource.getConnection() is flagged even in the exempt class; its target-connection statements are not")
+                .anyMatch(line -> line.contains("javax.sql.DataSource.getConnection"))
+                .noneMatch(line -> line.contains("java.sql.Connection.prepareStatement")
+                        || line.contains("java.sql.PreparedStatement.executeUpdate"));
+    }
+
     @Test
     void reviewedBoundaryCrossingsInTenancyInternalPass() {
         // The compliant class keeps the rule's that() clause non-empty: both crossings are exempt from it.
