@@ -12,3 +12,4 @@ HourLongOutageContainerTest#kafkaDownIntakeKeepsEveryAcceptedMessage
 HourLongOutageContainerTest#jmsBrokerDownMqCsvDeliveriesResume
 # T-153 - the measured memory budget
 MemoryBudgetContainerTest#boundedLoadStaysWithinTheMemoryBudget
+MemoryBudgetTest#aRunOverBudgetFailsAndReportsThePeak
