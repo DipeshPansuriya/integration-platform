@@ -29,7 +29,7 @@ class ActivityPersistenceConfiguration {
 
     @Bean
     io.integrationplatform.audit.api.ActivityReadApi activityReadApi(ActivityService service) {
-        return new JdbcActivityReadApi(service);
+        return new ActivityReadApiAdapter(service);
     }
 
     @Bean

@@ -14,7 +14,12 @@ public interface ActivityReadApi {
     record ActivityPage(List<ActivityEvent> items, int page, int size, boolean hasMore) {
     }
 
-    /** The bound tenant's events, newest first, narrowed by action and inclusive UTC days when given. */
+    /**
+     * The bound tenant's events, newest first, narrowed by action and inclusive UTC days when given. {@code page}
+     * and {@code size} may be {@code null}: an absent page is page 0 and an absent size is the reader's default
+     * (50); the reader clamps a size to 1..200 and a negative page to 0 rather than refusing, so it always answers
+     * a page.
+     */
     ActivityPage list(String action, LocalDate from, LocalDate to, Integer page, Integer size);
 
     /** One of the bound tenant's events by id; empty when the tenant cannot see it. */

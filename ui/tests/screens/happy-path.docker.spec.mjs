@@ -30,7 +30,10 @@ test('Direct intake check: a human (console) caller is refused with 403', async 
   expect(answer.status()).toBe(403);
 });
 
-test('Direct intake check: malformed JSON is refused (400 or the role guard 403 before it)', async ({ page }) => {
+// A console (human) caller is refused by the role guard before the body is read (the controller takes raw bytes),
+// so a malformed body gets the same 403 as a valid one. The 400 validation path needs a source credential and is
+// not exercised by this console-session spec.
+test('Direct intake check: a malformed body from a console caller is refused by the role guard with 403', async ({ page }) => {
   const answer = await page.request.post(`${consoleUrl()}/api/v1/interfaces/SMOKE-UNKNOWN/messages`, {
     headers: {
       'content-type': 'application/json',
@@ -39,7 +42,7 @@ test('Direct intake check: malformed JSON is refused (400 or the role guard 403 
     },
     data: '{not json'
   });
-  expect([400, 403, 415]).toContain(answer.status());
+  expect(answer.status()).toBe(403);
 });
 // Tiny in-browser fetch helper (matches the screens suite pattern): carries the session cookie and the
 // CSRF token, so a replay POST is judged by the delivery endpoint rather than by the CSRF filter.

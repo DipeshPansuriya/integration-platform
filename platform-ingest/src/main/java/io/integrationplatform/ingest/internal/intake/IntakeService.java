@@ -148,7 +148,7 @@ public class IntakeService implements IntakeTransaction {
             long outboxId = outbox.append(new OutboxEntry(OutboxTopic.MESSAGE_ACCEPTED, messageId, keys[i],
                     CorrelationContext.currentTraceparent(), deferredUntil, version.sourceContractVersionId()));
             timings.record(messageId, StageTimings.Stage.INTAKE, startedAt, Instant.now());
-            log.info("intake accepted message {}", messageId);
+            log.debug("intake accepted message {}", messageId); // per record; the per-batch summary below is the info line
             results[i] = RecordResult.accepted(i, messageId, outboxId);
         }
         List<RecordResult> answer = List.of(results);

@@ -14,7 +14,7 @@
   <name>platform-audit</name>
   <description>E12 seam (low-conflict): append-only audit events, the tenant activity view and logging contract surface - public contracts/read APIs only; implementation stays in platform-app until the lane fills this module. Skeleton mirrors platform-transform ADR-010/E7 seam style.</description>
 
-  <!-- Low-conflict contract surface only: depend on platform-domain for the shared audit value type. No Spring, no core. -->
+  <!-- Low-conflict contract surface only: platform-domain supplies domain.audit.AuditEvent, which ActivityEntry.from maps. No Spring, no core. -->
   <dependencies>
     <dependency>
       <groupId>io.integrationplatform</groupId>

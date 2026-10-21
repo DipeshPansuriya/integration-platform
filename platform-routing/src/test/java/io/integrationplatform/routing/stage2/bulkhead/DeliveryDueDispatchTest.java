@@ -7,6 +7,7 @@ import io.integrationplatform.delivery.DeliveryClaimService;
 import io.integrationplatform.delivery.port.BulkheadDeferrals;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts.BulkheadFacts;
+import io.integrationplatform.ingest.port.CorrelationContext;
 import io.integrationplatform.routing.adapter.api.TargetEndpointView;
 import io.integrationplatform.routing.adapter.api.TargetEndpointViews;
 import io.integrationplatform.routing.stage.WorkRecord;
@@ -307,6 +308,42 @@ class DeliveryDueDispatchTest {
                     .containsExactly(Optional.of(TENANT));
             assertThat(nextThread.get()).as("the same pool thread").isEqualTo(sendThread.get());
             assertThat(nextTenant.get()).as("no tenant leaks to the thread's next task").isEmpty();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("E11: the send runs inside the record's journey (its traceparent), and the journey closes with the task")
+    void poolThreadRunsInTheRecordsJourneyAndClosesIt() throws Exception {
+        UUID delivery = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        String traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        BulkheadRegistry registry = new BulkheadRegistry(1); // one pool thread: the next task reuses it
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            AtomicReference<String> duringSend = new AtomicReference<>();
+            AtomicReference<String> correlationDuringSend = new AtomicReference<>();
+            send.onCall = thread -> {
+                duringSend.set(CorrelationContext.currentTraceparent());
+                correlationDuringSend.set(org.slf4j.MDC.get(CorrelationContext.CORRELATION_ID));
+            };
+
+            dispatch(registry).onWork(new WorkRecord(1, "delivery.due", delivery, traceparent), TENANT);
+            awaitOneSend(send);
+
+            AtomicReference<String> afterSend = new AtomicReference<>("unset");
+            CountDownLatch nextRan = new CountDownLatch(1);
+            assertThat(registry.of(target).execute(() -> {
+                afterSend.set(CorrelationContext.currentTraceparent());
+                nextRan.countDown();
+            })).isTrue();
+            assertThat(nextRan.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(duringSend.get()).as("the send saw the record's own traceparent").isEqualTo(traceparent);
+            assertThat(correlationDuringSend.get()).isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
+            assertThat(afterSend.get()).as("the journey closed with the task - nothing leaks to the next one").isNull();
         } finally {
             registry.shutdown();
         }
