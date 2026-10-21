@@ -22,9 +22,10 @@ public record FileSettings(String directory) {
 
     public static FileSettings fromJson(String json) {
         JsonNode node = JSON.readTree(json);
-        JsonNode field = node.get("directory");
+        // the save-side schema names the folder rootPath (SystemSettings FILE); "directory" is the older spelling
+        JsonNode field = node.get("rootPath") != null ? node.get("rootPath") : node.get("directory");
         if (field == null || !field.isTextual()) {
-            throw new IllegalStateException("File settings need directory as text");
+            throw new IllegalStateException("File settings need rootPath as text");
         }
         return new FileSettings(field.textValue());
     }

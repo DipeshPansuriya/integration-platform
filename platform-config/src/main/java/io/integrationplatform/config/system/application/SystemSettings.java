@@ -22,9 +22,10 @@ import tools.jackson.databind.JsonNode;
  *   <tr><td>API</td><td>baseUrl (http/https address with a host, no user info)</td>
  *       <td>timeoutMs (100-300000), followRedirects (boolean, default false), errorDictionary (T-182:
  *       status 100-599 to TRANSIENT, AMBIGUOUS or PERMANENT; never a retryable class for 400, 401, 403, 422)</td></tr>
- *   <tr><td>DB</td><td>host, port (1-65535), database</td><td>-</td></tr>
+ *   <tr><td>DB</td><td>host, port (1-65535), database</td><td>user, table, approvedTables (plain identifiers; E16)</td></tr>
  *   <tr><td>MQ</td><td>host, port (1-65535), queue</td><td>-</td></tr>
  *   <tr><td>FILE</td><td>rootPath</td><td>-</td></tr>
+ *   <tr><td>KAFKA</td><td>bootstrapServers (host:port list), topic (never a platform topic)</td><td>-</td></tr>
  * </table>
  *
  * Every type also accepts {@code halfOpenTrialCalls} (T-183, 1-100, default 3 when absent): the breaker's half-open
@@ -35,11 +36,23 @@ import tools.jackson.databind.JsonNode;
 public final class SystemSettings {
 
     /** The closed register of system types, in the order the API names them. */
-    public static final List<String> TYPES = List.of("API", "DB", "MQ", "FILE");
+    public static final List<String> TYPES = List.of("API", "DB", "MQ", "FILE", "KAFKA");
 
     static final int MAX_TEXT = 2048;
 
-    private enum Kind { TEXT, PORT, HTTP_URL, TIMEOUT_MS, BOOLEAN, TRIAL_CALLS, ERROR_DICTIONARY }
+    private enum Kind {
+        TEXT, PORT, HTTP_URL, TIMEOUT_MS, BOOLEAN, TRIAL_CALLS, ERROR_DICTIONARY,
+        /** E16: a plain SQL identifier (the DB target's account and table). */
+        IDENTIFIER,
+        /** E16: an array of plain SQL identifiers (the DB target's approved tables). */
+        IDENTIFIER_LIST,
+        /** E16: comma-separated host:port list (the Kafka target's bootstrap servers). */
+        BOOTSTRAP_SERVERS,
+        /** E16: a Kafka topic that is not one of the platform's own (T-184 SF-2). */
+        KAFKA_TOPIC
+    }
+
+    private static final java.util.regex.Pattern IDENTIFIER = java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z_0-9]{0,62}");
 
     private record Field(String name, Kind kind, boolean required) {
     }
@@ -62,10 +75,14 @@ public final class SystemSettings {
                 new Field("timeoutMs", Kind.TIMEOUT_MS, false), new Field("followRedirects", Kind.BOOLEAN, false),
                 new Field("errorDictionary", Kind.ERROR_DICTIONARY, false), TRIAL_CALLS));
         schemas.put("DB", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
-                new Field("database", Kind.TEXT, true), TRIAL_CALLS));
+                new Field("database", Kind.TEXT, true), new Field("user", Kind.IDENTIFIER, false),
+                new Field("table", Kind.IDENTIFIER, false), new Field("approvedTables", Kind.IDENTIFIER_LIST, false),
+                TRIAL_CALLS));
         schemas.put("MQ", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
                 new Field("queue", Kind.TEXT, true), TRIAL_CALLS));
         schemas.put("FILE", List.of(new Field("rootPath", Kind.TEXT, true), TRIAL_CALLS));
+        schemas.put("KAFKA", List.of(new Field("bootstrapServers", Kind.BOOTSTRAP_SERVERS, true),
+                new Field("topic", Kind.KAFKA_TOPIC, true), TRIAL_CALLS));
         return Map.copyOf(schemas);
     }
 
@@ -142,7 +159,64 @@ public final class SystemSettings {
                     : "must be a whole number of trial calls from 1 to 100";
             case ERROR_DICTIONARY -> throw new IllegalStateException("validated by dictionaryProblems");
             case HTTP_URL -> httpUrlProblem(value);
+            case IDENTIFIER -> value.isString() && IDENTIFIER.matcher(value.stringValue()).matches() ? null
+                    : "must be a plain identifier (letters, digits, underscore)";
+            case IDENTIFIER_LIST -> identifierListProblem(value);
+            case BOOTSTRAP_SERVERS -> bootstrapServersProblem(value);
+            case KAFKA_TOPIC -> value.isString()
+                    ? io.integrationplatform.config.destination.SystemTopicRefusal.topicProblem(value.stringValue())
+                            .map(SystemSettings::clip).orElse(null)
+                    : "must be a topic name";
         };
+    }
+
+    private static String identifierListProblem(JsonNode value) {
+        String expected = "must be an array of plain identifiers (letters, digits, underscore)";
+        if (!value.isArray() || value.size() > 64) {
+            return expected;
+        }
+        for (JsonNode entry : value) {
+            if (!entry.isString() || !IDENTIFIER.matcher(entry.stringValue()).matches()) {
+                return expected;
+            }
+        }
+        return null;
+    }
+
+    private static String bootstrapServersProblem(JsonNode value) {
+        String expected = "must be a comma-separated list of host:port, port 1 to 65535";
+        if (!value.isString() || value.stringValue().length() > MAX_TEXT) {
+            return expected;
+        }
+        for (String server : value.stringValue().split(",", -1)) {
+            String entry = server.strip();
+            int at = entry.lastIndexOf(':');
+            if (at <= 0 || entry.substring(0, at).isBlank() || entry.substring(0, at).matches(".*[\\s/@].*")) {
+                return expected;
+            }
+            try {
+                int port = Integer.parseInt(entry.substring(at + 1));
+                if (port < 1 || port > 65535) {
+                    return expected;
+                }
+            } catch (NumberFormatException notAPort) {
+                return expected;
+            }
+        }
+        return null;
+    }
+
+    /** The bootstrap hosts of a Kafka system's {@code bootstrapServers} text (entries without a host are skipped). */
+    public static List<String> bootstrapHosts(String bootstrapServers) {
+        List<String> hosts = new ArrayList<>();
+        for (String server : bootstrapServers.split(",", -1)) {
+            String entry = server.strip();
+            int at = entry.lastIndexOf(':');
+            if (at > 0 && !entry.substring(0, at).isBlank()) {
+                hosts.add(entry.substring(0, at).strip());
+            }
+        }
+        return List.copyOf(hosts);
     }
 
     /**

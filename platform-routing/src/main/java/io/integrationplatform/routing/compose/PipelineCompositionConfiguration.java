@@ -93,13 +93,24 @@ class PipelineCompositionConfiguration {
     @Bean
     TargetCallRegistry targetCallRegistry(MqTargetCall mqTargetCall,
             @Qualifier("apiTargetCall") TargetCall apiTargetCall,
-            ObjectProvider<KafkaTopicTargetCall> kafkaTarget) {
+            ObjectProvider<KafkaTopicTargetCall> kafkaTarget,
+            ObjectProvider<io.integrationplatform.routing.adapter.db.DbTargetCall> dbTarget,
+            ObjectProvider<io.integrationplatform.routing.adapter.file.FileTargetCall> fileTarget) {
         TargetCallRegistry targetCalls = new TargetCallRegistry();
         targetCalls.register("MQ", mqTargetCall);
         targetCalls.register("API", apiTargetCall);
         KafkaTopicTargetCall kafka = kafkaTarget.getIfAvailable();
         if (kafka != null) {
             targetCalls.register("KAFKA", kafka); // key = the stored system.type; never present with the gate off
+        }
+        // E16 (T-149, T-150): DB and FILE the same way - registered only when their adapter gate built the call
+        io.integrationplatform.routing.adapter.db.DbTargetCall db = dbTarget.getIfAvailable();
+        if (db != null) {
+            targetCalls.register("DB", db);
+        }
+        io.integrationplatform.routing.adapter.file.FileTargetCall file = fileTarget.getIfAvailable();
+        if (file != null) {
+            targetCalls.register("FILE", file);
         }
         return targetCalls;
     }

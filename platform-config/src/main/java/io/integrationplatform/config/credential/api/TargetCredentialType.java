@@ -42,7 +42,7 @@ public enum TargetCredentialType {
 
     /**
      * The target type of a registered system's type (E5 T-102: API, DB, MQ, FILE); MQ is the MQ_CSV target. An untyped
-     * system (E3) has none. KAFKA_TOPIC has no system type yet - its fields are named for when it gets one.
+     * system (E3) has none. A KAFKA system (E16) is the KAFKA_TOPIC target.
      */
     public static Optional<TargetCredentialType> ofSystemType(String systemType) {
         if (systemType == null) {
@@ -53,6 +53,7 @@ public enum TargetCredentialType {
             case "MQ" -> Optional.of(MQ_CSV);
             case "DB" -> Optional.of(DB);
             case "FILE" -> Optional.of(FILE);
+            case "KAFKA" -> Optional.of(KAFKA_TOPIC);
             default -> Optional.empty();
         };
     }
