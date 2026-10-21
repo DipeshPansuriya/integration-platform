@@ -82,6 +82,11 @@ public final class Stage1Environment {
      * whether a 408/5xx is TRANSIENT (retried) or AMBIGUOUS (dead-lettered), ADR-010 outcome table.
      */
     public RouteRows registerRoute(String endpointCode, String baseUrl, boolean idempotentReceive) {
+        return registerRoute(endpointCode, baseUrl, idempotentReceive, 30000);
+    }
+
+    /** As above with the endpoint's {@code timeout_ms} (100..300000, the config table's check). */
+    public RouteRows registerRoute(String endpointCode, String baseUrl, boolean idempotentReceive, int timeoutMs) {
         UUID systemId = UUID.randomUUID();
         UUID endpointId = UUID.randomUUID();
         UUID routeId = UUID.randomUUID();
@@ -91,7 +96,7 @@ public final class Stage1Environment {
         insertAsOwner("insert into public.target_endpoint (id, tenant_id, system_id, code, name, base_url,"
                 + " http_method, auth_method, timeout_ms, idempotent_receive)"
                 + " values ('" + endpointId + "', '" + TENANT + "', '" + systemId + "', '" + endpointCode
-                + "', '" + endpointCode + " endpoint', '" + baseUrl + "', 'POST', 'NO_AUTH', 30000, " + idempotentReceive + ")");
+                + "', '" + endpointCode + " endpoint', '" + baseUrl + "', 'POST', 'NO_AUTH', " + timeoutMs + ", " + idempotentReceive + ")");
         insertAsOwner("insert into public.route (id, tenant_id, interface_id, target_endpoint_id, sequence,"
                 + " status) values ('" + routeId + "', '" + TENANT + "', '" + INTERFACE_ID + "', '" + endpointId
                 + "', 1, 'ACTIVE')");
