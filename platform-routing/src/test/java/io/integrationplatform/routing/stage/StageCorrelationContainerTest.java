@@ -136,7 +136,7 @@ class StageCorrelationContainerTest {
                         .param("tenant", tenant.toString()).query().singleValue();
                 new JdbcStage1Deliveries(new JdbcDeliveryRepository(jdbc, () -> Optional.of(tenant)))
                         .insertPerRoute(List.of(new Stage1Delivery(message, UUID.randomUUID(), Instant.now(),
-                                UUID.randomUUID(), null, null)));
+                                UUID.randomUUID(), null, null, null, null, null)));
                 return jdbc.sql("select id from public.delivery where message_id = :message::uuid")
                         .param("message", message.toString()).query((row, n) -> row.getObject(1, UUID.class))
                         .single();

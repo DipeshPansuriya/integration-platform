@@ -8,12 +8,13 @@ import java.util.Objects;
  * The operator's destination allow-list (ADR-010 section 8): exact host names, or {@code *.domain} for the domain's
  * sub-domains (never the bare domain, never a look-alike suffix). Case-insensitive. Empty refuses everything.
  */
-public final class AllowList {
+public class AllowList {
 
     private final List<String> exact;
     private final List<String> suffixes;
 
-    private AllowList(List<String> exact, List<String> suffixes) {
+    /** Package-visible so the intersection view ({@link EffectiveAllowList}) can extend it (Mahesh 1f). */
+    AllowList(List<String> exact, List<String> suffixes) {
         this.exact = exact;
         this.suffixes = suffixes;
     }

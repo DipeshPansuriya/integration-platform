@@ -11,7 +11,7 @@ routing:
     # Comma-separated names; exec:, file: and anything unlisted is refused at build.
     allowed-schemes: ${ROUTING_CORE_ALLOWED_SCHEMES}
     # Routing stays inside its 1 s budget (E9-F1-S3): the synchronous routing step's budget, measured by
-    # T-122's performance test.
+    # T-122's performance test (platform-app e9/perf/RoutingBudgetPerformanceContainerTest).
     budget: ${ROUTING_CORE_BUDGET}
     stage2:
       bulkhead:

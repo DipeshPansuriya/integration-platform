@@ -4,6 +4,7 @@ import io.integrationplatform.tenancy.internal.principal.PrincipalTenantResolver
 import io.integrationplatform.tenancy.internal.principal.RequestTenantContext;
 import io.integrationplatform.tenancy.port.ClientBootstrap;
 import io.integrationplatform.tenancy.port.LoginBootstrap;
+import io.integrationplatform.tenancy.port.SchedulerRegistry;
 import io.integrationplatform.tenancy.port.TenantDenialRecorder;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
@@ -82,7 +83,8 @@ class TenancySecurityConfiguration {
 
     @Bean
     SecurityFilterChain tenancySecurityFilterChain(HttpSecurity http, LoginBootstrap loginBootstrap,
-            ObjectProvider<ClientBootstrap> clientBootstrap, TenantDenialRecorder tenantDenialRecorder,
+            ObjectProvider<ClientBootstrap> clientBootstrap, ObjectProvider<SchedulerRegistry> schedulerRegistry,
+            TenantDenialRecorder tenantDenialRecorder,
             RequestTenantContext requestTenantContext) throws Exception {
         AuthenticationEntryPoint entryPoint =
                 new NoIdentityEntryPoint(new BearerTokenAuthenticationEntryPoint(), tenantDenialRecorder);
@@ -105,7 +107,7 @@ class TenancySecurityConfiguration {
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(entryPoint))
                 // Humans first, then source systems (E4 T-098); no ClientBootstrap bean means humans only.
                 .addFilterAfter(new PrincipalTenantResolver(loginBootstrap, clientBootstrap.getIfAvailable(),
-                                tenantDenialRecorder),
+                                schedulerRegistry.getIfAvailable(), tenantDenialRecorder),
                         BearerTokenAuthenticationFilter.class)
                 .addFilterAfter(new TenantForgeryFilter(requestTenantContext, tenantDenialRecorder),
                         PrincipalTenantResolver.class)

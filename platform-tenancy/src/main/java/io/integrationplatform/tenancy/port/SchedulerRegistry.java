@@ -60,6 +60,18 @@ public interface SchedulerRegistry {
      */
     <T> List<T> searchRuns(RunQuery query, RowMapper<T> mapper);
 
+    /**
+     * Pauses or resumes one register row (T-060, ADR-012 section 5): pausing records who and when, resuming clears
+     * both. Returns the rows changed - 0 for an unknown job type.
+     */
+    int setPaused(String jobType, boolean paused, String by, Instant at);
+
+    /**
+     * Whether (issuer, client id) is an ACTIVE operator-agent credential in {@code scheduler.operator_credential}
+     * (T-127, ADR-012 section 5); blank or unknown is false. Checked per request, so a revocation applies at once.
+     */
+    boolean operatorCredentialActive(String issuer, String clientId);
+
     /** The port's {@code scheduler.job_run} row shape; a module's own run row maps onto it component by component. */
     record JobRunEntry(
             String jobType,

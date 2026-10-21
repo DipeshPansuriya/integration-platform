@@ -44,6 +44,7 @@ class Stage1DeliveriesContainerTest {
     private final UUID TARGET_B = UUID.randomUUID();
     private final UUID MAP3 = UUID.randomUUID();
     private final UUID MAP7 = UUID.randomUUID();
+    private static final UUID INTERFACE = UUID.randomUUID();
 
     private final DeliveryTestDatabase db = DeliveryTestDatabase.get();
     private HikariDataSource pool;
@@ -64,7 +65,8 @@ class Stage1DeliveriesContainerTest {
 
     private static Stage1Delivery stage1Delivery(UUID messageId, UUID routeId, UUID targetId,
             UUID mappingVersionId) {
-        return new Stage1Delivery(messageId, routeId, DAY, targetId, mappingVersionId, "tenant|interface|K");
+        return new Stage1Delivery(messageId, routeId, DAY, targetId, mappingVersionId, "tenant|interface|K",
+                INTERFACE, "K", 7L);
     }
 
     private JdbcStage1Deliveries stage1(UUID tenant) {
@@ -73,7 +75,8 @@ class Stage1DeliveriesContainerTest {
 
     private List<Map<String, Object>> deliveryRows(UUID tenant, UUID messageId) {
         return tx.inTenantTx(tenant, () -> jdbc.sql(
-                        "select state, created_at, message_id, route_id, mapping_version_id, target_id"
+                        "select state, created_at, message_id, route_id, mapping_version_id, target_id,"
+                                + " interface_id, business_key, key_seq"
                                 + " from public.delivery where message_id = :message_id::uuid order by route_id")
                 .param("message_id", messageId.toString())
                 .query((rs, n) -> Map.<String, Object>of(
@@ -82,7 +85,10 @@ class Stage1DeliveriesContainerTest {
                         "message_id", String.valueOf(rs.getObject(3)),
                         "route_id", String.valueOf(rs.getObject(4)),
                         "mapping_version_id", String.valueOf(rs.getObject(5)),
-                        "target_id", String.valueOf(rs.getObject(6))))
+                        "target_id", String.valueOf(rs.getObject(6)),
+                        "interface_id", String.valueOf(rs.getObject(7)),
+                        "business_key", String.valueOf(rs.getObject(8)),
+                        "key_seq", String.valueOf(rs.getObject(9))))
                 .list());
     }
 
@@ -114,6 +120,11 @@ class Stage1DeliveriesContainerTest {
             assertThat(row).containsEntry("state", "PENDING")
                     .containsEntry("message_id", MESSAGE.toString());
             assertThat(row).containsEntry("created_at", java.sql.Timestamp.from(DAY)); // the message's accepted day - ADR-014
+            // the message's ordering scope rides on every delivery (ADR-011 Decision 6): without it the due-claim's
+            // earlier-delivery clause and the best-effort hold compare NULLs and never match (E9 reopen)
+            assertThat(row).containsEntry("interface_id", INTERFACE.toString())
+                    .containsEntry("business_key", "K")
+                    .containsEntry("key_seq", "7");
         });
         assertThat(rows).anySatisfy(row -> assertThat(row).containsEntry("route_id", ROUTE_A.toString())
                 .containsEntry("mapping_version_id", MAP3.toString())

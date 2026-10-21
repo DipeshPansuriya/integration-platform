@@ -54,7 +54,7 @@ carries; and how background work finds its tenant.
 | Type | Release | Sends with | Idempotent receive, when the target declares it | Notes |
 |---|---|---|---|---|
 | `API` | 1 | `camel-http` | `Idempotency-Key: <delivery id>` header | The one outbound destination check of ADR-010 section 8: every resolved address checked and the checked address pinned; refused ranges reachable only through an operator allow-list entry; redirects off unless the target enables them, every hop re-checked |
-| `MQ_CSV` | 1 | `camel-csv` / `camel-bindy` to format, `camel-jms` to send | JMS correlation id = delivery id, deduplicated by the target | Queue-manager product unknown; plugged in through its JMS connection factory, chosen from an allow-list of factory classes |
+| `MQ_CSV` | 1 | `camel-csv` / `camel-bindy` to format, `camel-jms` to send | JMS correlation id = delivery id, deduplicated by the target | Queue-manager product unknown; plugged in through its JMS connection factory, chosen from an allow-list of factory classes. **Bindy stays (2026-10-20):** camel-bindy is live in the Camel 4.22.x data-format docs with no deprecation notice and the project pins camel-spring-boot 4.22.1; the 404 Vikram saw is camel-beanio, removed in 3.17 - lanes do not re-litigate this |
 | `DB` | 2 | `camel-sql` | Insert-or-update on a natural key the target declares | Only tables on the target's approved list; a restricted per-target database account with no DDL rights; parameterised statements only |
 | `FILE` | 2 | `camel-file` | Deterministic file name from the delivery id; write to a temporary name, then atomic rename | A shared folder; SFTP is out of scope unless Dipesh names it; no half-written file is ever visible |
 | `KAFKA_TOPIC` | 2 | `camel-kafka` | Idempotent producer, key = delivery id | Kept in scope by Mira's decision (`ws/_specs/project-plan.md:151`); not in Dipesh's formal list |
@@ -73,8 +73,13 @@ carries; and how background work finds its tenant.
   network policy enforces the same refused ranges (ADR-010 section 8). A File target's path is
   normalised and confined under its configured root. The check runs at save, at
   test-connection and at send.
-- Each type's settings declare `max_concurrent_sends` (the bulkhead pool size, ADR-010 section 2)
-  and its error dictionary (overrides of the default outcome table, ADR-010 section 5).
+- Each type's settings declare `max_concurrent_sends` (the bulkhead pool size, ADR-010 section 2),
+  its error dictionary (overrides of the default outcome table, ADR-010 section 5), and
+  `half_open_trial_calls` (the per-target half-open trial-call count, ADR-010 section 6;
+  Resilience4j `permittedNumberOfCallsInHalfOpenState`, default 3) — an addendum (2026-10-20,
+  E10 settle-up for T-183): the field lives in `target_endpoint.settings` (the JSONB column
+  E5 extended the endpoint row with, V2_2_1's note), validated against the type's schema on
+  save, so it needs **no new migration**.
 
 ## Decision 2 - The registry extends the flow-configuration tables; one home for every schema
 

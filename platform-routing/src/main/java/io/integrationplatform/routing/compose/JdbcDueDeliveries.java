@@ -35,8 +35,16 @@ public class JdbcDueDeliveries extends TenantScopedRepository {
 
     /** The delivery while it is claimable ({@code PENDING} or {@code DUE}); empty once claimed, held or final. */
     public Optional<DueDelivery> due(UUID deliveryId) {
-        List<DueDelivery> rows = query(SELECT_DUE, "d.id = :id::uuid and d.state in ('PENDING', 'DUE')",
-                Map.of("id", deliveryId.toString()),
+        return one("d.id = :id::uuid and d.state in ('PENDING', 'DUE')", deliveryId);
+    }
+
+    /** The delivery while it is claimed for its send ({@code SENDING}); empty otherwise. */
+    public Optional<DueDelivery> claimed(UUID deliveryId) {
+        return one("d.id = :id::uuid and d.state = 'SENDING'", deliveryId);
+    }
+
+    private Optional<DueDelivery> one(String condition, UUID deliveryId) {
+        List<DueDelivery> rows = query(SELECT_DUE, condition, Map.of("id", deliveryId.toString()),
                 (rs, n) -> new DueDelivery(rs.getObject("id", UUID.class), rs.getObject("route_id", UUID.class),
                         rs.getObject("target_id", UUID.class), rs.getObject("interface_id", UUID.class),
                         rs.getString("ordering_key")));

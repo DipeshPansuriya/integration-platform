@@ -391,7 +391,7 @@ class StageTimingCommitContainerTest {
     }
 
     private static Stage1Delivery delivery(UUID message, Instant acceptedAt, UUID route) {
-        return new Stage1Delivery(message, route, acceptedAt, TARGET, null, null);
+        return new Stage1Delivery(message, route, acceptedAt, TARGET, null, null, null, null, null);
     }
 
     private UUID claim(UUID tenant, UUID delivery) {

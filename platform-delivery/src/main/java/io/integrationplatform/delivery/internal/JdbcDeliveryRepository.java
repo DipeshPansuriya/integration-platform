@@ -410,8 +410,8 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
      * accepted_at} (the message's accepted day - ADR-014 Decision 1, never a fresh instant), idempotent by
      * {@code ON CONFLICT (message_id, route_id, created_at) DO NOTHING} against the UNIQUE triple index. Each
      * NEWLY inserted delivery gets exactly one {@code platform.delivery.due} outbox record in the same
-     * transaction. The wave-0 insert writes the pin columns only; interface_id/business_key/key_seq join the
-     * message row when the stage-1 consumer reads it (the wave-1 gate).
+     * transaction. The insert also writes the message's ordering scope (interface_id, business_key, key_seq -
+     * ADR-011 Decision 6) so {@code delivery_ordering_idx} and the per-key ordering gate see the row.
      */
     public int stage1InsertPerRoute(Collection<Stage1Delivery> deliveries) {
         int inserted = 0;
@@ -420,10 +420,10 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                     "with ins as ("
                             + " insert into public.delivery"
                             + "   (tenant_id, state, created_at, updated_at, target_id, message_id, route_id,"
-                            + "    mapping_version_id)"
+                            + "    mapping_version_id, interface_id, business_key, key_seq)"
                             + " values (:tenant_id::uuid, 'PENDING', :accepted_at, :accepted_at,"
                             + "   :target_endpoint_id::uuid, :message_id::uuid, :route_id::uuid,"
-                            + "   :mapping_version_id::uuid)"
+                            + "   :mapping_version_id::uuid, :interface_id::uuid, :business_key, :key_seq::bigint)"
                             + " on conflict (message_id, route_id, created_at) do nothing"
                             + " returning id, tenant_id)"
                             + " select ins.id, ins.tenant_id from ins",
@@ -434,7 +434,10 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                             "message_id", delivery.messageId().toString(),
                             "route_id", delivery.routeId().toString(),
                             "mapping_version_id",
-                            delivery.mappingVersionId() == null ? null : delivery.mappingVersionId().toString()),
+                            delivery.mappingVersionId() == null ? null : delivery.mappingVersionId().toString(),
+                            "interface_id", delivery.interfaceId() == null ? null : delivery.interfaceId().toString(),
+                            "business_key", delivery.businessKey(),
+                            "key_seq", delivery.keySeq()),
                     (rs, n) -> uuid(rs, 1));
             if (ids.size() > 1) {
                 throw new IllegalStateException("stage-1 insert matched " + ids.size() + " rows (never expected)");

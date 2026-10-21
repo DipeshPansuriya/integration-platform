@@ -13,7 +13,9 @@ public class IntakeRefusedException extends RuntimeException {
         /** The sent {@code X-Source-Contract-Version} does not match the interface's pinned contract version - 422. */
         CONTRACT_PIN_MISMATCH,
         /** The business key rule could not resolve from the payload - 422. */
-        BUSINESS_KEY_UNRESOLVED
+        BUSINESS_KEY_UNRESOLVED,
+        /** The Idempotency-Key was already used by this credential with another request body (T-187) - 422. */
+        IDEMPOTENCY_KEY_REUSED
     }
 
     private final Reason reason;

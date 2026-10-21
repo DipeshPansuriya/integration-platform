@@ -145,4 +145,23 @@ public final class JdbcSchedulerRegistry implements SchedulerRegistry {
         args.add(query.limit());
         return jdbc.query(sql.toString(), mapper, args.toArray());
     }
+
+    private static final String UPDATE_PAUSED =
+            "update scheduler.job_definition set paused = ?, paused_by = ?, paused_at = ? where job_type = ?";
+
+    @Override
+    public int setPaused(String jobType, boolean paused, String by, Instant at) {
+        return jdbc.update(UPDATE_PAUSED, paused, paused ? by : null, paused ? Timestamp.from(at) : null, jobType);
+    }
+
+    private static final String SELECT_ACTIVE_OPERATOR = "select 1 from scheduler.operator_credential"
+            + " where issuer = ? and client_id = ? and status = 'ACTIVE'";
+
+    @Override
+    public boolean operatorCredentialActive(String issuer, String clientId) {
+        if (issuer == null || issuer.isBlank() || clientId == null || clientId.isBlank()) {
+            return false;
+        }
+        return !jdbc.query(SELECT_ACTIVE_OPERATOR, (rs, n) -> 1, issuer, clientId).isEmpty();
+    }
 }

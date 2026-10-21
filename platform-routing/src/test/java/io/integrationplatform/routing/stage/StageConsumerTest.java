@@ -369,6 +369,32 @@ class StageConsumerTest {
         }
     }
 
+    // ---------- T-201 (E10-F15): readiness DOWN stops the consumer, offsets stay uncommitted ----------
+
+    @Test
+    void aNotReadyInstanceStopsConsumingWithoutCommittingAndResumesWhenReadyAgain() throws Exception {
+        redeliverFake.assign(List.of(PARTITION));
+        redeliverFake.seed(PARTITION, workRecordAt(0));
+        java.util.concurrent.atomic.AtomicBoolean ready = new java.util.concurrent.atomic.AtomicBoolean(false);
+        StageConsumer gated = new StageConsumer(broker, new WorkRecordParser(), rows,
+                (record, tenantId) -> workDone.add(tenantId), (key, value, reason) -> poisonedValues.add(value),
+                attempt -> Duration.ofMillis(250L * attempt), Duration.ofMillis(50), clock,
+                duration -> clock.advance(duration), null, null, null, null, ready::get);
+
+        gated.runUntil(clock.instant().plusSeconds(5));
+
+        assertThat(workDone).as("a not-ready instance processes nothing").isEmpty();
+        assertThat(redeliverFake.commitLog()).as("and commits no offset").isEmpty();
+        assertThat(redeliverFake.pausedPartitions()).as("its assignment is paused").containsExactly(PARTITION);
+
+        ready.set(true);
+        gated.runUntil(clock.instant().plusSeconds(5));
+
+        assertThat(workDone).as("ready again: the same record is worked").containsExactly(ROW_TENANT);
+        assertThat(redeliverFake.commitLog()).containsExactly(1L);
+        assertThat(redeliverFake.pausedPartitions()).isEmpty();
+    }
+
     /** A broker fake whose fetch semantics the base's seek-back rule can be proven against. */
     private static final class RedeliverConsumer extends MockConsumer<byte[], byte[]> {
 

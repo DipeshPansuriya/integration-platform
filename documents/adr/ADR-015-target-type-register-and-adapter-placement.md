@@ -78,3 +78,60 @@ points apply decisions already accepted; nothing new is chosen except which side
 - Two MQ wire formats appear and a "type plus format" setting looks simpler than two types.
 - The destination check needs data-plane state config cannot hold - then move it to a shared
   module.
+
+## Addendum 2026-10-19 - E16 target adapters (Kafka, database, file; row 327)
+
+### Context
+
+E16 adds three target types beside the API target. Today the pipeline wires a single
+`apiTargetCall` (`PipelineCompositionConfiguration.java:87-90`), test-connection answers
+`NOT_AVAILABLE_YET` for every non-API type (`TestConnectionService.java:89-99`) and the type CHECK
+does not yet hold `KAFKA_TOPIC` (`V2_2_7__config_system_type_settings.sql:13`). Three lanes
+building on that would each touch the same three nodes. [Verified paths]
+
+### Options
+
+- **(A) One shared step first (E16-T0), then three disjoint lanes.** One owner, one short serial
+  step; the lanes then touch only their own `routing/adapter/<type>` package. Gives up: the lanes
+  wait for T0.
+- **(B) Each lane extends the shared nodes itself.** No wait, but three lanes edit one node, which
+  `graph-before-change` forbids, and merge order decides behaviour.
+
+### Decision [Decided] - A
+
+**E16-T0 (one owner, first; T98 MQ also depends on it).**
+- Per-type `TargetCall` dispatch keyed by system type replaces the single `apiTargetCall`
+  (`PipelineCompositionConfiguration.java:87-90`); an unknown type is refused, never sent to API.
+- Flyway migration adds `KAFKA_TOPIC` to the type CHECK (`V2_2_7:13`); 0 rows changed.
+- `TestConnectionService` dispatches per type (`:89-99`); a type with no adapter still answers
+  `NOT_AVAILABLE_YET`.
+- **Criteria.** API behaviour unchanged (existing API tests pass, 0 edits); 1 of 1 unknown type
+  refused; a stub `TargetCall` bean for a new type is picked up with 0 edits to the dispatcher.
+
+**Lanes after T0.** Each lane implements `TargetCall` and its config port bean in its own package,
+carries the five controls (timeout, transient-only retry, circuit breaker, fallback, observability)
+each with its own test, and passes `DestinationGuard` (`DestinationGuard.java:113-126`) and the
+ADR-010 section 8 amendment of 2026-10-19. Backlog criteria C1-C6 (`_specs/backlog.md:4056-4061`)
+apply to every lane as counts.
+
+| Task | Package, owner | Acceptance criteria (counts) |
+|---|---|---|
+| E16-T1 = T-148 Kafka | `routing/adapter/kafka`, sanjay | 1 record per delivery, keyed by message id; a topic of the platform's own work or poison set is refused, 1 of 1 each; broker down gives a retryable outcome, 0 records lost |
+| E16-T2 = T-149 Database | `routing/adapter/db`, rohit | writes only to approved tables (an unapproved table refused, 1 of 1); a restricted account with no DDL (a DDL attempt fails, 1 of 1); an ambiguous outcome then a retry gives 0 double inserts |
+| E16-T3 = T-150 File | `routing/adapter/file`, vijay | path confined with `ConfinedPath.under` (`..` and symlink: 2 of 2 refused); write-then-rename, so a reader sees 0 partial files; an existing name is never overwritten |
+
+**FILE transport for R2: a shared folder** (decided by Dipesh through Mira, 2026-10-19). No SFTP
+client in R2.
+
+Note: the brief's "F19" is backlog epic E18 (`_specs/backlog.md:4270`), not E16.
+
+### Consequences
+
+- Gains: three lanes with 0 shared nodes after T0; one dispatch rule for every future type.
+- **Gives up:** T0 is serial, and FILE reaches only a folder the instance can mount.
+
+### Revisit if
+
+- A tenant needs SFTP or another remote file transport: a new adapter in `routing/adapter/file`
+  under the same `TargetCall` and five controls.
+- A target type needs two adapters (for example Kafka with two wire formats).

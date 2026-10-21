@@ -1,10 +1,20 @@
 package io.integrationplatform.routing.compose;
 
+import io.integrationplatform.delivery.port.BulkheadDeferrals;
+import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
+import io.integrationplatform.routing.stage2.bulkhead.BulkheadRegistry;
+import io.integrationplatform.routing.stage2.bulkhead.BulkheadSettings;
+import io.integrationplatform.routing.stage2.bulkhead.DeliveryDueDispatch;
+import java.util.concurrent.ThreadLocalRandom;
 import io.integrationplatform.delivery.DeliveryClaimService;
 import io.integrationplatform.delivery.port.SendOutcomes;
 import io.integrationplatform.delivery.port.Stage1Deliveries;
 import io.integrationplatform.routing.adapter.api.TargetEndpointViews;
+import io.integrationplatform.routing.adapter.kafkatopic.KafkaTopicTargetCall;
+import io.integrationplatform.routing.adapter.mq.JdbcMqTargets;
+import io.integrationplatform.routing.adapter.mq.MqTargetCall;
 import io.integrationplatform.routing.claim.DeliveryClaimHandler;
+import io.integrationplatform.routing.stage1.RoutingStepRecorder;
 import io.integrationplatform.routing.poison.PoisonTopic;
 import io.integrationplatform.routing.stage.StageConsumer;
 import io.integrationplatform.routing.stage1.JdbcStage1Reads;
@@ -14,6 +24,7 @@ import io.integrationplatform.routing.stage2.LayerOneWaits;
 import io.integrationplatform.routing.stage2.Stage2AttemptWriter;
 import io.integrationplatform.routing.stage2.Stage2OutcomeHandoff;
 import io.integrationplatform.routing.stage2.TargetCall;
+import io.integrationplatform.routing.stage2.TargetCallRegistry;
 import io.integrationplatform.routing.templates.JdbcRouteConfigReader;
 import io.integrationplatform.routing.templates.RouteConfigReader;
 import io.integrationplatform.routing.templates.RouteInstanceFactory;
@@ -43,11 +54,15 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import io.integrationplatform.config.credential.readiness.InstanceKeyReadiness;
+import io.integrationplatform.delivery.port.InstanceReadiness;
+import java.util.function.BooleanSupplier;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -72,6 +87,21 @@ class PipelineCompositionConfiguration {
         return new WorkerTenantBinding();
     }
 
+    /** Row 327 (E16-T0): the stage-2 target registry - MQ, API and KAFKA (T-148, only when its adapter gate is on). */
+    @Bean
+    TargetCallRegistry targetCallRegistry(MqTargetCall mqTargetCall,
+            @Qualifier("apiTargetCall") TargetCall apiTargetCall,
+            ObjectProvider<KafkaTopicTargetCall> kafkaTarget) {
+        TargetCallRegistry targetCalls = new TargetCallRegistry();
+        targetCalls.register("MQ", mqTargetCall);
+        targetCalls.register("API", apiTargetCall);
+        KafkaTopicTargetCall kafka = kafkaTarget.getIfAvailable();
+        if (kafka != null) {
+            targetCalls.register("KAFKA", kafka); // key = the stored system.type; never present with the gate off
+        }
+        return targetCalls;
+    }
+
     // ------------------------------------------------------------------ stage 2's send: layer 1 + the API route
 
     /**
@@ -81,10 +111,12 @@ class PipelineCompositionConfiguration {
      * hand-off each commit in their own short transaction, as the recorder path does.
      */
     @Bean
-    LayerOneRouteBuilder layerOneRoute(TargetCall apiTargetCall, SendOutcomes outcomes,
-            PlatformTransactionManager transactionManager) {
+    LayerOneRouteBuilder layerOneRoute(TargetCallRegistry targetCalls,
+            JdbcMqTargets mqTargets, SendOutcomes outcomes, PlatformTransactionManager transactionManager) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
-        TargetCall inTenantTransaction = send -> transactions.executeWithoutResult(status -> apiTargetCall.call(send));
+        // row 327: picked by the stored system.type; an unknown type is refused PERMANENT, never dropped
+        TargetCall byType = TargetCall.byType(mqTargets::typeOf, targetCalls.calls());
+        TargetCall inTenantTransaction = send -> transactions.executeWithoutResult(status -> byType.call(send));
         Stage2AttemptWriter attempts = (deliveryId, layer, outcome, startedAt, finishedAt, detail) ->
                 transactions.executeWithoutResult(status ->
                         outcomes.recordAttempt(deliveryId, layer, outcome, startedAt, finishedAt, detail));
@@ -141,20 +173,52 @@ class PipelineCompositionConfiguration {
 
     @Bean
     Stage1FanOut stage1FanOut(WorkerTenantBinding binding, PlatformTransactionManager transactionManager,
-            JdbcClient jdbcClient, TenantContext tenantContext, Stage1Deliveries stage1Deliveries) {
+            JdbcClient jdbcClient, TenantContext tenantContext, Stage1Deliveries stage1Deliveries,
+            org.springframework.beans.factory.ObjectProvider<RoutingStepRecorder> recorder) {
         return new Stage1FanOut(binding, new TransactionTemplate(transactionManager),
-                new JdbcStage1Reads(jdbcClient, tenantContext), stage1Deliveries);
+                new JdbcStage1Reads(jdbcClient, tenantContext), stage1Deliveries,
+                recorder.getIfAvailable(() -> RoutingStepRecorder.NOOP));
+    }
+
+    @Bean(destroyMethod = "shutdown")
+    BulkheadRegistry stage2Bulkheads(Environment environment) {
+        return new BulkheadRegistry(stage2BulkheadSettings(environment));
+    }
+
+    /** Unset, blank, unresolved (no env var) or non-numeric size -> team default; a number is still range-checked. */
+    private static BulkheadSettings stage2BulkheadSettings(Environment environment) {
+        String raw;
+        try {
+            raw = environment.getProperty("routing.core.stage2.bulkhead.max-concurrent-sends");
+        } catch (IllegalArgumentException unresolvedPlaceholder) {
+            return BulkheadSettings.teamDefault();
+        }
+        if (raw == null || raw.isBlank()) {
+            return BulkheadSettings.teamDefault();
+        }
+        int max;
+        try {
+            max = Integer.parseInt(raw.strip());
+        } catch (NumberFormatException notANumber) {
+            return BulkheadSettings.teamDefault();
+        }
+        return new BulkheadSettings(max);
     }
 
     @Bean
-    DueDeliverySend dueDeliverySend(WorkerTenantBinding binding, PlatformTransactionManager transactionManager,
+    DeliveryDueDispatch deliveryDueDispatch(WorkerTenantBinding binding, PlatformTransactionManager transactionManager,
             JdbcClient jdbcClient, TenantContext tenantContext, DeliveryClaimService claimService,
+            DeliveryBulkheadFacts bulkheadFacts, BulkheadDeferrals deferrals, BulkheadRegistry stage2Bulkheads,
             RouteConfigReader routeConfigReader, RouteInstanceFactory routeInstanceFactory,
-            TargetEndpointViews targetEndpointViews, ProducerTemplate producerTemplate, SendOutcomes outcomes) {
+            TargetEndpointViews targetEndpointViews, ProducerTemplate producerTemplate, SendOutcomes outcomes,
+            org.springframework.beans.factory.ObjectProvider<io.integrationplatform.routing.credential.CredentialedDelivery> credentialed) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
-        return new DueDeliverySend(binding, transactions, new JdbcDueDeliveries(jdbcClient, tenantContext),
-                new DeliveryClaimHandler(transactions, claimService), routeConfigReader, routeInstanceFactory,
-                targetEndpointViews, producerTemplate, outcomes, Instant::now);
+        RouteInstanceSendDispatch sends = new RouteInstanceSendDispatch(transactions,
+                new JdbcDueDeliveries(jdbcClient, tenantContext), tenantContext, routeConfigReader,
+                routeInstanceFactory, producerTemplate, outcomes, Instant::now, credentialed.getIfAvailable());
+        return new DeliveryDueDispatch(binding, transactions, bulkheadFacts, stage2Bulkheads,
+                new DeliveryClaimHandler(transactions, claimService)::claim, deferrals, sends, targetEndpointViews,
+                Instant::now, () -> ThreadLocalRandom.current().nextDouble());
     }
 
     @Bean
@@ -183,25 +247,39 @@ class PipelineCompositionConfiguration {
     @Bean
     StageConsumerLoop stage1Consumer(@Value("${platform.routing.kafka.bootstrap-servers}") String bootstrap,
             ProtectedWorkRows protectedWorkRows, Stage1FanOut stage1FanOut, Producer<byte[], byte[]> poisonProducer,
-            ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations) {
+            ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
+            ObjectProvider<InstanceKeyReadiness> keyReadiness) {
         return loop(bootstrap, "platform-stage1", Topics.MESSAGE_ACCEPTED, protectedWorkRows, stage1FanOut,
-                poisonProducer, meters, observations);
+                poisonProducer, meters, observations, keyReadiness);
     }
 
     @Bean
     StageConsumerLoop stage2Consumer(@Value("${platform.routing.kafka.bootstrap-servers}") String bootstrap,
-            ProtectedWorkRows protectedWorkRows, DueDeliverySend dueDeliverySend,
+            ProtectedWorkRows protectedWorkRows, DeliveryDueDispatch deliveryDueDispatch,
             Producer<byte[], byte[]> poisonProducer, ObjectProvider<MeterRegistry> meters,
-            ObjectProvider<ObservationRegistry> observations) {
-        return loop(bootstrap, "platform-stage2", Topics.DELIVERY_DUE, protectedWorkRows, dueDeliverySend,
-                poisonProducer, meters, observations);
+            ObjectProvider<ObservationRegistry> observations, ObjectProvider<InstanceKeyReadiness> keyReadiness) {
+        return loop(bootstrap, "platform-stage2", Topics.DELIVERY_DUE, protectedWorkRows, deliveryDueDispatch,
+                poisonProducer, meters, observations, keyReadiness);
     }
 
     private static StageConsumerLoop loop(String bootstrap, String group, String topic,
             StageConsumer.ProtectedRows rows, StageConsumer.Handler handler, Producer<byte[], byte[]> poisonProducer,
-            ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations) {
+            ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
+            ObjectProvider<InstanceKeyReadiness> keyReadiness) {
         return new StageConsumerLoop(bootstrap, group, topic, rows, handler, new PoisonTopic(poisonProducer),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
-                observations.getIfAvailable(() -> ObservationRegistry.NOOP));
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP), ready(keyReadiness));
+    }
+
+    /** T-201: the delivery retry pass asks the same key readiness as the stage consumers. */
+    @Bean
+    InstanceReadiness instanceReadiness(ObjectProvider<InstanceKeyReadiness> keyReadiness) {
+        BooleanSupplier ready = ready(keyReadiness);
+        return (tenantId, deliveryId) -> ready.getAsBoolean();
+    }
+
+    private static BooleanSupplier ready(ObjectProvider<InstanceKeyReadiness> keyReadiness) {
+        InstanceKeyReadiness keys = keyReadiness.getIfAvailable();
+        return keys != null ? keys : () -> true;
     }
 }

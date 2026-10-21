@@ -33,6 +33,7 @@ import { MessageDetail } from './pages/MessageDetail';
 import { parseMessageRoute } from './pages/message-timeline';
 // Row 327 T119 (lane D): the tenant's activity view (#/activity, #/activity/<eventId>) - one route + one menu line.
 import { Activity } from './pages/Activity';
+import DeliveryReport from './pages/DeliveryReport';
 // E7 seam (arjun-fullstack, F5): route + menu stub for lane D1's mapping canvas (#/mappings/<routeId>, T-034);
 // lane D fills the page file and never edits this shell.
 import { MappingDesigner } from './pages/MappingDesigner';
@@ -46,7 +47,7 @@ import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
 
 type Route = {
-  page: 'home' | 'login' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue' | 'failures' | 'messages' | 'activity';
+  page: 'home' | 'login' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue' | 'failures' | 'messages' | 'activity' | 'reports';
   flowId: string | null;
   ruleSetId?: string | null;
   routeId?: string | null;
@@ -78,6 +79,7 @@ const NAV_GROUPS: Array<{ title: string; entries: Array<{ label: string; nav: st
       { label: 'Queue', nav: 'queue', hash: '#/queue', page: 'queue' },
       { label: 'Failures', nav: 'failures', hash: '#/failures', page: 'failures' },
       { label: 'Activity', nav: 'activity', hash: '#/activity', page: 'activity' },
+      { label: 'Delivery report', nav: 'reports', hash: '#/reports', page: 'reports' },
     ],
   },
   {
@@ -111,6 +113,7 @@ function parseHash(): Route {
   const message = /^messages\/(.+)$/.exec(hash);
   if (message) return { page: 'messages', flowId: null, ...parseMessageRoute(message[1]) };
   if (hash.startsWith('activity')) return { page: 'activity', flowId: null };
+  if (hash.startsWith('reports')) return { page: 'reports', flowId: null };
   if (hash.startsWith('contracts')) return { page: 'contracts', flowId: null };
   const ruleSet = /^rules\/(.+)$/.exec(hash);
   if (ruleSet) return { page: 'rules', flowId: null, ruleSetId: decodeURIComponent(ruleSet[1]) };
@@ -378,6 +381,7 @@ export function App() {
           {route.page === 'failures' && <Failures />}
           {route.page === 'messages' && <MessageDetail trackingId={route.trackingId ?? ''} failedHint={route.failedHint ?? null} />}
           {route.page === 'activity' && <Activity />}
+          {route.page === 'reports' && <DeliveryReport />}
           {route.page === 'contracts' && <ContractVersions />}
           {route.page === 'rules' && (
             <Suspense fallback={<p>Loading the rules editor...</p>}>

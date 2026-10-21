@@ -3,6 +3,7 @@ package io.integrationplatform.config.internal.persistence;
 import io.integrationplatform.config.destination.AllowList;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.HostResolver;
+import io.integrationplatform.config.destination.MqConnectionCheck;
 import io.integrationplatform.config.destination.OutboundHttpCheck;
 import io.integrationplatform.config.destination.SocketDialer;
 import io.integrationplatform.config.system.application.SystemAdminService;
@@ -14,11 +15,14 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
@@ -122,13 +126,27 @@ class SystemPersistenceConfiguration {
 
     @Bean
     TestConnectionService testConnectionService(Environment environment, JdbcSystemRepository systems,
-            PlatformTransactionManager transactions, OutboundHttpCheck check) {
+            PlatformTransactionManager transactions, OutboundHttpCheck check,
+            @Qualifier("mqConnectionCheck") ObjectProvider<MqConnectionCheck> mq,
+            @Qualifier("kafkaTopicConnectionCheck") ObjectProvider<MqConnectionCheck> kafka) {
         Binder binder = Binder.get(environment);
         int limit = binder.bind(RATE_LIMIT, Integer.class).orElse(10);
         Duration window = binder.bind(RATE_WINDOW, Duration.class).orElse(Duration.ofMinutes(1));
         TransactionTemplate readOnly = new TransactionTemplate(transactions);
         readOnly.setReadOnly(true);
-        return new TestConnectionService(systems, readOnly, check, limit, window, new TestConnectionAudit());
+        // type-keyed checks map (E16-T0): "MQ" always when its adapter is on the classpath, "KAFKA" only behind
+        // IPASS_KAFKA_TOPIC_TARGET_ENABLED - with the gate off the behavior is unchanged from T-126
+        Map<String, MqConnectionCheck> checks = new LinkedHashMap<>();
+        MqConnectionCheck mqCheck = mq.getIfAvailable();
+        if (mqCheck != null) {
+            checks.put("MQ", mqCheck);
+        }
+        MqConnectionCheck kafkaCheck = kafka.getIfAvailable();
+        if (kafkaCheck != null) {
+            checks.put("KAFKA", kafkaCheck);
+        }
+        return new TestConnectionService(systems, readOnly, check, limit, window, new TestConnectionAudit(),
+                Map.copyOf(checks));
     }
 
     @Bean

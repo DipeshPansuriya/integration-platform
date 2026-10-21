@@ -190,6 +190,25 @@ class DeliveryRetryTriggerTest {
         assertThat(outbox.committedEntries()).hasSize(2);
     }
 
+    // ---------- T-201 (E10-F15): readiness DOWN skips the whole retry pass ----------
+
+    @Test
+    void aNotReadyInstanceSkipsTheWholeRetryPassAndResumesWhenReady() {
+        store.seed(TENANT_A, D1, DeliveryState.RETRY_WAIT, 1, BASE, null);
+        java.util.concurrent.atomic.AtomicBoolean ready = new java.util.concurrent.atomic.AtomicBoolean(false);
+        DeliveryRetryTrigger gated = new DeliveryRetryTrigger(() -> List.of(TENANT_A), context, transactions,
+                store, outbox, BATCH, (tenant, delivery) -> ready.get());
+
+        assertThat(gated.runOnce()).isZero();
+        assertThat(store.tenantsSeen()).as("no tenant pass is opened on a not-ready instance").isEmpty();
+        assertThat(store.stateOf(D1)).isEqualTo(DeliveryState.RETRY_WAIT);
+        assertThat(outbox.committedEntries()).isEmpty();
+
+        ready.set(true);
+        assertThat(gated.runOnce()).as("ready again: the pass runs").isEqualTo(1);
+        assertThat(store.stateOf(D1)).isEqualTo(DeliveryState.DUE);
+    }
+
     // ---------- T-199: per-target re-drive cap (ADR-010 section 2) ----------
 
     private static final UUID TARGET_A = id("target-a");
@@ -403,6 +422,11 @@ class DeliveryRetryTriggerTest {
         @Override
         public List<UUID> lockReleasableHeld(int limit) {
             return held.getOrDefault(tenantContext.requireTenantId(), List.of()).stream().limit(limit).toList();
+        }
+
+        @Override
+        public List<UUID> lockUnhanded(Instant unchangedBefore, int limit) {
+            return List.of();
         }
 
         @Override
