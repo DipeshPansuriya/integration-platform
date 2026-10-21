@@ -3,6 +3,7 @@ package io.integrationplatform.routing.stage1;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import io.integrationplatform.delivery.port.UnroutedMessageSweep;
 import io.integrationplatform.routing.stage.WorkRecord;
 import io.integrationplatform.tenancy.WorkerTenantBinding;
 import java.time.Duration;
@@ -83,5 +84,11 @@ class Stage1ReconcilerTest {
     void nothingStuck() {
         assertThat(reconciler(null).sweepOnce(TENANT)).isZero();
         assertThat(handed).isEmpty();
+    }
+
+    @Test
+    @DisplayName("T72: the reconciler is the routing implementation of the delivery module's sweep port")
+    void isTheDeliveryModulesSweepPort() {
+        assertThat(reconciler(null)).isInstanceOf(UnroutedMessageSweep.class);
     }
 }
