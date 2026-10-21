@@ -1,5 +1,6 @@
 package io.integrationplatform.tenancy.internal.persistence;
 
+import io.integrationplatform.tenancy.TenantBoundaryCrossing;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @ConditionalOnBean(DataSource.class)
+@TenantBoundaryCrossing("T6")
 class DatabaseRoleGuard {
 
     private final DataSource dataSource;
