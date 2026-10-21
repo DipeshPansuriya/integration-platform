@@ -160,13 +160,74 @@ export function settingsFromForm(type: string, values: Record<string, string | b
   return settings;
 }
 
+/** How a stored value reads on screen (the one conversion formFromSettings and the no-change check share). */
+function shown(value: unknown): string {
+  return Array.isArray(value) ? value.join(', ') : String(value);
+}
+
 /** The form's values for a stored system's settings. */
 export function formFromSettings(settings: SystemSettingsValue | null): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {};
   for (const [name, value] of Object.entries(settings ?? {})) {
-    values[name] = typeof value === 'boolean' ? value : Array.isArray(value) ? value.join(', ') : String(value);
+    values[name] = typeof value === 'boolean' ? value : shown(value);
   }
   return values;
+}
+
+/** Stored settings still apply to the form only while the type is the one they were saved under. */
+function storedFor(type: string, stored: SystemSettingsValue | null | undefined, storedType: string | null | undefined) {
+  return stored && storedType != null && storedType.trim() === type.trim() ? stored : null;
+}
+
+/**
+ * The settings an EDIT sends: the stored object with the form's own fields merged over it. Every key the
+ * form does not own (Kafka securityProtocol, DB sslmode, halfOpenTrialCalls, ...) goes back untouched, so an
+ * unchanged save is a no-op on the wire; an owned key goes only when the user cleared it. A value the user did
+ * not change is sent as stored, not re-typed. When the type changed, the old type's extra keys are dropped.
+ */
+export function settingsForEdit(
+  type: string,
+  values: Record<string, string | boolean>,
+  stored: SystemSettingsValue | null | undefined,
+  storedType: string | null | undefined
+): SystemSettingsValue {
+  const fromForm = settingsFromForm(type, values);
+  const before = storedFor(type, stored, storedType);
+  if (!before) return fromForm;
+  const owned = new Set(settingsFieldsOf(type).map((field) => field.name));
+  const settings: SystemSettingsValue = {};
+  for (const [name, value] of Object.entries(before)) if (!owned.has(name)) settings[name] = value;
+  for (const field of settingsFieldsOf(type)) {
+    const name = field.name;
+    const old = before[name];
+    const next = fromForm[name];
+    if (next === undefined) {
+      // an unticked box over a stored explicit false is no change
+      if (field.kind === 'boolean' && old === false) settings[name] = false;
+      continue;
+    }
+    settings[name] = old !== undefined && typeof old !== 'boolean' && shown(old) === shown(next) ? old : next;
+  }
+  return settings;
+}
+
+const CREDENTIAL_NAME = /password|passwd|secret|token|credential|apikey|api_key|private/i;
+
+/** The stored keys the form does not own, for a read-only look (never editable here); credential-looking names are masked. */
+export function extraSettingsOf(
+  type: string,
+  stored: SystemSettingsValue | null | undefined,
+  storedType: string | null | undefined
+): { name: string; value: string }[] {
+  const before = storedFor(type, stored, storedType);
+  if (!before) return [];
+  const owned = new Set(settingsFieldsOf(type).map((field) => field.name));
+  return Object.entries(before)
+    .filter(([name]) => !owned.has(name))
+    .map(([name, value]) => ({
+      name,
+      value: CREDENTIAL_NAME.test(name) ? '(hidden)' : typeof value === 'object' && !Array.isArray(value) ? JSON.stringify(value) : shown(value)
+    }));
 }
 
 const BOOTSTRAP_WORDS = 'settings.bootstrapServers must be a comma-separated list of host:port, port 1 to 65535';
