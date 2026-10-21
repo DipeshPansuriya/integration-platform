@@ -16,12 +16,12 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-class JdbcTrackingReadApiTest {
+class TrackingReadApiAdapterTest {
 
     @Test
     void timelineMapsTheServiceTimelineOntoTheContractTimeline() {
         MessageTrackingService service = mock(MessageTrackingService.class);
-        JdbcTrackingReadApi api = new JdbcTrackingReadApi(service);
+        TrackingReadApiAdapter api = new TrackingReadApiAdapter(service);
         UUID trackingId = UUID.randomUUID();
         MessageTrackingService.StageTime stage =
                 new MessageTrackingService.StageTime("ROUTE", "2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z", 1000L, 0L);
@@ -44,7 +44,7 @@ class JdbcTrackingReadApiTest {
     @Test
     void failuresMapTheServiceFailuresOntoTheContractFailures() {
         MessageTrackingService service = mock(MessageTrackingService.class);
-        JdbcTrackingReadApi api = new JdbcTrackingReadApi(service);
+        TrackingReadApiAdapter api = new TrackingReadApiAdapter(service);
         LocalDate day = LocalDate.of(2026, 1, 1);
         UUID flowId = UUID.randomUUID();
         MessageTrackingService.Failure source = new MessageTrackingService.Failure("tid", "did", "flow", "tgt", "DELIVER",
@@ -60,7 +60,7 @@ class JdbcTrackingReadApiTest {
     @Test
     void nullListsStayNull() {
         MessageTrackingService service = mock(MessageTrackingService.class);
-        JdbcTrackingReadApi api = new JdbcTrackingReadApi(service);
+        TrackingReadApiAdapter api = new TrackingReadApiAdapter(service);
         UUID trackingId = UUID.randomUUID();
         MessageTrackingService.StageTime stage =
                 new MessageTrackingService.StageTime("ROUTE", "s", "f", 1L, 0L);

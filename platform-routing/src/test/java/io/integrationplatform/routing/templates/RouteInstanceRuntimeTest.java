@@ -74,4 +74,60 @@ class RouteInstanceRuntimeTest {
         runtime.stop();
         assertThat(runtime.isRunning()).isFalse();
     }
+
+    @Test
+    void theFactoryBuildsARouteOnTheStartedContext() throws Exception {
+        RouteTemplate api = new RouteTemplate() {
+            @Override
+            public String targetType() {
+                return "API";
+            }
+
+            @Override
+            public org.apache.camel.Processor build(RouteConfigRow row) {
+                return exchange -> { };
+            }
+        };
+        runtime = new RouteInstanceRuntime(new FakeReader(), List.of(api), Set.of("https"));
+        runtime.start();
+        RouteConfigRow row = new RouteConfigRow(UUID.randomUUID(), UUID.randomUUID(), "API",
+                "https://target.example/v1", null, UUID.randomUUID());
+
+        RouteInstance instance = runtime.factory().ensure(row);
+
+        assertThat(runtime.context().getRoute(instance.camelRouteId()))
+                .as("the route instance is live on the runtime's own started context").isNotNull();
+    }
+
+    @Test
+    void concurrentStartsAndStopsLeaveOneConsistentState() throws Exception {
+        runtime = new RouteInstanceRuntime(new FakeReader(), List.of(), Set.of("https"));
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        try {
+            List<java.util.concurrent.Future<?>> calls = new java.util.ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                calls.add(pool.submit(() -> {
+                    runtime.start();
+                    return null;
+                }));
+            }
+            for (java.util.concurrent.Future<?> call : calls) {
+                call.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            }
+            assertThat(runtime.isRunning()).isTrue();
+            calls.clear();
+            for (int i = 0; i < 8; i++) {
+                calls.add(pool.submit(() -> {
+                    runtime.stop();
+                    return null;
+                }));
+            }
+            for (java.util.concurrent.Future<?> call : calls) {
+                call.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            }
+            assertThat(runtime.isRunning()).isFalse();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
 }
