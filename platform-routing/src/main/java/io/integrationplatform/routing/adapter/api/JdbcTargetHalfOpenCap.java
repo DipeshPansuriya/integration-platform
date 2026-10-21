@@ -29,7 +29,12 @@ public final class JdbcTargetHalfOpenCap extends TenantScopedRepository implemen
                 "select (select s.settings ->> 'halfOpenTrialCalls' from public.system s"
                         + " where s.tenant_id = te.tenant_id and s.id = te.system_id) from public.target_endpoint te",
                 "te.id = :id::uuid", Map.of("id", targetEndpointId.toString()), (rs, n) -> rs.getString(1));
-        return configured.stream().findFirst().map(JdbcTargetHalfOpenCap::parse).orElse(DEFAULT_TRIAL_CALLS);
+        return fromRows(configured);
+    }
+
+    /** The first row's value, or the default when there is no row; a row whose value is SQL NULL is a present row. */
+    static int fromRows(List<String> configured) {
+        return configured.isEmpty() ? DEFAULT_TRIAL_CALLS : parse(configured.get(0));
     }
 
     static int parse(String value) {

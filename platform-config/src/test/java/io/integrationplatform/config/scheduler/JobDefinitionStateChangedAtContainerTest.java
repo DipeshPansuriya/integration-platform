@@ -32,6 +32,8 @@ class JobDefinitionStateChangedAtContainerTest {
     private static JdbcJobDefinitionRepository definitions;
     private static Instant beforeMigration;
     private static Instant afterMigration;
+    /** The rows exactly as the migration left them, taken before any trigger-matrix test touches the shared container. */
+    private static java.util.List<JobDefinitionRow> backfilled;
 
     @BeforeAll
     static void deployMigrations() {
@@ -57,6 +59,7 @@ class JobDefinitionStateChangedAtContainerTest {
 
         registry = new JdbcSchedulerRegistry(dataSource);
         definitions = new JdbcJobDefinitionRepository(registry);
+        backfilled = java.util.List.copyOf(definitions.all());
     }
 
     private static Flyway flyway(String tenancy, String config, String target) {
@@ -90,11 +93,12 @@ class JobDefinitionStateChangedAtContainerTest {
 
     @Test
     void aPausedRowIsBackfilledFromPausedAtAndEveryOtherRowFromTheMigrationTime() {
-        JobDefinitionRow paused = definitions.find("DAILY_REPORT").orElseThrow();
+        JobDefinitionRow paused = backfilled.stream().filter(row -> "DAILY_REPORT".equals(row.jobType()))
+                .findFirst().orElseThrow();
         assertThat(paused.stateChangedAt()).isEqualTo(Instant.parse("2026-10-19T09:00:00Z"));
         assertThat(paused.stateChangedAt()).isEqualTo(paused.pausedAt());
 
-        assertThat(definitions.all()).filteredOn(row -> !"DAILY_REPORT".equals(row.jobType()))
+        assertThat(backfilled).filteredOn(row -> !"DAILY_REPORT".equals(row.jobType()))
                 .isNotEmpty()
                 .allSatisfy(row -> assertThat(row.stateChangedAt())
                         .isBetween(beforeMigration.minusSeconds(5), afterMigration.plusSeconds(5)));
