@@ -20,8 +20,19 @@ public interface PollingJobSurface {
     /** Poll the current job state. Implementations may return an empty list until wired; never null. */
     List<JobSummary> poll();
 
-    /** Poll job state observed since {@code since}; defaults to a full {@link #poll()}. */
+    /**
+     * Poll job state observed since {@code since}. A real incremental read: only summaries carrying an observed
+     * scheduling time ({@code lastRunAt} or {@code nextRunAt}) at or after {@code since} are returned, so a caller
+     * that already saw an earlier snapshot receives just the changed tail instead of the full register. A {@code null}
+     * {@code since} and an implementation without such timestamps both degrade to the full {@link #poll()}.
+     */
     default List<JobSummary> pollSince(Instant since) {
-        return poll();
+        if (since == null) {
+            return poll();
+        }
+        return poll().stream()
+                .filter(summary -> (summary.lastRunAt() != null && !summary.lastRunAt().isBefore(since))
+                        || (summary.nextRunAt() != null && !summary.nextRunAt().isBefore(since)))
+                .toList();
     }
 }
