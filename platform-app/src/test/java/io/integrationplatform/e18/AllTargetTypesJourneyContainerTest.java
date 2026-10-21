@@ -175,8 +175,6 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     // ----------------------------------------------------------------------------------------------------- DB
 
     @Test
-    @BlockedBy(lane = "content-wiring", assertion = "a DB delivery reaches DELIVERED: a DbRows bean exists (the DB gate is off"
-            + " without it) and one row lands in the approved table partner_orders")
     @DisplayName("DB: one row lands in the partner's approved table")
     void dbTargetJourney() throws Exception {
         try (Connection partner = java.sql.DriverManager.getConnection(TARGET_DB.getJdbcUrl(),
@@ -203,8 +201,6 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     // ---------------------------------------------------------------------------------------------------- File
 
     @Test
-    @BlockedBy(lane = "content-wiring", assertion = "a FILE delivery reaches DELIVERED: a FileTargetContent bean supplies the"
-            + " file content and exactly one file with the order lands in the directory")
     @DisplayName("File: one file with the order lands in the partner's directory")
     void fileTargetJourney() throws Exception {
         String base = FILE_DIR.toString().replace((char) 92, '/');
