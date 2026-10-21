@@ -4,6 +4,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.MqConnectionCheck;
 import io.integrationplatform.config.destination.SocketDialer;
+import io.integrationplatform.tenancy.TenantContext;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
@@ -13,14 +14,15 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
- * T-148: the Kafka-topic adapter's beans - the "KAFKA" test-connection check (same MqConnectionCheck interface
+ * T-148/T-330: the Kafka-topic adapter's beans - the "KAFKA" test-connection check (same MqConnectionCheck interface
  * the checks map holds) and the production target call. Gated by its own property so no existing context changes
  * until the lead wires the checks map and the TargetCallRegistry entry; the gate flips with the integration.
  */
@@ -37,11 +39,22 @@ public class KafkaAdapterConfiguration {
     }
 
     @Bean
+    JdbcKafkaTargets kafkaTargets(JdbcClient jdbcClient, TenantContext tenantContext) {
+        return new JdbcKafkaTargets(jdbcClient, tenantContext);
+    }
+
+    @Bean
+    KafkaOutbound kafkaOutbound(JdbcKafkaTargets targets, ObjectProvider<KafkaTargetBody> bodies) {
+        KafkaTargetBody body = bodies.getIfAvailable(() -> send -> Optional.empty());
+        return new KafkaTargetOutbound(targets::settingsOf, body);
+    }
+
+    @Bean
     KafkaTopicTargetCall kafkaTopicTargetCall(KafkaOutbound outbound, DestinationGuard guard,
             @Value("${IPASS_KAFKA_PLATFORM_TOPICS}") String platformTopics,
             ObjectProvider<CircuitBreakerRegistry> breakers, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations) {
-        return new KafkaTopicTargetCall(outbound, new KafkaClientsSender(), guard, topics(platformTopics),
+        return new KafkaTopicTargetCall(outbound, new KafkaClientsSender(guard), guard, topics(platformTopics),
                 breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP), Duration.ofSeconds(5));

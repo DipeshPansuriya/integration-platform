@@ -2,6 +2,7 @@ package io.integrationplatform.app.composition;
 
 import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.routing.adapter.api.ApiTargetBody;
+import io.integrationplatform.routing.adapter.kafkatopic.KafkaTargetBody;
 import io.integrationplatform.routing.adapter.mq.MqTargetBody;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.transform.api.LookupSource;
@@ -34,6 +35,12 @@ class CompositionConfiguration {
     /** Row 327: the MQ message is the transformed API body's bytes - one transform lookup, inside the same tenant transaction. */
     @Bean
     MqTargetBody transformedMqBody(ApiTargetBody transformedApiBody) {
+        return send -> transformedApiBody.bodyFor(send).map(ApiTargetBody.ApiWireBody::bytes);
+    }
+
+    /** Row 330: the KAFKA message uses the same transformed API body bytes. */
+    @Bean
+    KafkaTargetBody transformedKafkaBody(ApiTargetBody transformedApiBody) {
         return send -> transformedApiBody.bodyFor(send).map(ApiTargetBody.ApiWireBody::bytes);
     }
 
