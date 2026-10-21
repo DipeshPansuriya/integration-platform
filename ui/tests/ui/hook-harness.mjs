@@ -1,6 +1,6 @@
 // Row 327 T112 (lane D - vijay-developer, row 328 V1/V3): renders ONE console screen (.tsx) under plain
 // `node --test`, with no DOM and no test library added. esbuild (already installed as Vite's own bundler)
-// compiles the screen; `react` is swapped for a tiny hook runtime (useState + useEffect only - what the
+// compiles the screen; `react` is swapped for a tiny hook runtime (useState + useEffect + a first-wins useCallback - what the
 // screens use) and the screen's API module for the stubs a test passes. The result is a plain element
 // tree: { type, props } objects a test can search by data-* attributes and whose handlers it can call.
 // ponytail: a hand-rolled hook runtime instead of jsdom + Testing Library (not installed); it models
@@ -15,7 +15,8 @@ const FRAGMENT = Symbol.for('hook-harness.fragment');
 
 const STUBS = {
   react: 'export const useState = (i) => globalThis.__hookHarness.useState(i);\n'
-    + 'export const useEffect = (f, d) => globalThis.__hookHarness.useEffect(f, d);\n',
+    + 'export const useEffect = (f, d) => globalThis.__hookHarness.useEffect(f, d);\n'
+    + 'export const useCallback = (f, d) => globalThis.__hookHarness.useCallback(f, d);\n',
   'react/jsx-runtime': 'const h = (type, props) => globalThis.__hookHarness.element(type, props);\n'
     + 'export const jsx = h; export const jsxs = h; export const Fragment = Symbol.for("hook-harness.fragment");\n'
 };
@@ -39,7 +40,7 @@ async function load(page, apiSpecifiers) {
           b.onResolve({ filter: api }, (a) => ({ path: a.path, namespace: 'api' }));
           b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: STUBS[a.path], loader: 'js' }));
           b.onLoad({ filter: /.*/, namespace: 'api' }, () => ({
-            contents: 'export default null;\n' + ['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery']
+            contents: 'export default null;\n' + ['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery', 'queueSummary', 'deliveryReport']
               .map((n) => `export const ${n} = (...a) => globalThis.__hookHarness.api.${n}(...a);`).join('\n'),
             loader: 'js'
           }));
@@ -88,6 +89,11 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
         const cleanup = effect();
         effects[i].cleanup = typeof cleanup === 'function' ? cleanup : undefined;
       });
+    },
+    // ponytail: the first function wins (the screens that use useCallback pass only setters, so no stale-closure risk).
+    useCallback(fn) {
+      const [cell] = this.useState(() => ({ fn }));
+      return cell.fn;
     },
     element(type, elementProps) {
       if (type === FRAGMENT) return elementProps.children;

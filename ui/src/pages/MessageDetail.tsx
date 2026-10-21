@@ -16,7 +16,7 @@
 import { useEffect, useState } from 'react';
 import { messageTimeline, type Timeline } from '../api/messages';
 import { OperatorActionButton } from './OperatorActionButton';
-import { deliveryAction } from './operator-actions';
+import { deliveryAction, type OperatorAction } from './operator-actions';
 import {
   NOT_FOUND_TEXT,
   detailStateOf,
@@ -46,10 +46,16 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [load, setLoad] = useState<Load>('loading');
   const [refusal, setRefusal] = useState('');
+  // Varun follow-up: an accepted retry/replay re-reads the timeline (reloads) WITHOUT blanking the screen, and keeps
+  // the pressed action (acted) on screen - the delivery is DUE now, so deliveryAction() alone would drop the button
+  // and with it the announced answer.
+  const [reloads, setReloads] = useState(0);
+  const [acted, setActed] = useState<Record<string, OperatorAction>>({});
 
   useEffect(() => {
     let current = true;
     setTimeline(null);
+    setActed({});
     // A malformed id is answered like a 404 without a call: the same words, no hint either way.
     if (!isTrackingId(trackingId)) {
       setLoad('not-found');
@@ -75,6 +81,25 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
       current = false;
     };
   }, [trackingId]);
+
+  // The silent refresh: no loading state, no clearing; a failed re-read leaves the last good timeline in place.
+  useEffect(() => {
+    if (reloads === 0 || !isTrackingId(trackingId)) return;
+    let current = true;
+    messageTimeline(trackingId)
+      .then((answer) => {
+        if (current && answer.ok) setTimeline(answer.data);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [reloads]);
+
+  function actionDone(action: OperatorAction) {
+    setActed((a) => ({ ...a, [action.deliveryId]: action }));
+    setReloads((n) => n + 1);
+  }
 
   const failing = timeline ? failingStageOf(timeline) : null;
   const rows = timeline ? timelineRows(timeline) : [];
@@ -139,10 +164,10 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
           </dl>
           {(timeline.deliveries ?? []).map((d) => {
             // T165 M2: the action follows the delivery state - RETRY_WAIT offers Retry now, DEAD_LETTERED Replay; the 409 still guards.
-            const action = deliveryAction(d);
+            const action = deliveryAction(d) ?? acted[d.deliveryId] ?? null;
             return action ? (
               <p key={d.deliveryId} data-delivery-action={d.deliveryId}>
-                Delivery to {d.targetId ?? d.deliveryId}: <OperatorActionButton action={action} />
+                Delivery to {d.targetId ?? d.deliveryId}: <OperatorActionButton action={action} onDone={actionDone} />
               </p>
             ) : null;
           })}

@@ -147,3 +147,67 @@ test('T165 M4 @a11y a busy or finished action keeps keyboard focus: aria-disable
   await press();
   assert.equal(calls, 1, 'a press after the move sends nothing');
 });
+
+// Varun follow-ups (row 328/329): column headers announce their scope, and an operator action refreshes the timeline.
+const scopeOf = (th) => th.props.scope;
+
+test('@a11y Queue dashboard table headers are scope="col" (WCAG 1.3.1)', async () => {
+  const screen = await mount('pages/QueueDashboard.tsx', 'QueueDashboard', {}, {
+    queueSummary: async () => ({ ok: true, data: [] })
+  }, ['../api/queue']);
+  await screen.settle();
+  const headers = findAll(screen.tree(), (n) => n.type === 'th');
+  assert.equal(headers.length, 6, 'Flow, Day, Queued, Processed, Converted, Failed');
+  assert.deepEqual(headers.map(scopeOf), Array(6).fill('col'));
+});
+
+test('@a11y Delivery report table headers are scope="col" (WCAG 1.3.1)', async () => {
+  const screen = await mount('pages/DeliveryReport.tsx', 'default', {}, {
+    deliveryReport: async () => ({ ok: true, data: [] })
+  }, ['../api/reports']);
+  await screen.settle();
+  const headers = findAll(screen.tree(), (n) => n.type === 'th');
+  assert.ok(headers.length >= 8, 'the report table rendered its column headers');
+  assert.ok(headers.every((th) => scopeOf(th) === 'col'), 'every report header is scope="col"');
+});
+
+async function detailWithRetry(retryAnswer) {
+  let reads = 0;
+  const screen = await mount('pages/MessageDetail.tsx', 'MessageDetail', { trackingId: M1, failedHint: null }, {
+    messageTimeline: async () => {
+      reads++;
+      // the first read: waiting to retry; the refresh: the delivery moved to DUE (no action offered any more)
+      return { ok: true, data: timeline([{ deliveryId: D2, targetId: 't-2', durationMs: 20, outcome: 'TRANSIENT', state: reads === 1 ? 'RETRY_WAIT' : 'DUE' }]) };
+    },
+    retryDelivery: async () => retryAnswer,
+    replayDelivery: async () => assert.fail('replay was not pressed')
+  }, [...API, '../api/operator']);
+  await screen.settle();
+  const button = () => findAll(screen.tree(), byData('data-action', 'retry'))[0];
+  const answerText = () => {
+    const [span] = findAll(screen.tree(), byData('data-action-answer'));
+    return span ? [span.props.children].flat().join('') : '';
+  };
+  return { screen, button, answerText, reads: () => reads };
+}
+
+test('a successful Retry now refreshes the timeline, and the answer stays announced after the delivery left RETRY_WAIT', async () => {
+  const { screen, button, answerText, reads } = await detailWithRetry({ ok: true, data: { outcome: 'MOVED_TO_DUE', deliveryId: D2, state: 'DUE' } });
+  assert.equal(reads(), 1);
+  button().props.onClick();
+  await screen.settle();
+  assert.equal(reads(), 2, 'one more read of the timeline after the 200');
+  assert.ok(button(), 'the pressed action stays on screen even though the refreshed state is DUE');
+  assert.equal(button().props['aria-disabled'], 'true', 'and it cannot be sent twice');
+  assert.match(answerText(), /^Retry queued/, 'the live-region answer survives the refresh');
+  const [page] = findAll(screen.tree(), byData('data-page', 'message-detail'));
+  assert.equal(page.props['data-load'], 'ready', 'the refresh is silent: the screen never drops back to loading');
+});
+
+test('@negative a refused Retry now (409) does not refresh the timeline', async () => {
+  const { screen, button, answerText, reads } = await detailWithRetry({ ok: false, status: 409, state: 'DUE' });
+  button().props.onClick();
+  await screen.settle();
+  assert.equal(reads(), 1, 'nothing moved, so nothing is re-read');
+  assert.match(answerText(), /^Not retried/);
+});
