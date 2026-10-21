@@ -133,11 +133,10 @@ class PipelineCompositionConfiguration {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         // row 327: picked by the stored system.type; an unknown type is refused PERMANENT, never dropped
         // E9-C9 (T71): a call that leaves the process must not hold a pooled connection while it waits on the
-        // target. The API adapter opens its own short tenant-stamped reads (ApiAdapterConfiguration); the other
-        // types still run whole inside one tenant-stamped transaction until their adapters do the same.
+        // target. The API, MQ and KAFKA adapters open their own short tenant-stamped reads; DB and FILE still run
+        // whole inside one tenant-stamped transaction until their adapters do the same.
         java.util.Map<String, TargetCall> perType = new java.util.LinkedHashMap<>();
-        targetCalls.calls().forEach((type, call) -> perType.put(type,
-                "API".equals(type) ? call : send -> transactions.executeWithoutResult(status -> call.call(send))));
+        targetCalls.calls().forEach((type, call) -> perType.put(type, wrapForType(type, call, transactions)));
         TargetCall inTenantTransaction = TargetCall.byType(
                 endpointId -> transactions.execute(status -> mqTargets.typeOf(endpointId)), perType);
         Stage2AttemptWriter attempts = (deliveryId, layer, outcome, startedAt, finishedAt, detail) ->
@@ -158,6 +157,18 @@ class PipelineCompositionConfiguration {
             }
         };
         return new LayerOneRouteBuilder(inTenantTransaction, attempts, handoff, LayerOneWaits.defaults());
+    }
+
+    /**
+     * E15/E9 (T71): the API, MQ and KAFKA adapters open their own short tenant-stamped reads and hold no connection
+     * while the network call waits; only the types whose adapters still read the database mid-call (DB, FILE) keep
+     * the whole-call transaction.
+     */
+    static TargetCall wrapForType(String type, TargetCall call, TransactionTemplate transactions) {
+        return switch (type) {
+            case "API", "MQ", "KAFKA" -> call;
+            default -> send -> transactions.executeWithoutResult(status -> call.call(send));
+        };
     }
 
     @Bean

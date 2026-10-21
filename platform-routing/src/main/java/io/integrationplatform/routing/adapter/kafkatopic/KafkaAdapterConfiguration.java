@@ -20,6 +20,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * T-148/T-330: the Kafka-topic adapter's beans - the "KAFKA" test-connection check (same MqConnectionCheck interface
@@ -44,9 +46,22 @@ public class KafkaAdapterConfiguration {
     }
 
     @Bean
-    KafkaOutbound kafkaOutbound(JdbcKafkaTargets targets, ObjectProvider<KafkaTargetBody> bodies) {
+    KafkaOutbound kafkaOutbound(JdbcKafkaTargets targets, ObjectProvider<KafkaTargetBody> bodies,
+            ObjectProvider<PlatformTransactionManager> transactionManager) {
         KafkaTargetBody body = bodies.getIfAvailable(() -> send -> Optional.empty());
-        return new KafkaTargetOutbound(targets::settingsOf, body);
+        KafkaOutbound outbound = new KafkaTargetOutbound(targets::settingsOf, body);
+        PlatformTransactionManager transactions = transactionManager.getIfAvailable();
+        return transactions == null ? outbound : inShortTransaction(outbound, transactions);
+    }
+
+    /**
+     * E15/E9 (T71 for Kafka): every database read of the send - settings, body - happens in {@code resolve}, so it
+     * runs in ONE short tenant-stamped transaction that is over before the broker is dialled. The network call holds
+     * no pooled connection: a hanging broker must not starve the shared pool.
+     */
+    static KafkaOutbound inShortTransaction(KafkaOutbound outbound, PlatformTransactionManager transactions) {
+        TransactionTemplate tx = new TransactionTemplate(transactions);
+        return send -> tx.execute(status -> outbound.resolve(send));
     }
 
     @Bean
