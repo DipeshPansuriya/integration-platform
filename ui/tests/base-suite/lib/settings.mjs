@@ -36,7 +36,7 @@ const RESOLVER_OVERRIDES = /jdk\.net\.hosts\.file|sun\.net\.spi\.nameservice/i;
  */
 const SHOWCASE_PORTS_VAR = 'PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS';
 const ALLOWED_HOSTS_VAR = 'PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS';
-/** Publish refuses an endpoint URI whose scheme is not approved (PipelineCompositionConfiguration.allowedSchemes; unset = none): the exception target is plain http. */
+/** Publish refuses an endpoint URI whose scheme is not approved (PipelineCompositionConfiguration.allowedSchemes; unset = none): a system's default endpoint is the placeholder https://endpoint.invalid/ (JdbcSystemRepository.INSERT_ENDPOINT) and the WireMock target is plain http - both approved, TEST environment only. */
 const ALLOWED_SCHEMES_VAR = 'ROUTING_CORE_ALLOWED_SCHEMES';
 /** Names the exception's app variable may never be: the profile switch, the JVM's own settings, the two set here. */
 const RESERVED_VARS = new Set(['SPRING_PROFILES_ACTIVE', 'JAVA_HOME', 'PATH', ...JVM_OPTION_VARS, SHOWCASE_PORTS_VAR, ALLOWED_HOSTS_VAR]);
@@ -109,7 +109,7 @@ export function exceptionSettings(env = process.env) {
       [values.hostVar]: values.host,
       [SHOWCASE_PORTS_VAR]: values.port, // the port WireMock is published on (boot-options.mjs hostPort)
       [ALLOWED_HOSTS_VAR]: values.host,
-      [ALLOWED_SCHEMES_VAR]: 'http'
+      [ALLOWED_SCHEMES_VAR]: 'http,https'
     })
   });
 }

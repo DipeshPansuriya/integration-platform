@@ -11,7 +11,9 @@
 import { expect } from '@playwright/test';
 import { targetUrl } from '../lib/settings.mjs';
 import { FLOW, LINKS, SOURCE_CONTRACT, TARGET_CONTRACT, orderRecord, expectedTargetBody } from '../lib/tenants.mjs';
+import { activeCredentialId } from '../lib/credentials.mjs';
 import { bsEnv } from './boot-state.mjs';
+import { readRun } from './run-file.mjs';
 import { inBrowser, must } from './api.mjs';
 
 const DESIGNER = '[data-page="mapping-designer"]';
@@ -116,6 +118,13 @@ export async function runSample(page, record, state) {
 
 /** A usable source secret for this scenario only: rotate the seeded credential, keep the answer in memory. */
 export async function rotatedSecret(page, tenant, credentialId) {
-  const rotated = must(await inBrowser(page, 'POST', `/api/v1/admin/source-credentials/${credentialId}/rotate`, undefined, tenant.admin), `${tenant.key}: rotate credential`);
+  // the seeded id is rotated once; a later scenario file must rotate the replacement, found by listing the source
+  // system's credentials (the same id twice is a 409 "the credential is already being rotated")
+  const sourceSystemId = readRun().seed?.[tenant.key]?.sourceSystemId;
+  const listed = sourceSystemId
+    ? await inBrowser(page, 'GET', `/api/v1/admin/systems/${sourceSystemId}/source-credentials`, undefined, tenant.admin)
+    : null;
+  const currentId = activeCredentialId(listed?.status === 200 ? listed.data : null, credentialId);
+  const rotated = must(await inBrowser(page, 'POST', `/api/v1/admin/source-credentials/${currentId}/rotate`, undefined, tenant.admin), `${tenant.key}: rotate credential`);
   return { clientId: rotated.clientId, secretValue: rotated.secret };
 }
