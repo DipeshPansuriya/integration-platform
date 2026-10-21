@@ -64,7 +64,7 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>Test network: the partner names are {@code *.e18.test}. The destination guard is NOT relaxed beyond its own
  * showcase exception (T138/B21): the {@code showcase} profile lets these EXACT host names resolve to loopback on
  * these EXACT ports only. Adapters not yet wired on main are switched on by {@code -De18.gates=kafka,db,file}
- * (default {@code kafka}) because switching a gate on without its beans stops the whole context from starting.
+ * (default {@code kafka,file}; db stays off: without a DbRows bean DbOutbound is null and its gate stops the context) because switching a gate on without its beans stops the whole context from starting.
  */
 @Tag("container")
 @Tag("e2e-full")
@@ -137,9 +137,11 @@ abstract class E18Base {
         registry.add("platform.config.destinations.showcase-local-ports", () -> PARTNER.port() + ","
                 + ARTEMIS.getMappedPort(ARTEMIS_PORT) + "," + TARGET_KAFKA.getMappedPort(9092) + ","
                 + TARGET_DB.getMappedPort(5432));
-        registry.add("ROUTING_CORE_ALLOWED_SCHEMES", () -> "http,https");
+        // harness only: the endpoint rows carry mq://, kafka://, jdbc: and file:// base URLs; the code fixes no scheme per type
+        // (dispatch is by system.type, the scheme is only guarded), so the test environment approves exactly these
+        registry.add("ROUTING_CORE_ALLOWED_SCHEMES", () -> "http,https,mq,kafka,jdbc,file");
         // adapter gates: kafka is wired on main; db and file stay off until their beans are merged (e16-adapters)
-        String gates = System.getProperty("e18.gates", "kafka");
+        String gates = System.getProperty("e18.gates", "kafka,file");
         if (gates.contains("kafka")) {
             registry.add("IPASS_KAFKA_TOPIC_TARGET_ENABLED", () -> "true");
             registry.add("IPASS_KAFKA_PLATFORM_TOPICS",

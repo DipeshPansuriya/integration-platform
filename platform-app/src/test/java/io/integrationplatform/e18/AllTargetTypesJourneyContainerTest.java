@@ -148,8 +148,8 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     // ------------------------------------------------------------------------------------------------ Kafka topic
 
     @Test
-    @BlockedBy(lane = "e16", assertion = "a Kafka-topic system onboards (system.type KAFKA is accepted by"
-            + " system_type_closed_set) and its delivery reaches DELIVERED with the transformed body on the topic")
+    @BlockedBy(lane = "e16-kafka-timeout-fix", assertion = "a Kafka-topic send succeeds (Varun: every Kafka send fails until the"
+            + " timeout fix lands) so the delivery reaches DELIVERED with one record on the partner topic")
     @DisplayName("Kafka topic: the partner's own topic receives one record keyed by the delivery id")
     void kafkaTopicTargetJourney() throws Exception {
         String topic = "e18.partner.orders";
@@ -169,8 +169,8 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     // ----------------------------------------------------------------------------------------------------- DB
 
     @Test
-    // Not BlockedBy: the first run was refused earlier than the DB dispatch (endpoint URI scheme jdbc is not in
-    // allowedSchemes), so the e16 cause is unproven until the scheme question is answered (run report, Decisions).
+    @BlockedBy(lane = "content-wiring", assertion = "a DB delivery reaches DELIVERED: a DbRows bean exists (the DB gate is off"
+            + " without it) and one row lands in the approved table partner_orders")
     @DisplayName("DB: one row lands in the partner's approved table")
     void dbTargetJourney() throws Exception {
         try (Connection partner = java.sql.DriverManager.getConnection(TARGET_DB.getJdbcUrl(),
@@ -197,8 +197,8 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     // ---------------------------------------------------------------------------------------------------- File
 
     @Test
-    // Not BlockedBy: the first run was refused earlier than the FILE dispatch (endpoint URI scheme file is not in
-    // allowedSchemes), so the e16 cause is unproven until the scheme question is answered (run report, Decisions).
+    @BlockedBy(lane = "content-wiring", assertion = "a FILE delivery reaches DELIVERED: a FileTargetContent bean supplies the"
+            + " file content and exactly one file with the order lands in the directory")
     @DisplayName("File: one file with the order lands in the partner's directory")
     void fileTargetJourney() throws Exception {
         Path directory = Files.createDirectories(FILE_DIR.resolve("file-journey"));

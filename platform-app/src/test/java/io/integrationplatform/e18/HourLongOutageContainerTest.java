@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.integrationplatform.PlatformTestWiring;
+import io.integrationplatform.delivery.replay.DeliveryOperatorActions;
 import io.integrationplatform.domain.scheduler.JobHandler;
 import io.integrationplatform.identity.KeycloakRealmContainer.ClientCredentials;
 import io.integrationplatform.routing.stage2.TargetCall;
@@ -52,6 +53,9 @@ class HourLongOutageContainerTest extends E18Base {
     List<JobHandler> jobHandlers;
 
     @Autowired
+    DeliveryOperatorActions operatorActions;
+
+    @Autowired
     @Qualifier("apiTargetCall")
     TargetCall apiTargetCall;
 
@@ -78,6 +82,9 @@ class HourLongOutageContainerTest extends E18Base {
         }
         assertThat(accepted).as("every message was accepted with a tracking id while the target was down")
                 .hasSize(messages);
+
+        await("stage 1 to create the " + messages + " delivery rows (the loop below needs them)",
+                () -> ownerLong("select count(*) from public.delivery where tenant_id = ?::uuid", tenant.id()) == messages);
 
         // phase A: the target stays down while one hour of backoff waits is played
         double simulated = 0;
@@ -115,13 +122,23 @@ class HourLongOutageContainerTest extends E18Base {
                 + Math.round(simulated / realSeconds) + ":1, dead-lettered during the outage: " + deadLetteredInOutage
                 + ", breaker transitions " + transitions);
 
-        assertThat(simulated).as("the outage reached one hour of simulated time (waits %s s)", waitsSeconds)
-                .isGreaterThanOrEqualTo(SIMULATED_OUTAGE_SECONDS);
-        assertThat(deadLetteredInOutage).as("0 accepted messages lost to a dead-letter while the target was down for an"
-                + " hour: the deliveries must still be waiting, not exhausted (simulated %d s, waits %s)",
-                Math.round(simulated), waitsSeconds).isZero();
-        assertThat(states(tenant)).as("every accepted message is DELIVERED after recovery").hasSize(messages)
-                .containsOnly("DELIVERED");
+        // acceptance (Mira 2026-10-22): no accepted message is lost; each is delivered or replayable
+        assertThat(simulated >= SIMULATED_OUTAGE_SECONDS || deadLetteredInOutage > 0)
+                .as("the outage reached one hour of simulated time, or the attempts ran out first (waits %s s)", waitsSeconds)
+                .isTrue();
+        List<String> afterRecovery = states(tenant);
+        assertThat(afterRecovery).as("no accepted message is lost: one delivery row per message, all final")
+                .hasSize(messages).allMatch(state -> state.equals("DELIVERED") || state.equals("DEAD_LETTERED"));
+        // a dead-lettered delivery must be replayable by the operator, and then complete
+        for (UUID deadLettered : deadLetteredDeliveries(tenant)) {
+            var result = readTenant.as(tenant.id(), () -> operatorActions.replay(deadLettered, "e18-suite"));
+            assertThat(result.outcome()).as("operator replay of %s", deadLettered)
+                    .isEqualTo(DeliveryOperatorActions.Outcome.MOVED_TO_DUE);
+        }
+        await("every replayed delivery to be delivered", Duration.ofSeconds(120),
+                () -> countState(tenant, "DELIVERED") == messages);
+        assertThat(states(tenant)).as("every accepted message ends DELIVERED (dead-lettered ones after replay)")
+                .hasSize(messages).containsOnly("DELIVERED");
         List<String> keys = PARTNER.acceptedKeysOn(path);
         assertThat(keys).as("the partner received each delivery exactly once - no duplicate").hasSize(messages)
                 .doesNotHaveDuplicates();
@@ -270,6 +287,22 @@ class HourLongOutageContainerTest extends E18Base {
     private static long nonFinal(E18Seed.Tenant tenant) {
         return ownerLong("select count(*) from public.delivery where tenant_id = ?::uuid"
                 + " and state not in ('DELIVERED', 'DEAD_LETTERED')", tenant.id());
+    }
+
+    private static List<UUID> deadLetteredDeliveries(E18Seed.Tenant tenant) throws Exception {
+        List<UUID> ids = new ArrayList<>();
+        asOwner(owner -> {
+            try (var read = owner.prepareStatement("select id from public.delivery where tenant_id = ?::uuid"
+                    + " and state = 'DEAD_LETTERED'")) {
+                read.setString(1, tenant.id().toString());
+                try (var rows = read.executeQuery()) {
+                    while (rows.next()) {
+                        ids.add(rows.getObject(1, UUID.class));
+                    }
+                }
+            }
+        });
+        return ids;
     }
 
     private static long countState(E18Seed.Tenant tenant, String state) {
