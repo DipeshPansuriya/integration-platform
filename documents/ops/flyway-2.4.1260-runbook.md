@@ -31,10 +31,10 @@ it just applies 2.4.1261.
 
 The new build refuses to start (Flyway `validate` runs before `migrate`):
 
+```
 Migration checksum mismatch for migration version 2.4.1260
 -> Applied to database : -1836887444
 -> Resolved locally    : -1656716702
-Migration description mismatch for migration version 2.4.1260 ... Applied to database : force rls route mapping system target  Resolved locally : kafka topic settings
 ```
 
 (Exact text captured by `Flyway1260RenameUpgradeContainerTest`; see the hand-back report.)
