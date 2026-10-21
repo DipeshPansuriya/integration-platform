@@ -145,6 +145,39 @@ class JobPollingSurfaceTest {
         assertThat(surface.pollSince(null)).hasSize(3);
     }
 
+    /** E14 follow-up: a job paused since the cutoff is a change, though it did not run; pausedAt is reported. */
+    @Test
+    void pollSinceCountsAPausedJobWhosePausedAtIsAtOrAfterTheCutoff() {
+        Instant since = LAST.minusSeconds(30);
+        when(definitions.all()).thenReturn(List.of(
+                paused("PAUSED_AFTER", since.plusSeconds(10)),
+                paused("PAUSED_BOUNDARY", since),
+                paused("PAUSED_BEFORE", since.minusSeconds(1)),
+                paused("PAUSED_NO_STAMP", null),
+                row("QUIET")));
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT)).thenReturn(List.of());
+        when(client.getScheduledExecution(any())).thenReturn(Optional.empty());
+
+        List<PollingJobSurface.JobSummary> changed = surface.pollSince(since);
+
+        assertThat(changed).extracting(PollingJobSurface.JobSummary::jobId)
+                .containsExactly("PAUSED_AFTER", "PAUSED_BOUNDARY");
+        assertThat(changed).extracting(PollingJobSurface.JobSummary::state).containsOnly("PAUSED");
+        assertThat(changed).extracting(PollingJobSurface.JobSummary::pausedAt)
+                .containsExactly(since.plusSeconds(10), since);
+    }
+
+    @Test
+    void pollReportsPausedAtOnTheSummaryAndNullWhenNotPaused() {
+        Instant at = LAST.minusSeconds(120);
+        when(definitions.all()).thenReturn(List.of(paused("PAUSED_JOB", at), row("ACTIVE_JOB")));
+        when(runs.search(null, null, null, null, JobRunSearch.MAX_LIMIT)).thenReturn(List.of());
+        when(client.getScheduledExecution(any())).thenReturn(Optional.empty());
+
+        assertThat(surface.poll()).extracting(PollingJobSurface.JobSummary::pausedAt)
+                .containsExactly(at, null);
+    }
+
     @Test
     void clientFailureIsLoggedAtWarnWithTheJobId() {
         when(definitions.all()).thenReturn(List.of(row("BROKEN_JOB")));
@@ -184,6 +217,10 @@ class JobPollingSurfaceTest {
     private static JobRunView run(String jobType, Instant finished) {
         return new JobRunView(null, jobType, finished.minusSeconds(300), finished.minusSeconds(10), finished,
                 "instance", "SUCCEEDED", false, null, null);
+    }
+
+    private static JobDefinitionRow paused(String jobType, Instant pausedAt) {
+        return new JobDefinitionRow(jobType, "CRON", "0 0 * * *", true, true, 60, 30, "{}", pausedAt);
     }
 
     private static JobDefinitionRow row(String jobType) {
