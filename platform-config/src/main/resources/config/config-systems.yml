@@ -13,6 +13,20 @@ platform:
       # links out of it are refused. EMPTY REFUSES EVERY FILE TARGET at save, send and test-connection (fail closed).
       # No value is set here on purpose - the folders are the operator's decision. Property: file-base-dirs.
       # file-base-dirs: []
+      # E16 R1/R2 (Karan): clear-text Kafka (PLAINTEXT, SASL_PLAINTEXT) is the OPERATOR's decision, never a tenant's.
+      # false (default) = refused at save and at send; a tenant can only choose SSL or SASL_SSL (hostname verified). Leave off
+      # in production. Set true only for a closed lab broker. Property: kafka-allow-plaintext.
+      # kafka-allow-plaintext: false
+      # E16 R3/R8 (Karan): the TLS mode of a DB target that names none. One of require (default; encrypts, does NOT
+      # verify the server), verify-ca, verify-full. Validated at start: any other value (allow, prefer, a typo) refuses to
+      # start. For verify-ca / verify-full give the driver a CA file: db-sslrootcert is a file NAME inside the directory
+      # db-sslrootcert-dir (never a path); both are checked at start. Tenants may also pick verify-ca / verify-full per target.
+      # db-sslmode: require
+      # db-sslrootcert-dir: D:/ipass-trust
+      # db-sslrootcert: partner-db-ca.pem
+      # DEPLOYMENT REQUIREMENT (R1): the Kafka client dials the brokers a cluster advertises. TLS blocks the handshake to an
+      # unapproved node, but the TCP connect itself cannot be vetoed in-process. Limit the worker's EGRESS (firewall or
+      # security group) to the approved broker addresses and ports; that closes the connect probe.
       # SHOWCASE ONLY (T138): showcase-local-hosts lists EXACT allow-listed host names (no wildcard, no IP) that may
       # resolve to a loopback or private address. Honoured only under the "showcase" profile, with a startup WARN;
       # set without that profile the application refuses to start. Not set here - set it only for a showcase run.

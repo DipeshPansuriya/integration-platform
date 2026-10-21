@@ -67,7 +67,7 @@ class KafkaTopicTargetKafkaContainerTest {
                 name -> List.of(InetAddress.getLoopbackAddress()), List.of(host), List.of(portOf(servers)));
         KafkaTopicSettings settings = new KafkaTopicSettings(servers.replace("PLAINTEXT://", ""), topic, "PLAINTEXT", null, null, null);
         return new KafkaTopicTargetCall(send -> Optional.of(new KafkaMessage(settings, body.clone())),
-                new KafkaClientsSender(guard), guard, PLATFORM_TOPICS, CircuitBreakerRegistry.ofDefaults(), meters,
+                new KafkaClientsSender(guard, null, true), guard, PLATFORM_TOPICS, CircuitBreakerRegistry.ofDefaults(), meters,
                 ObservationRegistry.NOOP, timeout);
     }
 
@@ -127,7 +127,7 @@ class KafkaTopicTargetKafkaContainerTest {
                 name -> List.of(InetAddress.getLoopbackAddress()), List.of(host), List.of(portOf(servers)));
         KafkaTopicTargetCall call = new KafkaTopicTargetCall(
                 send -> Optional.of(new KafkaMessage(new KafkaTopicSettings(servers, topic, "PLAINTEXT", null, null, null), new byte[] {1})),
-                new KafkaClientsSender(guard), guard, platform, CircuitBreakerRegistry.ofDefaults(), meters,
+                new KafkaClientsSender(guard, null, true), guard, platform, CircuitBreakerRegistry.ofDefaults(), meters,
                 ObservationRegistry.NOOP, Duration.ofSeconds(10));
 
         assertThatThrownBy(() -> call.call(new Stage2Send(UUID.randomUUID(), UUID.randomUUID(), null,

@@ -41,6 +41,7 @@ public record KafkaTopicSettings(String bootstrapServers, String topic, String s
             throw new IllegalStateException("Kafka settings need bootstrapServers and topic");
         }
         for (String server : bootstrapServers.split(",", -1)) {
+            requirePlainHostPort(server);
             int at = server.lastIndexOf(':');
             int port;
             try {
@@ -69,6 +70,18 @@ public record KafkaTopicSettings(String bootstrapServers, String topic, String s
         }
         if (truststore != null && (!protocol.tls() || !TRUSTSTORE_NAME.matcher(truststore).matches())) {
             throw new IllegalStateException("Kafka truststore must be a file name and needs a TLS securityProtocol");
+        }
+    }
+
+    // R4: java.net.URI (the guard) and Kafka's own parser must read the same host, so an entry is a plain host:port -
+    // no ? # @ / whitespace and exactly one colon (an IPv6 literal is therefore not accepted; use a name)
+    private static final java.util.regex.Pattern BOOTSTRAP_ENTRY =
+            java.util.regex.Pattern.compile("[A-Za-z0-9._-]+:[0-9]{1,5}");
+
+    private static void requirePlainHostPort(String server) {
+        if (!BOOTSTRAP_ENTRY.matcher(server.strip()).matches()) {
+            throw new IllegalStateException("Kafka bootstrap server '" + server.strip().replaceAll("[^A-Za-z0-9._:-]", "?")
+                    + "' must be a plain host:port (no ? # @ / spaces, one colon)");
         }
     }
 
