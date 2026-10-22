@@ -35,6 +35,7 @@ class FileTargetHardeningTest {
     private void deliver(Path directory, String fileName, byte[] body) {
         new FileTargetCall(
                 send -> Optional.of(new FileMessage(new FileSettings(directory.toString()), fileName, body)),
+                root -> Files.isDirectory(Path.of(root)) ? Optional.of(Path.of(root)) : Optional.empty(),
                 CircuitBreakerRegistry.ofDefaults(), new SimpleMeterRegistry(), ObservationRegistry.create())
                 .call(new Stage2Send(UUID.randomUUID(), UUID.randomUUID(), null, UUID.randomUUID(), false));
     }

@@ -19,11 +19,12 @@ export function listedAnswer<T>(data: T | undefined, error: unknown, response: R
 }
 
 /** The closed register of system types (SystemSettings.TYPES), with each type's settings fields. */
-export const SYSTEM_TYPES = ['API', 'DB', 'MQ', 'FILE'] as const;
+export const SYSTEM_TYPES = ['API', 'DB', 'MQ', 'FILE', 'KAFKA'] as const;
 export type SystemType = (typeof SYSTEM_TYPES)[number];
 
-export type SettingKind = 'text' | 'number' | 'boolean';
-export type SettingField = { name: string; label: string; kind: SettingKind; required: boolean };
+/** 'list' = a comma-separated list on screen, an array on the wire (the DB target's approved tables). */
+export type SettingKind = 'text' | 'number' | 'boolean' | 'list';
+export type SettingField = { name: string; label: string; kind: SettingKind; required: boolean; hint?: string };
 
 export const SETTINGS_BY_TYPE: Record<SystemType, SettingField[]> = {
   API: [
@@ -34,23 +35,39 @@ export const SETTINGS_BY_TYPE: Record<SystemType, SettingField[]> = {
   DB: [
     { name: 'host', label: 'Host', kind: 'text', required: true },
     { name: 'port', label: 'Port', kind: 'number', required: true },
-    { name: 'database', label: 'Database', kind: 'text', required: true }
+    { name: 'database', label: 'Database', kind: 'text', required: true },
+    { name: 'user', label: 'Account name', kind: 'text', required: false, hint: 'A plain identifier. The password is a credential, stored separately.' },
+    { name: 'table', label: 'Table', kind: 'text', required: false },
+    { name: 'approvedTables', label: 'Approved tables', kind: 'list', required: false, hint: 'Comma-separated plain table names.' }
   ],
   MQ: [
     { name: 'host', label: 'Host', kind: 'text', required: true },
     { name: 'port', label: 'Port', kind: 'number', required: true },
     { name: 'queue', label: 'Queue', kind: 'text', required: true }
   ],
-  FILE: [{ name: 'rootPath', label: 'Root path', kind: 'text', required: true }]
+  FILE: [{ name: 'rootPath', label: 'Root path', kind: 'text', required: true }],
+  KAFKA: [
+    { name: 'bootstrapServers', label: 'Bootstrap servers', kind: 'text', required: true, hint: 'Comma-separated host:port list, for example broker1:9092,broker2:9092.' },
+    { name: 'topic', label: 'Topic', kind: 'text', required: true, hint: "A tenant topic name. The platform's own topics are refused." }
+  ]
 };
 
-export const TYPE_LABELS: Record<SystemType, string> = { API: 'API', DB: 'DB', MQ: 'MQ', FILE: 'File' };
+export const TYPE_LABELS: Record<SystemType, string> = { API: 'API', DB: 'DB', MQ: 'MQ', FILE: 'File', KAFKA: 'Kafka' };
+
+/** A line of guidance shown under a type's settings; Kafka's credential is a reference, never typed into this form. */
+const NOTES_BY_TYPE: Partial<Record<SystemType, string>> = {
+  KAFKA: 'The SASL or TLS password is a credential of type KAFKA_TOPIC, stored separately. It is never entered here.'
+};
+
+export function settingsNoteOf(type: string): string | undefined {
+  return (NOTES_BY_TYPE as Record<string, string | undefined>)[type.trim()];
+}
 
 export function settingsFieldsOf(type: string): SettingField[] {
   return (SETTINGS_BY_TYPE as Record<string, SettingField[] | undefined>)[type.trim()] ?? [];
 }
 
-export type SystemSettingsValue = Record<string, string | number | boolean>;
+export type SystemSettingsValue = Record<string, string | number | boolean | string[]>;
 
 export type SystemView = {
   id: string;
@@ -133,16 +150,114 @@ export function settingsFromForm(type: string, values: Record<string, string | b
     }
     const text = typeof value === 'string' ? value.trim() : '';
     if (text === '') continue;
+    if (field.kind === 'list') {
+      const entries = text.split(',').map((entry) => entry.trim()).filter((entry) => entry !== '');
+      if (entries.length > 0) settings[field.name] = entries;
+      continue;
+    }
     settings[field.name] = field.kind === 'number' && /^-?\d+$/.test(text) ? Number(text) : text;
   }
   return settings;
+}
+
+/** How a stored value reads on screen (the one conversion formFromSettings and the no-change check share). */
+function shown(value: unknown): string {
+  return Array.isArray(value) ? value.join(', ') : String(value);
 }
 
 /** The form's values for a stored system's settings. */
 export function formFromSettings(settings: SystemSettingsValue | null): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {};
   for (const [name, value] of Object.entries(settings ?? {})) {
-    values[name] = typeof value === 'boolean' ? value : String(value);
+    values[name] = typeof value === 'boolean' ? value : shown(value);
   }
   return values;
+}
+
+/** Stored settings still apply to the form only while the type is the one they were saved under. */
+function storedFor(type: string, stored: SystemSettingsValue | null | undefined, storedType: string | null | undefined) {
+  return stored && storedType != null && storedType.trim() === type.trim() ? stored : null;
+}
+
+/**
+ * The settings an EDIT sends: the stored object with the form's own fields merged over it. Every key the
+ * form does not own (Kafka securityProtocol, DB sslmode, halfOpenTrialCalls, ...) goes back untouched, so an
+ * unchanged save is a no-op on the wire; an owned key goes only when the user cleared it. A value the user did
+ * not change is sent as stored, not re-typed. When the type changed, the old type's extra keys are dropped.
+ */
+export function settingsForEdit(
+  type: string,
+  values: Record<string, string | boolean>,
+  stored: SystemSettingsValue | null | undefined,
+  storedType: string | null | undefined
+): SystemSettingsValue {
+  const fromForm = settingsFromForm(type, values);
+  const before = storedFor(type, stored, storedType);
+  if (!before) return fromForm;
+  const owned = new Set(settingsFieldsOf(type).map((field) => field.name));
+  const settings: SystemSettingsValue = {};
+  for (const [name, value] of Object.entries(before)) if (!owned.has(name)) settings[name] = value;
+  for (const field of settingsFieldsOf(type)) {
+    const name = field.name;
+    const old = before[name];
+    const next = fromForm[name];
+    if (next === undefined) {
+      // an unticked box over a stored explicit false is no change
+      if (field.kind === 'boolean' && old === false) settings[name] = false;
+      continue;
+    }
+    settings[name] = old !== undefined && typeof old !== 'boolean' && shown(old) === shown(next) ? old : next;
+  }
+  return settings;
+}
+
+const CREDENTIAL_NAME = /password|passwd|secret|token|credential|apikey|api_key|private/i;
+
+/** The stored keys the form does not own, for a read-only look (never editable here); credential-looking names are masked. */
+export function extraSettingsOf(
+  type: string,
+  stored: SystemSettingsValue | null | undefined,
+  storedType: string | null | undefined
+): { name: string; value: string }[] {
+  const before = storedFor(type, stored, storedType);
+  if (!before) return [];
+  const owned = new Set(settingsFieldsOf(type).map((field) => field.name));
+  return Object.entries(before)
+    .filter(([name]) => !owned.has(name))
+    .map(([name, value]) => ({
+      name,
+      value: CREDENTIAL_NAME.test(name) ? '(hidden)' : typeof value === 'object' && !Array.isArray(value) ? JSON.stringify(value) : shown(value)
+    }));
+}
+
+const BOOTSTRAP_WORDS = 'settings.bootstrapServers must be a comma-separated list of host:port, port 1 to 65535';
+
+/** Mirrors SystemSettings.bootstrapServersProblem: every entry is host:port, no blanks, '/' or '@' in the host, port 1-65535. */
+function bootstrapServersOk(text: string): boolean {
+  if (text.length > 2048) return false;
+  return text.split(',').every((server) => {
+    const entry = server.trim();
+    const at = entry.lastIndexOf(':');
+    if (at <= 0) return false;
+    const host = entry.slice(0, at);
+    if (host.trim() === '' || /[\s/@]/.test(host)) return false;
+    const port = entry.slice(at + 1);
+    return /^[+-]?\d+$/.test(port) && Number(port) >= 1 && Number(port) <= 65535;
+  });
+}
+
+/**
+ * The errors the client can name before a save, in the server's own words. Only the KAFKA shape is
+ * mirrored (required fields and the bootstrap-servers list); the platform-topic refusal and every other
+ * type's rules stay the server's - the API is the one authority, its message shown as-is.
+ */
+export function clientSettingsErrors(type: string, values: Record<string, string | boolean>): string[] {
+  if (type.trim() !== 'KAFKA') return [];
+  const settings = settingsFromForm('KAFKA', values);
+  const errors: string[] = [];
+  const servers = settings.bootstrapServers;
+  if (servers === undefined) errors.push('settings.bootstrapServers is required for type KAFKA');
+  else if (typeof servers !== 'string' || !bootstrapServersOk(servers)) errors.push(BOOTSTRAP_WORDS);
+  if (settings.topic === undefined) errors.push('settings.topic is required for type KAFKA');
+  return errors;
 }

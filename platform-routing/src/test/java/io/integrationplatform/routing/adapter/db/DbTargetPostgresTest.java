@@ -55,14 +55,27 @@ class DbTargetPostgresTest {
                 TARGET.getDatabaseName(), "restricted", table, List.of("orders_in"));
     }
 
+    /** A port nothing listens on right now: bind an ephemeral one and release it (never mappedPort + n, which can pass 65535). */
+    static int closedPort() throws java.io.IOException {
+        try (java.net.ServerSocket probe = new java.net.ServerSocket(0)) {
+            return probe.getLocalPort();
+        }
+    }
+
+    /** The test's own port allow-list: the container's mapped port plus the one extra port the case is about. */
+    static List<Integer> allowedPorts(int extraPort) {
+        int mapped = TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT);
+        return mapped == extraPort ? List.of(mapped) : List.of(mapped, extraPort);
+    }
+
     DbTargetCall call(DbSettings settings, char[] password) {
+        List<Integer> ports = allowedPorts(settings.port());
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of(TARGET.getHost())),
-                name -> List.of(InetAddress.getLoopbackAddress()), List.of(TARGET.getHost()),
-                List.of(TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)));
+                name -> List.of(InetAddress.getLoopbackAddress()), List.of(TARGET.getHost()), ports);
         DbOutbound outbound = new DbTargetOutbound(
                 id -> Optional.of(new DbTargets.DbTarget(settings, password)),
                 s -> Optional.of(List.of(Map.of("awb", "ABX1", "pieces", 2))));
-        return new DbTargetCall(outbound, new JdbcDbSender(Duration.ofSeconds(5)), guard,
+        return new DbTargetCall(outbound, new JdbcDbSender(Duration.ofSeconds(5), "disable"), guard, ports,
                 CircuitBreakerRegistry.ofDefaults(), meters, ObservationRegistry.create());
     }
 
@@ -89,6 +102,8 @@ class DbTargetPostgresTest {
             sql.execute("CREATE TABLE orders_in (id bigserial PRIMARY KEY, delivery_id uuid NOT NULL UNIQUE,"
                     + " awb text NOT NULL, pieces integer NOT NULL)");
             sql.execute("GRANT SELECT, INSERT ON orders_in TO restricted");
+            // the bigserial id default calls nextval(): without USAGE on its sequence the insert is 42501
+            sql.execute("GRANT USAGE ON SEQUENCE orders_in_id_seq TO restricted");
         }
     }
 
@@ -101,7 +116,7 @@ class DbTargetPostgresTest {
     void rowsLandInAnApprovedTableThroughTheRestrictedAccount() throws Exception {
         call(settings("orders_in"), RESTRICTED_PASSWORD.toCharArray()).call(send());
 
-        assertThat(count("select count(*) from orders_in where awb = 'ABX1' and pieces = 2")).isEqualTo(1);
+        assertThat(count("select count(*) from orders_in where delivery_id = '" + deliveryId + "' and awb = 'ABX1' and pieces = 2")).isEqualTo(1);
         assertThat(meters.get("db.target.outcome").tag("target_type", "DB").tag("outcome", "SUCCESS").counter())
                 .isNotNull();
     }
@@ -141,20 +156,19 @@ class DbTargetPostgresTest {
     }
 
     @Test
-    void aClosedTargetPortIsTransient() throws SQLException {
+    void aClosedTargetPortIsTransient() throws Exception {
         try (Connection owner = owner(); Statement sql = owner.createStatement()) {
             sql.execute("select 1"); // sanity: the container is up, the closed port is the refusal source
         }
-        DbSettings closed = new DbSettings(TARGET.getHost(), TARGET.getMappedPort(
-                PostgreSQLContainer.POSTGRESQL_PORT) + 9000, TARGET.getDatabaseName(), "restricted", "orders_in",
-                List.of("orders_in"));
+        DbSettings closed = new DbSettings(TARGET.getHost(), closedPort(), TARGET.getDatabaseName(), "restricted",
+                "orders_in", List.of("orders_in"));
 
         assertThatThrownBy(() -> call(closed, RESTRICTED_PASSWORD.toCharArray()).call(send()))
                 .isInstanceOf(TargetFaultException.TransientFaultException.class);
     }
 
     @Test
-    void testConnectionAnswersSuccessThenUnreachable() throws SQLException {
+    void testConnectionAnswersSuccessThenUnreachable() throws Exception {
         DbTestConnection connection = new DbTestConnection(
                 new DestinationGuard(AllowList.of(List.of(TARGET.getHost())),
                         name -> List.of(InetAddress.getLoopbackAddress()), List.of(TARGET.getHost()),
@@ -166,9 +180,9 @@ class DbTargetPostgresTest {
 
         assertThat(connection.test(UUID.randomUUID(), json).get("result")).isEqualTo("SUCCESS");
 
-        DbSettings refused = new DbSettings(TARGET.getHost(), TARGET.getMappedPort(
-                PostgreSQLContainer.POSTGRESQL_PORT) + 9000, TARGET.getDatabaseName(), null, null, List.of());
-        DbTestConnection stopped = new DbTestConnection(guard(TARGET.getHost()), (host, port, timeout) -> {
+        DbSettings refused = new DbSettings(TARGET.getHost(), closedPort(), TARGET.getDatabaseName(), null, null,
+                List.of());
+        DbTestConnection stopped = new DbTestConnection(guard(TARGET.getHost(), refused.port()), (host, port, timeout) -> {
             throw new java.io.IOException("not answering");
         }, Duration.ofSeconds(5));
 
@@ -176,8 +190,8 @@ class DbTargetPostgresTest {
                 + refused.port() + ",\"database\":\"db\"}").get("reason")).isEqualTo("DATABASE_UNREACHABLE");
     }
 
-    private DestinationGuard guard(String host) {
+    private DestinationGuard guard(String host, int extraPort) {
         return new DestinationGuard(AllowList.of(List.of(host)), name -> List.of(InetAddress.getLoopbackAddress()),
-                List.of(host), List.of(TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)));
+                List.of(host), allowedPorts(extraPort));
     }
 }

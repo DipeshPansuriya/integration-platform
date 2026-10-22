@@ -325,6 +325,21 @@ table gets an error, not rows. [Decided - restates Decision 1 and T-144 as one t
 **What this gives up:** the criteria are fixed per task, so a lane that finds a better test changes
 this section, not only the test.
 
+## Amendment 2026-10-22 - job state-change stamp for the polling surface (E14)
+
+No decision above changes; this adds one column and one query parameter to the polling surface (section 5).
+`pollSince` could not see a job that was only disabled, or only resumed: `paused_at` is set by pausing alone and
+cleared by resume, and nothing in the application flips `enabled` (the seed, a migration or manual SQL does).
+Migration `V2_4_1320` adds `scheduler.job_definition.state_changed_at` (NOT NULL, default `now()`, backfilled from
+`paused_at`, else the migration time) and a `BEFORE UPDATE OF enabled, paused` trigger that stamps it only when the
+`(enabled, paused)` pair changes, so every writer is covered. `JobSummary` gains `stateChangedAt`;
+"changed since" is now ran, paused or state-changed. `GET /api/v1/admin/jobs/summaries` takes an optional
+`?since=<ISO-8601 instant>` (absent = the full list, an invalid value = 400); the role is unchanged
+(`OPERATOR_AGENT` only). **Gives up:** state logic lives in a trigger, and the stamp is the database clock, not the
+application `Clock`; the first poll after deploy lists every non-paused job once (a false positive, never a false
+negative). Revisit if an enable / disable endpoint is added: it needs no extra code, but its tests must assert the
+trigger fired. [Decided - design note 2026-10-22, option B]
+
 ## Consequences
 
 - One mechanism runs all background work, visible in one table and one API. [Inferred]

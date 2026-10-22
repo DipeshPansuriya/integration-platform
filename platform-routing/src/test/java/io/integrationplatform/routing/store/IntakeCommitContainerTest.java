@@ -231,12 +231,17 @@ class IntakeCommitContainerTest {
         lines.start();
         ch.qos.logback.classic.Logger intakeLog =
                 (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(IntakeService.class);
+        // the per-record accepted line is logged at DEBUG since 38542c7 (review: per-record info was noise; the
+        // per-batch summary is the info line and carries no message id) - the test raises the level for the journey
+        ch.qos.logback.classic.Level levelBefore = intakeLog.getLevel();
+        intakeLog.setLevel(ch.qos.logback.classic.Level.DEBUG);
         intakeLog.addAppender(lines);
         AcceptedMessage accepted;
         try (CorrelationContext.Scope journey = CorrelationContext.open(inbound)) {
             accepted = asAppRole(tenantA).accept(request(CODE, PINNED_LABEL, "{\"customer_code\":\"CUST-T107\"}"));
         } finally {
             intakeLog.detachAppender(lines);
+            intakeLog.setLevel(levelBefore);
         }
 
         UUID tracking = accepted.trackingId();

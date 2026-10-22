@@ -57,10 +57,12 @@ const EXAMPLES = [
   { type: 'API', label: 'API', settings: { baseUrl: 'https://partner.example.test/orders', timeoutMs: 5000 } },
   { type: 'DB', label: 'DB', settings: { host: 'db.partner.test', port: 5432, database: 'orders' } },
   { type: 'MQ', label: 'MQ', settings: { host: 'mq.partner.test', port: 5672, queue: 'orders.in' } },
-  { type: 'FILE', label: 'File', settings: { rootPath: '/data/inbound/orders' } }
+  { type: 'FILE', label: 'File', settings: { rootPath: '/data/inbound/orders' } },
+  // E16 (lane ui-kafka): the closed register now names KAFKA - bootstrap servers + a tenant topic, no secret in the form
+  { type: 'KAFKA', label: 'Kafka', settings: { bootstrapServers: 'broker1.partner.test:9092,broker2.partner.test:9092', topic: 'orders.out' } }
 ];
 
-// Scenario Outline: Register a system of each type (Examples: API | DB | MQ | File).
+// Scenario Outline: Register a system of each type (Examples: API | DB | MQ | File | Kafka).
 for (const example of EXAMPLES) {
   test(`registers a ${example.label} system with its type-specific settings; it is listed after reload`, async ({ page }) => {
     const code = `sys-${example.type.toLowerCase()}-${RUN}`;
@@ -116,10 +118,45 @@ test('a system of type FTP is refused and the API error is shown on screen', asy
 
   const errors = page.locator('[data-validation-error]');
   await expect(errors.first()).toBeVisible();
-  await expect(errors.filter({ hasText: 'type FTP is not one of API, DB, MQ, FILE' })).toHaveCount(1);
+  await expect(errors.filter({ hasText: 'type FTP is not one of API, DB, MQ, FILE, KAFKA' })).toHaveCount(1);
   await page.reload();
   await expect(page.locator(`${PAGE}[data-systems-loaded="true"]`)).toBeVisible();
   await expect(page.locator(`[data-system-row="sys-ftp-${RUN}"]`)).toHaveCount(0);
+});
+
+// E16 (lane ui-kafka) @negative: the server refuses a platform topic at save; the screen shows its words as-is
+// and links the error to the Topic field, which is marked invalid and points at the error list.
+test('a Kafka system on a platform topic is refused with the server text, shown as-is on the Topic field', async ({ page }) => {
+  await openSystems(page);
+  await fillRegister(page, { code: `sys-kplat-${RUN}`, name: 'Kafka platform topic', type: 'KAFKA', settings: { bootstrapServers: 'broker1.partner.test:9092', topic: 'platform.poison' } });
+  await page.click('[data-action="register-system"]');
+
+  const error = page.locator('[data-validation-error]');
+  await expect(error).toHaveCount(1);
+  await expect(error).toContainText("platform.poison is a platform topic - the platform's own register is never a tenant destination (T-184 SF-2)");
+  const topic = page.locator('[data-form="register-system"] [data-setting="topic"]');
+  await expect(topic).toHaveAttribute('aria-invalid', 'true');
+  await expect(topic).toHaveAttribute('aria-describedby', /sys-validation-errors/);
+  await error.locator('a').click();
+  await expect(topic).toBeFocused();
+  await page.reload();
+  await expect(page.locator(`${PAGE}[data-systems-loaded="true"]`)).toBeVisible();
+  await expect(page.locator(`[data-system-row="sys-kplat-${RUN}"]`)).toHaveCount(0);
+});
+
+// E16 @negative: a bad bootstrap list and a missing topic are named on the form, in the server's words, before any call.
+test('a Kafka system with a bad bootstrap list and no topic lists both errors on the form', async ({ page }) => {
+  await openSystems(page);
+  await fillRegister(page, { code: `sys-kbad-${RUN}`, name: 'Kafka bad', type: 'KAFKA', settings: { bootstrapServers: 'broker1' } });
+  await page.click('[data-action="register-system"]');
+
+  const errors = page.locator('[data-validation-error]');
+  await expect(errors).toHaveCount(2);
+  await expect(errors.filter({ hasText: 'settings.bootstrapServers must be a comma-separated list of host:port, port 1 to 65535' })).toHaveCount(1);
+  await expect(errors.filter({ hasText: 'settings.topic is required for type KAFKA' })).toHaveCount(1);
+  // the form never offers a secret field for the credential
+  await expect(page.locator('[data-form="register-system"] input[type="password"]')).toHaveCount(0);
+  await expect(page.locator('[data-settings-note]')).toContainText('KAFKA_TOPIC');
 });
 
 test('an API system without a base address is refused with EVERY validation error listed on screen', async ({ page }) => {
@@ -156,6 +193,35 @@ test('a refused edit shows every validation error and keeps the stored settings'
   await expect(errors.filter({ hasText: 'settings.port must be a whole number from 1 to 65535' })).toHaveCount(1);
   const stored = await inBrowser(page, 'GET', `/api/v1/admin/systems/${seeded.data.id}`);
   expect(stored.data.settings).toEqual({ host: 'mq.partner.test', port: 5672, queue: 'q1' });
+});
+
+// Lane ui-edit-merge (review blocker): the edit form lists only the fields it owns, so saving used to ERASE the stored
+// settings it does not show. The save now merges the form over the stored object: a Kafka system with securityProtocol,
+// saslMechanism, username and halfOpenTrialCalls keeps all four after only the topic is changed, and the screen lists
+// them read-only. (Authored, not run here - needs the docker stack.)
+test('editing a Kafka system keeps the security settings the form does not show', async ({ page }) => {
+  await page.goto(consoleUrl());
+  const code = `sys-kmerge-${RUN}`;
+  const kept = { securityProtocol: 'SASL_SSL', saslMechanism: 'SCRAM-SHA-512', username: 'svc-orders', halfOpenTrialCalls: 2 };
+  const seeded = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
+    code, name: 'Kafka merge', direction: 'OUTBOUND', type: 'KAFKA',
+    settings: { bootstrapServers: 'broker1.partner.test:9092', topic: 'orders.out', ...kept }
+  });
+  expect(seeded.status).toBe(201);
+
+  await openSystems(page);
+  await page.locator(`[data-system-row="${code}"] [data-action="open-system"]`).click();
+  const editor = page.locator('[data-form="edit-system"]');
+  // the non-form keys are visible, read-only (no input for them)
+  await expect(editor.locator('[data-extra-setting="securityProtocol"]')).toContainText('SASL_SSL');
+  await expect(editor.locator('[data-extra-settings] input')).toHaveCount(0);
+  await editor.locator('[data-setting="topic"]').fill('orders.v2');
+  await page.click('[data-action="save-system"]');
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
+
+  const stored = await inBrowser(page, 'GET', `/api/v1/admin/systems/${seeded.data.id}`);
+  expect(stored.status).toBe(200);
+  expect(stored.data.settings).toEqual({ bootstrapServers: 'broker1.partner.test:9092', topic: 'orders.v2', ...kept });
 });
 
 // V-3 (row 306 defect batch, lane C): the Test connection button on the systems screen calls the

@@ -66,13 +66,21 @@ class E16TargetSettingsTest {
                 + "\"user\":\"ipass_orders\",\"table\":\"orders_in\",\"approvedTables\":[\"orders_in\"]}")).isEmpty();
     }
 
+    @Test
+    @Tag("negative")
+    @DisplayName("A DB system without its restricted account name is refused - it could only dead-letter (E16 C3)")
+    void aDbSystemNeedsItsUser() {
+        assertThat(errors("DB", "{\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\"}"))
+                .singleElement().asString().contains("settings.user").contains("required");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"orders_in; drop table x", "orders in", "public.orders_in", "1orders", "\\\"orders\\\""})
     @Tag("negative")
     @Tag("security")
     @DisplayName("A DB table or approved-table entry must be a plain identifier - never an SQL fragment")
     void aTableMustBeAPlainIdentifier(String table) {
-        String base = "{\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",";
+        String base = "{\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\",";
         assertThat(errors("DB", base + "\"table\":\"" + table + "\"}"))
                 .singleElement().asString().contains("settings.table");
         assertThat(errors("DB", base + "\"approvedTables\":[\"" + table + "\"]}"))
@@ -85,7 +93,7 @@ class E16TargetSettingsTest {
     @Tag("security")
     @DisplayName("A secret never rides in the plain settings of DB, Kafka or File - credentials are a separate seam")
     void aSecretIsRefusedInSettings(String key) {
-        assertThat(errors("DB", "{\"host\":\"h.example\",\"port\":5432,\"database\":\"d\",\"" + key + "\":\"x\"}"))
+        assertThat(errors("DB", "{\"host\":\"h.example\",\"port\":5432,\"database\":\"d\",\"user\":\"u\",\"" + key + "\":\"x\"}"))
                 .singleElement().asString().contains(key);
         assertThat(errors("KAFKA", "{\"bootstrapServers\":\"h.example:9092\",\"topic\":\"t\",\"" + key + "\":\"x\"}"))
                 .singleElement().asString().contains(key);

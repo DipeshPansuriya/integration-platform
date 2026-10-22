@@ -142,6 +142,25 @@ class MessageTrackingServiceTest {
     }
 
     @Test
+    void allFourStagesComeBackInPipelineOrderWhateverOrderTheStoreReturnsThem() {
+        UUID id = message("ROUTED");
+        when(store.stages(id)).thenReturn(List.of(
+                new JdbcMessageTrackingStore.StageRow("DELIVER", T0.plusMillis(300), T0.plusMillis(340)),
+                new JdbcMessageTrackingStore.StageRow("TRANSFORM", T0.plusMillis(200), T0.plusMillis(230)),
+                new JdbcMessageTrackingStore.StageRow("INTAKE", T0, T0.plusMillis(40)),
+                new JdbcMessageTrackingStore.StageRow("ROUTE", T0.plusMillis(100), T0.plusMillis(120))));
+
+        MessageTrackingService.Timeline timeline = read(id);
+
+        assertThat(timeline.stages()).extracting(MessageTrackingService.StageTime::stage)
+                .containsExactly("INTAKE", "ROUTE", "TRANSFORM", "DELIVER");
+        assertThat(timeline.stages()).extracting(MessageTrackingService.StageTime::durationMs)
+                .containsExactly(40L, 20L, 30L, 40L);
+        assertThat(timeline.stages()).extracting(MessageTrackingService.StageTime::sincePreviousMs)
+                .containsExactly(null, 60L, 80L, 70L);
+    }
+
+    @Test
     void aMessageWithNoDeliveryHasNoEntries() {
         assertThat(read(message("ROUTE_FAILED")).deliveries()).isEmpty();
     }

@@ -65,9 +65,9 @@ class KafkaTopicTargetKafkaContainerTest {
         String host = hostOf(servers);
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of(host)),
                 name -> List.of(InetAddress.getLoopbackAddress()), List.of(host), List.of(portOf(servers)));
-        KafkaTopicSettings settings = new KafkaTopicSettings(servers.replace("PLAINTEXT://", ""), topic);
+        KafkaTopicSettings settings = new KafkaTopicSettings(servers.replace("PLAINTEXT://", ""), topic, "PLAINTEXT", null, null, null);
         return new KafkaTopicTargetCall(send -> Optional.of(new KafkaMessage(settings, body.clone())),
-                new KafkaClientsSender(guard), guard, PLATFORM_TOPICS, CircuitBreakerRegistry.ofDefaults(), meters,
+                new KafkaClientsSender(guard, null, true), guard, PLATFORM_TOPICS, CircuitBreakerRegistry.ofDefaults(), meters,
                 ObservationRegistry.NOOP, timeout);
     }
 
@@ -126,8 +126,8 @@ class KafkaTopicTargetKafkaContainerTest {
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of(host)),
                 name -> List.of(InetAddress.getLoopbackAddress()), List.of(host), List.of(portOf(servers)));
         KafkaTopicTargetCall call = new KafkaTopicTargetCall(
-                send -> Optional.of(new KafkaMessage(new KafkaTopicSettings(servers, topic), new byte[] {1})),
-                new KafkaClientsSender(guard), guard, platform, CircuitBreakerRegistry.ofDefaults(), meters,
+                send -> Optional.of(new KafkaMessage(new KafkaTopicSettings(servers, topic, "PLAINTEXT", null, null, null), new byte[] {1})),
+                new KafkaClientsSender(guard, null, true), guard, platform, CircuitBreakerRegistry.ofDefaults(), meters,
                 ObservationRegistry.NOOP, Duration.ofSeconds(10));
 
         assertThatThrownBy(() -> call.call(new Stage2Send(UUID.randomUUID(), UUID.randomUUID(), null,
@@ -148,7 +148,7 @@ class KafkaTopicTargetKafkaContainerTest {
         try (ServerSocket probe = new ServerSocket(0)) {
             closedPort = probe.getLocalPort();
         }
-        String down = "127.0.0.1:" + closedPort;
+        String down = "localhost:" + closedPort;
 
         assertThatThrownBy(() -> call(down, "orders-out", new byte[] {1}, Duration.ofSeconds(3))
                 .call(new Stage2Send(UUID.randomUUID(), UUID.randomUUID(), null, UUID.randomUUID(), false)))

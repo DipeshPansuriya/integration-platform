@@ -1,6 +1,7 @@
 package io.integrationplatform.routing.adapter.file;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.integrationplatform.config.destination.FileRoots;
 import io.integrationplatform.config.destination.MqConnectionCheck;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -22,10 +23,20 @@ import io.integrationplatform.tenancy.TenantContext;
 @ConditionalOnProperty("IPASS_FILE_TARGET_ENABLED")
 public class FileAdapterConfiguration {
 
+    /**
+     * F4 (CWE-73/22): a File target's root is confined to {@code <operator base>/<bound tenant>/...}
+     * ({@code platform.config.destinations.file-base-dirs}); no base configured or no tenant bound, nothing resolves.
+     */
     @Bean
-    MqConnectionCheck fileConnectionCheck() {
-        return (systemId, settingsJson) -> new FileTestConnection(id -> Optional.of(FileSettings.fromJson(settingsJson)))
-                .test(systemId);
+    FolderResolver fileFolderResolver(ObjectProvider<FileRoots> roots, TenantContext tenantContext) {
+        return rootPath -> tenantContext.currentTenantId()
+                .flatMap(tenant -> roots.getIfAvailable(FileRoots::none).resolve(rootPath, tenant));
+    }
+
+    @Bean
+    MqConnectionCheck fileConnectionCheck(FolderResolver folders) {
+        return (systemId, settingsJson) -> new FileTestConnection(id -> Optional.of(FileSettings.fromJson(settingsJson)),
+                folders).test(systemId);
     }
 
     @Bean
@@ -40,9 +51,10 @@ public class FileAdapterConfiguration {
     }
 
     @Bean
-    FileTargetCall fileTargetCall(FileOutbound outbound, ObjectProvider<CircuitBreakerRegistry> breakers,
+    FileTargetCall fileTargetCall(FileOutbound outbound, FolderResolver folders,
+            ObjectProvider<CircuitBreakerRegistry> breakers,
             ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations) {
-        return new FileTargetCall(outbound,
+        return new FileTargetCall(outbound, folders,
                 breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP));

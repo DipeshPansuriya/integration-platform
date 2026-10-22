@@ -4,6 +4,7 @@ import io.integrationplatform.delivery.DeliveryEventType;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.delivery.port.RetryCandidate;
 import io.integrationplatform.domain.delivery.OutcomeClass;
+import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.TenantScopedRepository;
 import java.time.Duration;
@@ -19,14 +20,34 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * reported as {@code false}, never as an exception); a stale or foreign claim token additionally records the
  * {@code LATE_OUTCOME} delivery event without touching the state (ADR-010 section 6). This is the behaviour
  * lane B's fake mirrors.
+ *
+ * <p>With a {@link StageTimings} bound, every {@code deadLetter} move that matched a row also records the message's
+ * DELIVER stage, finished at the move's own instant, in the same caller transaction (lane deliver-deadletter): the
+ * credential dead letter (T-185) and the reconciler's AMBIGUOUS stale-claim dead letter reach it through here. The
+ * send-outcome recorder's dead letters are NOT double-written: {@code JdbcSendOutcomes} builds its own store without
+ * timings and the recorder writes the stage itself.
  */
 public final class JdbcDeliveryRetryStore extends TenantScopedRepository implements DeliveryRetryStore {
 
     private final JdbcDeliveryRepository repository;
+    private final StageTimings timings;
 
+    /** Records no stage timing - for a database without the message family and for the recorder's own store. */
     public JdbcDeliveryRetryStore(JdbcClient jdbcClient, TenantContext tenantContext) {
+        this(jdbcClient, tenantContext, null);
+    }
+
+    /** {@code timings} may be null (a bare slice): the dead letters still move, no DELIVER stage is written. */
+    public JdbcDeliveryRetryStore(JdbcClient jdbcClient, TenantContext tenantContext, StageTimings timings) {
+        this(new JdbcDeliveryRepository(jdbcClient, tenantContext), jdbcClient, tenantContext, timings);
+    }
+
+    /** The seam for unit tests: the repository (the only SQL writer) is supplied. */
+    public JdbcDeliveryRetryStore(JdbcDeliveryRepository repository, JdbcClient jdbcClient,
+            TenantContext tenantContext, StageTimings timings) {
         super(jdbcClient, tenantContext);
-        this.repository = new JdbcDeliveryRepository(jdbcClient, tenantContext);
+        this.repository = repository;
+        this.timings = timings;
     }
 
     @Override
@@ -65,7 +86,9 @@ public final class JdbcDeliveryRetryStore extends TenantScopedRepository impleme
 
     @Override
     public boolean deadLetter(UUID deliveryId, UUID claimToken, OutcomeClass reasonClass) {
-        if (repository.deadLetter(deliveryId, claimToken, reasonClass, Instant.now())) {
+        Instant at = Instant.now();
+        if (repository.deadLetter(deliveryId, claimToken, reasonClass, at)) {
+            deliverFinished(deliveryId, at);
             return true;
         }
         lateOutcome(deliveryId, "dead-letter on a stale or foreign claim");
@@ -93,7 +116,9 @@ public final class JdbcDeliveryRetryStore extends TenantScopedRepository impleme
 
     @Override
     public boolean deadLetter(UUID deliveryId, UUID claimToken, OutcomeClass reasonClass, String reason) {
-        if (repository.deadLetter(deliveryId, claimToken, reasonClass, reason, Instant.now())) {
+        Instant at = Instant.now();
+        if (repository.deadLetter(deliveryId, claimToken, reasonClass, reason, at)) {
+            deliverFinished(deliveryId, at);
             return true;
         }
         lateOutcome(deliveryId, "dead-letter on a stale or foreign claim");
@@ -108,6 +133,13 @@ public final class JdbcDeliveryRetryStore extends TenantScopedRepository impleme
             cap = KEY_DEFERRAL_CAP;
         }
         return Duration.ofNanos((long) (cap.toNanos() * jitter));
+    }
+
+    /** The move matched: the DELIVER stage finishes at its instant, in this transaction (the writer is idempotent). */
+    private void deliverFinished(UUID deliveryId, Instant at) {
+        if (timings != null) {
+            timings.recordDeliverFinished(deliveryId, at);
+        }
     }
 
     private void lateOutcome(UUID deliveryId, String detail) {
