@@ -17,9 +17,9 @@ public final class E2eNames {
             Map.entry("intakeApi", "/api/v1/interfaces/{interfaceCode}/messages"), // IntakeController.java:53
             Map.entry("timelineApi", "/api/v1/admin/messages/{trackingId}/timeline"), // base-suite pending-names
             Map.entry("failuresApi", "/api/v1/admin/messages/failures"), // base-suite pending-names
-            Map.entry("bulkIntakeApi", "TBD(T115)"),
+            Map.entry("bulkIntakeApi", "/api/v1/interfaces/{interfaceCode}/messages:bulk"), // IntakeController.submitBulk (T115, 93aa1910)
             Map.entry("replayApi", "/api/v1/admin/messages/deliveries/{deliveryId}/replay"), // DeliveryOperatorController.java:61 (by DELIVERY id)
-            Map.entry("dailyReportApi", "TBD(T120)"),
+            Map.entry("dailyReportApi", "/api/v1/reports/delivery?day={day}"), // DeliveryReportController, DeliveryReportEndpointRoles.REPORT (T-139): the stored roll-up of one UTC day
             Map.entry("mqTargetQueue", "r1.orders.mq"), // the queue the T174b runner seeds target B (MQ-CSV) with
             Map.entry("flowCodeDefault", "REF-ORDER"));
 
@@ -48,6 +48,15 @@ public final class E2eNames {
     public static String interfaceCode() {
         String raw = System.getProperty("e2e.interfaceCode");
         return raw == null || raw.isBlank() ? nameOf("flowCodeDefault") : raw.trim();
+    }
+
+    /** Tenant A's code ({@code -De2e.tenantACode}); the runner passes the seeded one. */
+    public static String tenantACode() {
+        String raw = System.getProperty("e2e.tenantACode");
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalStateException("e2e.tenantACode is not set - the runner passes the seeded tenant A code");
+        }
+        return raw.trim();
     }
 
     /** Tenant B's code ({@code -De2e.tenantBCode}); the runner passes the seeded one, never a guess. */

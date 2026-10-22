@@ -33,8 +33,8 @@ public final class Release1Pending {
         flags.put("T111", true); // replay - on main (DeliveryOperatorController, POST .../deliveries/{deliveryId}/replay)
         flags.put("T112", true); // detail + failures screens - on main (ui/src/pages/failures-view.ts, App.tsx:30)
         flags.put("T113", true); // dashboard
-        flags.put("T115", false); // bulk intake, idempotency, same-key ordering - not on main
-        flags.put("T120", false); // daily report - DailyReportPlaceholderHandler only
+        flags.put("T115", true); // bulk intake, idempotency, same-key ordering - on main 93aa1910 (IntakeController.submitBulk, messages:bulk); measured on b6a958ee, 22-Oct (lane t174c)
+        flags.put("T120", true); // daily report READ - on main eded195a (DeliveryReportController GET /api/v1/reports/delivery?day=); the roll-up writer is DailyReportPlaceholderHandler (SC-08 measures what that yields, see RUN 8)
         flags.put("T121", false); // report screen - not on main
         flags.put("T143", true); // platform-e2e compose profile - on main (compose/compose.yaml profile e2e: artemis + wiremock); provisions NO bearer tokens and NO REF-ORDER seed
         flags.put("T144", true); // AdjustableClock (e2e profile) - on main (PlatformClockConfiguration @Profile e2e)

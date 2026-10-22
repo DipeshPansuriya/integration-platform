@@ -29,20 +29,20 @@ const log = (message) => fs.appendFileSync(logFile, `${new Date().toISOString()}
 
 const MQ_PORT = 61616;
 const MQ_QUEUE = 'r1.orders.mq';
-const ARTEMIS_NAME = 't174b-artemis';
-const HOLDER = 'aditya t174b';
+const ARTEMIS_NAME = 't174c-artemis';
+const HOLDER = 'aditya t174c';
 
 // the slot root is the main clone's parent, as boot-backend.mjs and check-container-exclusion.sh derive it
 const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: REPO, encoding: 'utf8', windowsHide: true });
 const slotRoot = path.dirname(path.dirname(common.stdout.trim()));
 
-const slot = await acquireSlot({ root: slotRoot, holder: HOLDER, slotNames: SLOT_NAMES, pollMs: 60000, log });
+const slot = await acquireSlot({ root: slotRoot, holder: HOLDER, slotNames: ['.docker-suite.lock-3'], pollMs: 60000, log });
 const keepFresh = setInterval(() => slot.refresh(), 10 * 60 * 1000); // other lock takers call a note > 60 min old stale
 let backend;
 let artemis;
 try {
   // boot-backend takes its own lock at this path: a private one inside our slot, never a shared one
-  const inner = path.join(os.tmpdir(), 't174b-inner.lock');
+  const inner = path.join(os.tmpdir(), 't174c-inner.lock');
   fs.rmSync(inner, { recursive: true, force: true });
   process.env.DOCKER_SUITE_LOCK = inner;
   const { default: bootBackend, psql } = await import('./boot-backend.mjs');
@@ -83,7 +83,7 @@ try {
     ['APPROVER', 'APPROVER', backend.tenantCode, 'APPROVER'],
     ['TENANT_B_ADMIN', 'TENANT_B_ADMIN', tenantB.code, 'TENANT_ADMIN']
   ]) {
-    const client = await backend.createServiceClient(`t174b-${bearerRole.toLowerCase().replace(/_/g, '-')}`);
+    const client = await backend.createServiceClient(`t174c-${bearerRole.toLowerCase().replace(/_/g, '-')}`);
     for (const sql of bindSubjectSql({ tenantCode, issuer: backend.issuer, subject: client.subject, role: grant })) psql(backend.pgName, sql);
     tokens[role] = await clientCredentialsToken(backend.issuer, client.clientId, client.secret);
   }
@@ -92,7 +92,7 @@ try {
   const mvnw = process.platform === 'win32' ? `"${path.join(REPO, 'mvnw.cmd')}"` : './mvnw';
   const code = await new Promise((resolve) => {
     const child = spawn(mvnw, ['-o', '-Pcontainer', '-pl', 'platform-e2e', 'test', '-Dtest=Release1ScenariosContainerTest',
-      `-De2e.baseUrl=${backend.baseUrl}`, `-De2e.interfaceCode=${seeded.interfaceCode}`, `-De2e.tenantBCode=${tenantB.code}`,
+      `-De2e.baseUrl=${backend.baseUrl}`, `-De2e.interfaceCode=${seeded.interfaceCode}`, `-De2e.tenantACode=${backend.tenantCode}`, `-De2e.tenantBCode=${tenantB.code}`, `-De2e.pgContainer=${backend.pgName}`,
       `-De2e.wiremockUrl=http://127.0.0.1:${wiremock.port}`, `-De2e.artemisContainer=${ARTEMIS_NAME}`],
     { cwd: REPO, shell: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...bearerEnv(tokens) } });
     const out = fs.createWriteStream(logFile, { flags: 'a' });

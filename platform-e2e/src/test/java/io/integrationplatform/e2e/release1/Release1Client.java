@@ -49,6 +49,28 @@ public final class Release1Client {
         return http.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
+    /** POST to the bulk intake endpoint (IntakeController.submitBulk): the same three headers, a JSON array body. */
+    public HttpResponse<String> bulk(String interfaceCode, String contractVersion, String jsonArray, String bearer)
+            throws IOException, InterruptedException {
+        String path = E2eNames.nameOf("bulkIntakeApi").replace("{interfaceCode}", interfaceCode);
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(TIMEOUT)
+                .header("Content-Type", "application/json")
+                .header("X-Source-Contract-Version", contractVersion)
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .header("Authorization", "Bearer " + bearer)
+                .POST(HttpRequest.BodyPublishers.ofString(jsonArray, StandardCharsets.UTF_8)).build();
+        return http.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
+     * The WireMock journal reads back as JSON whose request bodies are ESCAPED strings, so a needle such as
+     * {@code "contractVersion":"1.0"} never matches the raw text. This undoes one level of JSON string escaping
+     * (the result is no longer valid JSON; it is for substring and ordering checks only).
+     */
+    public static String journalText(String journalJson) {
+        return journalJson.replace("\\\"", "\"").replace("\\\\", "\\");
+    }
+
     public HttpResponse<String> get(String path, String bearer) throws IOException, InterruptedException {
         return http.send(HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(TIMEOUT)
                 .header("Authorization", "Bearer " + bearer).GET().build(), HttpResponse.BodyHandlers.ofString());

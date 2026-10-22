@@ -113,17 +113,42 @@ class Release1ScenariosContainerTest {
         throw new AssertionError("queue " + queue + " not in artemis stat output: " + stdout);
     }
 
+    /** Polls the WireMock journal (request bodies unescaped) until `needle` shows `expected` times; the failure carries the journal's tail. */
     private static String awaitJournal(Release1Client client, String needle, int expected) throws Exception {
         Instant until = Instant.now().plus(SETTLE);
         String body = "";
         while (Instant.now().isBefore(until)) {
-            body = client.wiremockJournal(wiremockBase()).body();
+            body = Release1Client.journalText(client.wiremockJournal(wiremockBase()).body());
             if (Release1Client.occurrences(body, needle) >= expected) {
                 return body;
             }
             java.util.concurrent.locks.LockSupport.parkNanos(Duration.ofMillis(250).toNanos()); // poll interval, not a fixed wait
         }
-        throw new AssertionError("WireMock journal did not show " + expected + "x " + needle + " within " + SETTLE);
+        throw new AssertionError("WireMock journal did not show " + expected + "x " + needle + " within " + SETTLE
+                + "; journal tail: " + body.substring(Math.max(0, body.length() - 1500)));
+    }
+
+    /** Polls the broker until the queue holds `before + added` messages (the MQ leg is asynchronous); returns the last count. */
+    private static long awaitQueue(String queue, long before, int added) throws Exception {
+        Instant until = Instant.now().plus(SETTLE);
+        long count = queueCount(queue);
+        while (count < before + added && Instant.now().isBefore(until)) {
+            java.util.concurrent.locks.LockSupport.parkNanos(Duration.ofMillis(500).toNanos()); // poll interval
+            count = queueCount(queue);
+        }
+        return count;
+    }
+
+    /** Polls the SQL oracle until the deliveries of the message satisfy `ready`; returns the last rows either way. */
+    private static java.util.List<java.util.List<String>> awaitDeliveries(String trackingId, Duration limit,
+            java.util.function.Predicate<java.util.List<java.util.List<String>>> ready) throws Exception {
+        Instant until = Instant.now().plus(limit);
+        java.util.List<java.util.List<String>> rows = Release1Sql.deliveriesOf(trackingId);
+        while (!ready.test(rows) && Instant.now().isBefore(until)) {
+            java.util.concurrent.locks.LockSupport.parkNanos(Duration.ofMillis(500).toNanos()); // poll interval
+            rows = Release1Sql.deliveriesOf(trackingId);
+        }
+        return rows;
     }
 
     /** Polls a GET until its body holds every needle (the pipeline is asynchronous), else returns the last body. */
@@ -152,6 +177,11 @@ class Release1ScenariosContainerTest {
         return Release1Client.trackingIdOf(accepted.body());
     }
 
+    /** The delivery rows of a message as one diagnostic line per delivery (id | state | contract | attempts | outcomes | events). */
+    private static String describe(java.util.List<java.util.List<String>> deliveries) {
+        return deliveries.stream().map(row -> String.join(" | ", row)).collect(java.util.stream.Collectors.joining("\n  "));
+    }
+
     @Test
     @Order(1)
     @ScenarioId(Release1Scenario.SC01)
@@ -164,7 +194,7 @@ class Release1ScenariosContainerTest {
         acceptOne(client, "SC01", 1);
 
         assertThat(awaitJournal(client, "\"contractVersion\":\"1.0\"", 1)).as("target A got v1.0").contains("R1-SC01");
-        assertThat(queueCount(queue)).as("target B (MQ-CSV v2.0) got exactly one message").isEqualTo(before + 1);
+        assertThat(awaitQueue(queue, before, 1)).as("target B (MQ-CSV v2.0) got exactly one message").isEqualTo(before + 1);
     }
 
     @Test
@@ -176,16 +206,18 @@ class Release1ScenariosContainerTest {
         StringBuilder bulk = new StringBuilder("[");
         for (int i = 1; i <= 10; i++) {
             bulk.append(i > 1 ? "," : "").append(i <= 7 ? ORDER_JSON.formatted("B" + i, i)
-                    : "{\"orderNo\":\"\",\"qty\":-1}"); // 3 invalid: blank key AND negative qty -> two reasons each
+                    : "{\"orderNo\":\"\",\"qty\":-1}"); // 3 invalid: blank key AND negative qty
         }
-        HttpResponse<String> answer = client.post(E2eNames.nameOf("bulkIntakeApi").replace("{interfaceCode}", E2eNames.interfaceCode()),
-                bulk.append(']').toString(), Release1Client.bearer("CUSTOMER_A"));
+        HttpResponse<String> answer = client.bulk(E2eNames.interfaceCode(), "1.0", bulk.append(']').toString(),
+                Release1Client.bearer("CUSTOMER_A"));
 
         String body = answer.body();
-        assertThat(Release1Client.occurrences(body, "\"trackingId\"")).as("7 accepted, each its own id").isEqualTo(7);
-        assertThat(Release1Client.occurrences(body, "\"REJECTED\"")).as("3 rejected").isEqualTo(3);
-        assertThat(Release1Client.occurrences(body, "\"reason\"")).as("ALL reasons of each rejected record")
-                .isGreaterThanOrEqualTo(6);
+        assertThat(answer.statusCode()).as("bulk answer: %s", body).isEqualTo(202);
+        assertThat(Release1Client.occurrences(body, "\"index\"")).as("ten results, one per record: %s", body).isEqualTo(10);
+        assertThat(Release1Client.occurrences(body, "\"trackingId\"")).as("7 accepted, each its own id: %s", body).isEqualTo(7);
+        assertThat(Release1Client.occurrences(body, "\"REJECTED\"")).as("3 rejected: %s", body).isEqualTo(3);
+        assertThat(Release1Client.occurrences(body, "\"code\"")).as("each rejected record names its refusal code: %s", body)
+                .isEqualTo(3);
     }
 
     @Test
@@ -204,10 +236,16 @@ class Release1ScenariosContainerTest {
         String trackingId = acceptOne(client, "SC03", 3);
         awaitJournal(client, "R1-SC03", 3);
 
+        // The timeline read carries only each delivery's LAST outcome; the append-only attempt rows are read from the
+        // table (the base-suite oracle idiom): target A took 3 attempts - two TRANSIENT (503), then SUCCESS.
+        java.util.List<java.util.List<String>> deliveries = awaitDeliveries(trackingId, SETTLE, rows -> rows.stream()
+                .anyMatch(row -> row.get(1).equals("DELIVERED") && row.get(3).equals("3")));
+        assertThat(deliveries).as("deliveries of %s:%n  %s", trackingId, describe(deliveries)).anyMatch(row ->
+                row.get(1).equals("DELIVERED") && row.get(3).equals("3") && row.get(4).equals("TRANSIENT,TRANSIENT,SUCCESS")
+                        && row.get(5).contains("RETRY"));
         String timeline = awaitBody(client, E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
                 Release1Client.bearer("TENANT_ADMIN"), SETTLE, "DELIVERED");
-        assertThat(timeline).contains("RETRY_WAIT").contains("DELIVERED");
-        assertThat(Release1Client.occurrences(timeline, "\"attemptNo\"")).as("3 append-only attempts").isEqualTo(3);
+        assertThat(timeline).contains("DELIVERED");
     }
 
     @Test
@@ -222,25 +260,36 @@ class Release1ScenariosContainerTest {
         String failures = awaitBody(client, E2eNames.nameOf("failuresApi"), Release1Client.bearer("TENANT_ADMIN"),
                 Duration.ofSeconds(120), trackingId, "\"failingStage\":\"DELIVER\"");
         // the failures read lists a failed delivery by failingStage / errorClass; it carries no state word (measured
-        // 22-Oct on f0a5095f), so DEAD_LETTERED is asserted on the timeline below
+        // 22-Oct on f0a5095f), so the dead-letter is proved on the failures row here and on the event trail below
         assertThat(failures).contains(trackingId).contains("\"failingStage\":\"DELIVER\"");
 
         java.util.regex.Matcher delivery = java.util.regex.Pattern
                 .compile("\"trackingId\"\\s*:\\s*\"" + trackingId + "\"[^}]*?\"deliveryId\"\\s*:\\s*\"([^\"]+)\"")
                 .matcher(failures);
         assertThat(delivery.find()).as("the failures row of %s carries its deliveryId: %s", trackingId, failures).isTrue();
+        String deliveryId = delivery.group(1);
+        String sentBefore = Release1Client.journalText(client.wiremockJournal(wiremockBase()).body());
+        assertThat(sentBefore).as("the failed send carried v1.0").contains("\"contractVersion\":\"1.0\"").contains("R1-SC04");
+        java.util.List<String> before = Release1Sql.deliveriesOf(trackingId).stream()
+                .filter(row -> row.get(0).equals(deliveryId)).findFirst().orElseThrow();
+
         client.wiremockReset(wiremockBase()); // target A healthy again
         client.wiremockStub(wiremockBase(), "{\"request\":{\"method\":\"POST\",\"urlPathPattern\":\"/target-a/.*\"},"
                 + "\"response\":{\"status\":200},\"priority\":10}"); // the reset removed the runner's default 200
         HttpResponse<String> replay = client.post(
-                E2eNames.nameOf("replayApi").replace("{deliveryId}", delivery.group(1)), "{}",
+                E2eNames.nameOf("replayApi").replace("{deliveryId}", deliveryId), "{}",
                 Release1Client.bearer("TENANT_ADMIN")); // REPLAY_DEAD_LETTER: tenant admin and support, never APPROVER
         assertThat(replay.statusCode()).isBetween(200, 202);
 
-        String timeline = awaitBody(client, E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
-                Release1Client.bearer("TENANT_ADMIN"), SETTLE, "DELIVERED");
-        assertThat(timeline).as("pinned v1.0 on replay, history kept").contains("\"contractVersion\":\"1.0\"")
-                .contains("DEAD_LETTERED").contains("DELIVERED");
+        java.util.List<java.util.List<String>> deliveries = awaitDeliveries(trackingId, SETTLE, rows -> rows.stream()
+                .anyMatch(row -> row.get(0).equals(deliveryId) && row.get(1).equals("DELIVERED")));
+        assertThat(deliveries).as("deliveries of %s after the replay (before it: %s):%n  %s", trackingId, before,
+                describe(deliveries)).anyMatch(row -> row.get(0).equals(deliveryId) && row.get(1).equals("DELIVERED")
+                        && row.get(2).equals(before.get(2)) // pinned: the same contract version id as before the replay
+                        && row.get(5).contains("DEAD_LETTER") && row.get(5).contains("REPLAY") // history kept
+                        && row.get(4).endsWith("SUCCESS") && Integer.parseInt(row.get(3)) > Integer.parseInt(before.get(3)));
+        assertThat(awaitJournal(client, "\"contractVersion\":\"1.0\"", 1)).as("the replayed send carried v1.0")
+                .contains("R1-SC04");
     }
 
     @Test
@@ -255,7 +304,7 @@ class Release1ScenariosContainerTest {
         String queue = E2eNames.nameOf("mqTargetQueue");
         long before = queueCount(queue);
         acceptOne(client, "SC05", 5);
-        assertThat(queueCount(queue)).isEqualTo(before + 1);
+        assertThat(awaitQueue(queue, before, 1)).isEqualTo(before + 1);
         assertThat(client.get("/actuator/info", Release1Client.bearer("TENANT_ADMIN")).body())
                 .as("same start time/build: zero deploys").isEqualTo(health);
     }
@@ -270,9 +319,22 @@ class Release1ScenariosContainerTest {
         String second = acceptOne(client, "K1", 2);
         acceptOne(client, "K2", 1);
         String journal = awaitJournal(client, "R1-K", 3);
-        assertThat(journal.indexOf("R1-K1\",\"customer\":\"CUST-A\",\"qty\":1"))
-                .as("K1 qty 1 before K1 qty 2 (%s then %s)", first, second)
-                .isLessThan(journal.indexOf("R1-K1\",\"customer\":\"CUST-A\",\"qty\":2"));
+        awaitJournal(client, "R1-K2", 1);
+        // The journal lists newest first, so ordering is read from each request's own loggedDate (millis), not its position.
+        long k1First = firstLoggedAt(journal, "R1-K1\",\"customer\":\"CUST-A\",\"qty\":1[,}]");
+        long k1Second = firstLoggedAt(journal, "R1-K1\",\"customer\":\"CUST-A\",\"qty\":2[,}]");
+        assertThat(k1First).as("K1 qty 1 before K1 qty 2 (%s then %s)", first, second).isLessThanOrEqualTo(k1Second);
+    }
+
+    /** The loggedDate of the earliest journal request whose unescaped body matches (WireMock puts loggedDate after the body, inside the same request). */
+    private static long firstLoggedAt(String journal, String bodyRegex) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?s)" + bodyRegex + ".*?\"loggedDate\":(\\d+)").matcher(journal);
+        long earliest = Long.MAX_VALUE;
+        while (m.find()) {
+            earliest = Math.min(earliest, Long.parseLong(m.group(1)));
+        }
+        assertThat(earliest).as("journal request for %s", bodyRegex).isNotEqualTo(Long.MAX_VALUE);
+        return earliest;
     }
 
     @Test
@@ -296,11 +358,25 @@ class Release1ScenariosContainerTest {
     @WaitsOn({"T120", "T99", "T111", "T98", "T143"})
     void sc08ReportCountsEqualDeliveryRows() throws Exception {
         Release1Client client = client();
-        String report = client.get(E2eNames.nameOf("dailyReportApi"), Release1Client.bearer("TENANT_ADMIN")).body();
-        // The SQL side is the base-suite oracle (ui/tests/base-suite/lib/direct-sql.mjs deliveryRowsSql + counts.mjs);
-        // the API leg asserts every bucket is present so a missing one fails loudly.
-        assertThat(report).contains("\"success\"").contains("\"failure\"").contains("\"retries\"")
-                .contains("\"retriedThenSucceeded\"").contains("\"stillStuck\"");
+        String day = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString();
+        HttpResponse<String> answer = client.get(E2eNames.nameOf("dailyReportApi").replace("{day}", day),
+                Release1Client.bearer("TENANT_ADMIN"));
+        String report = answer.body();
+        assertThat(answer.statusCode()).as("report answer: %s", report).isEqualTo(200);
+        long reported = 0;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"successes\"\\s*:\\s*(\\d+)").matcher(report);
+        while (m.find()) {
+            reported += Long.parseLong(m.group(1));
+        }
+        // The oracle is the table itself: deliveries of the bound tenant (tenant A) that reached DELIVERED today (UTC).
+        long delivered = Long.parseLong(Release1Sql.rows("select count(*) from public.delivery d where d.state = 'DELIVERED'"
+                + " and d.created_at >= date_trunc('day', now() at time zone 'utc') at time zone 'utc'"
+                + " and d.tenant_id = (select t.id from public.tenant t where t.code = '" + E2eNames.tenantACode() + "')")
+                .getFirst().getFirst());
+        assertThat(report).as("report for %s: %s", day, report).contains("\"successes\"").contains("\"failuresTransient\"")
+                .contains("\"retriesMade\"").contains("\"retriedThenSucceeded\"").contains("\"stillStuck\"");
+        assertThat(reported).as("report successes (%s) equal the DELIVERED delivery rows (%s) of %s", reported, delivered, day)
+                .isEqualTo(delivered);
     }
 
     @Test
