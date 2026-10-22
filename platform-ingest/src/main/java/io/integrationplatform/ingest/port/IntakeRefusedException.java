@@ -14,6 +14,9 @@ public class IntakeRefusedException extends RuntimeException {
         CONTRACT_PIN_MISMATCH,
         /** The business key rule could not resolve from the payload - 422. */
         BUSINESS_KEY_UNRESOLVED,
+        /** The business key is over the intake key cap (BS-06.4, row 375: an over-bound key cannot ride the
+         * message_store's btree indexes) - 422 with the cap named, never the catch-all 503. */
+        BUSINESS_KEY_TOO_LONG,
         /** The Idempotency-Key was already used by this credential with another request body (T-187) - 422. */
         IDEMPOTENCY_KEY_REUSED
     }
