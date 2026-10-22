@@ -65,3 +65,10 @@ test('F5 Contracts cards share one fixed column layout, so columns line up from 
   assert.match(rule(css, '.contracts-page .contracts-table-wrap table'), /table-layout:\s*fixed/);
   for (const n of [1, 2, 3, 4]) assert.match(css, new RegExp(`contracts-table-wrap th:nth-child\\(${n}\\)`), `column ${n} has a width`);
 });
+
+test('L5 the sticky Versions panel scrolls inside itself when taller than the viewport (zoom, reflow)', () => {
+  const css = rule(read('pages/flows.css'), '.versions-page .versions-panel {');
+  assert.match(css, /position:\s*sticky/);
+  assert.match(css, /max-height:\s*calc\(100vh/);
+  assert.match(css, /overflow-y:\s*auto/);
+});

@@ -211,6 +211,8 @@
 .versions-page .versions-panel {
   position: sticky;
   top: var(--space-4);
+  max-height: calc(100vh - 2 * var(--space-4)); /* row 372 L5: a panel taller than the viewport scrolls inside itself, never out of reach */
+  overflow-y: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--r-3);
   background: var(--color-surface);
