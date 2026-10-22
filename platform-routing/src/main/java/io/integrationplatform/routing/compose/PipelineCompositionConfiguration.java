@@ -309,29 +309,29 @@ class PipelineCompositionConfiguration {
 
     @Bean
     StageConsumerLoop stage1Consumer(@Value("${platform.routing.kafka.bootstrap-servers}") String bootstrap,
-            ProtectedWorkRows protectedWorkRows, Stage1FanOut stage1FanOut, Producer<byte[], byte[]> poisonProducer,
+            @Value("${platform.routing.stage1.concurrency:1}") int concurrency, ProtectedWorkRows protectedWorkRows, Stage1FanOut stage1FanOut, Producer<byte[], byte[]> poisonProducer,
             ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
             ObjectProvider<InstanceKeyReadiness> keyReadiness) {
         return loop(bootstrap, "platform-stage1", Topics.MESSAGE_ACCEPTED, protectedWorkRows, stage1FanOut,
-                poisonProducer, meters, observations, keyReadiness);
+                poisonProducer, meters, observations, keyReadiness, concurrency);
     }
 
     @Bean
     StageConsumerLoop stage2Consumer(@Value("${platform.routing.kafka.bootstrap-servers}") String bootstrap,
-            ProtectedWorkRows protectedWorkRows, DeliveryDueDispatch deliveryDueDispatch,
+            @Value("${platform.routing.stage2.concurrency:1}") int concurrency, ProtectedWorkRows protectedWorkRows, DeliveryDueDispatch deliveryDueDispatch,
             Producer<byte[], byte[]> poisonProducer, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations, ObjectProvider<InstanceKeyReadiness> keyReadiness) {
         return loop(bootstrap, "platform-stage2", Topics.DELIVERY_DUE, protectedWorkRows, deliveryDueDispatch,
-                poisonProducer, meters, observations, keyReadiness);
+                poisonProducer, meters, observations, keyReadiness, concurrency);
     }
 
     private static StageConsumerLoop loop(String bootstrap, String group, String topic,
             StageConsumer.ProtectedRows rows, StageConsumer.Handler handler, Producer<byte[], byte[]> poisonProducer,
             ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
-            ObjectProvider<InstanceKeyReadiness> keyReadiness) {
+            ObjectProvider<InstanceKeyReadiness> keyReadiness, int concurrency) {
         return new StageConsumerLoop(bootstrap, group, topic, rows, handler, new PoisonTopic(poisonProducer),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
-                observations.getIfAvailable(() -> ObservationRegistry.NOOP), ready(keyReadiness));
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP), ready(keyReadiness), concurrency);
     }
 
     /** T-201: the delivery retry pass asks the same key readiness as the stage consumers. */

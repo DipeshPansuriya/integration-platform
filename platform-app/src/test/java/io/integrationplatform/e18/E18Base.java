@@ -132,6 +132,16 @@ abstract class E18Base {
         registry.add("CONSOLE_URL", () -> "/");
         registry.add("IPASS_KAFKA_BOOTSTRAP_SERVERS", KAFKA::getBootstrapServers);
         registry.add("IPASS_KAFKA_PUBLISH_CLIENT_ID", () -> "e18-relay");
+        // T181 measurement dials (unset = today's behaviour: one loop per stage, the yml pool)
+        for (String stage : new String[] {"stage1", "stage2"}) {
+            String loops = System.getProperty("e18.loops");
+            if (loops != null) {
+                registry.add("platform.routing." + stage + ".concurrency", () -> loops);
+            }
+        }
+        if (System.getProperty("e18.pool") != null) {
+            registry.add("spring.datasource.hikari.maximum-pool-size", () -> System.getProperty("e18.pool"));
+        }
         registry.add("platform.config.destinations.allowed-hosts", () -> "*.e18.test,localhost");
         registry.add("platform.config.destinations.showcase-local-hosts",
                 () -> "api.e18.test,mq.e18.test,kafka.e18.test,db.e18.test,localhost");
@@ -249,7 +259,7 @@ abstract class E18Base {
     static void createTopics(String bootstrapServers, String... topics) {
         try (AdminClient admin = AdminClient.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
                 bootstrapServers))) {
-            admin.createTopics(java.util.Arrays.stream(topics).map(topic -> new NewTopic(topic, 3, (short) 1))
+            admin.createTopics(java.util.Arrays.stream(topics).map(topic -> new NewTopic(topic, io.integrationplatform.routing.topics.Topics.WORK_TOPIC_PARTITIONS, (short) 1))
                     .toList()).all().get(1, TimeUnit.MINUTES);
         } catch (Exception e) {
             if (!(e.getCause() instanceof org.apache.kafka.common.errors.TopicExistsException)) {

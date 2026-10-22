@@ -155,7 +155,7 @@ public final class StageConsumer {
         this.ready = ready;
         if (settings != null && meters != null) {
             this.breaker = io.github.resilience4j.circuitbreaker.CircuitBreaker
-                    .of("database-" + settings.group(), io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
+                    .of(settings.breakerName(), io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
                             .custom()
                             .slidingWindowSize(settings.breakerFailureThreshold())
                             .minimumNumberOfCalls(settings.breakerFailureThreshold())
