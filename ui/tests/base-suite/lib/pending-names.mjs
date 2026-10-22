@@ -78,11 +78,12 @@ export const ON_MAIN = Object.freeze({
   T111: true, // replay - DeliveryOperatorController.java:61 + OperatorActionButton.tsx
   T112: true, // detail + failures screens - MessageDetail.tsx, Failures.tsx
   T113: true, // queue dashboard - QueueDashboard.tsx
-  T138: true // dev-only destination exception - SystemPersistenceConfiguration.java:57
+  T138: true, // dev-only destination exception - SystemPersistenceConfiguration.java:57
+  DELIVERY_BASE_URL: false // delivery takes the system's settings.baseUrl, not the placeholder endpoint (T106 seam; JdbcSystemRepository.java:87)
 });
 
 // One probe per T-item: every {file, needle} must hold in the working tree for the flag to be true (paths from the repo root).
-const probe = (file, needle) => Object.freeze({ file, needle });
+const probe = (file, needle, { absent = false } = {}) => Object.freeze({ file, needle, absent });
 export const ON_MAIN_PROBES = Object.freeze({
   T105: [probe('platform-app/src/main/java/io/integrationplatform/app/message/MessageTrackingService.java', 'message_stage_timing')],
   T106: [probe('platform-ingest/src/main/java/io/integrationplatform/ingest/internal/relay/OutboxRelayRunnerConfiguration.java', 'OutboxRelayRunner')],
@@ -95,6 +96,8 @@ export const ON_MAIN_PROBES = Object.freeze({
   ],
   T112: [probe('ui/src/pages/MessageDetail.tsx', 'data-page="message-detail"'), probe('ui/src/pages/Failures.tsx', 'data-page="failures"')],
   T113: [probe('ui/src/pages/QueueDashboard.tsx', 'data-page="queue-dashboard"')],
+  // landed = the placeholder endpoint is gone from the system insert (absent probe)
+  DELIVERY_BASE_URL: [probe('platform-config/src/main/java/io/integrationplatform/config/internal/persistence/JdbcSystemRepository.java', 'https://endpoint.invalid/', { absent: true })],
   T138: [probe('platform-config/src/main/java/io/integrationplatform/config/internal/persistence/SystemPersistenceConfiguration.java', 'allowed-hosts')]
 });
 

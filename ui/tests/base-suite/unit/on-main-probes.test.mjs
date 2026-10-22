@@ -12,14 +12,15 @@ import * as pending from '../lib/pending-names.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
-/** true when every probe of the item (file exists and holds the needle) is present in this tree. */
+/** true when every probe of the item holds in this tree (file holds the needle; for an `absent` probe: the file exists without it). */
 function probePresent(item) {
   const probes = pending.ON_MAIN_PROBES?.[item];
   assert.ok(Array.isArray(probes) && probes.length > 0, `${item}: no probe in ON_MAIN_PROBES (file + needle)`);
-  return probes.every(({ file, needle }) => {
+  return probes.every(({ file, needle, absent }) => {
     assert.ok(file && needle, `${item}: a probe needs both file and needle`);
     const full = path.resolve(REPO, file);
-    return existsSync(full) && readFileSync(full, 'utf8').includes(needle);
+    const has = existsSync(full) && readFileSync(full, 'utf8').includes(needle);
+    return absent ? existsSync(full) && !has : has; // absent: the landed state is "the placeholder is gone"
   });
 }
 
