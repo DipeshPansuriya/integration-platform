@@ -5,6 +5,12 @@
 -- A customised address, INBOUND, non-API and untyped systems, a missing or blank baseUrl and a near-miss of the
 -- placeholder are never touched; a second run finds no placeholder left and changes nothing.
 --
+-- Karan F-1/F-2 (edited in place: this file has not been released, so no applied checksum changes): the value is
+-- trimmed of ALL leading/trailing whitespace and control characters (tab, newline, CR, not only spaces), and is
+-- copied only if it then has the shape ^https?://[^/?#@]+([/?#]|$), is at most 2048 characters and holds no embedded
+-- whitespace or control character - so userinfo, ftp:, a hostless value or an oversized one keeps the placeholder
+-- and stays refused at send. The allow-list and address-range checks are NOT replicated in SQL; they run at send.
+--
 -- This migration deliberately runs NO destination check (it is SQL, there is no Java here). That is not a gap in the
 -- control: the destination guard (scheme, userinfo, link-local, allow-list) runs at SEND time on every call, and the
 -- value copied is the one the save-time guard already accepted when those settings were saved. No audit event is
@@ -16,18 +22,25 @@
 DO $heal$
 DECLARE
     tenant uuid;
+    healed bigint;
 BEGIN
     FOR tenant IN SELECT id FROM public.tenant LOOP
         PERFORM set_config('app.tenant_id', tenant::text, true);
-        UPDATE public.target_endpoint te SET base_url = pg_catalog.btrim(s.settings ->> 'baseUrl')
+        UPDATE public.target_endpoint te SET base_url = v.url
             FROM public.system s
+            CROSS JOIN LATERAL (SELECT pg_catalog.regexp_replace(s.settings ->> 'baseUrl',
+                    '^[[:space:][:cntrl:]]+|[[:space:][:cntrl:]]+$', '', 'g') AS url) v
             WHERE te.tenant_id = tenant
               AND s.tenant_id = te.tenant_id AND s.id = te.system_id
               AND te.base_url = 'https://endpoint.invalid/'
               AND s.direction = 'TARGET'
               AND pg_catalog.upper(s.type) = 'API'
               AND pg_catalog.jsonb_typeof(s.settings -> 'baseUrl') = 'string'
-              AND pg_catalog.btrim(s.settings ->> 'baseUrl') <> '';
+              AND pg_catalog.length(v.url) <= 2048
+              AND v.url ~ '^https?://[^/?#@]+([/?#]|$)'
+              AND v.url !~ '[[:space:][:cntrl:]]';
+        GET DIAGNOSTICS healed = ROW_COUNT;
+        RAISE NOTICE 'V2_4_1350: tenant % healed % endpoint(s)', tenant, healed;
     END LOOP;
 END
 $heal$;
