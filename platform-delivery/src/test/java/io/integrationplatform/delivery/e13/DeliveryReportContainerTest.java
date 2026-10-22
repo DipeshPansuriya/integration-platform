@@ -27,7 +27,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
 /**
  * T-139 (E13-C3/C4): the tenant delivery report (GET /api/v1/reports/delivery?day=) reads the daily aggregate and
@@ -104,7 +103,7 @@ class DeliveryReportContainerTest {
         assertThat(mine(controller(TENANT_B).report(TODAY).getBody())).isEmpty();
         TenantContext none = Optional::empty;
         DeliveryReportController unbound = new DeliveryReportController(
-                new JdbcDeliveryDailyAggregateStore(jdbc, none), new DataSourceTransactionManager(pool));
+                new JdbcDeliveryDailyAggregateStore(jdbc, none), tx.stampingManager(none));
         assertThatThrownBy(() -> unbound.report(TODAY)).isInstanceOf(RuntimeException.class);
     }
 
@@ -156,7 +155,7 @@ class DeliveryReportContainerTest {
     }
 
     private DeliveryReportController controller(UUID tenant) {
-        return new DeliveryReportController(store(tenant), new DataSourceTransactionManager(pool));
+        return new DeliveryReportController(store(tenant), tx.stampingManager(DeliveryTestDatabase.tenant(tenant)));
     }
 
     private List<DailyCounts> mine(List<DailyCounts> all) {
