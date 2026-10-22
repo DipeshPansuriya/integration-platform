@@ -31,7 +31,7 @@ class JdbcDbPrivilegeProbeTest {
         assertThat(JdbcDbPrivilegeProbe.PRIVILEGES_SQL)
                 .contains("has_table_privilege(current_user").contains("to_regclass(?)")
                 .contains("'INSERT'").contains("'SELECT'").contains("'UPDATE'").contains("'DELETE'")
-                .contains("rolsuper").contains("pg_roles")
+                .contains("'TRUNCATE'").contains("'TRIGGER'").contains("rolbypassrls").contains("rolsuper").contains("pg_roles")
                 .contains("has_schema_privilege(current_user, ?, 'CREATE')")
                 .contains("pg_write_all_data").contains("pg_has_role")
                 .doesNotContain("information_schema").doesNotContain("grantee")

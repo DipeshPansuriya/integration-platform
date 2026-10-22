@@ -49,6 +49,7 @@ class ApprovedTableMigrationContainerTest {
     private final UUID dbSystemA = UUID.randomUUID();
     private final UUID apiSystemA = UUID.randomUUID();
     private final UUID dbSystemB = UUID.randomUUID();
+    private final UUID dbSystemRepointed = UUID.randomUUID();
     private final UUID requester = UUID.randomUUID();
     private final UUID approver = UUID.randomUUID();
 
@@ -75,10 +76,19 @@ class ApprovedTableMigrationContainerTest {
                     + "\"user\":\"ipass_orders\",\"table\":\"orders_in\","
                     + "\"approvedTables\":[\"orders_in\",\"Orders_IN\",\"users\",\"bad name\"]}");
             system(owner, tenantA, apiSystemA, "API", "{\"baseUrl\":\"https://api.example/v1\"}");
+            system(owner, tenantB, dbSystemRepointed, "DB", "{\"host\":\"db.c.example\",\"port\":5432,\"database\":\"c\","
+                    + "\"user\":\"ipass_c\",\"approvedTables\":[\"c_in\"]}");
             system(owner, tenantB, dbSystemB, "DB", "{\"host\":\"db.b.example\",\"port\":5432,\"database\":\"b\","
                     + "\"user\":\"ipass_b\",\"approvedTables\":[\"b_in\"]}");
         }
 
+        // S5 upgrade case: V2_4_1330 backfills a row bound to the OLD four-field hash, then the system is repointed
+        // BEFORE V2_4_1340 runs - that row is stale (REFUSED_TARGET_CHANGED) and the re-hash must not revive it
+        flyway(locations).target("2.4.1330").load().migrate();
+        try (Connection owner = owner(); Statement sql = owner.createStatement()) {
+            sql.executeUpdate("UPDATE public.system SET settings = jsonb_set(settings, '{host}', '\"db.moved.example\"')"
+                    + " WHERE id = '" + dbSystemRepointed + "'");
+        }
         flyway(locations).load().migrate();
 
         appUser = "app_login_" + Long.toUnsignedString(RANDOM.nextLong(), 36);
@@ -280,8 +290,21 @@ class ApprovedTableMigrationContainerTest {
                 .isEqualTo(scalar("select public.db_target_fingerprint(?::jsonb)", base + ",\"sslmode\":null}"));
         // the rows written by the V2_4_1330 backfill (old four-field hash) were re-hashed by this migration
         assertThat(scalar("select count(*) from public.db_target_approved_table a join public.system s on s.id = a.system_id"
-                + " where a.requested_by = 'migration' and a.target_hash <> public.db_target_fingerprint(s.settings)"))
+                + " where a.requested_by = 'migration' and a.system_id <> '" + dbSystemRepointed
+                + "' and a.target_hash <> public.db_target_fingerprint(s.settings)"))
                 .isEqualTo("0");
+    }
+
+    @Test
+    @DisplayName("S5 upgrade: a row made stale by a repoint BEFORE V2_4_1340 stays stale - the re-hash never revives it")
+    void aRepointedRowStaysStaleAcrossTheUpgrade() throws Exception {
+        String id = scalar("select id::text from public.db_target_approved_table where system_id = ?::uuid",
+                dbSystemRepointed.toString());
+        assertThat(id).isNotNull();
+        assertThat(scalar("select a.target_hash = public.db_target_fingerprint(s.settings)"
+                + " from public.db_target_approved_table a join public.system s on s.id = a.system_id"
+                + " where a.id = ?::uuid", id)).isEqualTo("f");
+        assertThat(decide(tenantB, approver, id, "APPROVE")).isEqualTo("REFUSED_TARGET_CHANGED");
     }
 
     @Test

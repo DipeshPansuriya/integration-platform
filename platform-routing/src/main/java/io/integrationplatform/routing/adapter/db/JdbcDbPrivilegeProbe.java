@@ -25,7 +25,7 @@ public class JdbcDbPrivilegeProbe implements DbPrivilegeProbe {
 
     /**
      * S2: the account's EFFECTIVE privileges, asked of the server (roles, PUBLIC and inheritance included), not the
-     * grant text: table INSERT/SELECT/UPDATE/DELETE, CREATE on the schema, superuser, membership of
+     * grant text: table INSERT/SELECT/UPDATE/DELETE/TRUNCATE/TRIGGER, BYPASSRLS, CREATE on the schema, superuser, membership of
      * pg_write_all_data. Every name is a statement parameter; a table that does not exist reads as no privilege
      * (to_regclass is null) and a server without pg_write_all_data (before 14) as not a member.
      */
@@ -34,6 +34,9 @@ public class JdbcDbPrivilegeProbe implements DbPrivilegeProbe {
             + " ('INSERT', coalesce(has_table_privilege(current_user, to_regclass(?), 'INSERT'), false)),"
             + " ('SELECT', coalesce(has_table_privilege(current_user, to_regclass(?), 'SELECT'), false)),"
             + " ('UPDATE', coalesce(has_table_privilege(current_user, to_regclass(?), 'UPDATE'), false)),"
+            + " ('TRUNCATE', coalesce(has_table_privilege(current_user, to_regclass(?), 'TRUNCATE'), false)),"
+            + " ('TRIGGER', coalesce(has_table_privilege(current_user, to_regclass(?), 'TRIGGER'), false)),"
+            + " ('BYPASSRLS', coalesce((select rolbypassrls from pg_roles where rolname = current_user), false)),"
             + " ('SCHEMA_CREATE', has_schema_privilege(current_user, ?, 'CREATE')),"
             + " ('SUPERUSER', coalesce((select rolsuper from pg_roles where rolname = current_user), false)),"
             + " ('PG_WRITE_ALL_DATA', coalesce((select pg_has_role(current_user, oid, 'member') from pg_roles"
@@ -68,10 +71,10 @@ public class JdbcDbPrivilegeProbe implements DbPrivilegeProbe {
                 }
                 try (PreparedStatement statement = connection.prepareStatement(PRIVILEGES_SQL)) {
                     String qualified = DEFAULT_SCHEMA + "." + settings.table(); // a validated plain identifier
-                    for (int slot = 1; slot <= 4; slot++) {
+                    for (int slot = 1; slot <= 6; slot++) {
                         statement.setString(slot, qualified);
                     }
-                    statement.setString(5, DEFAULT_SCHEMA);
+                    statement.setString(7, DEFAULT_SCHEMA);
                     try (ResultSet rows = statement.executeQuery()) {
                         List<String> privileges = new ArrayList<>();
                         while (rows.next()) {

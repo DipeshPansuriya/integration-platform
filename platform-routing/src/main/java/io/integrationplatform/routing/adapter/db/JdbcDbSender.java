@@ -31,7 +31,11 @@ import java.util.stream.Collectors;
  * <p>Operator note (target database): the restricted account needs INSERT <b>and SELECT</b> on the target table - the
  * pre-state check reads {@code delivery_id} before the insert - and nothing more (the test-connection answer flags a
  * WIDE account). Without SELECT the send is refused PERMANENT with SQL state 42501. Both the send and the privilege
- * probe pin {@code currentSchema=public}: the table must live in {@code public}.
+ * probe pin {@code currentSchema=public}: the table must live in {@code public}. That CHANGES behaviour for an
+ * existing target whose account relied on its own schema or a role-level search_path: the send now writes to
+ * {@code public.<table>} (or fails 42P01/42501) - move or grant the table before upgrading. The partner table's
+ * {@code delivery_id} column must be of type {@code uuid} (the pre-state check and the insert bind a UUID; a text
+ * column fails with SQL state 42883).
  */
 public final class JdbcDbSender implements DbSender {
 
