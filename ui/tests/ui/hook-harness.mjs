@@ -68,6 +68,7 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
   let effectCursor = 0;
   let pending = [];
   let dirty = false;
+  let components = []; // [{ type, props }] of every function component rendered in the last pass - lets a test reach a child's props (e.g. onDone)
   globalThis.__hookHarness = {
     api,
     useState(initial) {
@@ -106,7 +107,10 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
     },
     element(type, elementProps) {
       if (type === FRAGMENT) return elementProps.children;
-      if (typeof type === 'function') return type(elementProps); // hook-free child components only
+      if (typeof type === 'function') {
+        components.push({ type, props: elementProps });
+        return type(elementProps); // hook-free child components only
+      }
       return { type, props: elementProps };
     }
   };
@@ -117,6 +121,7 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
       stateCursor = 0;
       effectCursor = 0;
       dirty = false;
+      components = [];
       current = Screen(props);
       const run = pending;
       pending = [];
@@ -128,6 +133,11 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
   render();
   return {
     tree: () => current,
+    components: (name) => components.filter((c) => c.type.name === name).map((c) => c.props),
+    /** Runs every effect cleanup, as React does when the screen leaves. */
+    unmount() {
+      effects.forEach((e) => e?.cleanup?.());
+    },
     async settle() {
       for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
       render();

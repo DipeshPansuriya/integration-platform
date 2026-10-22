@@ -15,7 +15,7 @@
 // the last-error cell wraps and clamps, tracking id mono + copy, origin as a badge, relative + absolute time.
 // `#/failures?flow=<id>&date=<day>` pre-fills the filters (the Queue's Failed link).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { listFlows, type FlowSummary } from '../api/flows';
 import { messageFailures, type Failure } from '../api/messages';
 import { OperatorActionButton } from './OperatorActionButton';
@@ -94,6 +94,11 @@ export function Failures() {
   // B2: after an accepted replay/retry the list is re-read silently; `acted` rows stay on screen with their answer.
   const [refresh, setRefresh] = useState<{ n: number; acted: string[] }>({ n: 0, acted: [] });
   const [copied, setCopied] = useState('');
+  // L4: what Copy said (announced politely; a failure is shown, not silent) and the timer that resets the button word.
+  const [copyNote, setCopyNote] = useState<{ text: string; failed: boolean }>({ text: '', failed: false });
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // M5: bumped whenever a load starts (filter change or Reload); a silent refresh answering after that is stale and dropped.
+  const loadSeq = useRef(0);
 
   // The flow filter's choices: the tenant's own flows (a refusal leaves "All flows" only).
   useEffect(() => {
@@ -117,6 +122,7 @@ export function Failures() {
 
   useEffect(() => {
     let current = true;
+    loadSeq.current += 1;
     // Row 328 L7/D1: the old filter's rows never stay on screen under the new filter's caption and columns.
     setAnswered([]);
     setLoad('loading');
@@ -146,9 +152,10 @@ export function Failures() {
   useEffect(() => {
     if (refresh.n === 0) return;
     let current = true;
+    const ticket = loadSeq.current;
     messageFailures(failuresQuery({ flowId, date }))
       .then((answer) => {
-        if (current && answer.ok) setAnswered((previous) => keepActed(previous, answer.data, refresh.acted));
+        if (current && ticket === loadSeq.current && answer.ok) setAnswered((previous) => keepActed(previous, answer.data, refresh.acted));
       })
       .catch(() => undefined);
     return () => {
@@ -156,13 +163,27 @@ export function Failures() {
     };
   }, [refresh.n]);
 
+  useEffect(() => () => {
+    if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+  }, []);
+
   function copyId(trackingId: string) {
-    void navigator.clipboard?.writeText(trackingId).then(
+    const failed = () => setCopyNote({ text: 'Could not copy automatically. Select the tracking id and copy it by hand.', failed: true });
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      failed();
+      return;
+    }
+    void navigator.clipboard.writeText(trackingId).then(
       () => {
         setCopied(trackingId);
-        setTimeout(() => setCopied(''), 1500);
+        setCopyNote({ text: `Copied tracking id ${trackingId}.`, failed: false });
+        if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+        copyTimer.current = setTimeout(() => {
+          setCopied('');
+          setCopyNote({ text: '', failed: false });
+        }, 1500);
       },
-      () => undefined
+      failed
     );
   }
 
@@ -225,6 +246,9 @@ export function Failures() {
         data-refusal={load === 'refused' ? 'failures-refused' : undefined}
       >
         {statusText}
+      </p>
+      <p role="status" data-copy-status className={copyNote.failed ? 'op-alert op-alert-danger' : 'op-sr-only'}>
+        {copyNote.text}
       </p>
       <div className="op-card">
         <table className="table op-table" data-failures>
