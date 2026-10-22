@@ -105,6 +105,9 @@ class JdbcBulkheadRedriveContainerTest {
         assertThat(outbox.get(0).aggregateId()).isEqualTo(delivery);
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> repository.countEvents(delivery, DeliveryEventType.REDRIVE))).isEqualTo(1);
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> repository.countEventsWithDetail(delivery, DeliveryEventType.REDRIVE,
+                        JdbcBulkheadRedrive.SLOT_FREE))).as("F5: the event log names the slot-free path").isEqualTo(1);
     }
 
     @Test

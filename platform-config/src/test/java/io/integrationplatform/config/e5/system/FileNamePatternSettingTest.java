@@ -29,4 +29,12 @@ class FileNamePatternSettingTest {
                     .as("pattern '%s'", bad).isNotEmpty();
         }
     }
+
+    @Test
+    void aPatternWithoutDeliveryIdIsRefusedBecauseTheSecondDeliveryWouldDeadLetter() {
+        for (String bad : new String[] {"orders.csv", "orders-{ext}", "fixed-name.{ext}"}) {
+            assertThat(errors(JSON.writeValueAsString(java.util.Map.of("rootPath", "/o", "fileNamePattern", bad))))
+                    .as("pattern '%s'", bad).singleElement().asString().contains("{deliveryId}");
+        }
+    }
 }

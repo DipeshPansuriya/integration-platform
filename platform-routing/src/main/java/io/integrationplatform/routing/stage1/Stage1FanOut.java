@@ -104,6 +104,13 @@ public final class Stage1FanOut implements StageConsumer.Handler {
                 continue;
             }
             FlowBundle.SnapshotMapping pinned = mappingByRoute.get(route.id());
+            if (pinned != null && pinned.targetContractVersionId() == null) {
+                // T172: a flow snapshot published before e0b51120 carries no target contract id; a delivery pinning a
+                // mapping version without its contract could never be replayed (BS-10) - refuse, never write a NULL pin
+                throw new IllegalStateException("route " + route.id() + " of message " + message.id()
+                        + " pins mapping version " + pinned.mappingVersionId() + " but the flow snapshot carries no"
+                        + " target contract version id (published before the bundle gained it): republish the flow");
+            }
             planned.add(new Stage1Delivery(message.id(), UUID.fromString(route.id()), message.acceptedAt(),
                     UUID.fromString(route.targetEndpointId()),
                     pinned == null ? null : UUID.fromString(pinned.mappingVersionId()),
