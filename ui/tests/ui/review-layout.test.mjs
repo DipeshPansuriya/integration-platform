@@ -59,3 +59,9 @@ test('F4 Systems and Contracts list banners carry a Retry that re-reads the list
   assert.match(systems, /data-action="retry-load"[^>]*onClick=\{\(\) => void refresh\(\)\}/);
   assert.match(contracts, /data-action="retry-load"[^>]*onClick=\{\(\) => void refresh\(\)\}/);
 });
+
+test('F5 Contracts cards share one fixed column layout, so columns line up from card to card', () => {
+  const css = read('pages/contracts/contracts.css');
+  assert.match(rule(css, '.contracts-page .contracts-table-wrap table'), /table-layout:\s*fixed/);
+  for (const n of [1, 2, 3, 4]) assert.match(css, new RegExp(`contracts-table-wrap th:nth-child\\(${n}\\)`), `column ${n} has a width`);
+});
