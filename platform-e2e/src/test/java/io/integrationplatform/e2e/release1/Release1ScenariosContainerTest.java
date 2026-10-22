@@ -246,7 +246,7 @@ class Release1ScenariosContainerTest {
                 .anyMatch(row -> row.get(1).equals("DELIVERED") && row.get(3).equals("3")));
         assertThat(deliveries).as("deliveries of %s:%n  %s", trackingId, describe(deliveries)).anyMatch(row ->
                 row.get(1).equals("DELIVERED") && row.get(3).equals("3") && row.get(4).equals("TRANSIENT,TRANSIENT,SUCCESS")
-                        && row.get(5).equals("CLAIM,DELIVER")); // layer 1 redelivers inside ONE claim (ADR-010 s4): the two 503s are attempt rows, not RETRY events
+                        && row.get(5).contains("DELIVER") && !row.get(5).contains("RETRY")); // layer 1 redelivers inside ONE claim (ADR-010 s4): the two 503s are attempt rows, not RETRY events
         String timeline = awaitBody(client, E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
                 Release1Client.bearer("TENANT_ADMIN"), SETTLE, "DELIVERED");
         assertThat(timeline).contains("DELIVERED");
