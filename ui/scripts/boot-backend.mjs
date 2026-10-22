@@ -448,7 +448,7 @@ async function healthy(appPort) {
   }
 }
 
-function psql(container, sql) {
+export function psql(container, sql) {
   // The initdb phase runs a temporary postgres that answers pg_isready and then shuts down
   // (measured 2026-10-05, lane D: FATAL "the database system is shutting down" after an early
   // CREATE ROLE; measured 2026-10-06 run 4: "connection to server on socket ... No such file
@@ -801,6 +801,8 @@ export default async function bootBackend({
       refreshLock() {
         writeLockNote(LOCK_PATH, lockHolder ?? 'ui-harness');
       },
+      /** T174b: a Keycloak service-account client (clientId, secret, subject) - memory only. */
+      createServiceClient: (clientId) => keycloak.createServiceClient(clientId),
       /** The harness's server-side console sessions per login (cookie + CSRF token, never a token). */
       sessions,
       call,

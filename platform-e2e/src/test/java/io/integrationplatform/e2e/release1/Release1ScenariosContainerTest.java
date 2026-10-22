@@ -36,8 +36,7 @@ class Release1ScenariosContainerTest {
     @RegisterExtension
     static final OutcomeRecorder RECORDER = new OutcomeRecorder();
 
-    private static final String INTERFACE = "REF-ORDER";
-    private static final String ORDER_JSON = "{\"orderNo\":\"R1-%s\",\"customer\":\"CUST-A\",\"qty\":%d}";
+        private static final String ORDER_JSON = "{\"orderNo\":\"R1-%s\",\"customer\":\"CUST-A\",\"qty\":%d}";
     private static final Duration SETTLE = Duration.ofSeconds(30);
 
     private static Network network;
@@ -45,6 +44,9 @@ class Release1ScenariosContainerTest {
     private static GenericContainer<?> artemis;
 
     private static synchronized void harness() {
+        if (E2eNames.externalWiremock() != null) {
+            return; // T174b: the runner's WireMock and Artemis (the backend calls THEM); nothing to start here
+        }
         if (network == null) {
             network = Network.newNetwork();
             wiremock = E2eContainers.wiremock(network);
@@ -68,6 +70,9 @@ class Release1ScenariosContainerTest {
     }
 
     private static String wiremockBase() {
+        if (E2eNames.externalWiremock() != null) {
+            return E2eNames.externalWiremock();
+        }
         return "http://" + wiremock.getHost() + ":" + wiremock.getMappedPort(E2eContainers.WIREMOCK_PORT);
     }
 
@@ -77,16 +82,28 @@ class Release1ScenariosContainerTest {
     }
 
     private static long queueCount(String queue) throws Exception {
-        ExecResult stat = artemis.execInContainer(E2eContainers.ARTEMIS_CLI, "queue", "stat", "--queueName", queue,
-                "--user", E2eContainers.ARTEMIS_USER, "--password", E2eContainers.ARTEMIS_PASSWORD);
-        assertThat(stat.getExitCode()).as("artemis queue stat; stderr: %s", stat.getStderr()).isZero();
-        for (String line : stat.getStdout().split("\\R")) {
+        String stdout;
+        String external = E2eNames.externalArtemisContainer();
+        if (external != null) { // the runner's broker: its login is in this process's environment, never on a command line
+            Process process = new ProcessBuilder("docker", "exec", external, "sh", "-c",
+                    E2eContainers.ARTEMIS_CLI + " queue stat --queueName " + queue
+                            + " --user \"$ARTEMIS_USER\" --password \"$ARTEMIS_PASSWORD\"")
+                    .redirectErrorStream(true).start();
+            stdout = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(process.waitFor()).as("artemis queue stat; output: %s", stdout).isZero();
+        } else {
+            ExecResult stat = artemis.execInContainer(E2eContainers.ARTEMIS_CLI, "queue", "stat", "--queueName", queue,
+                    "--user", E2eContainers.ARTEMIS_USER, "--password", E2eContainers.ARTEMIS_PASSWORD);
+            assertThat(stat.getExitCode()).as("artemis queue stat; stderr: %s", stat.getStderr()).isZero();
+            stdout = stat.getStdout();
+        }
+        for (String line : stdout.split("\\R")) {
             if (line.contains("|" + queue) || line.contains("| " + queue)) {
                 String[] cells = line.split("\\|");
                 return Long.parseLong(cells[cells.length - 2].trim()); // MESSAGE_COUNT column precedes the last
             }
         }
-        throw new AssertionError("queue " + queue + " not in artemis stat output: " + stat.getStdout());
+        throw new AssertionError("queue " + queue + " not in artemis stat output: " + stdout);
     }
 
     private static String awaitJournal(Release1Client client, String needle, int expected) throws Exception {
@@ -103,7 +120,7 @@ class Release1ScenariosContainerTest {
     }
 
     private static String acceptOne(Release1Client client, String key, int qty) throws Exception {
-        HttpResponse<String> accepted = client.intake(INTERFACE, "1.0", ORDER_JSON.formatted(key, qty),
+        HttpResponse<String> accepted = client.intake(E2eNames.interfaceCode(), "1.0", ORDER_JSON.formatted(key, qty),
                 Release1Client.bearer("CUSTOMER_A"));
         assertThat(accepted.statusCode()).as("intake answer: %s", accepted.body()).isEqualTo(202);
         return Release1Client.trackingIdOf(accepted.body());
@@ -135,7 +152,7 @@ class Release1ScenariosContainerTest {
             bulk.append(i > 1 ? "," : "").append(i <= 7 ? ORDER_JSON.formatted("B" + i, i)
                     : "{\"orderNo\":\"\",\"qty\":-1}"); // 3 invalid: blank key AND negative qty -> two reasons each
         }
-        HttpResponse<String> answer = client.post(E2eNames.nameOf("bulkIntakeApi").replace("{interfaceCode}", INTERFACE),
+        HttpResponse<String> answer = client.post(E2eNames.nameOf("bulkIntakeApi").replace("{interfaceCode}", E2eNames.interfaceCode()),
                 bulk.append(']').toString(), Release1Client.bearer("CUSTOMER_A"));
 
         String body = answer.body();
@@ -179,9 +196,16 @@ class Release1ScenariosContainerTest {
         String failures = client.get(E2eNames.nameOf("failuresApi"), Release1Client.bearer("TENANT_ADMIN")).body();
         assertThat(failures).contains(trackingId).contains("DEAD_LETTERED");
 
+        java.util.regex.Matcher delivery = java.util.regex.Pattern
+                .compile("\"trackingId\"\\s*:\\s*\"" + trackingId + "\"[^}]*?\"deliveryId\"\\s*:\\s*\"([^\"]+)\"")
+                .matcher(failures);
+        assertThat(delivery.find()).as("the failures row of %s carries its deliveryId: %s", trackingId, failures).isTrue();
         client.wiremockReset(wiremockBase()); // target A healthy again
-        HttpResponse<String> replay = client.post(E2eNames.nameOf("replayApi").replace("{trackingId}", trackingId),
-                "{}", Release1Client.bearer("APPROVER"));
+        client.wiremockStub(wiremockBase(), "{\"request\":{\"method\":\"POST\",\"urlPathPattern\":\"/target-a/.*\"},"
+                + "\"response\":{\"status\":200},\"priority\":10}"); // the reset removed the runner's default 200
+        HttpResponse<String> replay = client.post(
+                E2eNames.nameOf("replayApi").replace("{deliveryId}", delivery.group(1)), "{}",
+                Release1Client.bearer("APPROVER"));
         assertThat(replay.statusCode()).isBetween(200, 202);
 
         String timeline = client.get(E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
@@ -230,7 +254,7 @@ class Release1ScenariosContainerTest {
         Release1Client client = client();
         String trackingId = acceptOne(client, "SC07", 7);
         String tenantB = Release1Client.bearer("TENANT_B_ADMIN");
-        assertThat(E2eNames.nameOf("tenantBCode")).isNotBlank();
+        assertThat(E2eNames.tenantBCode()).isNotBlank();
         HttpResponse<String> foreign = client.get(E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
                 tenantB);
         assertThat(foreign.statusCode()).as("tenant B on tenant A's message").isIn(403, 404);

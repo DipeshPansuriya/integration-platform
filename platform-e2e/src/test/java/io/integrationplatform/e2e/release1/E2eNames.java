@@ -18,10 +18,10 @@ public final class E2eNames {
             Map.entry("timelineApi", "/api/v1/admin/messages/{trackingId}/timeline"), // base-suite pending-names
             Map.entry("failuresApi", "/api/v1/admin/messages/failures"), // base-suite pending-names
             Map.entry("bulkIntakeApi", "TBD(T115)"),
-            Map.entry("replayApi", "TBD(T111)"),
+            Map.entry("replayApi", "/api/v1/admin/messages/deliveries/{deliveryId}/replay"), // DeliveryOperatorController.java:61 (by DELIVERY id)
             Map.entry("dailyReportApi", "TBD(T120)"),
-            Map.entry("mqTargetQueue", "TBD(T98)"),
-            Map.entry("tenantBCode", "TBD(T157)"));
+            Map.entry("mqTargetQueue", "r1.orders.mq"), // the queue the T174b runner seeds target B (MQ-CSV) with
+            Map.entry("flowCodeDefault", "REF-ORDER"));
 
     private static final Set<String> LOOPBACK = Set.of("127.0.0.1", "localhost", "[::1]", "::1");
 
@@ -42,6 +42,33 @@ public final class E2eNames {
                     + " - swap its one line in E2eNames when that item lands");
         }
         return value;
+    }
+
+    /** The interface the intake is addressed by: the seeded flow's generated code ({@code -De2e.interfaceCode}). */
+    public static String interfaceCode() {
+        String raw = System.getProperty("e2e.interfaceCode");
+        return raw == null || raw.isBlank() ? nameOf("flowCodeDefault") : raw.trim();
+    }
+
+    /** Tenant B's code ({@code -De2e.tenantBCode}); the runner passes the seeded one, never a guess. */
+    public static String tenantBCode() {
+        String raw = System.getProperty("e2e.tenantBCode");
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalStateException("e2e.tenantBCode is not set - the runner passes the seeded tenant B code");
+        }
+        return raw.trim();
+    }
+
+    /** The compose WireMock the backend's target A calls ({@code -De2e.wiremockUrl}); empty = start our own. */
+    public static String externalWiremock() {
+        String raw = System.getProperty("e2e.wiremockUrl");
+        return raw == null || raw.isBlank() ? null : raw.trim().replaceAll("/+$", "");
+    }
+
+    /** The running Artemis container of the runner ({@code -De2e.artemisContainer}); empty = start our own. */
+    public static String externalArtemisContainer() {
+        String raw = System.getProperty("e2e.artemisContainer");
+        return raw == null || raw.isBlank() ? null : raw.trim();
     }
 
     /** The backend under test, from {@code -De2e.baseUrl}; loopback only, so a run can never reach production. */

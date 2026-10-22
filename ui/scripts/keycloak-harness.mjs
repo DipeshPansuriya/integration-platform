@@ -151,6 +151,31 @@ export async function startKeycloak({ repo, audience, consoleRedirectUri, postLo
       return { username, password, subject: location.slice(location.lastIndexOf('/') + 1) };
     }
 
+    /**
+     * T174b: a confidential service-account client (client-credentials only, default scopes so its tokens carry the
+     * platform audience), as the Java suites' KeycloakRealmContainer.createConfidentialClient does. Returns the
+     * client's credential and the service-account user's id (the token `sub`) in memory only; the caller binds that
+     * subject to a tenant.
+     */
+    async function createServiceClient(clientId) {
+      const headers = { authorization: `Bearer ${await adminToken()}`, 'content-type': 'application/json' };
+      const clients = `${base}/admin/realms/${REALM}/clients`;
+      const created = await fetch(clients, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          clientId, enabled: true, protocol: 'openid-connect', publicClient: false, clientAuthenticatorType: 'client-secret',
+          serviceAccountsEnabled: true, standardFlowEnabled: false, directAccessGrantsEnabled: false, implicitFlowEnabled: false
+        })
+      });
+      if (created.status !== 201) throw new Error(`keycloak: creating client ${clientId} answered ${created.status}`);
+      const id = created.headers.get('location').split('/').pop();
+      const forClient = await fetch(`${clients}/${id}/client-secret`, { headers });
+      const account = await fetch(`${clients}/${id}/service-account-user`, { headers });
+      if (!forClient.ok || !account.ok) throw new Error(`keycloak: reading client ${clientId} answered ${forClient.status}/${account.status}`);
+      return { clientId, secret: (await forClient.json()).value, subject: (await account.json()).id };
+    }
+
     return {
       name,
       issuer,
@@ -161,6 +186,7 @@ export async function startKeycloak({ repo, audience, consoleRedirectUri, postLo
       // random per run, memory only); bootBackend hands it to the app only with `sourceCredentials`
       platformAdminClientSecret: secrets.PLATFORM_ADMIN_CLIENT_SECRET,
       createUser,
+      createServiceClient,
       stop
     };
   } catch (e) {
