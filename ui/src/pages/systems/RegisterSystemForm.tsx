@@ -4,7 +4,8 @@
 
 import { useState, type FormEvent } from 'react';
 import { clientSettingsErrors, registerSystem, settingsFromForm } from '../../api/systems';
-import { SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
+import { ERRORS_ID, SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
+import { topFieldHasError } from './systems-view';
 
 export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promise<void> }) {
   const [code, setCode] = useState('');
@@ -52,17 +53,39 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
 
   return (
     <form data-form="register-system" onSubmit={onSubmit}>
+      <p className="systems-muted" data-required-legend>
+        Required fields are marked *
+      </p>
       <label>
-        Code
-        <input id="sys-field-code" data-field="system-code" value={code} onChange={(e) => setCode(e.target.value)} />
+        Code *
+        <input
+          id="sys-field-code"
+          data-field="system-code"
+          value={code}
+          aria-required
+          aria-invalid={topFieldHasError(errors, 'code') || undefined}
+          aria-describedby={topFieldHasError(errors, 'code') ? ERRORS_ID : undefined}
+          onChange={(e) => setCode(e.target.value)}
+        />
       </label>
       <label>
-        Name
-        <input id="sys-field-name" data-field="system-name" value={name} onChange={(e) => setName(e.target.value)} />
+        Name *
+        <input
+          id="sys-field-name"
+          data-field="system-name"
+          value={name}
+          aria-required
+          aria-invalid={topFieldHasError(errors, 'name') || undefined}
+          aria-describedby={topFieldHasError(errors, 'name') ? ERRORS_ID : undefined}
+          onChange={(e) => setName(e.target.value)}
+        />
       </label>
       <label>
-        Direction
+        Direction *
         <select
+          aria-required
+          aria-invalid={topFieldHasError(errors, 'direction') || undefined}
+          aria-describedby={topFieldHasError(errors, 'direction') ? ERRORS_ID : undefined}
           id="sys-field-direction"
           data-field="system-direction"
           value={direction}
@@ -72,7 +95,7 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
           <option value="INBOUND">Inbound (source)</option>
         </select>
       </label>
-      <TypeField value={type} onChange={setType} />
+      <TypeField value={type} onChange={setType} errors={errors} />
       <SettingsFields type={type} values={values} onChange={(field, value) => setValues((v) => ({ ...v, [field]: value }))} errors={errors} />
       <button type="submit" data-action="register-system" disabled={busy}>
         Register system

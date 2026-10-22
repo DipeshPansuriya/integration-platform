@@ -7,6 +7,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { CONTRACT_ROLES, importContractVersion, type ContractFormat, type ContractRole } from '../../api/contracts';
 import { listSystems, type SystemView } from '../../api/systems';
+import { refusalWords } from '../../ui/refusal-words';
+import { roleWord } from './contracts-view';
 
 export function ImportContractForm({ onImported }: { onImported: () => Promise<void> }) {
   const [systems, setSystems] = useState<SystemView[]>([]);
@@ -19,10 +21,12 @@ export function ImportContractForm({ onImported }: { onImported: () => Promise<v
   const [imported, setImported] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<{ error: string; parserErrors: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [systemsRefused, setSystemsRefused] = useState<number | null>(null);
 
   useEffect(() => {
     void listSystems().then((result) => {
       if (result.ok) setSystems(result.data);
+      else setSystemsRefused(result.status);
     });
   }, []);
 
@@ -65,12 +69,17 @@ export function ImportContractForm({ onImported }: { onImported: () => Promise<v
           ))}
         </select>
       </label>
+      {systemsRefused !== null && (
+        <p role="alert" className="contracts-alert contracts-alert-danger" data-refusal="systems-list-failed">
+          {refusalWords(systemsRefused, 'the systems list')} Without it no system can be chosen.
+        </p>
+      )}
       <label>
         Role
         <select data-field="contract-role" value={role} onChange={(e) => setRole(e.target.value as ContractRole)}>
           {CONTRACT_ROLES.map((value) => (
             <option key={value} value={value}>
-              {value}
+              {roleWord(value)}
             </option>
           ))}
         </select>

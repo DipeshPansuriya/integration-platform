@@ -6,10 +6,12 @@
 
 /* --- 01-tokens s4.1: @gorules/jdm-editor 1.52.0 over the app tokens ---
    jdm writes its --grl-* values on :root (JdmConfigProvider's <style>); redefining them on the
-   .rules-editor wrapper wins for everything rendered inside it, in both themes (the app tokens flip
+   :root[data-theme] (specificity above jdm's :root, and it also reaches the dialogs jdm mounts on
+   <body> with mountDialogsOnBody) wins for everything rendered by jdm, in both themes (the app tokens flip
    under data-theme, so no dark block is needed). The last group maps the variables jdm hard-codes
    per mode (border/bg fades, output column, selected row, status backgrounds) - the fallback ladder
    of 01 s4.1, done through jdm's own variables instead of selectors. */
+:root[data-theme],
 [data-theme] .rules-editor {
   --grl-color-primary: var(--color-accent);
   --grl-color-primary-hover: var(--color-accent-hover);

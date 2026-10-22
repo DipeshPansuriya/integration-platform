@@ -8,12 +8,13 @@
 // Register and Edit in the shared right-side Drawer (register closed by default; Open replaces the
 // drawer's content in place) and each row's connection-test result in its own cell, next to its trigger.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { listSystems, readSystem, testConnection, TYPE_LABELS, type SystemType, type SystemView } from '../api/systems';
 import { Drawer } from '../ui/Drawer';
 import { EditSystemForm } from './systems/EditSystemForm';
 import { RegisterSystemForm } from './systems/RegisterSystemForm';
-import { drawerMode, filterSystems, settingsSummary, testCell, type TestOutcome } from './systems/systems-view';
+import { refusalWords } from '../ui/refusal-words';
+import { canStartTest, drawerMode, filterSystems, settingsSummary, TESTING_WORD, testCell, type TestOutcome } from './systems/systems-view';
 import './systems/systems.css';
 
 const LIST_HASH = '#/systems';
@@ -38,17 +39,31 @@ export function Systems() {
   // V-3 (row 306): the row's Test connection button - the endpoint's answer (one fixed shape) is
   // shown as it names it; a refusal (403/404 and the 429 TEST_CONNECTION_RATE_LIMITED) is surfaced
   // like the screen's other refusals. T101: kept per row and shown in that row's cell.
+  // B29 C1: a running test disables that row's button and shows 'Testing...' in its cell; a second
+  // click while it runs is ignored (parallel clicks would hit the 429).
+  const [testing, setTesting] = useState<ReadonlySet<string>>(new Set());
+  const testingRef = useRef<ReadonlySet<string>>(testing);
   const onTestConnection = useCallback(async (system: SystemView) => {
+    if (!canStartTest(testingRef.current, system.id)) return;
+    testingRef.current = new Set(testingRef.current).add(system.id);
+    setTesting(testingRef.current);
     setOutcomes((current) => {
       const rest = { ...current };
       delete rest[system.id];
       return rest;
     });
-    const result = await testConnection(system.id);
-    const outcome: TestOutcome = result.ok
-      ? { kind: 'answer', result: result.data.result, message: result.data.message }
-      : { kind: 'refusal', status: result.status, reason: result.refusal ?? result.error ?? '' };
-    setOutcomes((current) => ({ ...current, [system.id]: outcome }));
+    try {
+      const result = await testConnection(system.id);
+      const outcome: TestOutcome = result.ok
+        ? { kind: 'answer', result: result.data.result, message: result.data.message }
+        : { kind: 'refusal', status: result.status, reason: result.refusal ?? result.error ?? '' };
+      setOutcomes((current) => ({ ...current, [system.id]: outcome }));
+    } finally {
+      const next = new Set(testingRef.current);
+      next.delete(system.id);
+      testingRef.current = next;
+      setTesting(next);
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -114,13 +129,21 @@ export function Systems() {
         </div>
         {listRefusal !== null && (
           <p role="alert" className="systems-alert systems-alert-danger" data-refusal={`list-refused-${listRefusal}`}>
-            The API refused the systems list (HTTP {listRefusal}).
+            {refusalWords(listRefusal, 'the systems list')}
+          </p>
+        )}
+        {!loaded && (
+          <p className="systems-muted" role="status" data-systems-loading>
+            Loading systems...
           </p>
         )}
         {loaded && systems.length === 0 && listRefusal === null && (
-          <p className="systems-empty" data-systems-empty>
-            No systems registered yet.
-          </p>
+          <div className="systems-empty" data-systems-empty>
+            <p>No systems registered yet. A system is a partner or internal application the platform exchanges messages with.</p>
+            <button type="button" className="btn" data-action="register-from-empty" onClick={() => setRegistering(true)}>
+              Register a system
+            </button>
+          </div>
         )}
         {systems.length > 0 && (
           <div className="systems-filter">
@@ -139,6 +162,7 @@ export function Systems() {
             </span>
           </div>
         )}
+        {systems.length > 0 && (
         <div className="systems-grid">
           <table className="table" data-systems-table aria-label="Systems">
             <thead>
@@ -166,9 +190,22 @@ export function Systems() {
                     <td>{system.direction === 'INBOUND' ? 'Inbound' : 'Outbound'}</td>
                     <td>{system.type ? (TYPE_LABELS[system.type as SystemType] ?? system.type) : 'untyped'}</td>
                     <td className="systems-settings">
-                      <span title={summary}>{summary}</span>
+                      <span
+                        className="systems-settings-text"
+                        title={summary}
+                        tabIndex={0}
+                        aria-label={`Settings of ${system.code}: ${summary}`}
+                      >
+                        {summary}
+                      </span>
                     </td>
                     <td className="systems-test">
+                      {testing.has(system.id) && (
+                        <span role="status" data-test-connection-pending>
+                          <span className="systems-sr-only">Connection test for {system.code}: </span>
+                          {TESTING_WORD}
+                        </span>
+                      )}
                       {outcome?.kind === 'answer' && cell && (
                         <span role="status" data-test-connection-result={outcome.result}>
                           <span className="systems-sr-only">Connection test for {system.code}: </span>
@@ -208,6 +245,7 @@ export function Systems() {
                         type="button"
                         className="btn"
                         data-action="test-connection"
+                        disabled={testing.has(system.id)}
                         aria-label={`Test connection for ${system.code}`}
                         onClick={() => void onTestConnection(system)}
                       >
@@ -227,6 +265,7 @@ export function Systems() {
             </tbody>
           </table>
         </div>
+        )}
 
         <Drawer open={mode !== null} title={drawerTitle} onClose={closeDrawer} id="systems">
           {mode === 'edit' && openRefusal === 'system-not-found' && (
@@ -236,7 +275,7 @@ export function Systems() {
           )}
           {mode === 'edit' && openRefusal !== null && openRefusal !== 'system-not-found' && (
             <p role="alert" className="systems-alert systems-alert-danger" data-refusal={openRefusal}>
-              The API refused opening this system ({openRefusal}).
+              {refusalWords(Number(/(\d{3})$/.exec(openRefusal)?.[1] ?? 500), 'this system')}
             </p>
           )}
           {mode === 'edit' && !open && openRefusal === null && <p className="systems-muted">Loading the system...</p>}

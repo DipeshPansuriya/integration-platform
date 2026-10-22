@@ -10,9 +10,11 @@
 //   children: ReactNode    - the drawer body (a form, a refusal, ...)
 //   id?: string            - stamped as data-drawer={id}, a hook for screen tests
 //   closeLabel?: string    - the Close button's word (default "Close")
+// B29 C3: once a person types in the body, Esc / scrim / Close ask "Discard changes?" inline first;
+// submitting a form clears that (the values were sent), so a saved drawer closes without asking.
 
-import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
-import { FOCUSABLE, drawerKeyAction, nextFocusIndex } from './drawer-keys';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { FOCUSABLE, closeAction, drawerKeyAction, nextFocusIndex } from './drawer-keys';
 import './drawer.css';
 
 export type DrawerProps = {
@@ -36,6 +38,12 @@ export function Drawer({ open, title, onClose, children, id, closeLabel = 'Close
 function DrawerPanel({ title, onClose, children, id, closeLabel }: Omit<DrawerProps, 'open'>) {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
+  const [dirty, setDirty] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const requestClose = () => {
+    if (closeAction(dirty) === 'confirm') setConfirming(true);
+    else onClose();
+  };
 
   // focus in on open, back to the opener on close (unmount)
   useEffect(() => {
@@ -51,7 +59,8 @@ function DrawerPanel({ title, onClose, children, id, closeLabel }: Omit<DrawerPr
     const action = drawerKeyAction(event.key);
     if (action === 'close') {
       event.stopPropagation();
-      onClose();
+      if (confirming) setConfirming(false);
+      else requestClose();
     } else if (action === 'trap' && panel.current) {
       const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE));
       const next = nextFocusIndex(items.length, items.indexOf(document.activeElement as HTMLElement), event.shiftKey);
@@ -64,7 +73,7 @@ function DrawerPanel({ title, onClose, children, id, closeLabel }: Omit<DrawerPr
 
   return (
     <div className="drawer-layer">
-      <div className="drawer-scrim" aria-hidden="true" onClick={onClose} />
+      <div className="drawer-scrim" aria-hidden="true" onClick={requestClose} />
       <div
         ref={panel}
         className="drawer"
@@ -79,11 +88,24 @@ function DrawerPanel({ title, onClose, children, id, closeLabel }: Omit<DrawerPr
           <h2 id={titleId} className="drawer-title">
             {title}
           </h2>
-          <button type="button" className="btn" data-action="close-drawer" onClick={onClose}>
+          <button type="button" className="btn" data-action="close-drawer" onClick={requestClose}>
             {closeLabel}
           </button>
         </div>
-        <div className="drawer-body">{children}</div>
+        {confirming && (
+          <div className="drawer-discard" role="alertdialog" aria-labelledby={`${titleId}-discard`}>
+            <p id={`${titleId}-discard`}>Discard changes? What you typed here has not been saved.</p>
+            <button type="button" className="btn" data-action="keep-editing" autoFocus onClick={() => setConfirming(false)}>
+              Keep editing
+            </button>
+            <button type="button" className="btn btn-primary" data-action="discard-changes" onClick={onClose}>
+              Discard changes
+            </button>
+          </div>
+        )}
+        <div className="drawer-body" onInput={() => setDirty(true)} onSubmit={() => setDirty(false)}>
+          {children}
+        </div>
       </div>
     </div>
   );

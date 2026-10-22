@@ -4,7 +4,8 @@
 
 import { useState, type FormEvent } from 'react';
 import { clientSettingsErrors, extraSettingsOf, formFromSettings, settingsForEdit, updateSystem, type SystemView } from '../../api/systems';
-import { SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
+import { ERRORS_ID, SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
+import { topFieldHasError } from './systems-view';
 
 export function EditSystemForm({ system, onSaved }: { system: SystemView; onSaved: () => Promise<void> }) {
   const [name, setName] = useState(system.name);
@@ -49,11 +50,22 @@ export function EditSystemForm({ system, onSaved }: { system: SystemView; onSave
 
   return (
     <form data-form="edit-system" data-system-id={system.id} onSubmit={onSubmit}>
+      <p className="systems-muted" data-required-legend>
+        Required fields are marked *
+      </p>
       <label>
-        Name
-        <input id="sys-field-name" data-field="system-name" value={name} onChange={(e) => setName(e.target.value)} />
+        Name *
+        <input
+          id="sys-field-name"
+          data-field="system-name"
+          value={name}
+          aria-required
+          aria-invalid={topFieldHasError(errors, 'name') || undefined}
+          aria-describedby={topFieldHasError(errors, 'name') ? ERRORS_ID : undefined}
+          onChange={(e) => setName(e.target.value)}
+        />
       </label>
-      <TypeField value={type} onChange={setType} />
+      <TypeField value={type} onChange={setType} errors={errors} />
       <SettingsFields type={type} values={values} onChange={(field, value) => setValues((v) => ({ ...v, [field]: value }))} errors={errors} />
       {extras.length > 0 && (
         <section data-extra-settings aria-label="Other stored settings">
