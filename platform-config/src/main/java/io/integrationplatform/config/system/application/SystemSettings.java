@@ -255,8 +255,7 @@ public final class SystemSettings {
             case TRUSTSTORE_NAME -> value.isString() && TRUSTSTORE_NAME.matcher(value.stringValue()).matches() ? null
                     : "must be a file name (letters, digits, . _ -), never a path";
             case KAFKA_TOPIC -> value.isString()
-                    ? io.integrationplatform.config.destination.SystemTopicRefusal.topicProblem(value.stringValue())
-                            .map(SystemSettings::clip).orElse(null)
+                    ? io.integrationplatform.config.destination.SystemTopicRefusal.topicProblem(value.stringValue()).orElse(null)
                     : "must be a topic name";
             case FILE_NAME_PATTERN -> fileNamePatternProblem(value);
         };
