@@ -229,7 +229,8 @@ class EndpointMatrixCoverageTest {
                 // E14JobAdminMatrix, E16ApprovedTableMatrix, E13ReportFacadeMatrix; mocked services, nothing is invoked
                 new JobAdminController(mock(JobAdminService.class), mock(PollingSchedulingBoundary.class)),
                 new ApprovedTableAdminController(mock(ApprovedTableService.class), mock(ConfigActors.class)),
-                new ReportFacadeController(mock(ReportFacade.class)),
+                new ReportFacadeController(mock(ReportFacade.class), mock(ObjectProvider.class),
+                        mock(ObjectProvider.class)),
                 new DeliveryReportController(mock(DeliveryDailyAggregates.class), mock(PlatformTransactionManager.class))};
     }
 
