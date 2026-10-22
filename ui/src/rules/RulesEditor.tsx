@@ -13,6 +13,7 @@
 // wrapper that carries the jdm-editor --grl-* overrides (rules-editor.css, 01-tokens s4.1). A refused
 // cell is shown above its own table; the save row links to it.
 
+import { homeListState, homeLoadError } from './rules-home-view';
 import { useEffect, useMemo, useState } from 'react';
 import { listFlows, type FlowSummary } from '../api/flows';
 import type { EditableTable } from './DecisionTableEditorAdapter';
@@ -36,20 +37,36 @@ function RulesHome() {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState('');
   const [creating, setCreating] = useState(false);
+  // A9: a failed fetch is an error with Retry, not an empty list.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const shown = kindFilter ? ruleSets.filter((ruleSet) => ruleSet.kind === kindFilter) : ruleSets;
 
   useEffect(() => {
     void listFlows().then((result) => {
-      if (!result.ok) return;
+      const failed = homeLoadError('flows', result);
+      if (failed || !result.ok) {
+        setLoadError(failed);
+        return;
+      }
+      setLoadError(null);
       setFlows(result.data);
       setFlowId((current) => current || (result.data[0]?.id ?? ''));
-    });
-  }, []);
+    }).catch(() => setLoadError(homeLoadError('flows', { ok: false, status: 0 })));
+  }, [attempt]);
 
   useEffect(() => {
     if (!flowId) return;
-    void listRuleSets(flowId).then((result) => setRuleSets(result.ok ? result.data : []));
-  }, [flowId]);
+    void listRuleSets(flowId).then((result) => {
+      const failed = homeLoadError('rule sets', result);
+      if (failed || !result.ok) {
+        setLoadError(failed);
+        return;
+      }
+      setLoadError(null);
+      setRuleSets(result.data);
+    }).catch(() => setLoadError(homeLoadError('rule sets', { ok: false, status: 0 })));
+  }, [flowId, attempt]);
 
   async function create() {
     setRefusal(null);
@@ -127,7 +144,14 @@ function RulesHome() {
             </select>
           </label>
         </div>
-        {shown.length === 0 ? (
+        {loadError !== null ? (
+          <div className="rules-alert" role="alert" data-load-error="rules-home">
+            <p>{loadError}</p>
+            <button type="button" className="btn" data-action="retry-load" onClick={() => setAttempt((n) => n + 1)}>
+              Retry
+            </button>
+          </div>
+        ) : homeListState({ error: loadError, total: ruleSets.length, shown: shown.length }) !== 'rows' ? (
           <p className="rules-empty">{ruleSets.length === 0 ? 'No rule sets on this flow yet.' : 'No rule sets of this kind on this flow.'}</p>
         ) : (
           <table className="table">
