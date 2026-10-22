@@ -17,19 +17,28 @@ import java.util.UUID;
  * E16 F3 (design note task 11, Karan change 4) on the send path's dial ({@link JdbcDbSender}): ONE pinned,
  * credentialed JDBC connection - the driver dials the guard-pinned address through {@code PinnedSocketFactory} while
  * the host name stays the TLS server name, every driver option rides the Properties object, the URL carries no query
- * and never the password - then the catalogue question ({@code information_schema.table_privileges}) about the exact
- * target table with the account, schema and table as statement parameters. The password is wiped when the probe is
+ * and never the password - then the effective-privilege question about the exact
+ * target table with the schema and table as statement parameters. The password is wiped when the probe is
  * over; it is never logged.
  */
 public class JdbcDbPrivilegeProbe implements DbPrivilegeProbe {
 
     /**
-     * The account's granted privileges on one table, read from the catalogue: grantee, schema and table are
-     * statement parameters (never concatenated names). The table schema is the insert path's default (the send
-     * inserts through the search path's default schema).
+     * S2: the account's EFFECTIVE privileges, asked of the server (roles, PUBLIC and inheritance included), not the
+     * grant text: table INSERT/SELECT/UPDATE/DELETE, CREATE on the schema, superuser, membership of
+     * pg_write_all_data. Every name is a statement parameter; a table that does not exist reads as no privilege
+     * (to_regclass is null) and a server without pg_write_all_data (before 14) as not a member.
      */
-    static final String PRIVILEGES_SQL = "select privilege_type from information_schema.table_privileges"
-            + " where grantee = ? and table_schema = ? and table_name = ? order by privilege_type";
+    static final String PRIVILEGES_SQL = "select p from (values"
+            + " ('DELETE', coalesce(has_table_privilege(current_user, to_regclass(?), 'DELETE'), false)),"
+            + " ('INSERT', coalesce(has_table_privilege(current_user, to_regclass(?), 'INSERT'), false)),"
+            + " ('SELECT', coalesce(has_table_privilege(current_user, to_regclass(?), 'SELECT'), false)),"
+            + " ('UPDATE', coalesce(has_table_privilege(current_user, to_regclass(?), 'UPDATE'), false)),"
+            + " ('SCHEMA_CREATE', has_schema_privilege(current_user, ?, 'CREATE')),"
+            + " ('SUPERUSER', coalesce((select rolsuper from pg_roles where rolname = current_user), false)),"
+            + " ('PG_WRITE_ALL_DATA', coalesce((select pg_has_role(current_user, oid, 'member') from pg_roles"
+            + " where rolname = 'pg_write_all_data'), false))"
+            + ") v(p, held) where held order by p";
 
     static final String DEFAULT_SCHEMA = "public";
 
@@ -58,9 +67,11 @@ public class JdbcDbPrivilegeProbe implements DbPrivilegeProbe {
                     return List.of(); // the target names no table: the credentialed connect is the whole probe
                 }
                 try (PreparedStatement statement = connection.prepareStatement(PRIVILEGES_SQL)) {
-                    statement.setString(1, settings.user());
-                    statement.setString(2, DEFAULT_SCHEMA);
-                    statement.setString(3, settings.table());
+                    String qualified = DEFAULT_SCHEMA + "." + settings.table(); // a validated plain identifier
+                    for (int slot = 1; slot <= 4; slot++) {
+                        statement.setString(slot, qualified);
+                    }
+                    statement.setString(5, DEFAULT_SCHEMA);
                     try (ResultSet rows = statement.executeQuery()) {
                         List<String> privileges = new ArrayList<>();
                         while (rows.next()) {

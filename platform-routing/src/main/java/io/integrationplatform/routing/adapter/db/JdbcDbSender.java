@@ -133,6 +133,9 @@ public final class JdbcDbSender implements DbSender {
         account.setProperty("socketFactory", PinnedSocketFactory.class.getName());
         account.setProperty(PinnedSocketFactory.PINNED_PROPERTY, pinnedAddress.getHostAddress());
         account.setProperty("sslmode", sslmode);
+        // S3 (CWE-427): the unqualified INSERT and the probe both mean public.<table>; no search_path element of the
+        // target account can redirect either
+        account.setProperty("currentSchema", JdbcDbPrivilegeProbe.DEFAULT_SCHEMA);
         if (sslRootCert != null && (sslmode.equals("verify-ca") || sslmode.equals("verify-full"))) {
             account.setProperty("sslrootcert", sslRootCert.toString());
         }
