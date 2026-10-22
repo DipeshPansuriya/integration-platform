@@ -107,6 +107,30 @@ class DeliveryReportContainerTest {
         assertThatThrownBy(() -> unbound.report(TODAY)).isInstanceOf(RuntimeException.class);
     }
 
+    /** T185 (SC-08): deliveries happened, no roll-up row stored yet - the report of that day still lists them. */
+    @Test
+    @DisplayName("A day with no stored roll-up is computed from the delivery rows, per tenant")
+    void aDayWithoutStoredRollupIsComputedOnDemand() {
+        // other tests of this shared database refresh today; start from a day with no stored roll-up
+        tx.inTenantTx(TENANT_A, () -> jdbc.sql("delete from public.delivery_daily_aggregate where day = :d")
+                .param("d", TODAY).update());
+        seed(); // no refresh: the nightly job only rolls up yesterday, so today has no stored row
+
+        List<DailyCounts> report = mine(controller(TENANT_A).report(TODAY).getBody());
+
+        assertEqualsRaw(report);
+        assertThat(sum(report, DailyCounts::successes)).isEqualTo(2);
+        assertThat(sum(report, DailyCounts::failuresTransient)).isEqualTo(1);
+        assertThat(sum(report, DailyCounts::failuresAmbiguous)).isEqualTo(1);
+        assertThat(sum(report, DailyCounts::failuresPermanent)).isEqualTo(1);
+        assertThat(sum(report, DailyCounts::retriedThenSucceeded)).isEqualTo(1);
+        assertThat(sum(report, DailyCounts::stillStuck)).isEqualTo(1);
+        assertThat(mine(controller(TENANT_B).report(TODAY).getBody())).isEmpty();
+        long stored = tx.inTenantTx(TENANT_A, () -> store(TENANT_A).aggregated(TODAY)).stream()
+                .filter(c -> iface.equals(c.interfaceId())).count();
+        assertThat(stored).as("the on-demand read does not write").isZero();
+    }
+
     private void assertEqualsRaw(List<DailyCounts> report) {
         List<DailyCounts> raw = mine(tx.inTenantTx(TENANT_A, () -> store(TENANT_A).direct(TODAY)));
         assertThat(report).hasSize(6).containsExactlyElementsOf(raw);
