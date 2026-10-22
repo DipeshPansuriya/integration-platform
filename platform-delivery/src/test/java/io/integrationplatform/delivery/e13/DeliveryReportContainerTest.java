@@ -131,6 +131,26 @@ class DeliveryReportContainerTest {
         assertThat(stored).as("the on-demand read does not write").isZero();
     }
 
+    /** T187: the on-demand day count of one tenant descends a tenant-leading (tenant_id, created_at) index. */
+    @Test
+    @DisplayName("The tenant's day count uses the (tenant_id, created_at) partition index")
+    void theDayCountUsesTheTenantLeadingIndex() {
+        long partitionIndexes = jdbc.sql("select count(*) from pg_inherits i join pg_class p on p.oid = i.inhparent"
+                + " where p.relname = 'delivery_tenant_created_idx'").query(Long.class).single();
+        assertThat(partitionIndexes).as("the parent index is attached on the day partitions").isPositive();
+
+        List<String> plan = tx.inTenantTx(TENANT_A, () -> {
+            jdbc.sql("set local enable_seqscan = off").update(); // tiny test table: make the planner's choice visible
+            return jdbc.sql("explain select * from (select d.tenant_id, count(*) n from public.delivery d"
+                            + " where d.created_at >= :from and d.created_at < :to group by d.tenant_id) s"
+                            + " where tenant_id = :tenant")
+                    .param("from", TODAY.atStartOfDay().atOffset(ZoneOffset.UTC))
+                    .param("to", TODAY.plusDays(1).atStartOfDay().atOffset(ZoneOffset.UTC))
+                    .param("tenant", TENANT_A).query(String.class).list();
+        });
+        assertThat(String.join("\n", plan)).contains("tenant_id_created_at_idx");
+    }
+
     private void assertEqualsRaw(List<DailyCounts> report) {
         List<DailyCounts> raw = mine(tx.inTenantTx(TENANT_A, () -> store(TENANT_A).direct(TODAY)));
         assertThat(report).hasSize(6).containsExactlyElementsOf(raw);
