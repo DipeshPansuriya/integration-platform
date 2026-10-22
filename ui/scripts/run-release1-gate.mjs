@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startArtemis } from './release1/artemis.mjs';
-import { REF, mqContractSql, seedRefOrder } from './release1/seed-ref-order.mjs';
+import { seedRefOrder } from './release1/seed-ref-order.mjs';
 import { SLOT_NAMES, acquireSlot } from './release1/slot.mjs';
 import { bearerEnv, bindSubjectSql, clientCredentialsToken } from './release1/tokens.mjs';
 import { baseSuiteBootOptions } from '../tests/base-suite/lib/boot-options.mjs';
@@ -74,7 +74,6 @@ try {
     customerId: TENANTS.A.customerId, apiBase: `${base}/target-a/`, sourceBase: `${base}/ref-source/`,
     mq: { host: settings.host, port: MQ_PORT, queue: MQ_QUEUE }
   });
-  psql(backend.pgName, mqContractSql(REF.targetB.system)); // the one owner-SQL step (see seed-ref-order.mjs: product gap)
   log(`REF-ORDER seeded: interface ${seeded.interfaceCode}, flow ${seeded.flowId}`);
 
   const tenantB = backend.extraTenants[TENANT_B_PLAN.key];

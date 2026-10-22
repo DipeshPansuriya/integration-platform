@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { runArgs } from '../../../scripts/release1/artemis.mjs';
-import { REF, mqContractSql, routeFor, seedRefOrder } from '../../../scripts/release1/seed-ref-order.mjs';
+import { REF, SAMPLE, mqCsvContract, routeFor, seedRefOrder } from '../../../scripts/release1/seed-ref-order.mjs';
 import { SLOT_NAMES, acquireSlot } from '../../../scripts/release1/slot.mjs';
 import { bearerEnv, bindSubjectSql, clientCredentialsToken } from '../../../scripts/release1/tokens.mjs';
 
@@ -81,11 +81,11 @@ test('artemis: loopback-only publish, the login by env NAME only', () => {
   assert.throws(() => runArgs({ name: 'ok', port: 0 }), /TCP port/);
 });
 
-test('seed: the MQ contract SQL is a plain update of one MQ system; the CSV columns match the Java journey', () => {
-  const sql = mqContractSql('ref-target-b');
-  assert.match(sql, /^UPDATE public\.system SET settings = \(settings::jsonb \|\| '\{"contract":\{"columns":\[\{"name":"order_no"/);
-  assert.match(sql, /WHERE code='ref-target-b' AND type='MQ'$/);
-  assert.throws(() => mqContractSql("x';--"), /plain system code/);
+test('seed: the CSV contract has the Java journey columns and header/CRLF layout', () => {
+  const contract = mqCsvContract();
+  assert.deepEqual(contract.columns.map((c) => c.name), ['order_no', 'customer', 'total']);
+  assert.equal(contract.lineEnding, 'CRLF');
+  assert.equal(contract.header, true);
 });
 
 test('seed: two targets (API 1.0, MQ 2.0), four-eyes on every contract and the flow, mapping bound to the right route', async () => {
@@ -95,7 +95,8 @@ test('seed: two targets (API 1.0, MQ 2.0), four-eyes on every contract and the f
     if (p === '/api/v1/admin/systems') return { status: 201, data: { id: `sys-${body.code}` } };
     if (p === '/api/v1/admin/contracts/versions/import') return { status: 201, data: { id: `cv-${body.system}-${body.versionLabel}` } };
     if (p === '/api/v1/admin/flows' && method === 'POST') return { status: 201, data: { id: 'flow-1' } };
-    if (p === '/api/v1/admin/flows/flow-1/routes') return { status: 200, data: { routes: [{ id: 'route-b', target: 'ref-target-b' }, { id: 'route-a', target: 'ref-target-a' }] } };
+    if (p === '/api/v1/admin/flows/flow-1/routes') return { status: 200, data: { routes: [{ id: 'route-b', targetSystem: 'ref-target-b', mappingId: 'm-b' }, { id: 'route-a', targetSystem: 'ref-target-a', mappingId: 'm-a' }] } };
+    if (p.endsWith('/test')) return { status: 200, data: { status: 'OK' } };
     if (p === '/api/v1/admin/flows/flow-1' && method === 'GET') return { status: 200, data: { code: 'flow-abc' } };
     if (p.endsWith('/source-credentials')) return { status: 201, data: { clientId: 'cid', secret: 'sec' } };
     return { status: 200, data: {} };
@@ -110,7 +111,12 @@ test('seed: two targets (API 1.0, MQ 2.0), four-eyes on every contract and the f
   assert.equal(mapping['/api/v1/admin/routes/route-a/mapping'].targetContractVersionId, 'cv-ref-target-a-1.0');
   assert.equal(mapping['/api/v1/admin/routes/route-b/mapping'].targetContractVersionId, 'cv-ref-target-b-2.0');
   const mqSystem = calls.find((c) => c.body?.code === REF.targetB.system);
-  assert.deepEqual(mqSystem.body.settings, { host: 'localhost', port: 61616, queue: 'r1.orders.mq' });
+  assert.deepEqual(mqSystem.body.settings, { host: 'localhost', port: 61616, queue: 'r1.orders.mq', contract: mqCsvContract() });
+  const samples = calls.filter((c) => c.p.endsWith('/test'));
+  assert.deepEqual(samples.map((c) => c.p).sort(), ['/api/v1/admin/mappings/m-a/test', '/api/v1/admin/mappings/m-b/test']);
+  assert.ok(samples.every((c) => c.body.sample === SAMPLE));
+  const publishAt = calls.findIndex((c) => c.p.endsWith('/publish'));
+  assert.ok(samples.every((c) => calls.indexOf(c) < publishAt), 'every sample run passes before publish');
 });
 
 test('seed: a refused step names itself and carries the status', async () => {

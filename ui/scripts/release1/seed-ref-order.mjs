@@ -2,11 +2,8 @@
 // target A an API system (contract v1.0) on the compose WireMock, target B an MQ system (contract v2.0) on the compose
 // Artemis - every contract and the flow approved by a second user (four-eyes: the author never approves).
 //
-// PRODUCT GAP (measured in code, main ecef544b): the MQ-CSV contract (columns, delimiter, ...) and the connect user
-// live in the MQ system's registry JSON (JdbcMqCsvTargets.java:25-27 "shortcut"), but SystemSettings validates an MQ
-// system to host, port, queue only (SystemSettings.java:136-137) and refuses any other key, so the admin API cannot
-// configure an MQ-CSV target. `mqContractSql` is the one owner-SQL step, the same one the E18 journey does
-// (E18Seed.java); it writes no pipeline row.
+// T176 (on main f0a5095f) added the MQ-CSV `contract` to the admin API's MQ settings, so the whole seed is API-driven:
+// no owner SQL. Each mapping also needs a passing sample run of its pinned content before publish (T-037).
 
 const SCHEMA = 'https://json-schema.org/draft/2020-12/schema';
 const objectOf = (fields) => ({
@@ -35,12 +32,8 @@ export function mqCsvContract() {
   };
 }
 
-/** The owner-SQL step: adds the CSV contract to the MQ system's settings. The system code is a plain slug. */
-export function mqContractSql(systemCode) {
-  if (!/^[a-z0-9-]{1,64}$/.test(systemCode)) throw new Error(`mqContractSql: ${systemCode} is not a plain system code`);
-  const json = JSON.stringify({ contract: mqCsvContract() });
-  return `UPDATE public.system SET settings = (settings::jsonb || '${json}'::jsonb) WHERE code='${systemCode}' AND type='MQ'`;
-}
+/** The sample record each mapping's mandatory sample run posts (the source contract's shape). */
+export const SAMPLE = Object.freeze({ orderNo: 'R1-SAMPLE', customer: 'CUST-A', qty: 1 });
 
 function must(answer, what) {
   if (answer.status !== 200 && answer.status !== 201) throw new Error(`${what}: HTTP ${answer.status} ${JSON.stringify(answer.data)}`);
@@ -57,7 +50,7 @@ export function routeFor(routes, system, index, systemId) {
 }
 
 /**
- * Seeds REF-ORDER. `call(login, method, path, body)` is the boot's console-session call; `author` / `approver` are its
+ * Seeds REF-ORDER (fully API-driven). `call(login, method, path, body)` is the boot's console-session call; `author` / `approver` are its
  * login names. Returns ids and the generated interface code (no secret except the issued source credential, which the
  * caller turns into a token in memory).
  */
@@ -65,7 +58,7 @@ export async function seedRefOrder({ call, author = 'default', approver = 'appro
   const as = async (login, method, path, body, what) => must(await call(login, method, path, body), `REF-ORDER ${what}`);
   const source = await as(author, 'POST', '/api/v1/admin/systems', { code: REF.source.system, name: REF.source.name, direction: 'INBOUND', type: 'API', settings: { baseUrl: sourceBase } }, 'source system');
   const targetA = await as(author, 'POST', '/api/v1/admin/systems', { code: REF.targetA.system, name: REF.targetA.name, direction: 'OUTBOUND', type: 'API', settings: { baseUrl: apiBase } }, 'target A system');
-  const targetB = await as(author, 'POST', '/api/v1/admin/systems', { code: REF.targetB.system, name: REF.targetB.name, direction: 'OUTBOUND', type: 'MQ', settings: { host: mq.host, port: mq.port, queue: mq.queue } }, 'target B (MQ) system');
+  const targetB = await as(author, 'POST', '/api/v1/admin/systems', { code: REF.targetB.system, name: REF.targetB.name, direction: 'OUTBOUND', type: 'MQ', settings: { host: mq.host, port: mq.port, queue: mq.queue, contract: mqCsvContract() } }, 'target B (MQ) system');
 
   const versionIds = {};
   for (const [key, contract, role] of [['source', REF.source, 'SOURCE_REQUEST'], ['targetA', REF.targetA, 'TARGET_REQUEST'], ['targetB', REF.targetB, 'TARGET_REQUEST']]) {
@@ -89,6 +82,14 @@ export async function seedRefOrder({ call, author = 'default', approver = 'appro
       fieldMappings: target.links.map(([from, to]) => ({ source: from, target: to }))
     }, `mapping ${target.system}`);
     bound.push(route.id);
+  }
+  // publish needs a passing sample run of each mapping's pinned content (T-037): re-read the routes for the mapping ids
+  const mapped = (await as(author, 'GET', `/api/v1/admin/flows/${flow.id}/routes`, undefined, 'routes after mapping')).routes ?? [];
+  for (const routeId of bound) {
+    const mappingId = mapped.find((route) => route.id === routeId)?.mappingId;
+    if (!mappingId) throw new Error(`REF-ORDER: route ${routeId} has no mapping id after the save`);
+    const run = await as(author, 'POST', `/api/v1/admin/mappings/${mappingId}/test`, { sample: SAMPLE }, `sample run ${mappingId}`);
+    if (run.status !== 'OK') throw new Error(`REF-ORDER sample run ${mappingId}: status ${run.status}`);
   }
   await as(author, 'PUT', `/api/v1/admin/flows/${flow.id}`, flowBody, 'draft save');
   await as(author, 'POST', `/api/v1/admin/flows/${flow.id}/submit`, { changeNote: 'REF-ORDER one call, two targets' }, 'submit');
