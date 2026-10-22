@@ -230,7 +230,7 @@ class DeadLetterDeliverStageContainerTest {
         return inTx(tenant, () -> {
             JdbcStage1Deliveries stage1 = new JdbcStage1Deliveries(repository(tenant), writer(tenant));
             stage1.insertPerRoute(List.of(
-                    new Stage1Delivery(message, route, acceptedAt, TARGET, null, null, null, null, null)));
+                    new Stage1Delivery(message, route, acceptedAt, TARGET, null, null, null, null, null, null)));
             return stage1.markMessageRouted(message);
         });
     }

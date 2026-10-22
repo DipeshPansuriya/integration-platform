@@ -434,10 +434,11 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                     "with ins as ("
                             + " insert into public.delivery"
                             + "   (tenant_id, state, created_at, updated_at, target_id, message_id, route_id,"
-                            + "    mapping_version_id, interface_id, business_key, key_seq)"
+                            + "    mapping_version_id, contract_version_id, interface_id, business_key, key_seq)"
                             + " values (:tenant_id::uuid, 'PENDING', :accepted_at, :accepted_at,"
                             + "   :target_endpoint_id::uuid, :message_id::uuid, :route_id::uuid,"
-                            + "   :mapping_version_id::uuid, :interface_id::uuid, :business_key, :key_seq::bigint)"
+                            + "   :mapping_version_id::uuid, :contract_version_id::uuid, :interface_id::uuid, :business_key,"
+                            + "   :key_seq::bigint)"
                             + " on conflict (message_id, route_id, created_at) do nothing"
                             + " returning id, tenant_id)"
                             + " select ins.id, ins.tenant_id from ins",
@@ -449,6 +450,8 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                             "route_id", delivery.routeId().toString(),
                             "mapping_version_id",
                             delivery.mappingVersionId() == null ? null : delivery.mappingVersionId().toString(),
+                            "contract_version_id",
+                            delivery.contractVersionId() == null ? null : delivery.contractVersionId().toString(),
                             "interface_id", delivery.interfaceId() == null ? null : delivery.interfaceId().toString(),
                             "business_key", delivery.businessKey(),
                             "key_seq", delivery.keySeq()),

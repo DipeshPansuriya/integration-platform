@@ -85,10 +85,12 @@ public final class Stage1FanOut implements StageConsumer.Handler {
 
     /** One delivery per ACTIVE, unconditional route of the pinned snapshot, pinning that route's mapping version. */
     static List<Stage1Delivery> plan(JdbcStage1Reads.PinnedMessage message, FlowBundle.Parsed snapshot) {
-        Map<String, String> mappingVersionByRoute = new HashMap<>();
+        // the mapping version and its target contract version are read from the SAME snapshot mapping, so the pair
+        // is the one the message was accepted under - the operator replay/retry pins both (BS-10)
+        Map<String, FlowBundle.SnapshotMapping> mappingByRoute = new HashMap<>();
         for (FlowBundle.SnapshotMapping mapping : snapshot.mappings()) {
             if (mapping.mappingVersionId() != null) {
-                mappingVersionByRoute.putIfAbsent(mapping.routeId(), mapping.mappingVersionId());
+                mappingByRoute.putIfAbsent(mapping.routeId(), mapping);
             }
         }
         List<Stage1Delivery> planned = new ArrayList<>();
@@ -101,10 +103,13 @@ public final class Stage1FanOut implements StageConsumer.Handler {
                         + " yet, the route is not matched", route.id(), message.id());
                 continue;
             }
-            String mappingVersion = mappingVersionByRoute.get(route.id());
+            FlowBundle.SnapshotMapping pinned = mappingByRoute.get(route.id());
             planned.add(new Stage1Delivery(message.id(), UUID.fromString(route.id()), message.acceptedAt(),
                     UUID.fromString(route.targetEndpointId()),
-                    mappingVersion == null ? null : UUID.fromString(mappingVersion), null, message.interfaceId(), message.businessKey(), message.keySeq()));
+                    pinned == null ? null : UUID.fromString(pinned.mappingVersionId()),
+                    pinned == null || pinned.targetContractVersionId() == null ? null
+                            : UUID.fromString(pinned.targetContractVersionId()),
+                    null, message.interfaceId(), message.businessKey(), message.keySeq()));
         }
         return planned;
     }
