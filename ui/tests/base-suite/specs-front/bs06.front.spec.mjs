@@ -7,11 +7,14 @@
 //   BS-06.2 refusals: off-pin 422, missing version / idempotency header 400, malformed 400, wrong or no
 //           Content-Type 415, unknown interface 404, no token 401 - 0 new message rows after each
 //   BS-06.3 size: over 1 MB -> 413 PAYLOAD_OVER_LIMIT (limit named, nothing persisted)
-//   BS-06.4 size: exactly 1 MB -> 202 (the cap is a strict ">"); last, because the biggest body is the one
-//           most likely to trouble the relay
+//   BS-06.4 size: exactly 1 MB -> 202 (the cap is a strict ">"); the padding is a NON-key field (`padding`),
+//           so the business key stays short; last, because the biggest body is the one most likely to trouble
+//           the relay. Second assertion: a business key over 2048 UTF-8 bytes -> 422 BUSINESS_KEY_TOO_LONG,
+//           nothing persisted (main bda37b3; before it, the over-bound key blew the transaction into a 503
+//           from the ordering-key index - the 1 MB body was never the cause).
 
 import { expect, test } from '@playwright/test';
-import { exactBytesBody, uuidShaped } from '../lib/front-checks.mjs';
+import { exactBytesBody, longKeyBody, uuidShaped } from '../lib/front-checks.mjs';
 import { intakeTimingSql, messageRowsSql, outboxAggregatesSql } from '../lib/direct-sql.mjs';
 import { BS_STORAGE_STATE } from '../lib/suite-config.mjs';
 import { FLOW, SOURCE_CONTRACT, TENANTS, orderRecord } from '../lib/tenants.mjs';
@@ -85,11 +88,17 @@ test('BS-06.3: a body over 1 MB is refused 413 PAYLOAD_OVER_LIMIT, the limit nam
   expect(messageCount()).toBe(before);
 });
 
-test('BS-06.4: a body of exactly 1 MB is accepted 202 (the cap is a strict ">")', async () => {
+test('BS-06.4: a body of exactly 1 MB (padded in a non-key field) is accepted 202; a business key over 2048 bytes is refused 422 BUSINESS_KEY_TOO_LONG', async () => {
   const before = messageCount();
   const answer = await rawIntake(token, intakeCode(TENANTS.A), { body: exactBytesBody(orderRecord(TENANTS.A, 604), LIMIT) });
   expect(answer.status, JSON.stringify(answer.data).slice(0, 200)).toBe(202);
   expect(uuidShaped(answer.data.trackingId)).toBe(true);
   addTracking('A', [answer.data.trackingId]);
   expect(messageCount()).toBe(before + 1);
+
+  const tooLong = await rawIntake(token, intakeCode(TENANTS.A), { body: longKeyBody(orderRecord(TENANTS.A, 605), 2049) });
+  expect(tooLong.status, JSON.stringify(tooLong.data).slice(0, 200)).toBe(422);
+  expect(tooLong.data.code).toBe('BUSINESS_KEY_TOO_LONG');
+  expect(tooLong.data.trackingId, 'a refusal carries no tracking id').toBeUndefined();
+  expect(messageCount(), 'the refused key persisted nothing').toBe(before + 1);
 });

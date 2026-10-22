@@ -7,7 +7,10 @@
 //   SC-07.2 B's admin reads A's message timeline -> 404; A's own read -> 200 (positive control)
 //   SC-07.3 B's failures list and queue summary carry nothing of A (ids, markers)
 //   SC-07.4 B's admin cannot rotate A's source credential; A's secret still works after the attempt
-//   SC-07.5 B's source posting A's customerId plus forged tenant headers lands in B's flow only
+//   SC-07.5 B's source posting A's customerId plus forged tenant headers is REFUSED 403 and nothing lands in
+//           either tenant. Reading agreed with Dipesh (row 375, run 8 finding 2): the tenant-isolation-safe
+//           answer is the refusal - the intake does not accept a customerId the credential is not bound to into
+//           the caller's own flow (the earlier TBD(T106) hypothesis of 202 into B's flow is withdrawn).
 
 import { expect, test } from '@playwright/test';
 import { foreignIdHits } from '../lib/front-checks.mjs';
@@ -84,7 +87,7 @@ test("SC-07.4: tenant B's admin cannot rotate tenant A's source credential - A's
   expect(token.length).toBeGreaterThan(20);
 });
 
-test("SC-07.5: tenant B's source posting tenant A's customerId with forged tenant headers lands in tenant B's flow only", async () => {
+test("SC-07.5: tenant B's source posting tenant A's customerId with forged tenant headers is refused 403 and nothing lands in either tenant", async () => {
   const { seed } = readRun();
   const b = await rotatedSecret(page, TENANTS.B, seed.B.credentialId);
   const bToken = await sourceToken(b.clientId, b.secretValue);
@@ -92,13 +95,9 @@ test("SC-07.5: tenant B's source posting tenant A's customerId with forged tenan
   const beforeB = countOf(TENANTS.B);
   const forged = { 'X-Tenant-Id': codeOf(TENANTS.A), 'X-Tenant': codeOf(TENANTS.A), 'X-Tenant-Code': codeOf(TENANTS.A) };
   const answer = await rawIntake(bToken, intakeCode(TENANTS.B), { body: JSON.stringify(forgedRecord(701)), extraHeaders: forged });
-  expect(answer.status, JSON.stringify(answer.data)).toBe(202);
-  addTracking('B', [answer.data.trackingId]);
+  expect(answer.status, JSON.stringify(answer.data)).toBe(403);
+  expect(answer.data?.trackingId, 'a refusal carries no tracking id').toBeUndefined();
+  expect(foreignIdHits(JSON.stringify(answer.data ?? ''), TENANTS.B, idsA()), "the refusal leaks nothing of A").toEqual([]);
   expect(countOf(TENANTS.A), "A's message count did not move").toBe(beforeA);
-  expect(countOf(TENANTS.B), "B's own flow took the message").toBe(beforeB + 1);
-  const own = await inBrowser(page, 'GET', `/api/v1/admin/messages/${answer.data.trackingId}/timeline`, undefined, TENANTS.B.admin);
-  expect(own.status, 'B reads the message it posted').toBe(200);
-  expect(own.data.flowId, "in B's flow").toBe(seed.B.flowId);
-  const aSees = await inBrowser(page, 'GET', `/api/v1/admin/messages/${answer.data.trackingId}/timeline`, undefined, TENANTS.A.admin);
-  expect(aSees.status, "A cannot read B's message").toBe(404);
+  expect(countOf(TENANTS.B), "B's message count did not move").toBe(beforeB);
 });

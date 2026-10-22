@@ -31,14 +31,22 @@ export function intakeStageProblems(timeline, trackingId, flowId) {
 }
 
 /**
- * The JSON text of `record` padded in orderId so the UTF-8 body is exactly `bytes` long (all ASCII, so the
+ * The JSON text of `record` plus a `padding` field so the UTF-8 body is exactly `bytes` long (all ASCII, so the
  * length is exact by construction) - the intake cap is a strict ">" on the body length (IntakeEndpointShapeTest:96).
+ * The padding is a NON-key field: the business key (orderId) stays short, because main refuses a key over 2048
+ * UTF-8 bytes with 422 BUSINESS_KEY_TOO_LONG (merge bda37b3), which would hide the body-size answer.
  */
 export function exactBytesBody(record, bytes) {
-  const plain = JSON.stringify(record);
-  if (Buffer.byteLength(plain, 'utf8') > bytes) throw new Error(`exactBytesBody: ${bytes} bytes is smaller than the record (${Buffer.byteLength(plain, 'utf8')})`);
-  const padded = JSON.stringify({ ...record, orderId: record.orderId + 'x'.repeat(bytes - Buffer.byteLength(plain, 'utf8')) });
-  return padded;
+  const empty = JSON.stringify({ ...record, padding: '' });
+  const base = Buffer.byteLength(empty, 'utf8');
+  if (base > bytes) throw new Error(`exactBytesBody: ${bytes} bytes is smaller than the record (${base})`);
+  return JSON.stringify({ ...record, padding: 'x'.repeat(bytes - base) });
+}
+
+/** The JSON text of `record` whose business key (orderId) is exactly `keyBytes` UTF-8 bytes (ASCII padding). */
+export function longKeyBody(record, keyBytes) {
+  if (keyBytes < record.orderId.length) throw new Error(`longKeyBody: ${keyBytes} bytes is smaller than the key (${record.orderId.length})`);
+  return JSON.stringify({ ...record, orderId: record.orderId + 'k'.repeat(keyBytes - record.orderId.length) });
 }
 
 /** The other tenant's markers and any of its ids (`ids`) found in an answer's text: [] when nothing leaks. */
