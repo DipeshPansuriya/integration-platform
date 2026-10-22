@@ -105,7 +105,7 @@ class KafkaAdvertisedListenerGuardTest {
             built.add(props);
             return producer;
         };
-        return new KafkaClientsSender(GUARD, null, factory);
+        return new KafkaClientsSender(GUARD, null, true, factory); // some cases here use PLAINTEXT (operator opt-in)
     }
 
     private static void send(KafkaClientsSender sender, KafkaTopicSettings settings) throws Exception {

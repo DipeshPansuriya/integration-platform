@@ -142,6 +142,14 @@ public final class SystemSettings {
      * @param settings the request's {@code settings} node (or {@code null}/missing/JSON null for none)
      */
     public static List<String> validate(JsonNode type, JsonNode settings) {
+        return validate(type, settings, false);
+    }
+
+    /**
+     * As above; {@code allowKafkaPlaintext} is the operator's {@code platform.config.destinations.kafka-allow-plaintext}
+     * (E16 R1/R2): false (the default) refuses a tenant's PLAINTEXT and SASL_PLAINTEXT.
+     */
+    public static List<String> validate(JsonNode type, JsonNode settings, boolean allowKafkaPlaintext) {
         boolean noType = absent(type);
         boolean noSettings = absent(settings);
         if (noType && noSettings) {
@@ -184,6 +192,12 @@ public final class SystemSettings {
         }
         if (typeName.equals("KAFKA")) {
             errors.addAll(kafkaSecurityProblems(settings));
+            if (!allowKafkaPlaintext && settings.get("securityProtocol") != null
+                    && settings.get("securityProtocol").isString()
+                    && settings.get("securityProtocol").stringValue().endsWith("PLAINTEXT")) {
+                errors.add("settings.securityProtocol must be SSL or SASL_SSL; clear text is off unless the operator "
+                        + "sets platform.config.destinations.kafka-allow-plaintext");
+            }
         }
         for (String name : settings.propertyNames()) {
             if (schema.stream().noneMatch(field -> field.name().equals(name))) {

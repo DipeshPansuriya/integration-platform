@@ -38,6 +38,7 @@ public class SystemAdminService {
     private final DestinationGuard guard;
     private final FileRoots fileRoots;
     private final Supplier<Optional<UUID>> tenant;
+    private final boolean allowKafkaPlaintext;
 
     /**
      * @param guard     T-124: the ONE destination guard, run on every type's host field at save (no DNS)
@@ -46,6 +47,14 @@ public class SystemAdminService {
      */
     public SystemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
             DestinationGuard guard, FileRoots fileRoots, Supplier<Optional<UUID>> tenant) {
+        this(systems, testConnection, guard, fileRoots, tenant, false);
+    }
+
+    /** @param allowKafkaPlaintext the operator's {@code platform.config.destinations.kafka-allow-plaintext} (E16 R1/R2) */
+    public SystemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
+            DestinationGuard guard, FileRoots fileRoots, Supplier<Optional<UUID>> tenant,
+            boolean allowKafkaPlaintext) {
+        this.allowKafkaPlaintext = allowKafkaPlaintext;
         this.fileRoots = Objects.requireNonNull(fileRoots, "fileRoots");
         this.tenant = Objects.requireNonNull(tenant, "tenant");
         this.systems = Objects.requireNonNull(systems, "systems");
@@ -198,7 +207,7 @@ public class SystemAdminService {
 
     /** The type's schema errors; a schema-valid host field then goes through the destination guard (T-124). */
     private List<String> settingsErrors(JsonNode type, JsonNode settings) {
-        List<String> schema = SystemSettings.validate(type, settings);
+        List<String> schema = SystemSettings.validate(type, settings, allowKafkaPlaintext);
         String typeName = SystemSettings.typeOf(type);
         return !schema.isEmpty() || typeName == null ? schema
                 : DestinationSettingsCheck.errors(typeName, settings, guard, fileRoots,

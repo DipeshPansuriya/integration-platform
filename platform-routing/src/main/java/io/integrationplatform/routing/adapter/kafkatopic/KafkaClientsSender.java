@@ -11,6 +11,7 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
@@ -34,11 +35,8 @@ final class KafkaClientsSender implements KafkaSender {
 
     private final DestinationGuard guard;
     private final Path truststoreDir;
+    private final boolean allowPlaintext;
     private final Function<Properties, Producer<byte[], byte[]>> producers;
-
-    KafkaClientsSender() {
-        this(null);
-    }
 
     KafkaClientsSender(DestinationGuard guard) {
         this(guard, null);
@@ -46,15 +44,31 @@ final class KafkaClientsSender implements KafkaSender {
 
     /** @param truststoreDir the operator's directory of truststore files; null = a system naming a truststore is refused */
     KafkaClientsSender(DestinationGuard guard, Path truststoreDir) {
-        this(guard, truststoreDir, KafkaProducer::new);
+        this(guard, truststoreDir, false, KafkaProducer::new);
     }
 
-    /** The producer factory is a seam so the advertised-broker guard is testable without a broker. */
+    /** TLS only; the producer factory is a seam so the guards are testable without a broker. */
     KafkaClientsSender(DestinationGuard guard, Path truststoreDir,
             Function<Properties, Producer<byte[], byte[]>> producers) {
-        this.guard = guard;
+        this(guard, truststoreDir, false, producers);
+    }
+
+    /** The production wiring: kafka-clients' own producer. */
+    KafkaClientsSender(DestinationGuard guard, Path truststoreDir, boolean allowPlaintext) {
+        this(guard, truststoreDir, allowPlaintext, KafkaProducer::new);
+    }
+
+    /**
+     * @param guard          never null (R9): a sender without a guard would skip every check
+     * @param allowPlaintext the operator's {@code platform.config.destinations.kafka-allow-plaintext}; false (default)
+     *                       refuses PLAINTEXT and SASL_PLAINTEXT at send (R1/R2)
+     */
+    KafkaClientsSender(DestinationGuard guard, Path truststoreDir, boolean allowPlaintext,
+            Function<Properties, Producer<byte[], byte[]>> producers) {
+        this.guard = java.util.Objects.requireNonNull(guard, "guard");
         this.truststoreDir = truststoreDir;
-        this.producers = producers;
+        this.allowPlaintext = allowPlaintext;
+        this.producers = java.util.Objects.requireNonNull(producers, "producers");
     }
 
     @Override
@@ -66,21 +80,31 @@ final class KafkaClientsSender implements KafkaSender {
     @Override
     public void send(KafkaTopicSettings settings, char[] saslPassword, UUID deliveryId, byte[] body,
             java.time.Duration timeout) throws Exception {
-        String bootstrapServers = settings.bootstrapServers();
-        if (guard != null) {
-            bootstrapServers = guardedBootstrapServers(settings, guard);
-        }
+        KafkaSecurityProtocol.requireAllowed(settings.protocol(), allowPlaintext);
+        String bootstrapServers = guardedBootstrapServers(settings, guard);
         Properties props = producerProperties(bootstrapServers, timeout, settings, saslPassword, truststoreDir);
+        AtomicReference<Exception> vetoed = new AtomicReference<>();
+        if (settings.protocol().tls()) {
+            // R1: the one hook kafka-clients has - the TLS engine factory is asked for an engine for EVERY node the
+            // client dials, after the TCP connect and before the ClientHello; it refuses a node the guard refuses
+            GuardedSslEngineFactory.install(props, guard, vetoed);
+        }
         ProducerRecord<byte[], byte[]> record = record(settings, deliveryId, body,
                 io.integrationplatform.ingest.port.CorrelationContext.currentTraceparent());
         try (Producer<byte[], byte[]> producer = producers.apply(props)) {
             // metadata first: a broker or topic that cannot be reached fails HERE, before any record is handed
             // over - nothing was sent, so the call classes it TRANSIENT (a timeout later is AMBIGUOUS)
-            List<PartitionInfo> partitions = producer.partitionsFor(settings.topic());
-            if (guard != null) {
-                // the cluster told us which brokers to dial: guard them before the record is handed over (F7)
-                AdvertisedBrokers.require(partitions, guard);
+            List<PartitionInfo> partitions;
+            try {
+                partitions = producer.partitionsFor(settings.topic());
+            } catch (RuntimeException failed) {
+                throwIfVetoed(vetoed);
+                throw failed;
             }
+            // the cluster told us which brokers to dial: guard them before the record is handed over (F7). This is
+            // the LATE check (the client may already have dialled); the TLS veto above and the operator's egress
+            // allow-list are the early ones.
+            AdvertisedBrokers.require(partitions, guard);
             try {
                 producer.send(record).get(timeout.toMillis(), TimeUnit.MILLISECONDS);
             } catch (ExecutionException refused) {
@@ -94,6 +118,14 @@ final class KafkaClientsSender implements KafkaSender {
                 }
                 throw refused;
             }
+        }
+    }
+
+    /** A node the TLS veto refused is a destination refusal (PERMANENT), whatever timeout the client reported. */
+    private static void throwIfVetoed(AtomicReference<Exception> vetoed) throws Exception {
+        Exception veto = vetoed.get();
+        if (veto != null) {
+            throw veto;
         }
     }
 

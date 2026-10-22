@@ -36,6 +36,7 @@ public final class JdbcDbSender implements DbSender {
 
     private final Duration timeout;
     private final String defaultSslmode;
+    private final java.nio.file.Path sslRootCert;
 
     public JdbcDbSender(Duration timeout) {
         this(timeout, DEFAULT_SSLMODE);
@@ -43,8 +44,17 @@ public final class JdbcDbSender implements DbSender {
 
     /** @param defaultSslmode the operator's default TLS mode for a target that names none ({@code disable} only for a test database) */
     public JdbcDbSender(Duration timeout, String defaultSslmode) {
+        this(timeout, defaultSslmode, null);
+    }
+
+    /**
+     * @param sslRootCert R3: the operator's CA file (already validated by {@link DbTlsPolicy#rootCert}); handed to the
+     *                    driver as {@code sslrootcert} when the effective mode verifies the server, null = driver default
+     */
+    public JdbcDbSender(Duration timeout, String defaultSslmode, java.nio.file.Path sslRootCert) {
         this.timeout = Objects.requireNonNull(timeout, "timeout");
         this.defaultSslmode = Objects.requireNonNull(defaultSslmode, "defaultSslmode");
+        this.sslRootCert = sslRootCert;
     }
 
     @Override
@@ -87,6 +97,9 @@ public final class JdbcDbSender implements DbSender {
         account.setProperty(PinnedSocketFactory.PINNED_PROPERTY, pinnedAddress.getHostAddress());
         String sslmode = message.settings().sslmode() == null ? defaultSslmode : message.settings().sslmode();
         account.setProperty("sslmode", sslmode);
+        if (sslRootCert != null && (sslmode.equals("verify-ca") || sslmode.equals("verify-full"))) {
+            account.setProperty("sslrootcert", sslRootCert.toString());
+        }
         return account;
     }
 
