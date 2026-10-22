@@ -135,6 +135,7 @@ test('the tracking detail shows the four-stage timeline: INTAKE, ROUTE, TRANSFOR
 
 // J3 ----------------------------------------------------------------------------------------------
 test('the traceparent the source sent is shown in the tracking detail', async ({ page }) => {
+  await page.goto(`${bsEnv('consoleUrl')}/`); // the page fixture starts at about:blank: no cookie to read until the console is open
   const tp = traceparentOf(randomBytes(16), randomBytes(8)); // the fresh trace id the journey claims
   const record = orderRecord(TENANTS.A, ORDER_OFFSET + 2);
   const answer = await postRecord(await sourceOf(page, TENANTS.A), intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, record,
@@ -165,6 +166,7 @@ test('the traceparent the source sent is shown in the tracking detail', async ({
 // afterAll so the suite leaves the environment as it found it.
 test('a dead-lettered delivery is visible on the failures screen and replayable from the operator screens', async ({ page }) => {
   const record = orderRecord(TENANTS.A, ORDER_OFFSET + 3);
+  await page.goto(`${bsEnv('consoleUrl')}/`); // same: the in-page API helpers need the console origin
   await setStub(TENANTS.A.stubPath, 403); // the refusal that dead-letters
   try {
     const answer = await postRecord(await sourceOf(page, TENANTS.A), intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, record);
