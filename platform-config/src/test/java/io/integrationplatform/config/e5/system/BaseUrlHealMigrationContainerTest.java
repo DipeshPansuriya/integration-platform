@@ -94,13 +94,13 @@ class BaseUrlHealMigrationContainerTest {
             seed(owner, tenantA, nearPlaceholder, "TARGET", "API", "{\"baseUrl\":\"https://near.partner.example/\"}",
                     "https://endpoint.invalid");
             seed(owner, tenantA, tabbed, "TARGET", "API",
-                    "{\"baseUrl\":\"\t\n https://tabbed.partner.example/x \r\n\"}", PLACEHOLDER);
+                    "{\"baseUrl\":\"\\t\\n https://tabbed.partner.example/x \\r\\n\"}", PLACEHOLDER);
             seed(owner, tenantA, userinfo, "TARGET", "API", "{\"baseUrl\":\"https://user:pw@evil.example/\"}",
                     PLACEHOLDER);
             seed(owner, tenantA, ftp, "TARGET", "API", "{\"baseUrl\":\"ftp://files.partner.example/\"}", PLACEHOLDER);
             seed(owner, tenantA, tooLong, "TARGET", "API",
                     "{\"baseUrl\":\"https://long.partner.example/" + "a".repeat(2100) + "\"}", PLACEHOLDER);
-            seed(owner, tenantA, innerNewline, "TARGET", "API", "{\"baseUrl\":\"https://in\nner.partner.example/\"}",
+            seed(owner, tenantA, innerNewline, "TARGET", "API", "{\"baseUrl\":\"https://in\\nner.partner.example/\"}",
                     PLACEHOLDER);
         }
         flyway(locations).load().migrate();
