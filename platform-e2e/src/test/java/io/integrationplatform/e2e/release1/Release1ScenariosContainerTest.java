@@ -128,7 +128,7 @@ class Release1ScenariosContainerTest {
             }
             java.util.concurrent.locks.LockSupport.parkNanos(Duration.ofMillis(250).toNanos()); // poll interval, not a fixed wait
         }
-        throw new AssertionError("WireMock journal did not show " + expected + "x " + needle + " within " + SETTLE
+        throw new AssertionError("WireMock journal showed " + Release1Client.occurrences(body, needle) + " of " + expected + "x " + needle + " within " + limit
                 + "; journal tail: " + body.substring(Math.max(0, body.length() - 1500)));
     }
 
@@ -230,7 +230,7 @@ class Release1ScenariosContainerTest {
     @WaitsOn({"T99", "T98", "T143"})
     void sc03RetryThenSuccessKeepsAppendOnlyAttempts() throws Exception {
         Release1Client client = client();
-        String scenario = "{\"request\":{\"method\":\"POST\",\"urlPathPattern\":\"/target-a/.*\"},"
+        String scenario = "{\"request\":{\"method\":\"POST\",\"urlPathPattern\":\"/target-a/.*\",\"bodyPatterns\":[{\"contains\":\"R1-SC03\"}]},"
                 + "\"response\":{\"status\":%d},\"scenarioName\":\"sc03\",\"requiredScenarioState\":\"%s\","
                 + "\"newScenarioState\":\"%s\",\"priority\":1}";
         client.wiremockStub(wiremockBase(), scenario.formatted(503, "Started", "second"));
@@ -246,7 +246,7 @@ class Release1ScenariosContainerTest {
                 .anyMatch(row -> row.get(1).equals("DELIVERED") && row.get(3).equals("3")));
         assertThat(deliveries).as("deliveries of %s:%n  %s", trackingId, describe(deliveries)).anyMatch(row ->
                 row.get(1).equals("DELIVERED") && row.get(3).equals("3") && row.get(4).equals("TRANSIENT,TRANSIENT,SUCCESS")
-                        && row.get(5).contains("RETRY"));
+                        && row.get(5).equals("CLAIM,DELIVER")); // layer 1 redelivers inside ONE claim (ADR-010 s4): the two 503s are attempt rows, not RETRY events
         String timeline = awaitBody(client, E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
                 Release1Client.bearer("TENANT_ADMIN"), SETTLE, "DELIVERED");
         assertThat(timeline).contains("DELIVERED");
