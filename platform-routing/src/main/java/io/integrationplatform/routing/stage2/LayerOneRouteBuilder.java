@@ -103,6 +103,9 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
             attempts.record(send.deliveryId(), 1, OutcomeClass.SUCCESS, started, clock.get(),
                     "layer-1 try " + tryNumber + ": success");
             log.info("stage 2: delivery {} - layer-1 try {}: SUCCESS", send.deliveryId(), tryNumber);
+            // B32: Camel leaves the earlier try's exception on the exchange after a redelivery; the dispatch reads that
+            // property as "layer 1 failed", so a success after TRANSIENT tries must clear it or the delivery stays SENDING
+            exchange.removeProperty(Exchange.EXCEPTION_CAUGHT);
         } catch (TargetFaultException.CircuitOpenException open) {
             exchange.setProperty(CIRCUIT_RETRY_AFTER, open.retryAfter());
             log.info("stage 2: delivery {} - layer-1 try {}: refused by the open circuit, nothing sent",
