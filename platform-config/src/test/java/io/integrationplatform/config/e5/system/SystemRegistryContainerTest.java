@@ -259,13 +259,13 @@ class SystemRegistryContainerTest {
         Response privateApi = call(port, "POST", SYSTEMS, subject,
                 systemBody(randomCode("sys-priv"), "OUTBOUND", "API", "{\"baseUrl\":\"http://10.0.0.5/orders\"}"));
         assertThat(privateApi.status()).as("body: %s", privateApi.body()).isEqualTo(400);
-        assertThat(String.join("\n", errorsOf(privateApi))).contains("baseUrl").contains("private");
+        assertThat(String.join("\n", errorsOf(privateApi))).contains("baseUrl").contains("refused address");
 
         Response metadataMq = call(port, "POST", SYSTEMS, subject,
                 systemBody(randomCode("sys-meta"), "OUTBOUND", "MQ",
                         "{\"host\":\"169.254.169.254\",\"port\":1414,\"queue\":\"Q\"}"));
         assertThat(metadataMq.status()).as("body: %s", metadataMq.body()).isEqualTo(400);
-        assertThat(String.join("\n", errorsOf(metadataMq))).contains("host").contains("link-local");
+        assertThat(String.join("\n", errorsOf(metadataMq))).contains("host").contains("refused address");
 
         Response offList = call(port, "POST", SYSTEMS, subject,
                 systemBody(randomCode("sys-offlist"), "OUTBOUND", "API", "{\"baseUrl\":\"https://not-allowed.example/\"}"));
@@ -287,7 +287,7 @@ class SystemRegistryContainerTest {
         Response refusedEdit = call(port, "PUT", SYSTEMS + "/" + id, subject,
                 "{\"type\":\"API\",\"settings\":{\"baseUrl\":\"http://[::ffff:10.0.0.5]/\"}}");
         assertThat(refusedEdit.status()).as("body: %s", refusedEdit.body()).isEqualTo(400);
-        assertThat(String.join("\n", errorsOf(refusedEdit))).contains("private");
+        assertThat(String.join("\n", errorsOf(refusedEdit))).contains("refused address");
         assertThat(scalar("SELECT settings->>'baseUrl' FROM public.system WHERE id = ?::uuid", id))
                 .as("a refused edit changes nothing").isEqualTo("https://a.partner.example/");
     }
