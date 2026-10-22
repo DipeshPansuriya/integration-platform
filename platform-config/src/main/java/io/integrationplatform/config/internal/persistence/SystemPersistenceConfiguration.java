@@ -190,12 +190,12 @@ class SystemPersistenceConfiguration {
     @Bean
     SystemAdminService systemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
             DestinationGuard guard, FileRoots fileRoots, ObjectProvider<TenantContext> tenantContexts,
-            Environment environment) {
+            Environment environment, org.springframework.context.ApplicationEventPublisher events) {
         // E16 R1/R2: clear-text Kafka stays off unless the operator opts in (the sender reads the same property)
         boolean allowKafkaPlaintext = Binder.get(environment)
                 .bind("platform.config.destinations.kafka-allow-plaintext", Boolean.class).orElse(false);
         return new SystemAdminService(systems, testConnection, guard, fileRoots,
                 () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId(),
-                allowKafkaPlaintext);
+                allowKafkaPlaintext, events);
     }
 }
