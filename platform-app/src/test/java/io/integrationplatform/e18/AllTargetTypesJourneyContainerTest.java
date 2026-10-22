@@ -11,6 +11,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.sql.Statement;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -172,22 +174,63 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
 
     // ----------------------------------------------------------------------------------------------------- DB
 
-    /** The F3 approval of {@code partner_orders} for the tenant's DB system: a requester and a DIFFERENT approver. */
+    /**
+     * The F3 approval of {@code partner_orders} for the tenant's DB system, through the real admin API: a CONFIGURATOR
+     * requests the table, a DIFFERENT user (APPROVER) approves it (E16 F3 D4); no row is inserted by the owner.
+     */
     private void approvePartnerOrders(UUID tenantId) {
-        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES);
-                java.sql.PreparedStatement stamp = owner.prepareStatement("select set_config('app.tenant_id', ?, false)");
-                java.sql.PreparedStatement insert = owner.prepareStatement("insert into public.db_target_approved_table"
-                        + " (tenant_id, system_id, table_name, status, requested_by, decided_by, decided_at, target_hash)"
-                        + " select s.tenant_id, s.id, 'partner_orders', 'APPROVED', 'e18-configurator', 'e18-approver',"
-                        + " now(), public.db_target_fingerprint(s.settings) from public.system s"
-                        + " where s.tenant_id = ?::uuid and s.type = 'DB'")) {
-            stamp.setString(1, tenantId.toString());
-            stamp.execute();
-            insert.setString(1, tenantId.toString());
-            assertThat(insert.executeUpdate()).as("the DB system's approval row").isEqualTo(1);
-        } catch (java.sql.SQLException e) {
+        try {
+            String systemId = ownerString("select id from public.system where tenant_id = ?::uuid and type = 'DB'",
+                    tenantId);
+            String path = "/api/v1/admin/systems/" + systemId + "/approved-tables";
+            String configurator = adminUserToken(tenantId, "CONFIGURATOR");
+            String approver = adminUserToken(tenantId, "APPROVER");
+
+            HttpResponse<String> requested = adminCall(path, configurator, "{\"table\":\"partner_orders\"}");
+            assertThat(requested.statusCode()).as("request: %s", requested.body()).isEqualTo(201);
+            String rowId = JSON.readTree(requested.body()).path("id").asString();
+            HttpResponse<String> approved = adminCall(path + "/" + rowId + "/approve", approver, null);
+            assertThat(approved.statusCode()).as("approve: %s", approved.body()).isEqualTo(200);
+            assertThat(JSON.readTree(approved.body()).path("status").asString()).isEqualTo("APPROVED");
+        } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** A Keycloak service-account token whose subject is registered as a user of the tenant with one role. */
+    private String adminUserToken(UUID tenantId, String role) throws Exception {
+        ClientCredentials client = newSource("e18-" + role.toLowerCase());
+        String token = KEYCLOAK.clientCredentialsToken(client.clientId(), client.secret());
+        var claims = JSON.readTree(new String(java.util.Base64.getUrlDecoder().decode(token.split("[.]")[1]),
+                StandardCharsets.UTF_8));
+        UUID userId = UUID.randomUUID();
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES);
+                java.sql.PreparedStatement user = owner.prepareStatement("insert into app_user (id, tenant_id, issuer,"
+                        + " subject, status) values (?::uuid, ?::uuid, ?, ?, 'ACTIVE')");
+                java.sql.PreparedStatement grant = owner.prepareStatement(
+                        "insert into role_grant (tenant_id, user_id, role) values (?::uuid, ?::uuid, ?)")) {
+            user.setString(1, userId.toString());
+            user.setString(2, tenantId.toString());
+            user.setString(3, claims.path("iss").asString());
+            user.setString(4, claims.path("sub").asString());
+            user.executeUpdate();
+            grant.setString(1, tenantId.toString());
+            grant.setString(2, userId.toString());
+            grant.setString(3, role);
+            grant.executeUpdate();
+        }
+        return token;
+    }
+
+    private HttpResponse<String> adminCall(String path, String token, String body) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(backend().resolve(path)).timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token).header("Accept", "application/json");
+        if (body != null) {
+            request.header("Content-Type", "application/json");
+        }
+        return HTTP.send(request.POST(body == null ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     @Test
