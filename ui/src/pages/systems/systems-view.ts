@@ -19,11 +19,14 @@ export function filterSystems<T extends SystemRow>(systems: T[], text: string): 
   );
 }
 
+/** Mirrors api/systems.ts CREDENTIAL_NAME (the edit form's mask; a test pins the two as one expression). */
+const CREDENTIAL_NAME = /password|passwd|secret|token|credential|apikey|api_key|private/i;
+
 /** The settings as one joined string (the cell truncates it and shows it whole as a tooltip). */
 export function settingsSummary(settings: Record<string, unknown> | null | undefined): string {
   if (!settings) return '-';
   return Object.entries(settings)
-    .map(([name, value]) => `${name}: ${String(value)}`)
+    .map(([name, value]) => `${name}: ${CREDENTIAL_NAME.test(name) ? '(hidden)' : String(value)}`)
     .join(', ');
 }
 
@@ -54,6 +57,11 @@ export function errorAnchor(error: string): string | null {
 /** True when one of the API's errors names this settings field (the field then carries aria-invalid). */
 export function fieldHasError(errors: string[], settingName: string): boolean {
   return errors.some((error) => errorAnchor(error) === `sys-setting-${settingName}`);
+}
+
+/** True when one of the API's errors names this top-level field (code, name, direction, type): aria-invalid. */
+export function topFieldHasError(errors: string[], field: 'code' | 'name' | 'direction' | 'type'): boolean {
+  return errors.some((error) => errorAnchor(error) === `sys-field-${field}`);
 }
 
 /** The word in a row's result cell while its connection test is running (B29 C1). */

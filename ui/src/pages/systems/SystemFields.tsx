@@ -4,18 +4,28 @@
 
 import { Fragment } from 'react';
 import { SYSTEM_TYPES, TYPE_LABELS, settingsFieldsOf, settingsNoteOf } from '../../api/systems';
-import { errorAnchor, fieldHasError } from './systems-view';
+import { errorAnchor, fieldHasError, topFieldHasError } from './systems-view';
 
 export type FormValues = Record<string, string | boolean>;
 
 /** The id the invalid fields point their aria-describedby at: the list of errors below the form. */
-const ERRORS_ID = 'sys-validation-errors';
+export const ERRORS_ID = 'sys-validation-errors';
 
-export function TypeField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+export function TypeField({ value, onChange, errors = [] }: { value: string; onChange: (value: string) => void; errors?: string[] }) {
+  const invalid = topFieldHasError(errors, 'type');
   return (
     <label>
-      Type
-      <input id="sys-field-type" list="system-types" data-field="system-type" value={value} onChange={(e) => onChange(e.target.value)} />
+      Type *
+      <input
+        id="sys-field-type"
+        list="system-types"
+        data-field="system-type"
+        value={value}
+        aria-required
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? ERRORS_ID : undefined}
+        onChange={(e) => onChange(e.target.value)}
+      />
       <datalist id="system-types">
         {SYSTEM_TYPES.map((type) => (
           <option key={type} value={type}>

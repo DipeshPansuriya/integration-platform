@@ -190,7 +190,14 @@ export function Systems() {
                     <td>{system.direction === 'INBOUND' ? 'Inbound' : 'Outbound'}</td>
                     <td>{system.type ? (TYPE_LABELS[system.type as SystemType] ?? system.type) : 'untyped'}</td>
                     <td className="systems-settings">
-                      <span title={summary}>{summary}</span>
+                      <span
+                        className="systems-settings-text"
+                        title={summary}
+                        tabIndex={0}
+                        aria-label={`Settings of ${system.code}: ${summary}`}
+                      >
+                        {summary}
+                      </span>
                     </td>
                     <td className="systems-test">
                       {testing.has(system.id) && (
