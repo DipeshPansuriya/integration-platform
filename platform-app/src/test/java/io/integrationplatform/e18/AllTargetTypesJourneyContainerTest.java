@@ -185,13 +185,15 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
             String path = "/api/v1/admin/systems/" + systemId + "/approved-tables";
             String configurator = adminUserToken(tenantId, "CONFIGURATOR");
             String approver = adminUserToken(tenantId, "APPROVER");
+            // RolePolicy MANAGE_TARGET_CREDENTIAL is TENANT_ADMIN only (E5 T-103): saving the secret is not a CONFIGURATOR operation
+            String tenantAdmin = adminUserToken(tenantId, "TENANT_ADMIN");
 
             // T178a: the approval probes the restricted account with ITS vault password (fail closed: no credential =
             // DB_ACCOUNT_UNVERIFIED), so the partner account's password is stored through the real credential API first
             String endpointId = ownerString("select id from public.target_endpoint where tenant_id = ?::uuid"
                     + " and system_id = ?::uuid", tenantId, systemId);
             HttpResponse<String> stored = adminPut("/api/v1/admin/target-endpoints/" + endpointId + "/credentials",
-                    configurator, "{\"fields\":{\"accountPassword\":\"" + PARTNER_ACCOUNT_PASSWORD + "\"}}");
+                    tenantAdmin, "{\"fields\":{\"accountPassword\":\"" + PARTNER_ACCOUNT_PASSWORD + "\"}}");
             assertThat(stored.statusCode()).as("store the partner account password: %s", stored.body()).isEqualTo(200);
 
             HttpResponse<String> requested = adminCall(path, configurator, "{\"table\":\"partner_orders\"}");
