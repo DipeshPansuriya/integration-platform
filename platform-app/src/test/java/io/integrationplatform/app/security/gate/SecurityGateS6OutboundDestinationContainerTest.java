@@ -19,7 +19,7 @@ class SecurityGateS6OutboundDestinationContainerTest {
      * Expected: ipaas_work_tenant(MESSAGE, id) (ADR-011 D8) resolves the tenant from the row; the forged value changes nothing; unknown id → no effect, offset commits
      */
     @Test
-    @Disabled("T68: E8 message store / E9 stage-1 not on main (T141 gate case S6-A1)")
+    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T68 (E8 message store / E9 stage-1) is on main (c33503da, V2_3_930); body not yet written - DB-level case on the real schema (T141 gate case S6-A1)")
     void s6_a1_forged_tenant_header_value_on_a() {
         fail("S6-A1 body lands with T68");
     }
@@ -29,7 +29,7 @@ class SecurityGateS6OutboundDestinationContainerTest {
      * Expected: SECURITY DEFINER returns only the tenant id and only for the closed kinds; wrong-kind/garbage input → NULL/error, no tenant grant; no fifth definer function exists (ADR-012 §4, T5 stays at four)
      */
     @Test
-    @Disabled("T68: E8 message store / E9 stage-1 not on main (T141 gate case S6-A2)")
+    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T68 (E8 message store / E9 stage-1) is on main (c33503da, V2_3_930); body not yet written - DB-level case on the real schema (T141 gate case S6-A2)")
     void s6_a2_ipaas_work_tenant_definer_abuse() {
         fail("S6-A2 body lands with T68");
     }
@@ -39,7 +39,7 @@ class SecurityGateS6OutboundDestinationContainerTest {
      * Expected: Stage 1 keys off ids only; extra fields ignored (or rejected); replay/duplicate behaves per ADR-014 process table (0 rows updated)
      */
     @Test
-    @Disabled("T68: E8 message store / E9 stage-1 not on main (T141 gate case S6-A3)")
+    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T68 (E8 message store / E9 stage-1) is on main (c33503da, V2_3_930); body not yet written - DB-level case on the real schema (T141 gate case S6-A3)")
     void s6_a3_record_produced_without_with_forged_aggregate() {
         fail("S6-A3 body lands with T68");
     }
@@ -49,7 +49,7 @@ class SecurityGateS6OutboundDestinationContainerTest {
      * Expected: 0 rows inserted: created_at comes from the message's accepted_at, never the caller's clock (the Stage1Deliveries seam takes the message, not a free Instant - architecture test pins it)
      */
     @Test
-    @Disabled("T68: E8 message store / E9 stage-1 not on main (T141 gate case S6-A4)")
+    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T68 (E8 message store / E9 stage-1) is on main (c33503da, V2_3_930); body not yet written - DB-level case on the real schema (T141 gate case S6-A4)")
     void s6_a4_stage_1_conditional_update_bypass() {
         fail("S6-A4 body lands with T68");
     }
@@ -59,7 +59,7 @@ class SecurityGateS6OutboundDestinationContainerTest {
      * Expected: Recorded posture on the demo compose (likely open localhost for demo); **Kafka ACL production posture is deployment-only** - marked TBD with an explicit "cannot be verified from this environment", filed for the release checklist, not a code finding
      */
     @Test
-    @Disabled("T136: deployment-only check, runs from the release checklist (T141 gate case S6-A5)")
+    @Disabled("BY DESIGN: T136 deployment-only check, runs from the release checklist (relay lock / consumer authorisation posture needs the deployed environment) (T141 gate case S6-A5)")
     void s6_a5_relay_lock_consumer_authorization_posture() {
         fail("S6-A5 body lands with T136");
     }
@@ -69,7 +69,7 @@ class SecurityGateS6OutboundDestinationContainerTest {
      * Expected: N deliveries for N routes, not 2N; second run updates 0 rows; 0 second outbox rows
      */
     @Test
-    @Disabled("T68: E8 message store / E9 stage-1 not on main (T141 gate case S6-A6)")
+    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T68 (E8 message store / E9 stage-1) is on main (c33503da, V2_3_930); body not yet written - DB-level case on the real schema (T141 gate case S6-A6)")
     void s6_a6_duplicate_record_publication() {
         fail("S6-A6 body lands with T68");
     }
