@@ -149,6 +149,26 @@ class FileRootsTest {
     }
 
     @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("R11: base/<tenant id> that is a link to another tenant's folder no longer passes; the folder must BE the tenant's own")
+    void aTenantFolderLinkToAnotherTenantsFolderIsRefused() throws IOException {
+        UUID otherTenant = UUID.randomUUID();
+        Files.createDirectories(base.resolve(otherTenant.toString()));
+        Files.createDirectories(tenantRoot);
+        Files.delete(tenantRoot);
+        try {
+            Files.createSymbolicLink(base.resolve(tenant.toString()), base.resolve(otherTenant.toString()));
+        } catch (IOException | UnsupportedOperationException | SecurityException noLinks) {
+            Assumptions.abort("this machine cannot create symbolic links: " + noLinks);
+        }
+        Path insideTheLink = base.resolve(tenant.toString()).resolve("out");
+
+        assertThat(roots.resolve(insideTheLink.toString(), tenant))
+                .as("the real folder belongs to another tenant: refused").isEmpty();
+    }
+
+    @Test
     @Tag("security")
     @DisplayName("No tenant bound: refused (fail closed)")
     void noTenantIsRefused() {
