@@ -433,14 +433,16 @@ class ForgedTenantDenialSuiteTest {
         }
         String body = entry.acceptsBody() ? entry.bodyForA().apply(view) : null;
         if (forgery == Forgery.BODY_FIELD || foreignCustomer != null) {
-            ObjectNode forged = (ObjectNode) JSON.readTree(body);
+            // T115 bulk intake sends a JSON array: forge its first element (the whole array is written back)
+            JsonNode tree = JSON.readTree(body);
+            ObjectNode forged = (ObjectNode) (tree.isArray() ? tree.get(0) : tree);
             if (forgery == Forgery.BODY_FIELD) {
                 forged.put(Forgery.TENANT_FIELD, foreignTenant);
             }
             if (foreignCustomer != null) {
                 forged.put(SourceForgery.CUSTOMER_FIELD, foreignCustomer);
             }
-            body = JSON.writeValueAsString(forged);
+            body = JSON.writeValueAsString(tree);
         }
 
         HttpRequest.Builder request = HttpRequest.newBuilder(BACKEND.resolve(path))

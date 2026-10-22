@@ -6,6 +6,15 @@ import static org.mockito.Mockito.mock;
 import io.integrationplatform.app.message.DeliveryOperatorController;
 import io.integrationplatform.app.activity.ActivityController;
 import io.integrationplatform.app.activity.ActivityService;
+import io.integrationplatform.app.report.ReportFacade;
+import io.integrationplatform.app.report.ReportFacadeController;
+import io.integrationplatform.config.scheduler.JobAdminService;
+import io.integrationplatform.config.scheduler.PollingSchedulingBoundary;
+import io.integrationplatform.config.scheduler.adapter.in.JobAdminController;
+import io.integrationplatform.config.system.adapter.in.ApprovedTableAdminController;
+import io.integrationplatform.config.system.application.ApprovedTableService;
+import io.integrationplatform.delivery.port.DeliveryDailyAggregates;
+import io.integrationplatform.delivery.report.DeliveryReportController;
 import io.integrationplatform.app.message.MessageTrackingController;
 import io.integrationplatform.app.message.MessageTrackingService;
 import io.integrationplatform.app.queue.QueueSummaryController;
@@ -45,6 +54,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -214,7 +224,13 @@ class EndpointMatrixCoverageTest {
                 // row 327 E12 seam (T118): the activity read, covered by E12ActivityMatrix; mocked service and
                 // providers, nothing is invoked
                 new ActivityController(mock(ActivityService.class), mock(ConfigActors.class),
-                        mock(ObjectProvider.class), mock(ObjectProvider.class))};
+                        mock(ObjectProvider.class), mock(ObjectProvider.class)),
+                // T186: job admin, the two report reads and the approved tables, covered by the T186*Matrix parts
+                new JobAdminController(mock(JobAdminService.class), mock(PollingSchedulingBoundary.class)),
+                new DeliveryReportController(mock(DeliveryDailyAggregates.class),
+                        mock(PlatformTransactionManager.class)),
+                new ReportFacadeController(mock(ReportFacade.class)),
+                new ApprovedTableAdminController(mock(ApprovedTableService.class), mock(ConfigActors.class))};
     }
 
     private static Object[] withPlanted(Object planted) {
