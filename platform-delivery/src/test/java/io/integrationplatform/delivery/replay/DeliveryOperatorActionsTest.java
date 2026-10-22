@@ -53,7 +53,7 @@ class DeliveryOperatorActionsTest {
     private final DeliveryOperatorActions actions = actions(() -> Optional.of(TENANT));
 
     private DeliveryOperatorActions actions(TenantContext tenants) {
-        return new DeliveryOperatorActions(store, targets::get, entry -> {
+        return new DeliveryOperatorActions(store, target -> Optional.ofNullable(targets.get(target)), entry -> {
             outbox.add(entry);
             return outbox.size();
         }, published::add, tenants, TransactionOperations.withoutTransaction(), Clock.fixed(NOW, ZoneOffset.UTC));
