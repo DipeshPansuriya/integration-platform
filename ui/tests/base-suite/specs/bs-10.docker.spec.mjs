@@ -13,14 +13,7 @@
 //   -> DEAD_LETTERED -> DUE -> DELIVERED with the pinned versions; attempt history kept; ONE audit event
 //      (actor, tenant, delivery id, pinned versions); reopen: delivered; dashboard failed -1 / converted +1
 //
-// Expected RED today, in this order:
-//   1. global-setup: "dev-only exception not configured - waits for row 278" (or "still TBD(row278)");
-//   2. "replayApi is still TBD(T111)" (then replayAction, auditReplayAction, auditActor) - the names are
-//      read BEFORE the stub is touched or anything is posted, so a TBD leaves no half-done state;
-//   3. with the names swapped, before T106: the 202 lands and nothing is ever sent - the dead-letter wait
-//      times out with the delivery missing;
-//   4. before T110 / T112: the failures read / screen are missing; before T111 / T109: no replay, no audit.
-// Green needs T105, T106, T108, T109, T110, T111, T112 and row 278's exception after T137.
+// Status lives in the gate (waitsOn / lib/pending-names.mjs) and the run report _reports/2026-10-22-base-suite-run.md, not in this header.
 // Never run against production; never a psql-seeded row (unit/direct-sql.test.mjs scans this file).
 
 import { expect, test } from '@playwright/test';

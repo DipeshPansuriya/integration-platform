@@ -5,14 +5,7 @@
 // (provenanceGaps), and no base-suite source writes a pipeline row (unit/direct-sql.test.mjs). Tenant B's
 // admin sees only tenant B's flow. Counts move without a restart.
 //
-// Expected RED today, in this order:
-//   1. global-setup: "dev-only exception not configured - waits for row 278" (or "still TBD(row278)");
-//   2. with the exception but before T106: BS-07 leaves its messages ACCEPTED (nothing consumes them), so
-//      "every row settled" times out with tenant A's messages still ACCEPTED - and processed/converted
-//      would stay 0;
-//   3. before T113: the dashboard row of a flow is missing or a figure differs from the direct count
-//      (T113's proof is psql-seeded on lane t70, not main).
-// Green needs T106, T113 and row 278's exception after T137 (real DELIVERED rows need a reachable target).
+// Status lives in the gate (waitsOn / lib/pending-names.mjs) and the run report _reports/2026-10-22-base-suite-run.md, not in this header.
 
 import { expect, test } from '@playwright/test';
 import { FIGURES, countsOf, deriveCounts, differences, provenanceGaps } from '../lib/counts.mjs';
