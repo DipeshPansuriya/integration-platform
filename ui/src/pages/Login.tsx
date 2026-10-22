@@ -16,6 +16,15 @@ export function Login({ state, onRetry }: { state: LoginState; onRetry: () => vo
   const retry = useRef<HTMLButtonElement>(null);
   const [redirecting, setRedirecting] = useState(false);
 
+  // Row 372 M8: Back from the identity provider can restore this page from the bfcache with `redirecting` still true.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setRedirecting(false);
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
+
   useEffect(() => {
     if (state === 'signed-out') sso.current?.focus();
     if (state === 'error') retry.current?.focus();

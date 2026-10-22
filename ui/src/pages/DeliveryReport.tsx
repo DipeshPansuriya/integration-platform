@@ -3,6 +3,7 @@
 // the request has a .catch and a stale-response guard, and an empty day answer has its own state.
 import { useEffect, useState } from 'react';
 import { deliveryReport } from '../api/reports';
+import { refusalWords } from '../ui/refusal-words';
 import {
   NO_DAY_COPY,
   emptyReportText,
@@ -84,8 +85,7 @@ export default function DeliveryReport() {
       )}
       {(view === 'refused' || view === 'error') && (
         <p role="alert" className="op-alert op-alert-danger" data-refusal={`delivery-report-${view}`}>
-          {REFUSAL_COPY[view]}
-          {view === 'error' && status > 0 && ` (HTTP ${status})`}
+          {view === 'error' && status > 0 ? refusalWords(status, 'the delivery report') : REFUSAL_COPY[view]}
         </p>
       )}
       {view === 'loading' && (

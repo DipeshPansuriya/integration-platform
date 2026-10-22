@@ -40,6 +40,7 @@ import { MappingDesigner } from './pages/MappingDesigner';
 // Row 310 lane A (sanjay-developer, T87): the Dashboard at #/ and the in-app sign-in card at #/login.
 import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
+import { safeDecode } from './safe-decode';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
 // #/rules/<ruleSetId> authors one as decision tables beside the always-visible test panel. Loaded on
@@ -107,7 +108,7 @@ function parseHash(): Route {
   if (flow) return { page: 'flows', flowId: flow[1] };
   if (hash.startsWith('flows')) return { page: 'flows', flowId: null };
   const version = /^versions\/(.+)$/.exec(hash);
-  if (version) return { page: 'versions', flowId: decodeURIComponent(version[1]) };
+  if (version) return { page: 'versions', flowId: safeDecode(version[1]) };
   if (hash.startsWith('versions')) return { page: 'versions', flowId: null };
   if (hash.startsWith('systems')) return { page: 'systems', flowId: null };
   if (hash.startsWith('queue')) return { page: 'queue', flowId: null };
@@ -118,11 +119,11 @@ function parseHash(): Route {
   if (hash.startsWith('reports')) return { page: 'reports', flowId: null };
   if (hash.startsWith('contracts')) return { page: 'contracts', flowId: null };
   const ruleSet = /^rules\/(.+)$/.exec(hash);
-  if (ruleSet) return { page: 'rules', flowId: null, ruleSetId: decodeURIComponent(ruleSet[1]) };
+  if (ruleSet) return { page: 'rules', flowId: null, ruleSetId: safeDecode(ruleSet[1]) };
   if (hash.startsWith('rules')) return { page: 'rules', flowId: null, ruleSetId: null };
   // E7 seam: #/mappings lists mappings - per route once the canvas (lane D1) fills the page.
   const routeId = /^mappings\/(.+)$/.exec(hash);
-  if (routeId) return { page: 'mappings', flowId: null, routeId: decodeURIComponent(routeId[1]) };
+  if (routeId) return { page: 'mappings', flowId: null, routeId: safeDecode(routeId[1]) };
   if (hash.startsWith('mappings')) return { page: 'mappings', flowId: null, routeId: null };
   return { page: 'home', flowId: null };
 }

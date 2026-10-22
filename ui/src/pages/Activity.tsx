@@ -19,6 +19,7 @@ import {
   type ActivityRow,
   type RefusalState
 } from './activity-view';
+import { refusalWords } from '../ui/refusal-words';
 import { utcText } from './message-timeline';
 import './operator.css';
 
@@ -30,8 +31,7 @@ const NO_FILTER: Filter = { action: '', from: '', to: '' };
 function Refusal({ state, status }: { state: RefusalState; status: number }) {
   return (
     <p role="alert" className="op-alert op-alert-danger" data-refusal={`activity-${state}`}>
-      {REFUSAL_COPY[state]}
-      {state === 'failed' && ` (HTTP ${status})`}
+      {state === 'failed' && status > 0 ? refusalWords(status, 'the activity') : REFUSAL_COPY[state]}
     </p>
   );
 }
