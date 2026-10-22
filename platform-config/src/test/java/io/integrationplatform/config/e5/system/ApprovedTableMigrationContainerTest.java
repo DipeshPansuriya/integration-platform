@@ -269,6 +269,47 @@ class ApprovedTableMigrationContainerTest {
                 .isEqualTo("PENDING_APPROVAL");
     }
 
+    @Test
+    @DisplayName("S1 (V2_4_1340): the app role can only INSERT a PENDING_APPROVAL row - an APPROVED or REVOKED row, or any decider, is refused (42501)")
+    void anInsertIsAlwaysPending() throws Exception {
+        // status, decided_by, decided_at (sql), revoked_by
+        String[][] forged = {
+            {"APPROVED", "y", "now()", null},   // already approved by a made-up decider: the S1 exploit
+            {"APPROVED", "y", "null", null},
+            {"REVOKED", "y", "now()", "z"},
+            {"PENDING_APPROVAL", "y", "null", null},
+            {"PENDING_APPROVAL", null, "null", "z"},
+            {"PENDING_APPROVAL", null, "now()", null},
+        };
+        int n = 0;
+        for (String[] f : forged) {
+            String table = "forged_" + n++;
+            try (Connection app = app(tenantA, null);
+                    PreparedStatement insert = app.prepareStatement("insert into public.db_target_approved_table"
+                            + " (tenant_id, system_id, table_name, status, requested_by, decided_by, decided_at,"
+                            + " revoked_by, target_hash) values (current_setting('app.tenant_id')::uuid, ?::uuid, ?, ?,"
+                            + " 'x', ?, " + f[2] + ", ?, (select public.db_target_fingerprint(s.settings)"
+                            + " from public.system s where s.id = ?::uuid))")) {
+                insert.setString(1, dbSystemA.toString());
+                insert.setString(2, table);
+                insert.setString(3, f[0]);
+                insert.setString(4, f[1]);
+                insert.setString(5, f[3]);
+                insert.setString(6, dbSystemA.toString());
+                assertThatThrownBy(insert::executeUpdate).as(java.util.Arrays.toString(f))
+                        .isInstanceOf(SQLException.class)
+                        .extracting(e -> ((SQLException) e).getSQLState()).isEqualTo("42501");
+            }
+        }
+        assertThat(scalar("select count(*) from public.db_target_approved_table where table_name like 'forged%'"))
+                .isEqualTo("0");
+        // the legitimate request still works, and the definer function is still the way to APPROVED
+        String id = request(tenantA, dbSystemA, "still_pending", requester);
+        assertThat(decide(tenantA, approver, id, "APPROVE")).isEqualTo("APPROVED");
+        assertThat(scalar("select status from public.db_target_approved_table where id = ?::uuid", id))
+                .isEqualTo("APPROVED");
+    }
+
     // ---------------------------------------------------------------------------------------------- task 3
 
     @Test
