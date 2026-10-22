@@ -574,6 +574,70 @@ class DeliveryDueDispatchTest {
         }
     }
 
+    @Test
+    @DisplayName("F2: a send that ended as a CIRCUIT_DEFER (open breaker, nothing sent) does NOT re-drive - no chain on an open breaker")
+    void circuitDeferredSendDoesNotRedrive() throws Exception {
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            send.circuitDeferred = true;
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            deferOnce(dispatch, registry, target);
+
+            dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+            awaitOneSend(send);
+            awaitPoolIdle(registry, target);
+
+            assertThat(redrive.calls).as("breaker open - the retry job stays the only path").isEmpty();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("F3: a HELD claim re-drives the NEXT deferred candidate, bounded at 8 in a row (the 9th HELD ends the chain, the count then restarts)")
+    void heldClaimChainsToTheNextCandidateWithinTheCap() throws Exception {
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            deferOnce(dispatch, registry, target);
+            for (int i = 0; i < 9; i++) {
+                claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+            }
+
+            for (int i = 0; i < 9; i++) {
+                dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+            }
+
+            assertThat(redrive.calls).as("8 in a row, then the 60 s job").hasSize(8);
+            assertThat(redrive.calls).allMatch(call -> call.tenant().equals(Optional.of(TENANT)));
+            assertThat(send.calls).isEmpty();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("F3: a duplicate claim with nothing deferred locally re-drives nothing")
+    void duplicateWithNoLocalDeferralNoRedrive() {
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.NO_EFFECT);
+
+            dispatch(registry).onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+
+            assertThat(redrive.calls).isEmpty();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
     /** Defers one record of the target (its only permit is taken for the call) so the next send end scans. */
     private void deferOnce(DeliveryDueDispatch dispatch, BulkheadRegistry registry, UUID target) {
         BulkheadFacts before = facts.facts.orElse(new BulkheadFacts(target, "key-1", 0));
@@ -687,12 +751,14 @@ class DeliveryDueDispatchTest {
         final List<Optional<UUID>> tenants = java.util.Collections.synchronizedList(new ArrayList<>());
         java.util.function.Consumer<String> onCall = thread -> { };
         java.util.function.Supplier<Optional<UUID>> tenant = Optional::empty;
+        boolean circuitDeferred;
 
         @Override
-        public void dispatch(Stage2Send send) {
+        public boolean dispatch(Stage2Send send) {
             tenants.add(tenant.get());
             onCall.accept(Thread.currentThread().getName());
             calls.add(send); // published last: awaitOneSend returning means onCall already ran (T154)
+            return circuitDeferred;
         }
     }
 

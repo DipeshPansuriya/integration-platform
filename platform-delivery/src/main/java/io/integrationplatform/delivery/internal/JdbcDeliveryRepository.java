@@ -127,11 +127,16 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
 
     /** {@code RETRY_WAIT -> DUE}: the stored retry time was reached (the delivery-retry job's re-drive). */
     public boolean redrive(UUID id, Instant at) {
+        return redrive(id, at, null);
+    }
+
+    /** The same re-drive with a named cause in the {@code REDRIVE} event detail (e.g. {@code slot-free}). */
+    public boolean redrive(UUID id, Instant at, String detail) {
         return transition(
                 "update public.delivery set state = 'DUE', updated_at = :at, next_attempt_at = null",
                 "id = :id::uuid and state = 'RETRY_WAIT'",
                 params("at", at, "id", id.toString()),
-                id, DeliveryEventType.REDRIVE, null, at);
+                id, DeliveryEventType.REDRIVE, detail, at);
     }
 
     /** {@code SENDING -> RETRY_WAIT} with the new retry time, conditional on the claim token. */
@@ -211,6 +216,14 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                 "delivery_id = :delivery_id::uuid and type = :type",
                 params("delivery_id", deliveryId.toString(), "type", type.name()), (rs, n) -> rs.getInt(1)).stream()
                 .findFirst().orElse(0);
+    }
+
+    /** Events of the type with exactly this detail (a named cause, e.g. {@code slot-free}). */
+    public int countEventsWithDetail(UUID deliveryId, DeliveryEventType type, String detail) {
+        return query("select count(*)::int from public.delivery_event",
+                "delivery_id = :delivery_id::uuid and type = :type and detail = :detail",
+                params("delivery_id", deliveryId.toString(), "type", type.name(), "detail", detail),
+                (rs, n) -> rs.getInt(1)).stream().findFirst().orElse(0);
     }
 
     /** {@code DEAD_LETTERED -> DUE}: an operator replay (audited where the operator acts). */
