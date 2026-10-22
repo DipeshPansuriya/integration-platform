@@ -112,7 +112,8 @@ class E16TargetSettingsTest {
         JsonNode bad = JSON.readTree("{\"bootstrapServers\":\"k1.partner.example:9092,169.254.169.254:9092\","
                 + "\"topic\":\"orders-out\"}");
         assertThat(DestinationSettingsCheck.errors("KAFKA", bad, guard))
-                .singleElement().asString().contains("settings.bootstrapServers").contains("link-local");
+                .singleElement().asString().contains("settings.bootstrapServers")
+                .contains("the host is a refused address"); // R10: no range name to a tenant
         JsonNode good = JSON.readTree("{\"bootstrapServers\":\"k1.partner.example:9092,k2.partner.example:9092\","
                 + "\"topic\":\"orders-out\"}");
         assertThat(DestinationSettingsCheck.errors("KAFKA", good, guard)).isEmpty();
