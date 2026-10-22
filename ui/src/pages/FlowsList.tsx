@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { listFlows, type FlowSummary } from '../api/flows';
 import { statusBadge } from './dashboard-counts';
-import { filterFlows, flowHash, NEW_FLOW_HASH } from './flow-lifecycle';
+import { filterCountText, filterFlows, flowHash, NEW_FLOW_HASH, orderingWord } from './flow-lifecycle';
 import './flows.css';
 
 type Load = 'loading' | 'ready' | 'error';
@@ -17,16 +17,21 @@ export function FlowsList() {
   const [load, setLoad] = useState<Load>('loading');
   const [filter, setFilter] = useState('');
 
-  useEffect(() => {
-    void listFlows().then((answer) => {
-      if (!answer.ok) {
-        setLoad('error');
-        return;
-      }
-      setRows(answer.data);
-      setLoad('ready');
-    });
-  }, []);
+  const loadRows = () => {
+    setLoad('loading');
+    void listFlows()
+      .then((answer) => {
+        if (!answer.ok) {
+          setLoad('error');
+          return;
+        }
+        setRows(answer.data);
+        setLoad('ready');
+      })
+      .catch(() => setLoad('error'));
+  };
+
+  useEffect(loadRows, []);
 
   const shown = filterFlows(rows, filter);
   const open = (id: string) => {
@@ -45,7 +50,10 @@ export function FlowsList() {
       {load === 'loading' && <p className="flows-muted" aria-live="polite">Loading flows...</p>}
       {load === 'error' && (
         <p role="alert" className="flows-alert flows-alert-danger" data-load-error="flows">
-          The flow list could not be loaded. Reload the page to try again.
+          The flow list could not be loaded. Check your connection and try again.{' '}
+          <button type="button" className="btn" data-action="retry-load" onClick={loadRows}>
+            Retry
+          </button>
         </p>
       )}
       {load === 'ready' && rows.length === 0 && (
@@ -71,6 +79,9 @@ export function FlowsList() {
               Clear
             </button>
           </div>
+          <p className="flows-sr-only" role="status" aria-live="polite" data-live-region="true">
+            {filterCountText(shown.length, rows.length, filter)}
+          </p>
           <div className="flows-grid">
             <table className="table" aria-label="Flows">
               <thead>
@@ -92,7 +103,7 @@ export function FlowsList() {
                         </a>
                       </td>
                       <td className="flows-mono">{row.code}</td>
-                      <td>{row.ordering}</td>
+                      <td>{orderingWord(row.ordering)}</td>
                       <td>
                         <span className={`badge badge-${badge.tone}`}>{badge.word}</span>
                       </td>

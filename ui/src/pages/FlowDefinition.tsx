@@ -10,14 +10,16 @@
 // Back and a typed #/ address ask through the shell's guard (EditorGuard); the leave dialog is modal,
 // closes on Escape and returns focus; every failing field shows its error text and is aria-invalid.
 
-import { useEffect, useRef, useState, type FormEvent, type MutableRefObject, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MutableRefObject, type MouseEvent as ReactMouseEvent } from 'react';
 import { createFlow, readFlow, saveFlowDraft, saveSourceSchema, validationFieldOf } from '../api/flows';
 import { loadFlowForm, saveFlowDefinition } from './flow-save';
 import {
   editorFlowId,
   fieldA11y,
   flowHash,
+  focusSelectorFor,
   isDirty,
+  trapTab,
   validationErrorId,
   validationText,
   type EditorGuardState,
@@ -62,6 +64,7 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
   // B13: where focus goes back when the dialog closes - the link that opened it, else the heading.
   const opener = useRef<HTMLElement | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
   // B12: true once the user chose Leave - the shell then lets the address change through.
   const released = useRef(false);
 
@@ -153,6 +156,22 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
     return () => document.removeEventListener('keydown', onKey);
   }, [leaveTo]);
 
+  // A8: a failing field takes focus (its error text is a live alert), so keyboard users land on the fix.
+  useEffect(() => {
+    const selector = focusSelectorFor(validationField);
+    if (selector) document.querySelector<HTMLElement>(selector)?.focus();
+  }, [validationField, validationServerText]);
+
+  // A8: Tab stays inside the leave dialog (Escape already means Stay).
+  const onDialogKey = (event: ReactKeyboardEvent) => {
+    if (event.key !== 'Tab') return;
+    const buttons = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button') ?? []);
+    const next = trapTab(buttons.indexOf(document.activeElement as HTMLElement), buttons.length, event.shiftKey);
+    if (next < 0) return;
+    event.preventDefault();
+    buttons[next].focus();
+  };
+
   const leave = () => {
     const to = leaveTo;
     setLeaveTo(null);
@@ -225,6 +244,8 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
 
       {leaveTo !== null && (
         <div
+          ref={dialog}
+          onKeyDown={onDialogKey}
           role="alertdialog"
           aria-modal="true"
           aria-labelledby="flow-leave-title"
@@ -263,6 +284,9 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
               {validationText('request', validationServerText)}
             </p>
           )}
+          <p className="flows-muted" data-required-note="true">
+            <span aria-hidden="true">*</span> required
+          </p>
           <div className="flow-form-grid">
             <div className="flow-form-col">
               <fieldset className="flows-card">
@@ -272,8 +296,9 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
                   <input data-field="interface-name" value={form.interfaceName} onChange={(e) => set({ interfaceName: e.target.value })} />
                 </label>
                 <label className="flows-field">
-                  Source system
+                  Source system<span aria-hidden="true"> *</span>
                   <input
+                    aria-required="true"
                     data-field="source-system"
                     value={form.sourceSystem}
                     {...a11y('source-system')}
@@ -288,7 +313,9 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
                   <div className="flow-destination" key={index}>
                     <label className="flows-field">
                       Destination {index + 1}
+                      {index === 0 && <span aria-hidden="true"> *</span>}
                       <input
+                        aria-required="true"
                         data-field={`destination-${index + 1}`}
                         value={row}
                         {...a11y('destinations')}
@@ -320,6 +347,7 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
                 <label className="flows-field">
                   Business-key rule (mandatory)
                   <input
+                    aria-required="true"
                     data-field="business-key-rule"
                     value={form.businessKeyRule}
                     {...a11y('business-key-rule')}

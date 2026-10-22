@@ -104,3 +104,32 @@ export const validationErrorId = (field: string) => `flow-error-${field}`;
 export function fieldA11y(validationField: string | null, field: string): { 'aria-invalid'?: true; 'aria-describedby'?: string } {
   return validationField === field ? { 'aria-invalid': true, 'aria-describedby': validationErrorId(field) } : {};
 }
+
+/** A11: the ordering enum in words for a table cell. */
+export function orderingWord(ordering: string): string {
+  return ordering === 'PER_KEY' ? 'Per key' : ordering === 'NONE' ? 'None' : ordering;
+}
+
+/** A11: the sentence a polite live region announces after the flow filter changes ('' = nothing to say). */
+export function filterCountText(shown: number, total: number, filter: string): string {
+  if (!filter.trim()) return '';
+  if (shown === 0) return 'No flow matches the filter.';
+  return `${shown} of ${total} flows ${shown === 1 ? 'matches' : 'match'}.`;
+}
+
+/** A10: the row Versions opens on - the deep-linked version, else the first draft, else the first row. */
+export function initialSelection<T extends { id: string; status: string }>(rows: T[], selectId: string | null): T | undefined {
+  return (selectId ? rows.find((row) => row.id === selectId) : undefined) ?? rows.find((row) => row.status === 'DRAFT') ?? rows[0];
+}
+
+/** A8: the control focus goes to when this validation field fails (the 'request' bucket has none). */
+export function focusSelectorFor(field: string | null): string | null {
+  if (!field || field === 'request') return null;
+  return field === 'destinations' ? '[data-field="destination-1"]' : `[data-field="${field}"]`;
+}
+
+/** A8: the next index when Tab (or Shift+Tab) is pressed inside a dialog of `count` controls: wraps, never leaves. */
+export function trapTab(current: number, count: number, shift: boolean): number {
+  if (count <= 0) return -1;
+  return shift ? (current - 1 + count) % count : (current + 1) % count;
+}

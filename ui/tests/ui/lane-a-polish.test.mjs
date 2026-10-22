@@ -43,10 +43,11 @@ test('A10: the Dashboard banner stays up while a retry is running (focus is not 
   assert.equal(retryBannerShown(false, false), false);
 });
 
-test('A10 wiring: user from the session, deep links, aria-disabled retry, FlowsList Retry', () => {
+test('A10 wiring: deep links, aria-disabled retry, FlowsList Retry', () => {
   const app = read('App.tsx');
-  assert.match(app, /<Dashboard user=\{me\?\.userId\}/);
-  assert.match(app, /versions\\/\(\.\+\)/);
+  // /me carries only a uuid userId (B10, dashboard-counts.test.mjs): the greeting stays neutral until the API returns a display name.
+  assert.doesNotMatch(app, /user=\{\s*me\??\.userId/);
+  assert.ok(app.includes('^versions\\/(.+)$'), 'the #/versions/<id> deep link is parsed');
   assert.match(app, /<Versions selectId=/);
   const dash = read('pages/Dashboard.tsx');
   assert.match(dash, /href=\{`#\/versions\/\$\{flow\.id\}`\}/);

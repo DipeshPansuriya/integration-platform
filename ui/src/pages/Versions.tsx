@@ -21,7 +21,7 @@ import {
 } from '../api/flows';
 import { hasHarnessLogin, loadHarnessConfig } from '../api/harness-config';
 import { statusBadge } from './dashboard-counts';
-import { harnessApproveOffered, isImmutable, lifecycleActions, lifecycleSteps, NEW_FLOW_HASH } from './flow-lifecycle';
+import { harnessApproveOffered, initialSelection, isImmutable, lifecycleActions, lifecycleSteps, NEW_FLOW_HASH } from './flow-lifecycle';
 import { actionFailure, PENDING_LABEL, statusAnnouncement } from './versions-view';
 import './flows.css';
 
@@ -47,7 +47,7 @@ function detailBody(detail: FlowDetail) {
 
 type Load = 'loading' | 'ready' | 'error';
 
-export function Versions() {
+export function Versions({ selectId = null }: { selectId?: string | null }) {
   const [flows, setFlows] = useState<FlowSummary[]>([]);
   const [load, setLoad] = useState<Load>('loading');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -114,7 +114,7 @@ export function Versions() {
       setFlows(list.data);
       setLoad('ready');
       // Select (never create): the first draft row, else the first row.
-      const first = list.data.find((row) => row.status === 'DRAFT') ?? list.data[0];
+      const first = initialSelection(list.data, selectId);
       if (first && selectedRef.current === null) selectFlow(first);
     }).catch(() => setLoad('error'));
   };
@@ -322,7 +322,7 @@ export function Versions() {
                   </button>
                 )}
                 {actions.includes('publish') && (
-                  <button type="button" className="btn btn-primary" data-action="publish" disabled={status !== 'APPROVED' || pending !== null} aria-busy={pending === 'publish'} onClick={() => enqueue('publish', onPublish)}>
+                  <button type="button" className="btn btn-primary" data-action="publish" disabled={status !== 'APPROVED' || pending !== null} aria-describedby="versions-publish-note" aria-busy={pending === 'publish'} onClick={() => enqueue('publish', onPublish)}>
                     {pending === 'publish' ? PENDING_LABEL.publish : 'Publish'}
                   </button>
                 )}
@@ -333,6 +333,11 @@ export function Versions() {
                 )}
               </div>
 
+              {actions.includes('publish') && (
+                <p className="flows-muted" id="versions-publish-note" data-publish-note="true">
+                  Publishing makes this version live and read-only. To change it afterwards, start a new draft.
+                </p>
+              )}
               {isImmutable(status) && refusal !== 'submitted-version-immutable' && (
                 <p className="flows-alert flows-alert-info" data-notice="submitted-version-immutable">
                   A submitted version is immutable. A new draft is the only way to change it.

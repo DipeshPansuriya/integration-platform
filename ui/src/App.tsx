@@ -106,6 +106,8 @@ function parseHash(): Route {
   const flow = /^flow\/(.+)$/.exec(hash);
   if (flow) return { page: 'flows', flowId: flow[1] };
   if (hash.startsWith('flows')) return { page: 'flows', flowId: null };
+  const version = /^versions\/(.+)$/.exec(hash);
+  if (version) return { page: 'versions', flowId: decodeURIComponent(version[1]) };
   if (hash.startsWith('versions')) return { page: 'versions', flowId: null };
   if (hash.startsWith('systems')) return { page: 'systems', flowId: null };
   if (hash.startsWith('queue')) return { page: 'queue', flowId: null };
@@ -375,7 +377,7 @@ export function App() {
             ) : (
               <FlowsList />
             ))}
-          {route.page === 'versions' && <Versions />}
+          {route.page === 'versions' && <Versions selectId={route.flowId} />}
           {route.page === 'systems' && <Systems />}
           {route.page === 'queue' && <QueueDashboard />}
           {route.page === 'failures' && <Failures />}

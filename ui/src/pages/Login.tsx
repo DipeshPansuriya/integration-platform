@@ -5,7 +5,7 @@
 // "Checking your session..." shows, so a signed-in user never sees the card flash (App.tsx then
 // moves a live session on to the Dashboard); a failed check shows the worded error + Retry.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LOGIN_ENTRY } from '../api/client';
 import './dashboard.css';
 
@@ -14,6 +14,7 @@ export type LoginState = 'checking' | 'signed-out' | 'error';
 export function Login({ state, onRetry }: { state: LoginState; onRetry: () => void }) {
   const sso = useRef<HTMLButtonElement>(null);
   const retry = useRef<HTMLButtonElement>(null);
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     if (state === 'signed-out') sso.current?.focus();
@@ -39,10 +40,18 @@ export function Login({ state, onRetry }: { state: LoginState; onRetry: () => vo
                 type="button"
                 className="btn btn-primary signin-sso"
                 data-action="sso"
-                onClick={() => window.location.assign(LOGIN_ENTRY)}
+                aria-disabled={redirecting}
+                onClick={() => {
+                  if (redirecting) return;
+                  setRedirecting(true);
+                  window.location.assign(LOGIN_ENTRY);
+                }}
               >
-                Continue with SSO
+                {redirecting ? 'Redirecting to sign-in...' : 'Continue with SSO'}
               </button>
+              <span role="status" className="signin-note">
+                {redirecting ? 'Redirecting to sign-in...' : ''}
+              </span>
               <p className="signin-note">You will be redirected to your organisation's sign-in page, then returned here.</p>
             </>
           )}

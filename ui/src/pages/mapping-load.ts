@@ -27,3 +27,6 @@ export function canSaveMapping(state: { routeId: string | null; loaded: boolean;
 
 /** A6: the React key that gives each route (and the landing) its own designer, so no state leaks across routes. */
 export const designerKey = (routeId: string | null): string => `mapping:${routeId ?? 'landing'}`;
+
+/** A save whose request never got an answer (network error): one worded sentence, the mapping is NOT saved. */
+export const saveThrownText = (): string => failureText('save the mapping', 0);

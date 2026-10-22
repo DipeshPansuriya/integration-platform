@@ -21,7 +21,7 @@ import { saveRefusal } from '../mapping/saveRefusal';
 import '../mapping/mapping.css';
 import type { FieldSchema, MappingGraph, SavedMappingAnswer } from '../mapping/graph';
 import type { CanvasSelected } from '../mapping/MappingCanvas';
-import { canSaveMapping, classifyMappingLoad, designerKey } from './mapping-load';
+import { canSaveMapping, classifyMappingLoad, designerKey, saveThrownText } from './mapping-load';
 import { failureText } from './flow-save';
 
 const MappingCanvas = lazy(() => import('../mapping/MappingCanvas'));
@@ -253,21 +253,25 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
       return;
     }
     setRefusal(null);
-    const { data, error } = await api.PUT('/api/v1/admin/routes/{routeId}/mapping', {
-      params: { path: { routeId } },
-      body: toSaveRequest(graph) as never
-    });
-    if (!error && data) {
-      setGraph({
-        ...parseSavedMapping(data as SavedMappingAnswer),
-        sourceFields: graph.sourceFields,
-        targetFields: graph.targetFields
+    try {
+      const { data, error } = await api.PUT('/api/v1/admin/routes/{routeId}/mapping', {
+        params: { path: { routeId } },
+        body: toSaveRequest(graph) as never
       });
-      setMappingId((data as SavedMappingAnswer).mappingId ?? mappingId);
-      setDirty(false);
-      setSaved(true); // stored for this pair only; re-renders exactly as it was left
-    } else {
-      setRefusal(refusalOf(error));
+      if (!error && data) {
+        setGraph({
+          ...parseSavedMapping(data as SavedMappingAnswer),
+          sourceFields: graph.sourceFields,
+          targetFields: graph.targetFields
+        });
+        setMappingId((data as SavedMappingAnswer).mappingId ?? mappingId);
+        setDirty(false);
+        setSaved(true); // stored for this pair only; re-renders exactly as it was left
+      } else {
+        setRefusal(refusalOf(error));
+      }
+    } catch {
+      setRefusal(saveThrownText()); // no answer at all: nothing was saved, and the user is told
     }
   }
 
