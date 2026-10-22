@@ -180,7 +180,12 @@ class Release1ScenariosContainerTest {
         assertThat(failures).contains(trackingId).contains("DEAD_LETTERED");
 
         client.wiremockReset(wiremockBase()); // target A healthy again
-        HttpResponse<String> replay = client.post(E2eNames.nameOf("replayApi").replace("{trackingId}", trackingId),
+        // the replay is per delivery (DeliveryOperatorController.java:61): read this message's delivery id off the failure row
+        java.util.regex.Matcher dead = java.util.regex.Pattern
+                .compile("\"trackingId\"\s*:\s*\"" + trackingId + "\"[^}]*?\"deliveryId\"\s*:\s*\"([0-9a-f-]{36})\"")
+                .matcher(failures);
+        assertThat(dead.find()).as("the failure row of %s carries a deliveryId", trackingId).isTrue();
+        HttpResponse<String> replay = client.post(E2eNames.nameOf("replayApi").replace("{deliveryId}", dead.group(1)),
                 "{}", Release1Client.bearer("APPROVER"));
         assertThat(replay.statusCode()).isBetween(200, 202);
 
@@ -230,7 +235,7 @@ class Release1ScenariosContainerTest {
         Release1Client client = client();
         String trackingId = acceptOne(client, "SC07", 7);
         String tenantB = Release1Client.bearer("TENANT_B_ADMIN");
-        assertThat(E2eNames.nameOf("tenantBCode")).isNotBlank();
+        assertThat(E2eNames.nameOf("tenantBCodePrefix")).startsWith("e2e-seed-b-");
         HttpResponse<String> foreign = client.get(E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
                 tenantB);
         assertThat(foreign.statusCode()).as("tenant B on tenant A's message").isIn(403, 404);
@@ -243,7 +248,7 @@ class Release1ScenariosContainerTest {
     @WaitsOn({"T120", "T99", "T111", "T98", "T143"})
     void sc08ReportCountsEqualDeliveryRows() throws Exception {
         Release1Client client = client();
-        String report = client.get(E2eNames.nameOf("dailyReportApi"), Release1Client.bearer("TENANT_ADMIN")).body();
+        String report = client.get(E2eNames.nameOf("dailyReportApi").replace("{day}", java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString()), Release1Client.bearer("TENANT_ADMIN")).body();
         // The SQL side is the base-suite oracle (ui/tests/base-suite/lib/direct-sql.mjs deliveryRowsSql + counts.mjs);
         // the API leg asserts every bucket is present so a missing one fails loudly.
         assertThat(report).contains("\"success\"").contains("\"failure\"").contains("\"retries\"")

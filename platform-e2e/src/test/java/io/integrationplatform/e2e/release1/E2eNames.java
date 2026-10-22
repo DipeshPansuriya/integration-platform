@@ -17,11 +17,15 @@ public final class E2eNames {
             Map.entry("intakeApi", "/api/v1/interfaces/{interfaceCode}/messages"), // IntakeController.java:53
             Map.entry("timelineApi", "/api/v1/admin/messages/{trackingId}/timeline"), // base-suite pending-names
             Map.entry("failuresApi", "/api/v1/admin/messages/failures"), // base-suite pending-names
-            Map.entry("bulkIntakeApi", "TBD(T115)"),
-            Map.entry("replayApi", "TBD(T111)"),
-            Map.entry("dailyReportApi", "TBD(T120)"),
-            Map.entry("mqTargetQueue", "TBD(T98)"),
-            Map.entry("tenantBCode", "TBD(T157)"));
+            Map.entry("bulkIntakeApi", "/api/v1/interfaces/{interfaceCode}/messages:bulk"), // IntakeController.java:180
+            // POST, one DEAD_LETTERED delivery: DeliveryOperatorEndpointRoles.java:16,21; DeliveryOperatorController.java:61
+            Map.entry("replayApi", "/api/v1/admin/messages/deliveries/{deliveryId}/replay"),
+            // GET; the day is required (DeliveryReportController @RequestParam day); path: DeliveryReportEndpointRoles.java:15
+            Map.entry("dailyReportApi", "/api/v1/reports/delivery?day={day}"),
+            // not a server constant: the queue is a registry setting (MqSettings.java:7 host, port, queue) the scenario's own seed creates
+            Map.entry("mqTargetQueue", "TBD(T98: queue name is set by the seed via MqSettings.java:7, no fixed name in source)"),
+            // tenant B's code is generated per run: MARKER + "-b-" + token (TenantSeedPlan.java:25,54)
+            Map.entry("tenantBCodePrefix", "e2e-seed-b-"));
 
     private static final Set<String> LOOPBACK = Set.of("127.0.0.1", "localhost", "[::1]", "::1");
 

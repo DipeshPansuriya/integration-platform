@@ -121,6 +121,26 @@ class Release1PendingTest {
     }
 
     @Test
+    void everyNameProvableFromSourceIsKnownNotTbd() {
+        for (String key : new String[] {"intakeApi", "timelineApi", "failuresApi", "bulkIntakeApi", "replayApi",
+                "dailyReportApi", "tenantBCodePrefix"}) {
+            assertThat(E2eNames.nameOf(key)).as(key).isNotBlank().doesNotContain("TBD(");
+        }
+        assertThat(E2eNames.nameOf("bulkIntakeApi")).isEqualTo("/api/v1/interfaces/{interfaceCode}/messages:bulk");
+        assertThat(E2eNames.nameOf("replayApi")).isEqualTo("/api/v1/admin/messages/deliveries/{deliveryId}/replay");
+        assertThat(E2eNames.nameOf("dailyReportApi")).isEqualTo("/api/v1/reports/delivery?day={day}");
+        assertThat(E2eNames.nameOf("tenantBCodePrefix")).isEqualTo("e2e-seed-b-");
+    }
+
+    @Test
+    void theOneNameNotInSourceStaysANamedTbdWithItsReason() {
+        // the MQ queue is a registry setting the scenario's seed creates (MqSettings.java:7), not a server constant
+        assertThat(E2eNames.NAMES.get("mqTargetQueue")).startsWith("TBD(T98").contains("MqSettings");
+        assertThatThrownBy(() -> E2eNames.nameOf("mqTargetQueue")).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("T98");
+    }
+
+    @Test
     void anUnknownNameFailsClosed() {
         assertThatThrownBy(() -> E2eNames.nameOf(Map.of(), "nope")).isInstanceOf(IllegalArgumentException.class);
     }
