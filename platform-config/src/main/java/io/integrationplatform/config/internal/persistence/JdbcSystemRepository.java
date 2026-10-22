@@ -84,8 +84,10 @@ public final class JdbcSystemRepository extends TenantScopedRepository {
             + "insert into public.target_endpoint (tenant_id, system_id, code, name, base_url,"
             + "    http_method, auth_method, timeout_ms)"
             + " values (current_setting('app.tenant_id')::uuid, :system_id::uuid, :code, :name,"
-            + "    'https://endpoint.invalid/', 'POST', 'NO_AUTH', 5000)"
+            + "    coalesce(:base_url::text, 'https://endpoint.invalid/'), 'POST', 'NO_AUTH', 5000)"
             + " returning id, tenant_id) select id::text from ins";
+
+    private static final String UPDATE_ENDPOINT_BASE_URL = "update public.target_endpoint set base_url = :base_url";
 
     private static final String READ_ENDPOINT_OF_SYSTEM =
             "select te.id::text as id from public.target_endpoint te";
@@ -126,10 +128,26 @@ public final class JdbcSystemRepository extends TenantScopedRepository {
                 Params.of("id", systemId, "name", name, "type", type, "settings", settingsJson));
     }
 
+    /** The default endpoint of an OUTBOUND system, with the placeholder base address (E3 onboarding). */
     public String insertDefaultEndpoint(String systemId, String code, String name) {
-        return first(query(INSERT_ENDPOINT, null, Params.of("system_id", systemId, "code", code, "name", name),
+        return insertDefaultEndpoint(systemId, code, name, null);
+    }
+
+    /** As above with {@code baseUrl} (the API system's already-validated {@code settings.baseUrl}); {@code null} = placeholder. */
+    public String insertDefaultEndpoint(String systemId, String code, String name, String baseUrl) {
+        return first(query(INSERT_ENDPOINT, null,
+                Params.of("system_id", systemId, "code", code, "name", name, "base_url", baseUrl),
                 (RowMapper<String>) (rs, n) -> rs.getString(1)))
                 .orElseThrow(() -> new IllegalStateException("the target endpoint insert returned no row"));
+    }
+
+    /**
+     * Keeps the delivery address of a system's endpoint in step with its saved {@code settings.baseUrl} (the address
+     * the destination guard already accepted at save); tenant-scoped, the number of endpoint rows changed.
+     */
+    public int updateEndpointBaseUrl(String systemId, String baseUrl) {
+        return update(UPDATE_ENDPOINT_BASE_URL, "system_id = :system_id::uuid",
+                Params.of("system_id", systemId, "base_url", baseUrl));
     }
 
     /** The endpoint a route points at for this system (E3: one default endpoint per registered system). */

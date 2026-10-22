@@ -84,10 +84,24 @@ public class SystemAdminService {
                 ? systems.insertSystem(code, name, directionDb)
                 : systems.insertTypedSystem(code, name, directionDb, typeName, settings.toString());
         if (direction.equals("OUTBOUND")) {
-            systems.insertDefaultEndpoint(id, code, name);
+            systems.insertDefaultEndpoint(id, code, name, apiBaseUrl(typeName, settings));
         }
         return view(new SystemDetail(id, code, name, directionDb, typeName,
                 typeName == null ? null : settings.toString()));
+    }
+
+    /**
+     * The delivery address of an API system: its {@code settings.baseUrl}, already schema-valid and past the destination
+     * guard (the save is refused before this runs); {@code null} for any other type, so the endpoint keeps its
+     * placeholder. The guard, the allow-list and the send-time checks are not touched.
+     */
+    private static String apiBaseUrl(String type, JsonNode settings) {
+        JsonNode value = type == null || !type.equalsIgnoreCase("API") || settings == null ? null : settings.get("baseUrl");
+        return value != null && value.isString() && !value.stringValue().isBlank() ? value.stringValue().trim() : null;
+    }
+
+    private static JsonNode settingsJsonNode(String settings) {
+        return settings == null ? null : JSON.readTree(settings);
     }
 
     /** Every system of the bound tenant, ordered by code. */
@@ -134,6 +148,10 @@ public class SystemAdminService {
         }
         if (systems.updateSystem(current.id(), name, type, settings) != 1) {
             throw ConfigApiException.notFound();
+        }
+        String baseUrl = apiBaseUrl(type, settingsJsonNode(settings));
+        if (baseUrl != null && current.direction().equals("TARGET")) {
+            systems.updateEndpointBaseUrl(current.id(), baseUrl);
         }
         return view(new SystemDetail(current.id(), current.code(), name, current.direction(), type, settings));
     }
