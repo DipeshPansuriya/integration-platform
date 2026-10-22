@@ -430,6 +430,12 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
     public int stage1InsertPerRoute(Collection<Stage1Delivery> deliveries) {
         int inserted = 0;
         for (Stage1Delivery delivery : deliveries) {
+            if (delivery.mappingVersionId() != null && delivery.contractVersionId() == null) {
+                // T172 (BS-10): never a mapping pin without its contract pin - the replay could not pin it (409)
+                throw new IllegalArgumentException("stage-1 delivery of message " + delivery.messageId() + " route "
+                        + delivery.routeId() + " pins mapping version " + delivery.mappingVersionId()
+                        + " without a contract version");
+            }
             List<UUID> ids = query(
                     "with ins as ("
                             + " insert into public.delivery"

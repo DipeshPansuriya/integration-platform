@@ -42,11 +42,13 @@ public final class AuditActions {
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(tenantId, "tenantId");
         Objects.requireNonNull(deliveryId, "deliveryId");
-        Objects.requireNonNull(mappingVersionId, "mappingVersionId");
         Objects.requireNonNull(contractVersionId, "contractVersionId");
         Objects.requireNonNull(at, "at");
-        List<String> targets = List.of("delivery:" + deliveryId, "mapping_version:" + mappingVersionId,
-                "contract_version:" + contractVersionId);
+        // a route without a mapping (T172) has no mapping version to name; the contract pin is always there
+        List<String> targets = mappingVersionId == null
+                ? List.of("delivery:" + deliveryId, "contract_version:" + contractVersionId)
+                : List.of("delivery:" + deliveryId, "mapping_version:" + mappingVersionId,
+                        "contract_version:" + contractVersionId);
         return new AuditEvent(tenantId, actor, action, targets, null, null, at);
     }
 }
