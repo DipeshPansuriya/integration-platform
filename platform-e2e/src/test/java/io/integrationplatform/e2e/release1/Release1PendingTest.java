@@ -62,10 +62,15 @@ class Release1PendingTest {
 
     @Test
     void theRealFlagsGateEveryScenarioThatNeedsAnUnmergedItem() {
-        // measured 18-Oct: the MQ adapter (T98) and the compose e2e profile (T143) are not on main
-        assertThat(Release1Pending.ON_MAIN).containsEntry("T98", false).containsEntry("T143", false);
+        // re-measured 22-Oct against main ecef544b: the MQ adapter (T98) and the compose e2e profile (T143) are on main;
+        // bulk intake (T115) and the daily report (T120) are not
+        assertThat(Release1Pending.ON_MAIN).containsEntry("T98", true).containsEntry("T143", true)
+                .containsEntry("T115", false).containsEntry("T120", false);
         for (Release1Scenario scenario : Release1Scenario.values()) {
-            assertThat(Release1Pending.waitsOn(scenario.waitsOn())).as(scenario.id()).isPresent();
+            boolean needsUnmergedItem = scenario == Release1Scenario.SC02 || scenario == Release1Scenario.SC06
+                    || scenario == Release1Scenario.SC08; // T115 (bulk intake, same-key ordering), T120 (daily report)
+            assertThat(Release1Pending.waitsOn(scenario.waitsOn()).isPresent()).as(scenario.id())
+                    .isEqualTo(needsUnmergedItem);
         }
     }
 
@@ -83,7 +88,7 @@ class Release1PendingTest {
         ConditionEvaluationResult result = evaluate(Fixture.class.getDeclaredMethod("gated"));
 
         assertThat(result.isDisabled()).isTrue();
-        assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T98"));
+        assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T115"));
     }
 
     @Test
@@ -91,7 +96,7 @@ class Release1PendingTest {
         Method gated = Fixture.class.getDeclaredMethod("gated");
 
         assertThat(WaitsOnCondition.evaluate(Optional.of(gated.getAnnotation(WaitsOn.class)),
-                Map.of("T98", true)).isDisabled()).isFalse();
+                Map.of("T115", true)).isDisabled()).isFalse();
     }
 
     @Test
@@ -99,7 +104,7 @@ class Release1PendingTest {
         ConditionEvaluationResult result = evaluate(GatedFixture.class);
 
         assertThat(result.isDisabled()).isTrue();
-        assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T143"));
+        assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T120"));
     }
 
     // --- the name registry ---
@@ -144,12 +149,12 @@ class Release1PendingTest {
         void ungated() {
         }
 
-        @WaitsOn("T98")
+        @WaitsOn("T115")
         void gated() {
         }
     }
 
-    @WaitsOn("T143")
+    @WaitsOn("T120")
     static class GatedFixture {
     }
 }
