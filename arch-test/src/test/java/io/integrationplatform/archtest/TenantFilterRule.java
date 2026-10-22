@@ -82,6 +82,12 @@ final class TenantFilterRule {
      */
     static final String TARGET_DB_SENDER = "io.integrationplatform.routing.adapter.db.JdbcDbSender";
 
+    /**
+     * F3 (privilege probe): reads the tenant target database's own grants over the same kind of driver connection
+     * (information_schema.table_privileges on the customer database, never the platform datasource).
+     */
+    static final String TARGET_DB_PROBE = "io.integrationplatform.routing.adapter.db.JdbcDbPrivilegeProbe";
+
     /** The reason, kept with the constant so a review of the exemption reads it in one place. */
     static final String TARGET_DB_SENDER_REASON = "writes to the customer's external target database over its own "
             + "driver connection, never the platform datasource (ADR-011 Decision 1; T-149)";
@@ -92,15 +98,15 @@ final class TenantFilterRule {
             "the tenant-scoped repository base or a reviewed @TenantBoundaryCrossing in " + CROSSING_PACKAGE,
             TenantFilterRule::isExempt);
 
-    static final ArchRule NO_QUERY_WITHOUT_TENANT_FILTER = noQueryWithoutTenantFilterExempting(TARGET_DB_SENDER);
+    static final ArchRule NO_QUERY_WITHOUT_TENANT_FILTER = noQueryWithoutTenantFilterExempting(TARGET_DB_SENDER, TARGET_DB_PROBE);
 
-    /** The rule with {@code targetSender} as the one exact class exempt for its target-connection statements. */
-    static ArchRule noQueryWithoutTenantFilterExempting(String targetSender) {
+    /** The rule with {@code targetSenders} as the exact classes exempt for its target-connection statements. */
+    static ArchRule noQueryWithoutTenantFilterExempting(String... targetSenders) {
         DescribedPredicate<JavaAccess<?>> entryPoint = DescribedPredicate.describe(
                 "a JDBC entry point (Connection, Statement, DataSource, JdbcTemplate, NamedParameterJdbcTemplate, "
-                        + "JdbcClient, EntityManager query, Spring Data repository) other than " + targetSender
+                        + "JdbcClient, EntityManager query, Spring Data repository) other than " + String.join(", ", targetSenders)
                         + " on its own target connection (" + TARGET_DB_SENDER_REASON + ")",
-                access -> isJdbcEntryPoint(access) && !isTargetConnectionCall(access, targetSender));
+                access -> isJdbcEntryPoint(access) && !isTargetConnectionCall(access, java.util.Set.of(targetSenders)));
         return noClasses()
                 .that().resideInAPackage(ROOT_PACKAGE + "..")
                 .and(not(REPOSITORY_BASE_OR_REVIEWED_CROSSING))
@@ -142,13 +148,13 @@ final class TenantFilterRule {
                 .anyMatch(entry -> owner.isAssignableTo(entry.getKey()) && entry.getValue().contains(method));
     }
 
-    private static boolean isTargetConnectionCall(JavaAccess<?> access, String targetSender) {
+    private static boolean isTargetConnectionCall(JavaAccess<?> access, java.util.Set<String> targetSenders) {
         JavaClass origin = access.getOriginOwner();
         while (origin.getEnclosingClass().isPresent()) {
             origin = origin.getEnclosingClass().get();
         }
         JavaClass owner = access.getTarget().getOwner();
-        return origin.getName().equals(targetSender)
+        return targetSenders.contains(origin.getName())
                 && TARGET_CONNECTION_TYPES.stream().anyMatch(owner::isAssignableTo)
                 && !owner.isAssignableTo("javax.sql.DataSource");
     }
