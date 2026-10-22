@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.delivery.DeliveryClaimService;
 import io.integrationplatform.delivery.port.BulkheadDeferrals;
+import io.integrationplatform.delivery.port.BulkheadRedrive;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts.BulkheadFacts;
 import io.integrationplatform.ingest.port.CorrelationContext;
@@ -52,6 +53,7 @@ class DeliveryDueDispatchTest {
     private final RecordingClaim claim = new RecordingClaim();
     private final RecordingSend send = new RecordingSend();
     private final FakeViews views = new FakeViews();
+    private final RecordingRedrive redrive = new RecordingRedrive();
 
     @Test
     @DisplayName("full bulkhead: the record defers BEFORE claiming - no claim, no send, the thread never blocks")
@@ -376,9 +378,150 @@ class DeliveryDueDispatchTest {
         assertThat(probe.calls).hasSize(1);
     }
 
+    @Test
+    @DisplayName("drain fix: a finished send frees its slot and re-drives ONE deferred delivery of the SAME target,"
+            + " under the record's tenant, without the retry job")
+    void finishedSendRedrivesOneDeferredDeliveryOfTheSameTarget() {
+        UUID delivery = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            send.onCall = thread -> assertThat(redrive.calls).as("not before the send ends").isEmpty();
+
+            dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
+            awaitOneSend(send);
+            awaitRedrives(1);
+
+            assertThat(redrive.calls).containsExactly(new RedriveCall(target, Optional.of(TENANT)));
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("drain fix: bulkhead full -> deferral -> the running send finishes -> the deferred delivery is"
+            + " re-driven at once (no job, no backoff wait)")
+    void fullBulkheadDeferralIsRedrivenWhenTheRunningSendFinishes() throws Exception {
+        UUID running = UUID.randomUUID();
+        UUID deferred = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.byDelivery.put(running, new BulkheadFacts(target, "k1", 0));
+            facts.byDelivery.put(deferred, new BulkheadFacts(target, "k2", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            CountDownLatch inSend = new CountDownLatch(1);
+            CountDownLatch finishSend = new CountDownLatch(1);
+            send.onCall = thread -> {
+                inSend.countDown();
+                try {
+                    finishSend.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            };
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            dispatch.onWork(deliveryRecord(running), TENANT);
+            assertThat(inSend.await(5, TimeUnit.SECONDS)).isTrue();
+            dispatch.onWork(deliveryRecord(deferred), TENANT); // the only permit is in use
+
+            assertThat(deferrals.calls).extracting(DeferralCall::deliveryId).containsExactly(deferred);
+            assertThat(redrive.calls).as("nothing re-driven while the slot is still taken").isEmpty();
+
+            long freedAt = System.nanoTime();
+            finishSend.countDown();
+            awaitRedrives(1);
+
+            assertThat(redrive.calls).containsExactly(new RedriveCall(target, Optional.of(TENANT)));
+            assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - freedAt)).as("well within ~1 s")
+                    .isLessThan(1000);
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("drain fix: a failing re-drive never fails the finished send and never leaks the permit or tenant")
+    void aFailingRedriveDoesNotFailTheFinishedSend() throws Exception {
+        UUID delivery = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            redrive.failure = new IllegalStateException("database down");
+
+            dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
+            awaitOneSend(send);
+            awaitRedrives(1);
+
+            AtomicReference<Optional<UUID>> nextTenant = new AtomicReference<>();
+            CountDownLatch nextRan = new CountDownLatch(1);
+            assertThat(registry.of(target).execute(() -> {
+                nextTenant.set(binding.currentTenantId());
+                nextRan.countDown();
+            })).as("the pool thread is still usable").isTrue();
+            assertThat(nextRan.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(nextTenant.get()).as("no tenant leaks").isEmpty();
+            assertThat(registry.of(target).tryAcquire()).as("the permit came back").isTrue();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("drain fix: a send that throws still frees the slot - the re-drive still runs")
+    void aSendThatThrowsStillRedrives() {
+        UUID delivery = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            send.onCall = thread -> {
+                throw new IllegalStateException("target call blew up");
+            };
+
+            dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
+            awaitRedrives(1);
+
+            assertThat(redrive.calls).hasSize(1);
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("drain fix: nothing was sent (HELD) - no re-drive, so no cascade is possible")
+    void noSendNoRedrive() {
+        UUID delivery = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, null, 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+
+            dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
+
+            assertThat(redrive.calls).isEmpty();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    private void awaitRedrives(int count) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (redrive.calls.size() < count && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        assertThat(redrive.calls).as("re-drives").hasSize(count);
+    }
+
     private DeliveryDueDispatch dispatch(BulkheadRegistry registry) {
-        return new DeliveryDueDispatch(binding, transactions, facts, registry, claim, deferrals, send, views,
-                () -> NOW, () -> 0.5);
+        return new DeliveryDueDispatch(binding, transactions, facts, registry, claim, deferrals, redrive, send,
+                views, () -> NOW, () -> 0.5);
     }
 
     private static WorkRecord deliveryRecord(UUID deliveryId) {
@@ -421,6 +564,23 @@ class DeliveryDueDispatchTest {
         public boolean defer(UUID deliveryId, Instant now, int consecutiveDeferrals, double jitter) {
             calls.add(new DeferralCall(deliveryId, now, consecutiveDeferrals, jitter));
             return result;
+        }
+    }
+
+    private record RedriveCall(UUID targetEndpointId, Optional<UUID> tenant) { }
+
+    private final class RecordingRedrive implements BulkheadRedrive {
+
+        final List<RedriveCall> calls = java.util.Collections.synchronizedList(new ArrayList<>());
+        RuntimeException failure;
+
+        @Override
+        public boolean redriveOneDeferred(UUID targetEndpointId) {
+            calls.add(new RedriveCall(targetEndpointId, binding.currentTenantId()));
+            if (failure != null) {
+                throw failure;
+            }
+            return true;
         }
     }
 
