@@ -27,3 +27,30 @@ CREATE POLICY db_target_approved_table_insert_pending ON public.db_target_approv
 CREATE POLICY db_target_approved_table_update ON public.db_target_approved_table
     FOR UPDATE USING (tenant_id = current_setting('app.tenant_id')::uuid)
     WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid);
+
+-- S5 (Karan re-test): the target fingerprint also covers sslmode, so weakening verify-full to require (or dropping it)
+-- invalidates the approval like a repoint does. The fingerprint has ONE definition - this function; the send path, the
+-- publish check, the request insert and the decision all call it - so replacing it here changes every reader at once.
+-- The stored hashes of existing rows (the V2_4_1330 backfill, requests, approvals) are re-computed against the new
+-- definition, per tenant with the tenant stamped (FORCE ROW LEVEL SECURITY), so no current approval is lost: the
+-- re-hash binds each row to the system's CURRENT settings, exactly what it was bound to before.
+CREATE OR REPLACE FUNCTION public.db_target_fingerprint(p_settings jsonb) RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path = pg_catalog, pg_temp AS $$
+    SELECT pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
+        coalesce(p_settings ->> 'host', '') || E'\x1f' || coalesce(p_settings ->> 'port', '') || E'\x1f'
+        || coalesce(p_settings ->> 'database', '') || E'\x1f' || coalesce(p_settings ->> 'user', '')
+        || E'\x1f' || coalesce(p_settings ->> 'sslmode', ''),
+        'UTF8')), 'hex')
+$$;
+
+DO $rehash$
+DECLARE
+    tenant uuid;
+BEGIN
+    FOR tenant IN SELECT id FROM public.tenant LOOP
+        PERFORM set_config('app.tenant_id', tenant::text, true);
+        UPDATE public.db_target_approved_table a SET target_hash = public.db_target_fingerprint(s.settings)
+            FROM public.system s WHERE a.tenant_id = tenant AND s.id = a.system_id AND s.tenant_id = a.tenant_id;
+    END LOOP;
+END
+$rehash$;

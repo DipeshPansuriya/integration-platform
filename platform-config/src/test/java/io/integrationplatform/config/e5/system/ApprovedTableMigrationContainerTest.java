@@ -270,6 +270,21 @@ class ApprovedTableMigrationContainerTest {
     }
 
     @Test
+    @DisplayName("S5 (V2_4_1340): sslmode is part of the target fingerprint - weakening TLS invalidates an approval; absent and empty agree")
+    void sslmodeIsPartOfTheFingerprint() throws Exception {
+        String base = "{\"host\":\"h\",\"port\":5432,\"database\":\"d\",\"user\":\"u\"";
+        String full = scalar("select public.db_target_fingerprint(?::jsonb)", base + ",\"sslmode\":\"verify-full\"}");
+        String weaker = scalar("select public.db_target_fingerprint(?::jsonb)", base + ",\"sslmode\":\"require\"}");
+        assertThat(full).isNotEqualTo(weaker);
+        assertThat(scalar("select public.db_target_fingerprint(?::jsonb)", base + "}"))
+                .isEqualTo(scalar("select public.db_target_fingerprint(?::jsonb)", base + ",\"sslmode\":null}"));
+        // the rows written by the V2_4_1330 backfill (old four-field hash) were re-hashed by this migration
+        assertThat(scalar("select count(*) from public.db_target_approved_table a join public.system s on s.id = a.system_id"
+                + " where a.requested_by = 'migration' and a.target_hash <> public.db_target_fingerprint(s.settings)"))
+                .isEqualTo("0");
+    }
+
+    @Test
     @DisplayName("S1 (V2_4_1340): the app role can only INSERT a PENDING_APPROVAL row - an APPROVED or REVOKED row, or any decider, is refused (42501)")
     void anInsertIsAlwaysPending() throws Exception {
         // status, decided_by, decided_at (sql), revoked_by
