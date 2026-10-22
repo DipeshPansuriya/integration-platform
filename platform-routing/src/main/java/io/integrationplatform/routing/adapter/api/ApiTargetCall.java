@@ -118,6 +118,12 @@ public class ApiTargetCall implements TargetCall {
             headers.put("Content-Type", body.contentType());
             // the endpoint is addressed per delivery: the key ADR-011 Decision 4 requires on every call
             headers.put("Idempotency-Key", send.deliveryId().toString());
+            // ADR-011 Decision 7, ADR-005 Decision 9: the open journey's traceparent rides the request, the same
+            // source the Kafka leg's record header carries (KafkaClientsSender) - the partner continues the trace
+            String traceparent = io.integrationplatform.ingest.port.CorrelationContext.currentTraceparent();
+            if (traceparent != null) {
+                headers.put("traceparent", traceparent);
+            }
             attempt(send, view, destination, headers, body);
             outcome = OutcomeClass.SUCCESS;
         } catch (TargetFaultException failed) {
