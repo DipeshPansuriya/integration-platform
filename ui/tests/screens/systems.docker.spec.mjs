@@ -145,7 +145,9 @@ test('a Kafka system on a platform topic is refused with the server text, shown 
 
   const error = page.locator('[data-validation-error]');
   await expect(error).toHaveCount(1);
-  await expect(error).toContainText("platform.poison rides the platform's record register - not a tenant topic (T-184 SF-2)");
+  // plain-string compare: on a mismatch Playwright prints the FULL shown text (toContainText truncates it to 80 chars - the first two runs
+  // 2026-10-22 failed here with the tail hidden, so the cause of the mismatch is still unread)
+  expect(await error.innerText()).toContain("platform.poison is a platform topic - the platform's own register is never a tenant destination (T-184 SF-2)");
   const topic = page.locator('[data-form="register-system"] [data-setting="topic"]');
   await expect(topic).toHaveAttribute('aria-invalid', 'true');
   await expect(topic).toHaveAttribute('aria-describedby', /sys-validation-errors/);
