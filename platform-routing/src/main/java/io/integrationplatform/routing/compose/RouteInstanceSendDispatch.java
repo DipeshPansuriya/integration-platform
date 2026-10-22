@@ -105,7 +105,8 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
                     + "SENDING for the reconciler", send.deliveryId(), done.getException());
             return false;
         }
-        if (done.getProperty(Exchange.EXCEPTION_CAUGHT) == null) {
+        // T188: layer 1's explicit outcome decides; the exception guard above stays the second line, so no failure is hidden
+        if (Boolean.TRUE.equals(done.getProperty(LayerOneRouteBuilder.LAYER_ONE_SUCCEEDED, Boolean.class))) {
             transactions.executeWithoutResult(status -> outcomes.markDelivered(send.deliveryId(), send.claimToken()));
         }
         // layer 1 sets this property only when the target's breaker refused the call (CIRCUIT_DEFER)

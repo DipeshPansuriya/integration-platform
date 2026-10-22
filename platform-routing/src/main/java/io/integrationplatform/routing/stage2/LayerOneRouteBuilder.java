@@ -38,6 +38,13 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
     /** Exchange property: the classified outcome of the last performed call. */
     static final String LAST_OUTCOME = "stage2.lastOutcome";
 
+    /**
+     * Exchange property (T188): layer 1's explicit final outcome - {@code Boolean.TRUE} only when a try succeeded and its
+     * SUCCESS attempt row was written, {@code Boolean.FALSE} on every other exit (transient-exhausted, permanent,
+     * ambiguous, circuit-open). The dispatch marks DELIVERED on this flag, not on the absence of Camel's caught exception.
+     */
+    public static final String LAYER_ONE_SUCCEEDED = "stage2.layerOneSucceeded";
+
     /** Exchange property: how long the open circuit refuses calls (set only by a breaker refusal). */
     public static final String CIRCUIT_RETRY_AFTER = "stage2.circuitRetryAfter";
 
@@ -97,6 +104,7 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
         Objects.requireNonNull(send, "a stage-2 send body is required");
         int tryNumber = tryNumber(exchange);
         exchange.setProperty(LAST_TRY, tryNumber);
+        exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.FALSE); // a try is a failure until it records its SUCCESS
         Instant started = clock.get();
         try {
             targetCall.call(send);
@@ -106,6 +114,8 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
             // B32: Camel leaves the earlier try's exception on the exchange after a redelivery; the dispatch reads that
             // property as "layer 1 failed", so a success after TRANSIENT tries must clear it or the delivery stays SENDING
             exchange.removeProperty(Exchange.EXCEPTION_CAUGHT);
+            // T188: say it explicitly - the dispatch decides on this flag, not on the absence of the caught exception
+            exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.TRUE);
         } catch (TargetFaultException.CircuitOpenException open) {
             exchange.setProperty(CIRCUIT_RETRY_AFTER, open.retryAfter());
             log.info("stage 2: delivery {} - layer-1 try {}: refused by the open circuit, nothing sent",
@@ -123,12 +133,14 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
     /** The breaker refused the call: the delivery waits until the breaker may let a trial call through. */
     private void deferCircuitOpen(Exchange exchange) {
         Stage2Send send = exchange.getIn().getBody(Stage2Send.class);
+        exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.FALSE);
         java.time.Duration retryAfter = exchange.getProperty(CIRCUIT_RETRY_AFTER, java.time.Duration.class);
         outcomeHandoff.deferCircuitOpen(send.deliveryId(), send.claimToken(), clock.get().plus(retryAfter));
     }
 
     /** Layer 1 ended without success: the exchange goes to the outcome path, exactly once. */
     private void handOver(Exchange exchange) {
+        exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.FALSE);
         Stage2Send send = exchange.getIn().getBody(Stage2Send.class);
         Integer lastTry = exchange.getProperty(LAST_TRY, Integer.class);
         OutcomeClass lastOutcome = exchange.getProperty(LAST_OUTCOME, OutcomeClass.class);
