@@ -52,11 +52,29 @@ public class FileAdapterConfiguration {
 
     @Bean
     FileTargetCall fileTargetCall(FileOutbound outbound, FolderResolver folders,
+            ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager,
             ObjectProvider<CircuitBreakerRegistry> breakers,
             ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations) {
-        return new FileTargetCall(outbound, folders,
+        return compose(outbound, folders, transactionManager.getIfAvailable(),
                 breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP));
+    }
+
+    /**
+     * T175 (T71 for FILE): every database read of the send (settings, mapped name and body) happens in
+     * {@code resolve}, so it runs in ONE short tenant-stamped transaction that is over before the file is written.
+     * The folder resolve and the write touch only the file system and hold no pooled connection.
+     */
+    static FileTargetCall compose(FileOutbound outbound, FolderResolver folders,
+            org.springframework.transaction.PlatformTransactionManager transactions,
+            CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations) {
+        if (transactions != null) {
+            org.springframework.transaction.support.TransactionTemplate tx =
+                    new org.springframework.transaction.support.TransactionTemplate(transactions);
+            FileOutbound reads = outbound;
+            outbound = send -> tx.execute(status -> reads.resolve(send));
+        }
+        return new FileTargetCall(outbound, folders, breakers, meters, observations);
     }
 }
