@@ -135,7 +135,7 @@ class PipelineCompositionConfiguration {
         // T71/T175: a call that leaves the process must not hold a pooled connection while it waits on the
         // target. Every adapter (API, MQ, KAFKA, DB, FILE) opens its own short tenant-stamped reads, so no type is
         // wrapped in a whole-call transaction here.
-        java.util.Map<String, TargetCall> perType = new java.util.LinkedHashMap<>(targetCalls.calls());
+        java.util.Map<String, TargetCall> perType = routedCalls(targetCalls.calls());
         TargetCall inTenantTransaction = TargetCall.byType(
                 endpointId -> transactions.execute(status -> mqTargets.typeOf(endpointId)), perType);
         Stage2AttemptWriter attempts = (deliveryId, layer, outcome, startedAt, finishedAt, detail) ->
@@ -156,6 +156,11 @@ class PipelineCompositionConfiguration {
             }
         };
         return new LayerOneRouteBuilder(inTenantTransaction, attempts, handoff, LayerOneWaits.defaults());
+    }
+
+    /** T175: the calls reach the router as composed - no type is wrapped in a whole-call transaction. */
+    static java.util.Map<String, TargetCall> routedCalls(java.util.Map<String, TargetCall> calls) {
+        return new java.util.LinkedHashMap<>(calls);
     }
 
     @Bean
