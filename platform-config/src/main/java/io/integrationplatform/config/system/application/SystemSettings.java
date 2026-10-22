@@ -358,6 +358,9 @@ public final class SystemSettings {
         boolean plain = !name.isBlank() && name.length() <= 128 && !name.equals(".") && !name.equals("..")
                 && bare.indexOf('/') < 0 && bare.indexOf('\\') < 0 && bare.indexOf(':') < 0
                 && bare.indexOf('{') < 0 && bare.indexOf('}') < 0;
+        if (plain && !name.contains("{deliveryId}")) { // T178c: a taken name is PERMANENT, so a fixed name delivers once
+            return "must contain {deliveryId}: a file name that repeats would dead-letter every delivery after the first";
+        }
         return plain ? null : expected;
     }
 
