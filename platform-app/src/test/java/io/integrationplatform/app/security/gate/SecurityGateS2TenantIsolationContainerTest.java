@@ -142,16 +142,6 @@ class SecurityGateS2TenantIsolationContainerTest {
     }
 
     /**
-     * S2-A3: Method and parameter tampering (IDOR pack bypass set).
-     * Expected: No bypass: the tenant filter never depends on path shape or parameter order; every variant errors or 404s inside A
-     */
-    @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T157 is on main (TenantBSeed) but lives in platform-e2e, unreachable from platform-app; HTTP sweep needs a body in platform-e2e or ForgedTenantDenialSuiteTest reuse (T141 gate case S2-A3)")
-    void s2_a3_method_and_parameter_tampering() {
-        fail("S2-A3 body lands with T157");
-    }
-
-    /**
      * S2-A4: RLS/GUC control 1 - no session-scope stamping (ADR-007 D6).
      * Expected: Session-scope stamping refuses or has no effect on policies (only transaction-scoped stamping from the bound tenant); the query errors or stays A-bound
      */

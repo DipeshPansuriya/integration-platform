@@ -45,26 +45,6 @@ class SecurityGateS1IdentityContainerTest {
     }
 
     /**
-     * S1-A4: Machine-client grant posture (ADR-007 D3).
-     * Expected: Source token issued with the platform API aud; ROPC and implicit refused (deprecated grants not enabled)
-     */
-    @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: T142 harness is on main (platform-e2e E2eContainers/Release1Client) but unreachable from platform-app (separate module); move the case to platform-e2e, needs Keycloak + tenant B (T141 gate case S1-A4)")
-    void s1_a4_machine_client_grant_posture() {
-        fail("S1-A4 body lands with T142");
-    }
-
-    /**
-     * S1-A5: Token validation rules (ADR-007 D4): alg allow-list, aud, skew, kid.
-     * Expected: Every token 401-final (alg=none/HS256 refused, aud required, skew bounded, unknown kid triggers JWKS refresh then 401 until valid, rotated kid accepted)
-     */
-    @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: T142 harness is on main (platform-e2e E2eContainers/Release1Client) but unreachable from platform-app (separate module); move the case to platform-e2e, needs Keycloak + tenant B (T141 gate case S1-A5)")
-    void s1_a5_token_validation_rules_alg_allow_list() {
-        fail("S1-A5 body lands with T142");
-    }
-
-    /**
      * S1-A6: Forged-tenant matrix, E4-F1-S1/S2 patterns (ADR-007 D2).
      * Expected: Each changes nothing: request acts on A or is 403 + audit (the bootstrap lookup (issuer,subject)/(issuer,azp) decides; the claim/header/body value is only cross-checked, never trusted)
      */
@@ -84,13 +64,4 @@ class SecurityGateS1IdentityContainerTest {
         fail("S1-A7 body lands with T157");
     }
 
-    /**
-     * S1-A8: Default audience scope (ADR-007 D3 S-j).
-     * Expected: First token accepted by the API; second 401
-     */
-    @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: T142 harness is on main (platform-e2e E2eContainers/Release1Client) but unreachable from platform-app (separate module); move the case to platform-e2e, needs Keycloak + tenant B (T141 gate case S1-A8)")
-    void s1_a8_default_audience_scope() {
-        fail("S1-A8 body lands with T142");
-    }
 }
