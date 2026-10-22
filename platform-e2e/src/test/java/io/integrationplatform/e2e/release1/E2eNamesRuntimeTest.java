@@ -36,16 +36,16 @@ class E2eNamesRuntimeTest {
         assertThat(E2eNames.externalWiremock()).isNull();
         assertThat(E2eNames.externalArtemisContainer()).isNull();
         System.setProperty("e2e.wiremockUrl", "http://127.0.0.1:8089/");
-        System.setProperty("e2e.artemisContainer", "t174b-artemis");
+        System.setProperty("e2e.artemisContainer", "t174c-artemis");
         assertThat(E2eNames.externalWiremock()).isEqualTo("http://127.0.0.1:8089");
-        assertThat(E2eNames.externalArtemisContainer()).isEqualTo("t174b-artemis");
+        assertThat(E2eNames.externalArtemisContainer()).isEqualTo("t174c-artemis");
     }
 
     @Test
     void replayIsByDeliveryIdAndTheMqQueueIsTheSeededOne() {
         assertThat(E2eNames.nameOf("replayApi")).contains("{deliveryId}").doesNotContain("{trackingId}");
         assertThat(E2eNames.nameOf("mqTargetQueue")).isEqualTo("r1.orders.mq");
-        assertThatThrownBy(() -> E2eNames.nameOf("bulkIntakeApi")).hasMessageContaining("T115");
-        assertThatThrownBy(() -> E2eNames.nameOf("dailyReportApi")).hasMessageContaining("T120");
+        assertThat(E2eNames.nameOf("bulkIntakeApi")).contains("{interfaceCode}").endsWith(":bulk");
+        assertThat(E2eNames.nameOf("dailyReportApi")).contains("{day}");
     }
 }
