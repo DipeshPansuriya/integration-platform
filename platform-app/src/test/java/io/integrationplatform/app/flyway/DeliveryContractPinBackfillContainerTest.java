@@ -172,6 +172,11 @@ class DeliveryContractPinBackfillContainerTest {
             }
 
             @Override
+            public boolean pinContract(UUID deliveryId, UUID contractVersionId) {
+                return false;
+            }
+
+            @Override
             public boolean replay(UUID deliveryId, Instant at) {
                 return true;
             }
@@ -181,7 +186,7 @@ class DeliveryContractPinBackfillContainerTest {
                 return true;
             }
         };
-        return new DeliveryOperatorActions(store, entry -> 1L, (ApplicationEventPublisher) event -> { },
+        return new DeliveryOperatorActions(store, target -> Optional.empty(), entry -> 1L, (ApplicationEventPublisher) event -> { },
                 () -> Optional.of(tenant), new org.springframework.transaction.support.TransactionOperations() {
                     @Override
                     public <T> T execute(org.springframework.transaction.support.TransactionCallback<T> action) {
