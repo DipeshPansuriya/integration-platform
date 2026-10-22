@@ -26,7 +26,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * E16 F3 (design note task 11, Karan change 4) against a real PostgreSQL as the DB target: the probe answers the
- * account's REAL grants on the exact target table (information_schema.table_privileges), reports none for an
+ * account's EFFECTIVE privileges on the exact target table (has_table_privilege: group roles, PUBLIC, superuser, schema CREATE, pg_write_all_data), reports none for an
  * ungranted table, maps a refused account to AUTH_REFUSED and a closed port to a database that did not answer, and
  * wipes the credential copy when the probe is over. The credential seam is a test fixture holding the SAME
  * container-local fixed password (R07: never a real credential) - the vault composition is the unit seam.
@@ -75,7 +75,11 @@ class DbPrivilegeProbeContainerTest {
     }
 
     private DbSettings settings(String table, int port) {
-        return new DbSettings(TARGET.getHost(), port, TARGET.getDatabaseName(), "restricted", table);
+        return settings("restricted", table, port);
+    }
+
+    private DbSettings settings(String user, String table, int port) {
+        return new DbSettings(TARGET.getHost(), port, TARGET.getDatabaseName(), user, table);
     }
 
     @BeforeAll
@@ -87,6 +91,22 @@ class DbPrivilegeProbeContainerTest {
             sql.execute("CREATE TABLE orders_in (id bigserial PRIMARY KEY, awb text NOT NULL)");
             sql.execute("CREATE TABLE users (id bigserial PRIMARY KEY)");
             sql.execute("GRANT SELECT, INSERT ON orders_in TO restricted"); // nothing granted on users
+            // S2: an account that is wide only THROUGH A GROUP ROLE (information_schema.table_privileges by grantee
+            // missed this), one that holds CREATE on the schema, and one that is a pg_write_all_data member
+            sql.execute("CREATE ROLE writers NOLOGIN");
+            sql.execute("GRANT UPDATE, DELETE ON orders_in TO writers");
+            sql.execute("CREATE ROLE wide LOGIN PASSWORD '" + RESTRICTED_PASSWORD + "' NOSUPERUSER IN ROLE writers");
+            sql.execute("GRANT SELECT, INSERT ON orders_in TO wide");
+            sql.execute("GRANT CREATE ON SCHEMA public TO wide");
+            sql.execute("CREATE ROLE bulk LOGIN PASSWORD '" + RESTRICTED_PASSWORD + "' NOSUPERUSER");
+            sql.execute("GRANT pg_write_all_data TO bulk");
+            // S3: an account with a schema of its own that shadows public.orders_in through its role search_path
+            sql.execute("CREATE ROLE shadowed LOGIN PASSWORD '" + RESTRICTED_PASSWORD + "' NOSUPERUSER");
+            sql.execute("CREATE SCHEMA shadowed AUTHORIZATION shadowed");
+            sql.execute("CREATE TABLE shadowed.orders_in (id bigserial PRIMARY KEY, awb text NOT NULL)");
+            sql.execute("ALTER ROLE shadowed SET search_path = shadowed, public");
+            sql.execute("GRANT SELECT, INSERT ON orders_in TO shadowed");
+            sql.execute("GRANT USAGE ON SEQUENCE orders_in_id_seq TO shadowed"); // the bigserial default calls nextval()
         }
     }
 
@@ -140,6 +160,62 @@ class DbPrivilegeProbeContainerTest {
         assertThatThrownBy(() -> probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("orders_in",
                 closed), pinnedAddress(), Duration.ofSeconds(5)))
                 .isInstanceOf(IOException.class);
+    }
+
+    @Test
+    @DisplayName("S2: privileges that arrive through a group role are reported (the grantee-text read said none)")
+    void aGroupRolePrivilegeIsReported() throws Exception {
+        List<String> grants = probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("wide", "orders_in",
+                TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), pinnedAddress(), Duration.ofSeconds(5));
+
+        assertThat(grants).containsExactly("DELETE", "INSERT", "SCHEMA_CREATE", "SELECT", "UPDATE");
+    }
+
+    @Test
+    @DisplayName("S2: pg_write_all_data membership is reported, and the response flags the account WIDE")
+    void aWriteAllDataMemberIsFlaggedWide() throws Exception {
+        int port = TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT);
+        assertThat(probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("bulk", "orders_in", port),
+                pinnedAddress(), Duration.ofSeconds(5)))
+                .contains("PG_WRITE_ALL_DATA", "DELETE", "INSERT", "UPDATE");
+        DbTestConnection connection = new DbTestConnection(guard(), (host, p, timeout) -> { },
+                probe(RESTRICTED_PASSWORD.toCharArray()), List.of(port), Duration.ofSeconds(5));
+        String json = "{\"host\":\"" + TARGET.getHost() + "\",\"port\":" + port + ",\"database\":\""
+                + TARGET.getDatabaseName() + "\",\"user\":\"bulk\",\"table\":\"orders_in\"}";
+
+        assertThat((String) connection.test(systemId, json).get("detail")).contains("WIDE ACCOUNT");
+    }
+
+    @Test
+    @DisplayName("S2: a table that does not exist reads as no privilege, not a database error")
+    void aMissingTableReadsAsNone() throws Exception {
+        assertThat(probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("no_such_table",
+                TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), pinnedAddress(), Duration.ofSeconds(5)))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("S3: a role-level search_path cannot move the connection off public - the account Properties pin it")
+    void theSchemaIsPinnedAgainstARoleSearchPath() throws Exception {
+        java.util.Properties account = JdbcDbSender.accountProperties("shadowed", RESTRICTED_PASSWORD.toCharArray(),
+                pinnedAddress(), "disable", Duration.ofSeconds(5), null);
+        DbSettings target = settings("shadowed", "orders_in", TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT));
+
+        try (Connection connection = DriverManager.getConnection(JdbcDbSender.url(target), account);
+                Statement sql = connection.createStatement()) {
+            var current = sql.executeQuery("select current_schema()");
+            current.next();
+            assertThat(current.getString(1)).isEqualTo("public");
+            // the unqualified insert the sender runs lands in public.orders_in, never in shadowed.orders_in
+            sql.executeUpdate("insert into orders_in (awb) values ('pinned')");
+        }
+        try (Connection owner = owner(); Statement sql = owner.createStatement()) {
+            var counts = sql.executeQuery("select (select count(*) from public.orders_in where awb = 'pinned'),"
+                    + " (select count(*) from shadowed.orders_in)");
+            counts.next();
+            assertThat(counts.getInt(1)).isEqualTo(1);
+            assertThat(counts.getInt(2)).isZero();
+        }
     }
 
     @Test

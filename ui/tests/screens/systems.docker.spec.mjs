@@ -278,28 +278,20 @@ test('a Kafka create with a clear-text protocol is refused at save with the R1 s
   await expect(page.locator('[data-form="register-system"] [data-setting="saslMechanism"]')).toHaveCount(0);
 });
 
-// E16 F3, authored on main for the pending product change - the approved tables' save-time refusal lives on
-// branch feature/e16-approved-tables-f3 (commit d0cf84e "UI drops approvedTables"), NOT on main yet: on main
-// the DB schema still accepts approvedTables (SystemSettings.java:122) and the API answers 201. Until it
-// merges this scenario SKIPS with its dependency named; once it merges it runs unguarded, on the same probe.
+// E16 F3 (merged to main): the approved tables' save-time refusal is live, so this scenario runs unguarded.
 test('a DB system whose settings carry approvedTables is refused FIELD_NOT_ALLOWED at save (F3)', async ({ page }) => {
   await page.goto(consoleUrl());
   const probe = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
     code: `sys-f3-${RUN}`, name: 'F3 probe', direction: 'OUTBOUND', type: 'DB',
     settings: { host: 'db.partner.test', port: 5432, database: 'orders', user: 'etl', approvedTables: ['orders', 'lines'] }
   });
-  if (probe.status === 201) {
-    test.skip(true, 'BLOCKED product gap: approvedTables is still accepted at save on main - F3 (FIELD_NOT_ALLOWED) '
-      + 'is on feature/e16-approved-tables-f3; run when it merges');
-    return;
-  }
   expect(probe.status, JSON.stringify(probe.data)).toBe(400);
   expect(probe.data?.refusal).toBe('FIELD_NOT_ALLOWED'); // the old-client marker the body carries (SystemValidationException)
   expect(probe.data?.errors).toContain('settings.approvedTables is not allowed (FIELD_NOT_ALLOWED): the tables a'
     + ' DB target may write to are requested and approved at /api/v1/admin/systems/{systemId}/approved-tables,'
     + ' never listed in the settings');
 
-  // on the F3 branch the form no longer lists the field, so the console cannot type an approval into settings
+  // the form no longer lists the field, so the console cannot type an approval into settings
   await openSystems(page);
   await page.click('[data-action="open-register"]');
   await expect(page.getByRole('dialog', { name: 'Register a system' }).locator('[data-setting="approvedTables"]')).toHaveCount(0);

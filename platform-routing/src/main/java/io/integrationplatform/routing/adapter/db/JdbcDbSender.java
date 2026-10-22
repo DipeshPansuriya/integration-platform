@@ -27,6 +27,15 @@ import java.util.stream.Collectors;
  * dials the guard-pinned address through {@link PinnedSocketFactory} (the host is never re-resolved) while the
  * original host name stays the TLS server name. TLS is always requested ({@code sslmode} {@code require} by default,
  * or the target's stronger choice); an operator may relax the default only through the constructor.
+ *
+ * <p>Operator note (target database): the restricted account needs INSERT <b>and SELECT</b> on the target table - the
+ * pre-state check reads {@code delivery_id} before the insert - and nothing more (the test-connection answer flags a
+ * WIDE account). Without SELECT the send is refused PERMANENT with SQL state 42501. Both the send and the privilege
+ * probe pin {@code currentSchema=public}: the table must live in {@code public}. That CHANGES behaviour for an
+ * existing target whose account relied on its own schema or a role-level search_path: the send now writes to
+ * {@code public.<table>} (or fails 42P01/42501) - move or grant the table before upgrading. The partner table's
+ * {@code delivery_id} column must be of type {@code uuid} (the pre-state check and the insert bind a UUID; a text
+ * column fails with SQL state 42883).
  */
 public final class JdbcDbSender implements DbSender {
 
@@ -133,6 +142,9 @@ public final class JdbcDbSender implements DbSender {
         account.setProperty("socketFactory", PinnedSocketFactory.class.getName());
         account.setProperty(PinnedSocketFactory.PINNED_PROPERTY, pinnedAddress.getHostAddress());
         account.setProperty("sslmode", sslmode);
+        // S3 (CWE-427): the unqualified INSERT and the probe both mean public.<table>; no search_path element of the
+        // target account can redirect either
+        account.setProperty("currentSchema", JdbcDbPrivilegeProbe.DEFAULT_SCHEMA);
         if (sslRootCert != null && (sslmode.equals("verify-ca") || sslmode.equals("verify-full"))) {
             account.setProperty("sslrootcert", sslRootCert.toString());
         }

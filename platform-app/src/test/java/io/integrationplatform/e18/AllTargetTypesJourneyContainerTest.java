@@ -172,17 +172,38 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
 
     // ----------------------------------------------------------------------------------------------------- DB
 
+    /** The F3 approval of {@code partner_orders} for the tenant's DB system: a requester and a DIFFERENT approver. */
+    private void approvePartnerOrders(UUID tenantId) {
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES);
+                java.sql.PreparedStatement stamp = owner.prepareStatement("select set_config('app.tenant_id', ?, false)");
+                java.sql.PreparedStatement insert = owner.prepareStatement("insert into public.db_target_approved_table"
+                        + " (tenant_id, system_id, table_name, status, requested_by, decided_by, decided_at, target_hash)"
+                        + " select s.tenant_id, s.id, 'partner_orders', 'APPROVED', 'e18-configurator', 'e18-approver',"
+                        + " now(), public.db_target_fingerprint(s.settings) from public.system s"
+                        + " where s.tenant_id = ?::uuid and s.type = 'DB'")) {
+            stamp.setString(1, tenantId.toString());
+            stamp.execute();
+            insert.setString(1, tenantId.toString());
+            assertThat(insert.executeUpdate()).as("the DB system's approval row").isEqualTo(1);
+        } catch (java.sql.SQLException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     @Test
     @DisplayName("DB: one row lands in the partner's approved table")
     void dbTargetJourney() throws Exception {
         try (Connection partner = java.sql.DriverManager.getConnection(TARGET_DB.getJdbcUrl(),
                 TARGET_DB.getUsername(), TARGET_DB.getPassword()); Statement create = partner.createStatement()) {
-            create.execute("create table if not exists partner_orders (order_no text, customer text, total numeric, delivery_id text unique)");
+            create.execute("create table if not exists partner_orders (order_no text, customer text, total numeric, delivery_id uuid unique)");
         }
         String settings = "{\"host\":\"db.e18.test\",\"port\":" + TARGET_DB.getMappedPort(5432) + ",\"database\":\""
                 + TARGET_DB.getDatabaseName() + "\",\"user\":\"" + TARGET_DB.getUsername()
-                + "\",\"table\":\"partner_orders\",\"approvedTables\":[\"partner_orders\"]}";
-        Run run = journey("db", "DB", settings, "jdbc:postgresql://db.e18.test/" + TARGET_DB.getDatabaseName(), true);
+                + "\",\"table\":\"partner_orders\"}";
+        // E16 F3: the settings no longer carry approvedTables (the API refuses the key, FIELD_NOT_ALLOWED); the table
+        // is requested by one user and approved by another, as an APPROVED row bound to the system's fingerprint
+        Run run = journey("db", "DB", settings, "jdbc:postgresql://db.e18.test/" + TARGET_DB.getDatabaseName(), true,
+                this::approvePartnerOrders);
         assertJourneyReads(run);
 
         try (Connection partner = java.sql.DriverManager.getConnection(TARGET_DB.getJdbcUrl(),

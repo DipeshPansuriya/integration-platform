@@ -196,6 +196,8 @@ export function settingsForEdit(
   const owned = new Set(settingsFieldsOf(type).map((field) => field.name));
   const settings: SystemSettingsValue = {};
   for (const [name, value] of Object.entries(before)) if (!owned.has(name)) settings[name] = value;
+  // F3: approved tables live in their own table; a stale stored key is refused by the server (FIELD_NOT_ALLOWED)
+  if (type.trim() === 'DB') delete settings.approvedTables;
   for (const field of settingsFieldsOf(type)) {
     const name = field.name;
     const old = before[name];

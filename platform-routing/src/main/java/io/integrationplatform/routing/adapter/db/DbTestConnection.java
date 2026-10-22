@@ -114,8 +114,11 @@ public class DbTestConnection {
         if (settings.table() == null) {
             return null;
         }
+        List<String> extra = granted.stream().filter(p -> !p.equals("INSERT") && !p.equals("SELECT")).toList();
         return "the account '" + settings.user() + "' holds on '" + settings.table() + "': "
-                + (granted.isEmpty() ? "none" : String.join(", ", granted));
+                + (granted.isEmpty() ? "none" : String.join(", ", granted))
+                + (extra.isEmpty() ? "" : " - WIDE ACCOUNT: more than INSERT and SELECT (" + String.join(", ", extra)
+                + "); the send needs only those two");
     }
 
     private static long elapsedMs(long start) {
