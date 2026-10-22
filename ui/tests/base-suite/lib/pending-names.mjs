@@ -72,6 +72,7 @@ export const ON_MAIN = Object.freeze({
   T106: true, // composition - OutboxRelayRunnerConfiguration.java:41
   T107: true, // correlation + JSON logs - main efa7d1d (landed 78792e4)
   T109: true, // audit writer - JdbcAuditEventStore.java:42
+  T108: true, // masked fields - MaskedFields.java:33 + MessageTrackingService.java redact (merge 31e38382)
   T110: true, // tracking reads - MessageTrackingController.java:40
   T111: true, // replay - DeliveryOperatorController.java:61 + OperatorActionButton.tsx
   T112: true, // detail + failures screens - MessageDetail.tsx, Failures.tsx
@@ -86,6 +87,10 @@ export const ON_MAIN_PROBES = Object.freeze({
   T105: [probe('platform-app/src/main/java/io/integrationplatform/app/message/MessageTrackingService.java', 'message_stage_timing')],
   T106: [probe('platform-ingest/src/main/java/io/integrationplatform/ingest/internal/relay/OutboxRelayRunnerConfiguration.java', 'OutboxRelayRunner')],
   T107: [probe('platform-ingest/src/main/java/io/integrationplatform/ingest/port/CorrelationContext.java', 'correlationId')],
+  T108: [
+    probe('platform-config/src/main/java/io/integrationplatform/config/flow/api/MaskedFields.java', 'public static final String MARKER = "[MASKED]"'),
+    probe('platform-app/src/main/java/io/integrationplatform/app/message/MessageTrackingService.java', 'MaskedFields.redact')
+  ],
   T109: [probe('platform-app/src/main/java/io/integrationplatform/app/audit/JdbcAuditEventStore.java', 'audit_event')],
   T110: [probe('platform-app/src/main/java/io/integrationplatform/app/message/MessageTrackingController.java', '/{trackingId}/timeline')],
   T111: [
