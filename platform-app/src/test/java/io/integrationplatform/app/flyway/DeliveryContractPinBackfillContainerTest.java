@@ -182,7 +182,12 @@ class DeliveryContractPinBackfillContainerTest {
             }
         };
         return new DeliveryOperatorActions(store, entry -> 1L, (ApplicationEventPublisher) event -> { },
-                () -> Optional.of(tenant), action -> action.doInTransaction(null), Clock.systemUTC()).replay(id,
+                () -> Optional.of(tenant), new org.springframework.transaction.support.TransactionOperations() {
+                    @Override
+                    public <T> T execute(org.springframework.transaction.support.TransactionCallback<T> action) {
+                        return action.doInTransaction(null);
+                    }
+                }, Clock.systemUTC()).replay(id,
                         "operator-pin-backfill");
     }
 
