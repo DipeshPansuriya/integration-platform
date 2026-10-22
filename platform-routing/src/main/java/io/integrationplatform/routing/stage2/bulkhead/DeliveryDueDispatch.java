@@ -59,6 +59,8 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
 
     private final BulkheadDeferrals deferrals;
     private final BulkheadRedrive redrive;
+    /** F1: targets this instance deferred a delivery for since their last empty re-drive scan (cross-instance: the job). */
+    private final java.util.Set<UUID> deferredHere = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Stage2SendDispatch sends;
     private final TargetEndpointViews targets;
     private final Supplier<Instant> clock;
@@ -100,7 +102,9 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
         BulkheadFacts delivery = read.get();
         TargetBulkhead bulkhead = bulkheads.of(delivery.targetEndpointId());
         if (!bulkhead.tryAcquire()) {
-            deferrals.defer(deliveryId, clock.get(), delivery.bulkheadDeferrals(), jitter.getAsDouble());
+            if (deferrals.defer(deliveryId, clock.get(), delivery.bulkheadDeferrals(), jitter.getAsDouble())) {
+                deferredHere.add(delivery.targetEndpointId()); // F1: a send end of this target now has something to scan for
+            }
             return; // deferred or already moved (0 rows = no effect): acknowledged, the thread moves on
         }
         boolean handedOff = false;
@@ -147,10 +151,30 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
             sends.dispatch(send);
         } finally {
             try {
-                redrive.redriveOneDeferred(targetEndpointId);
+                redriveIfDeferredHere(targetEndpointId);
             } catch (RuntimeException failed) {
                 LOG.warn("slot-free re-drive for target {} failed; the delivery retry job will pick up the"
                         + " deferred delivery", targetEndpointId, failed);
+            }
+        }
+    }
+
+    /**
+     * F1: scans (one transaction, under the held permit) only when this instance deferred a delivery of the target
+     * since the last scan that found nothing. The flag is cleared BEFORE the scan, so a deferral landing during it is
+     * kept; a scan that moved a row (more may wait) or failed puts it back. A deferral made by another instance is the
+     * retry job's to find (it stays the safety net).
+     */
+    private void redriveIfDeferredHere(UUID targetEndpointId) {
+        if (!deferredHere.remove(targetEndpointId)) {
+            return;
+        }
+        boolean moreMayWait = true; // a failing scan keeps the flag
+        try {
+            moreMayWait = redrive.redriveOneDeferred(targetEndpointId);
+        } finally {
+            if (moreMayWait) {
+                deferredHere.add(targetEndpointId);
             }
         }
     }
