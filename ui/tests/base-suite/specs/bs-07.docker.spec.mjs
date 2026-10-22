@@ -3,15 +3,11 @@
 // exception's profile with its REAL host resolver; both tenants' targets are the ONE WireMock on the one
 // exception host, one path per tenant (plan section 2, Dipesh "Option 1").
 //
-// Expected RED today, in this order:
-//   1. global-setup: "dev-only exception not configured - waits for row 278" (or "still TBD(row278)") -
-//      the suite fails closed before any build, lock or container;
-//   2. with row 278's exception named but before T106: the 202 lands, the WireMock journal stays empty -
-//      nothing consumes platform.message.accepted and the production body port is empty
-//      (ApiAdapterConfiguration.java:38-39; send refused at ApiTargetCall.java:59), so the "exactly 1
-//      delivery" step times out with 0 deliveries on /tenant-a/orders.
-// Green needs T106, T68 (landed 4dc3c94), row 278's exception after T137's review and the endpoint base-URL
-// gap closed. Never run against production; never a psql-seeded row.
+// State on main c37db54b (T106 + T138 landed; the exception boots; intake, route and transform work): the 202 lands
+// and the "exactly 1 delivery" step times out with 0 deliveries on /tenant-a/orders, because the delivery sends to
+// target_endpoint.base_url, which the system create fixes at 'https://endpoint.invalid/' (JdbcSystemRepository.java:83-88)
+// and nothing in the public admin API changes (settings.baseUrl is only the save-time check). Green needs the product
+// to write the system's baseUrl into its default endpoint (owner arjun). Never run against production; never a psql-seeded row.
 
 import { expect, test } from '@playwright/test';
 import { messageRowsSql, deliveryRowsSql } from '../lib/direct-sql.mjs';
