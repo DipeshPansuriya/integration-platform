@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.integrationplatform.tenancy.port.LoginBinding;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -52,8 +53,8 @@ public class SystemAdminController {
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping
     public ResponseEntity<Map<String, Object>> create(@RequestBody JsonNode body) {
-        actors.requireActor();
-        return ResponseEntity.status(201).body(service.create(body));
+        LoginBinding actor = actors.requireActor();
+        return ResponseEntity.status(201).body(service.create(body, actor.userId()));
     }
 
     @ApiResponses({
@@ -88,8 +89,8 @@ public class SystemAdminController {
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PutMapping("/{systemId}")
     public ResponseEntity<Map<String, Object>> updateSystem(@PathVariable String systemId, @RequestBody JsonNode body) {
-        actors.requireActor();
-        return ResponseEntity.ok(service.update(systemId, body));
+        LoginBinding actor = actors.requireActor();
+        return ResponseEntity.ok(service.update(systemId, body, actor.userId()));
     }
 
     @ApiResponses({

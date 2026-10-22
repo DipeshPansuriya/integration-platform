@@ -89,6 +89,9 @@ public final class JdbcSystemRepository extends TenantScopedRepository {
 
     private static final String UPDATE_ENDPOINT_BASE_URL = "update public.target_endpoint set base_url = :base_url";
 
+    private static final String READ_ENDPOINT_BASE_URL =
+            "select te.base_url from public.target_endpoint te";
+
     private static final String READ_ENDPOINT_OF_SYSTEM =
             "select te.id::text as id from public.target_endpoint te";
 
@@ -139,6 +142,12 @@ public final class JdbcSystemRepository extends TenantScopedRepository {
                 Params.of("system_id", systemId, "code", code, "name", name, "base_url", baseUrl),
                 (RowMapper<String>) (rs, n) -> rs.getString(1)))
                 .orElseThrow(() -> new IllegalStateException("the target endpoint insert returned no row"));
+    }
+
+    /** The delivery address now held by the system's endpoint (bound tenant only); empty when it has none. */
+    public Optional<String> findEndpointBaseUrl(String systemId) {
+        return first(query(READ_ENDPOINT_BASE_URL, "te.system_id = :system_id::uuid",
+                Params.of("system_id", systemId), (rs, n) -> rs.getString("base_url")));
     }
 
     /**
