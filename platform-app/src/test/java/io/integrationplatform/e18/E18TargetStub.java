@@ -88,8 +88,22 @@ final class E18TargetStub {
         }
     }
 
+    /** Holds every answer for this long (0 = none): lets a test keep a send in flight. */
+    private volatile long answerDelayMs;
+
+    void delayAnswers(long millis) {
+        this.answerDelayMs = millis;
+    }
+
     private void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
+            if (answerDelayMs > 0) {
+                try {
+                    Thread.sleep(answerDelayMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             String path = exchange.getRequestURI().getPath();
             String body;
             try (InputStream in = exchange.getRequestBody()) {

@@ -28,13 +28,15 @@ export const NAMES = Object.freeze({
   timelineApi: '/api/v1/admin/messages/{trackingId}/timeline',
   failuresApi: '/api/v1/admin/messages/failures',
 
-  // T111 (replay) - not built (rohit lane t111 = 596eecb, no commits): path, the button, the audit action
-  replayApi: 'TBD(T111)', // "<METHOD> <path with {deliveryId}>", e.g. the delivery replay endpoint
-  replayAction: 'TBD(T111|T112)', // selector of the Replay control on the failures row (Failures.tsx:7 "replay not built")
-  auditReplayAction: 'TBD(T111)', // audit_event.action of one replay
-  // T109 on main: JdbcAuditEventStore.java:42 binds actor = event.who(); writers pass the user id uuid
-  // (LookupEntryService.java:97) - the replay writer (T111) decides what it passes, so it waits on T111
-  auditActor: 'TBD(T111)',
+  // RESOLVED - T111 (replay) on main aeddfdd9 (measured 22-Oct): DeliveryOperatorController.java:61 +
+  // DeliveryOperatorEndpointRoles.java:16/:21; the Replay button is OperatorActionButton.tsx:34 (data-action = the
+  // action kind) in the failures row's [data-action-cell] (Failures.tsx:51); the audit action is
+  // AuditActions.OPERATOR_REPLAY (platform-domain .../audit/AuditActions.java:23).
+  replayApi: 'POST /api/v1/admin/messages/deliveries/{deliveryId}/replay', // "<METHOD> <path with {deliveryId}>"
+  replayAction: '[data-action="replay"]', // the Replay control on the failures row
+  auditReplayAction: 'OPERATOR_REPLAY', // audit_event.action of one replay
+  // The audit actor is the acting admin's USER ID (DeliveryOperatorController.java:63: actors.requireActor().userId()),
+  // which only exists at run time: BS-10 reads it with direct-sql.mjs adminUserIdSql (so no name here).
 
   // T107 on main efa7d1d: MDC fields CorrelationContext.java:25-28, written as top-level JSON fields
   // (logback-spring.xml:3-5, StructuredLogEncoder logstash :10-11)
@@ -65,7 +67,7 @@ export const ABSENT = Object.freeze({
   logStageValues: NO_STAGE_FIELD
 });
 
-// One flag per T-item: is its feature on local main (measured efa7d1d, 18-Oct)? Flip ONE line when it lands;
+// One flag per T-item: is its feature on local main (measured efa7d1d, 18-Oct; T111/T112/T113 re-measured aeddfdd9, 22-Oct)? Flip ONE line when it lands;
 // every spec guarded by waitsOn(item) then runs. Never flip for a lane or seam branch.
 export const ON_MAIN = Object.freeze({
   T105: true, // stage timings - main efa7d1d (landed d609f17)
@@ -73,17 +75,22 @@ export const ON_MAIN = Object.freeze({
   T107: true, // correlation + JSON logs - main efa7d1d (landed 78792e4)
   T109: true, // audit writer - JdbcAuditEventStore.java:42
   T110: true, // tracking reads - MessageTrackingController.java:40
-  T111: false, // replay - not built
-  T112: false, // detail + failures screens - seam-row327-t112 0f87c60
-  T113: false, // dashboard - lane t70 only
+  T111: true, // replay - DeliveryOperatorController.java:61 (operator replay + retry, main aeddfdd9)
+  T112: true, // detail + failures screens - ui/src/pages/MessageDetail.tsx, Failures.tsx (main aeddfdd9)
+  T113: true, // dashboard - ui/src/pages/QueueDashboard.tsx (main aeddfdd9)
   T138: true // dev-only destination exception - SystemPersistenceConfiguration.java:57
 });
 
 /** null when every item is on main; else the test.fixme reason naming each missing item and the flag. */
 export function waitsOn(...items) {
+  return waitsOnFlags(ON_MAIN, ...items);
+}
+
+/** waitsOn over a given flag table (the unit test's seam: every real flag is true once its item has landed). */
+export function waitsOnFlags(flags, ...items) {
   if (items.length === 0) throw new Error('waitsOn: name at least one item');
-  for (const item of items) if (!Object.hasOwn(ON_MAIN, item)) throw new Error(`waitsOn: unknown item ${item}`);
-  const missing = items.filter((item) => !ON_MAIN[item]);
+  for (const item of items) if (!Object.hasOwn(flags, item)) throw new Error(`waitsOn: unknown item ${item}`);
+  const missing = items.filter((item) => !flags[item]);
   if (missing.length === 0) return null;
   return `waits on ${missing.join(', ')} (not on main) - flip ON_MAIN.${missing[0]} in tests/base-suite/lib/pending-names.mjs when it lands`;
 }

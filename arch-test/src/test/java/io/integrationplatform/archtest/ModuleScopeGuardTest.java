@@ -115,6 +115,22 @@ class ModuleScopeGuardTest {
                         "platform-tenancy/src/main/resources/db/migration/V9_9_9__tenant_b.sql");
     }
 
+    @Test
+    void buildOutputFoldersAreNotWalkedButConsoleSourceIs(@TempDir Path root) throws IOException {
+        // B31: ui/node_modules and ui/dist are installed/generated, never our source - walking them took minutes.
+        for (String generated : List.of("ui/node_modules/dep/index.js", "ui/dist/main.js")) {
+            Path file = root.resolve(generated);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, "var seed = 'e2e-seed';");
+        }
+        Path source = root.resolve("ui/src/app.ts");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, "const seed = 'e2e-seed';");
+
+        assertThat(ModuleScopeGuard.productionFilesNaming(root, List.of(), ModuleScopeGuard.SEED_MARKERS))
+                .containsExactly("ui/src/app.ts");
+    }
+
     private static void writePom(Path root, String module, String dependency) throws IOException {
         Files.createDirectories(root.resolve(module));
         Files.writeString(root.resolve(module).resolve("pom.xml"), "<project><artifactId>" + module + "</artifactId>"

@@ -182,20 +182,24 @@ class SystemPersistenceConfiguration {
     /** E16 F3: the approved tables of a DB target; the audit event names the bound tenant (none bound fails closed). */
     @Bean
     ApprovedTableService approvedTableService(JdbcApprovedTableRepository tables, JdbcSystemRepository systems,
-            org.springframework.context.ApplicationEventPublisher events, ObjectProvider<TenantContext> tenantContexts) {
+            org.springframework.context.ApplicationEventPublisher events, ObjectProvider<TenantContext> tenantContexts,
+            ObjectProvider<io.integrationplatform.config.system.application.DbAccountWidthCheck> width) {
+        // T178a: no width check composed (no routing slice) = every approval is refused (fail closed)
         return new ApprovedTableService(tables, systems, events,
-                () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId());
+                () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId(),
+                width.getIfAvailable(() -> (systemId, settings) -> Optional.of("DB_ACCOUNT_UNVERIFIED: no privilege"
+                        + " probe is composed; an approval is refused when the account's privileges cannot be read")));
     }
 
     @Bean
     SystemAdminService systemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
             DestinationGuard guard, FileRoots fileRoots, ObjectProvider<TenantContext> tenantContexts,
-            Environment environment) {
+            Environment environment, org.springframework.context.ApplicationEventPublisher events) {
         // E16 R1/R2: clear-text Kafka stays off unless the operator opts in (the sender reads the same property)
         boolean allowKafkaPlaintext = Binder.get(environment)
                 .bind("platform.config.destinations.kafka-allow-plaintext", Boolean.class).orElse(false);
         return new SystemAdminService(systems, testConnection, guard, fileRoots,
                 () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId(),
-                allowKafkaPlaintext);
+                allowKafkaPlaintext, events);
     }
 }

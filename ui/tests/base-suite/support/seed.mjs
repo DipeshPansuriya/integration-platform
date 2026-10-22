@@ -36,9 +36,12 @@ export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {})
   // F1: WireMock is published on the exception port (boot-options.mjs)
   const targetBase = targetBaseUrl ?? targetUrl(settings, settings.port, tenant.stubPath);
 
-  // TBD(T106): the API adapter's send URL - today the production body port is empty
-  // (ApiAdapterConfiguration.java:38-39) and where the delivery reads its base URL (this system setting or a
-  // target-endpoint row) is the "endpoint base-URL gap" T130 step 7 waits on. Re-measure at the lock slot.
+  // PRODUCT GAP (measured run 10, 2026-10-22; owner arjun): the delivery sends to target_endpoint.base_url, a row the
+  // system create writes with the placeholder 'https://endpoint.invalid/' (JdbcSystemRepository.java:83-88, read by
+  // JdbcTargetEndpointViews.java:22-27/37). The system's settings.baseUrl set here is only the save-time destination
+  // check and test-connection - no public admin call and no main code updates target_endpoint.base_url. The E18 API
+  // leg reaches its stub by inserting that row with SQL as the owner (E18Seed.java:69); this suite never seeds by SQL.
+  // So BS-07.1 / BS-09 / BS-12 tenant B stay red until the product writes the system's baseUrl into its endpoint.
   const source = await as('POST', '/api/v1/admin/systems', {
     code: SOURCE_CONTRACT.system, name: SOURCE_CONTRACT.name, direction: 'INBOUND', type: 'API',
     settings: { baseUrl: `${new URL(targetBase).origin}/${SOURCE_CONTRACT.system}/` } // the guard checks every API system's host: the source rides the one allow-listed host too

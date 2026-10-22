@@ -59,22 +59,45 @@ public class DbAdapterConfiguration {
             ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactions,
             @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts,
             @Value("${platform.config.destinations.db-sslmode:require}") String sslmode) {
+        DbTestConnection connection = connection(guard, dialer, jdbcClient, tenantContext, vault, transactions,
+                allowedPorts, sslmode);
+        return connection::test;
+    }
+
+    /**
+     * T178a: the approval's width question, answered by the SAME probe as the test-connection; with no vault slice
+     * composed the check refuses every approval (fail closed). B30: routing's own port - the composition root hands
+     * it to config's approval (routing uses no config application type).
+     */
+    @Bean
+    DbAccountWidth dbAccountWidth(DestinationGuard guard,
+            SocketDialer dialer, JdbcClient jdbcClient, TenantContext tenantContext,
+            ObjectProvider<SendTimeCredentials> vault,
+            ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactions,
+            @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts,
+            @Value("${platform.config.destinations.db-sslmode:require}") String sslmode) {
+        DbTestConnection connection = connection(guard, dialer, jdbcClient, tenantContext, vault, transactions,
+                allowedPorts, sslmode);
+        return connection::accountWidthRefusal;
+    }
+
+    private static DbTestConnection connection(DestinationGuard guard, SocketDialer dialer, JdbcClient jdbcClient,
+            TenantContext tenantContext, ObjectProvider<SendTimeCredentials> vault,
+            ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactions,
+            java.util.List<Integer> allowedPorts, String sslmode) {
         DbBrokerProbe probe = new SocketDbBrokerProbe(guard, dialer);
         // R6: test-connection applies the SAME port allow-list the send path applies
         DbPrivilegeProbe privileges = null;
-        SendTimeCredentials credentials = vault.getIfAvailable();
+        SendTimeCredentials slice = vault.getIfAvailable();
         org.springframework.transaction.PlatformTransactionManager manager = transactions.getIfAvailable();
-        if (credentials != null && manager != null) {
+        if (slice != null && manager != null) {
             org.springframework.transaction.support.TransactionTemplate readOnly =
                     new org.springframework.transaction.support.TransactionTemplate(manager);
             readOnly.setReadOnly(true);
             privileges = new JdbcDbPrivilegeProbe(
-                    new JdbcDbSystemCredentials(jdbcClient, tenantContext, credentials, readOnly), sslmode);
+                    new JdbcDbSystemCredentials(jdbcClient, tenantContext, slice, readOnly), sslmode);
         }
-        DbBrokerProbe socketProbe = probe;
-        DbPrivilegeProbe privilegeProbe = privileges;
-        return (systemId, settingsJson) -> new DbTestConnection(guard, socketProbe, privilegeProbe, allowedPorts,
-                Duration.ofSeconds(5)).test(systemId, settingsJson);
+        return new DbTestConnection(guard, probe, privileges, allowedPorts, Duration.ofSeconds(5));
     }
 
     @Bean
@@ -118,10 +141,38 @@ public class DbAdapterConfiguration {
     @Bean
     DbTargetCall dbTargetCall(ApprovedTables approvedTables, DbOutbound outbound, DbSender sender, DestinationGuard guard,
             @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts,
+            ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager,
             ObjectProvider<CircuitBreakerRegistry> breakers, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations) {
-        return new DbTargetCall(approvedTables, outbound, sender, guard, allowedPorts, breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
+        return compose(approvedTables, outbound, sender, guard, allowedPorts, transactionManager.getIfAvailable(),
+                breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP));
+    }
+
+    /**
+     * T175 (T71 for DB): the platform reads of a send - settings, credential, mapped rows ({@code resolve}) and the F3
+     * approved-table check - each run in their own short tenant-stamped transaction that is over before the
+     * destination is dialled. The target insert dials the target's own connection ({@code JdbcDbSender}) and holds no
+     * pooled application connection while it waits. The approval stays a hard gate before the insert: a lookup that
+     * cannot answer throws (TRANSIENT), it is never read as approved.
+     */
+    static DbTargetCall compose(ApprovedTables approvedTables, DbOutbound outbound, DbSender sender,
+            DestinationGuard guard, java.util.List<Integer> allowedPorts,
+            org.springframework.transaction.PlatformTransactionManager transactions,
+            CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations) {
+        if (transactions != null) {
+            org.springframework.transaction.support.TransactionTemplate tx =
+                    new org.springframework.transaction.support.TransactionTemplate(transactions);
+            DbOutbound reads = outbound;
+            ApprovedTables approval = approvedTables;
+            outbound = send -> tx.execute(status -> reads.resolve(send));
+            org.springframework.transaction.support.TransactionTemplate readOnly =
+                    new org.springframework.transaction.support.TransactionTemplate(transactions);
+            readOnly.setReadOnly(true);
+            approvedTables = (endpointId, table) ->
+                    Boolean.TRUE.equals(readOnly.execute(status -> approval.isApproved(endpointId, table)));
+        }
+        return new DbTargetCall(approvedTables, outbound, sender, guard, allowedPorts, breakers, meters, observations);
     }
 }

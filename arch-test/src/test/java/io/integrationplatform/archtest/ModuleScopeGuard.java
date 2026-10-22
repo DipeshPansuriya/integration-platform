@@ -5,12 +5,14 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Stream;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
@@ -38,6 +40,9 @@ final class ModuleScopeGuard {
      *  provisioning scripts, and the build-check scripts. */
     private static final List<String> OTHER_PRODUCTION_ROOTS =
             List.of("ui", "compose", "build-checks");
+
+    /** Folder names never walked: the console's installed and built output (B31). */
+    private static final Set<String> GENERATED_FOLDERS = Set.of("node_modules", "dist");
 
     private ModuleScopeGuard() {
     }
@@ -99,11 +104,23 @@ final class ModuleScopeGuard {
             if (!Files.exists(production)) {
                 continue;
             }
-            try (Stream<Path> files = Files.walk(production)) {
-                files.filter(Files::isRegularFile)
-                        .filter(file -> names(file, markers))
-                        .map(file -> root.relativize(file).toString().replace(File.separatorChar, '/'))
-                        .forEach(naming::add);
+            try {
+                Files.walkFileTree(production, new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                        // B31: installed/generated trees are not our source and took minutes to read
+                        return GENERATED_FOLDERS.contains(String.valueOf(dir.getFileName()))
+                                ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        if (attrs.isRegularFile() && names(file, markers)) {
+                            naming.add(root.relativize(file).toString().replace(File.separatorChar, '/'));
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
             } catch (IOException failure) {
                 throw new UncheckedIOException("Cannot walk " + production.toAbsolutePath(), failure);
             }

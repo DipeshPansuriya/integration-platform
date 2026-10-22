@@ -62,7 +62,10 @@ class KafkaHarnessTest {
                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KafkaHarness.get().bootstrapServers()))) {
             var names = admin.listTopics().names().get(TIMEOUT.toMillis(),
                     java.util.concurrent.TimeUnit.MILLISECONDS);
-            assertThat(names).as("exactly the ADR-010 topics exist and nothing else")
+            // other classes create orders-out-* / platform-guard-* topics on the shared singleton broker: only the
+            // platform.* product topics are in scope here
+            var productTopics = names.stream().filter(n -> n.startsWith("platform.")).toList();
+            assertThat(productTopics).as("exactly the ADR-010 product topics exist and nothing else")
                     .containsExactlyInAnyOrder(Topics.MESSAGE_ACCEPTED, Topics.DELIVERY_DUE, Topics.POISON);
         }
     }

@@ -25,7 +25,7 @@
 
 import { expect, test } from '@playwright/test';
 import { FIGURES, delta } from '../lib/counts.mjs';
-import { attemptRowsSql, auditRowsSql, deliveryOfMessageSql, deliveryRowsSql, eventTypesSql, tenantIdSql } from '../lib/direct-sql.mjs';
+import { adminUserIdSql, attemptRowsSql, auditRowsSql, deliveryOfMessageSql, deliveryRowsSql, eventTypesSql, tenantIdSql } from '../lib/direct-sql.mjs';
 import { causeOf, deliverFailureProblems } from '../lib/failure-cause.mjs';
 import { fill, nameOf, waitsOn } from '../lib/pending-names.mjs';
 import { attemptHistoryProblems, auditProblems, changedKeys, pinProblems, replayWalkProblems, stateWalk } from '../lib/replay.mjs';
@@ -89,7 +89,7 @@ test('BS-10: a 403 dead letter on the failures screen, replayed after the target
   const [replayMethod, replayPath] = nameOf('replayApi').split(' ');
   const replayAction = nameOf('replayAction');
   const auditAction = nameOf('auditReplayAction');
-  const auditActor = nameOf('auditActor');
+  const auditActor = readOne(adminUserIdSql(code())); // the acting admin's user id (the replay writes it as the actor)
   const { flowId } = readRun().seed.A;
   const record = orderRecord(A, 10);
   let messageId;
@@ -114,6 +114,9 @@ test('BS-10: a 403 dead letter on the failures screen, replayed after the target
       const d = deliveryOf(messageId);
       return d?.state === 'DEAD_LETTERED' ? d : null;
     }, `the delivery of ${messageId} dead-lettered`, { timeoutMs: PIPELINE_MS });
+    // precondition named on its own: Replay answers 409 "not pinned" when either pin is NULL (DeliveryOperatorActions.act), so say which one
+    expect(delivery.pins.mappingVersionId, 'delivery.mapping_version_id is set (Replay needs both pins)').toBeTruthy();
+    expect(delivery.pins.contractVersionId, 'delivery.contract_version_id is set (Replay needs both pins; V2_3_3_1 says NULL until E9 writes it)').toBeTruthy();
     const sends = await sendsOf(delivery.id);
     expect(sends, 'exactly ONE send reached the stub (PERMANENT never redelivers) - 0 means the guard refused it').toHaveLength(1);
     expect(sends[0].body, 'the contract-translated body').toEqual(expectedTargetBody(record));

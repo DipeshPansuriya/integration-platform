@@ -18,6 +18,9 @@ import org.springframework.web.bind.annotation.RestController;
  * Row327 T-139 (E13-C3/C4): the tenant delivery report - one day of the daily aggregate per interface and target.
  * The tenant never travels in the path (ADR-011 Decision 4): the store stamps the bound tenant in a read-only
  * transaction and FORCE RLS backs it; with no tenant bound the store fails closed. Roles: DeliveryReportEndpointRoles.
+ * T185 (Release 1 SC-08): the nightly DAILY_REPORT job stores only the finished previous UTC day, so a day with no
+ * stored row (today, or a day the job has not yet rolled up) is counted from the delivery rows on request - same
+ * counts, same tenant-stamped read-only transaction, nothing is written. A stored roll-up wins when present.
  */
 @RestController
 @RequestMapping(DeliveryReportEndpointRoles.REPORT)
@@ -35,6 +38,9 @@ public class DeliveryReportController {
     @GetMapping
     public ResponseEntity<List<DailyCounts>> report(
             @RequestParam("day") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate day) {
-        return ResponseEntity.ok(readOnly.execute(status -> aggregates.aggregated(day)));
+        return ResponseEntity.ok(readOnly.execute(status -> {
+            List<DailyCounts> stored = aggregates.aggregated(day);
+            return stored.isEmpty() ? aggregates.direct(day) : stored;
+        }));
     }
 }

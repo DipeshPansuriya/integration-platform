@@ -21,14 +21,14 @@ import { randomBytes } from 'node:crypto';
 import process from 'node:process';
 import { expect, test } from '@playwright/test';
 import { deliveryRowsSql } from '../base-suite/lib/direct-sql.mjs';
-import { FLOW, SOURCE_CONTRACT, TENANTS, expectedTargetBody, orderRecord } from '../base-suite/lib/tenants.mjs';
+import { SOURCE_CONTRACT, TENANTS, expectedTargetBody, orderRecord } from '../base-suite/lib/tenants.mjs';
 import { traceIdOf, traceparentOf } from '../base-suite/lib/trace.mjs';
 import { deliveriesTo } from '../base-suite/lib/wiremock.mjs';
 import { eventually, inBrowser, journal, postRecord, sameAppProcess, setStub, sourceToken } from '../base-suite/support/api.mjs';
 import { bsEnv } from '../base-suite/support/boot-state.mjs';
 import { readRows } from '../base-suite/support/db.mjs';
 import { readRun, addTracking } from '../base-suite/support/run-file.mjs';
-import { rotatedSecret } from '../base-suite/support/seed.mjs';
+import { intakeCode, rotatedSecret } from '../base-suite/support/seed.mjs';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -89,7 +89,7 @@ test('intake for the API target: 202, and exactly ONE translated delivery, witho
   expect(token, 'a source client token from the boot realm').toBeTruthy();
 
   const record = orderRecord(TENANTS.A, ORDER_OFFSET + 1);
-  const answer = await postRecord(token, FLOW.code, SOURCE_CONTRACT.versionLabel, record);
+  const answer = await postRecord(token, intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, record);
   expect(answer.status, JSON.stringify(answer.data)).toBe(202);
   expect(typeof answer.data?.trackingId).toBe('string');
   addTracking('A', [answer.data.trackingId]);
@@ -123,7 +123,10 @@ test('the tracking detail shows the four-stage timeline: INTAKE, ROUTE, TRANSFOR
   await expect(page.locator('[data-page="message-detail"][data-message-loaded="true"]')).toBeVisible();
 
   await expect(page.locator('[data-tracking-id]')).toHaveText(trackingId);
-  await expect(page.locator('[data-message-state]')).toHaveAttribute('data-state-raw', 'DELIVERED'); // the dd shows the word; the raw enum rides in data-state-raw
+  // the MESSAGE state is the routing outcome (ACCEPTED / ROUTED / ROUTE_FAILED, lib/counts.mjs:13); DELIVERED is a DELIVERY state, proven
+  // by J1 and by the DELIVER stage row below (run 2 of 2026-10-22 read ROUTED here: a test defect, not a product one)
+  // the dd shows the word; the raw enum rides in data-state-raw
+  await expect(page.locator('[data-message-state]')).toHaveAttribute('data-state-raw', 'ROUTED');
   for (const stage of ['INTAKE', 'ROUTE', 'TRANSFORM', 'DELIVER']) {
     const row = page.locator(`[data-timeline] tr[data-stage-row="${stage}"]`);
     await expect(row, `the ${stage} stage row is on the timeline`).toHaveCount(1);
@@ -133,9 +136,10 @@ test('the tracking detail shows the four-stage timeline: INTAKE, ROUTE, TRANSFOR
 
 // J3 ----------------------------------------------------------------------------------------------
 test('the traceparent the source sent is shown in the tracking detail', async ({ page }) => {
+  await page.goto(`${bsEnv('consoleUrl')}/`); // the page fixture starts at about:blank: no cookie to read until the console is open
   const tp = traceparentOf(randomBytes(16), randomBytes(8)); // the fresh trace id the journey claims
   const record = orderRecord(TENANTS.A, ORDER_OFFSET + 2);
-  const answer = await postRecord(await sourceOf(page, TENANTS.A), FLOW.code, SOURCE_CONTRACT.versionLabel, record,
+  const answer = await postRecord(await sourceOf(page, TENANTS.A), intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, record,
     { traceparent: tp });
   expect(answer.status, JSON.stringify(answer.data)).toBe(202);
   await eventually(async () => {
@@ -163,9 +167,10 @@ test('the traceparent the source sent is shown in the tracking detail', async ({
 // afterAll so the suite leaves the environment as it found it.
 test('a dead-lettered delivery is visible on the failures screen and replayable from the operator screens', async ({ page }) => {
   const record = orderRecord(TENANTS.A, ORDER_OFFSET + 3);
+  await page.goto(`${bsEnv('consoleUrl')}/`); // same: the in-page API helpers need the console origin
   await setStub(TENANTS.A.stubPath, 403); // the refusal that dead-letters
   try {
-    const answer = await postRecord(await sourceOf(page, TENANTS.A), FLOW.code, SOURCE_CONTRACT.versionLabel, record);
+    const answer = await postRecord(await sourceOf(page, TENANTS.A), intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, record);
     expect(answer.status, JSON.stringify(answer.data)).toBe(202);
 
     await eventually(() =>

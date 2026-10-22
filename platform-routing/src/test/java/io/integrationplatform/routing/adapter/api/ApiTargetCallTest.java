@@ -123,6 +123,25 @@ class ApiTargetCallTest {
     }
 
     @Test
+    @DisplayName("F-4: a refused or unresolved destination's fault text names scheme+host+port only - never path or query")
+    void faultTextNeverCarriesThePathOrQuery() {
+        String stored = "https://target.e5.test:8443/orders/v1?api_key=SECRET-TOKEN";
+        ApiTargetCall refused = new ApiTargetCall(views(view(stored, "POST", 1500, "NO_AUTH", false, Map.of())),
+                new DestinationGuard(AllowList.of(List.of()), resolver()), bodyPort, neverExpected());
+        HostResolver broken = host -> {
+            throw new UnknownHostException(host);
+        };
+        ApiTargetCall unresolved = new ApiTargetCall(views(view(stored, "POST", 1500, "NO_AUTH", false, Map.of())),
+                new DestinationGuard(AllowList.of(List.of("target.e5.test")), broken), bodyPort, neverExpected());
+
+        for (ApiTargetCall target : List.of(refused, unresolved)) {
+            assertThatThrownBy(() -> target.call(send())).isInstanceOfSatisfying(TargetFaultException.class,
+                    fault -> assertThat(fault.getMessage()).contains("https://target.e5.test:8443")
+                            .doesNotContain("SECRET-TOKEN").doesNotContain("api_key").doesNotContain("/orders"));
+        }
+    }
+
+    @Test
     @DisplayName("an allow-listed name that does not resolve is TRANSIENT (connect family)")
     void unresolvedHostIsTransient() {
         HostResolver broken = host -> {

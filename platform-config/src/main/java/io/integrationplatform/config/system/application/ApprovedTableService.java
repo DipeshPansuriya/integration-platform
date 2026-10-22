@@ -17,6 +17,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * E16 F3 (design note 2026-10-22, option B; Dipesh D1-D4): the tables a DB target may write to are requested by a
@@ -32,9 +34,13 @@ public class ApprovedTableService {
     private final JdbcSystemRepository systems;
     private final ApplicationEventPublisher events;
     private final Supplier<Optional<UUID>> tenant;
+    private final DbAccountWidthCheck width;
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     public ApprovedTableService(JdbcApprovedTableRepository tables, JdbcSystemRepository systems,
-            ApplicationEventPublisher events, Supplier<Optional<UUID>> tenant) {
+            ApplicationEventPublisher events, Supplier<Optional<UUID>> tenant, DbAccountWidthCheck width) {
+        this.width = Objects.requireNonNull(width, "width");
         this.tables = Objects.requireNonNull(tables, "tables");
         this.systems = Objects.requireNonNull(systems, "systems");
         this.events = Objects.requireNonNull(events, "events");
@@ -81,6 +87,10 @@ public class ApprovedTableService {
         }
         ApprovedTableRow before = tables.find(id).filter(row -> row.systemId().equals(systemId))
                 .orElseThrow(ConfigApiException::notFound);
+        if (decision.equals("APPROVE") && before.status().equals("PENDING_APPROVAL")
+                && !before.requestedBy().equals(actorId.toString())) {
+            requireNarrowAccount(systemId, before.tableName()); // T178a: a real approval only (state and 4-eyes first)
+        }
         String result = tables.decide(id, actorId.toString(), decision);
         switch (result) {
             case "APPROVED", "REVOKED" -> {
@@ -97,6 +107,27 @@ public class ApprovedTableService {
         audit(result.equals("APPROVED") ? ConfigAuditActions.DB_TABLE_APPROVED : ConfigAuditActions.DB_TABLE_REVOKED,
                 actorId, after, before.status());
         return view(after);
+    }
+
+    /** T178a: fail closed - a wide account, or any failure to learn the width, refuses the approval (409). */
+    private void requireNarrowAccount(String systemId, String table) {
+        Optional<String> refusal;
+        try {
+            SystemDetail system = systems.findSystem(systemId).orElseThrow(ConfigApiException::notFound);
+            JsonNode parsed = system.settings() == null ? null : JSON.readTree(system.settings());
+            ObjectNode settings = parsed != null && parsed.isObject() ? ((ObjectNode) parsed).deepCopy()
+                    : JSON.createObjectNode();
+            settings.put("table", table);
+            refusal = width.refusalFor(UUID.fromString(systemId), settings.toString());
+        } catch (ConfigApiException notFound) {
+            throw notFound;
+        } catch (RuntimeException unknown) {
+            refusal = Optional.of("DB_ACCOUNT_UNVERIFIED: the privilege probe could not run ("
+                    + unknown.getClass().getSimpleName() + "); an approval is refused when the account cannot be checked");
+        }
+        if (refusal.isPresent()) {
+            throw ConfigApiException.conflict(refusal.get());
+        }
     }
 
     private void requireSystem(String systemId, boolean mustBeDb) {

@@ -18,6 +18,15 @@ export function tenantIdSql(code) {
   return `select id::text from public.tenant where code = '${code}'`;
 }
 
+/**
+ * The acting admin's user id (one row, one column): the tenant's TENANT_ADMIN login - the harness's `default` login for
+ * tenant A (boot-backend.mjs:687) - whose id the replay writes as the audit actor (DeliveryOperatorController.java:63).
+ */
+export function adminUserIdSql(code) {
+  return 'select u.id::text from public.app_user u join public.role_grant g on g.user_id = u.id and g.tenant_id = u.tenant_id'
+    + ` where u.tenant_id = ${tenantOf(code)} and g.role = 'TENANT_ADMIN'`;
+}
+
 /** Rows: message id | flow id | state | UTC day. */
 export const messageRowsSql = (code) => "select m.id::text, m.interface_id::text, m.state, to_char(m.accepted_at at time zone 'UTC', 'YYYY-MM-DD')"
   + ` from public.message m where m.tenant_id = ${tenantOf(code)} order by m.accepted_at, m.id`;

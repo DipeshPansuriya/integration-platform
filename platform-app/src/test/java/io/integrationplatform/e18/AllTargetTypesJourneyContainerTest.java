@@ -11,6 +11,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.sql.Statement;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -172,17 +174,106 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
 
     // ----------------------------------------------------------------------------------------------------- DB
 
+    /**
+     * The F3 approval of {@code partner_orders} for the tenant's DB system, through the real admin API: a CONFIGURATOR
+     * requests the table, a DIFFERENT user (APPROVER) approves it (E16 F3 D4); no row is inserted by the owner.
+     */
+    private void approvePartnerOrders(UUID tenantId) {
+        try {
+            String systemId = ownerString("select id from public.system where tenant_id = ?::uuid and type = 'DB'",
+                    tenantId);
+            String path = "/api/v1/admin/systems/" + systemId + "/approved-tables";
+            String configurator = adminUserToken(tenantId, "CONFIGURATOR");
+            String approver = adminUserToken(tenantId, "APPROVER");
+
+            // T178a: the approval probes the restricted account with ITS vault password (fail closed: no credential =
+            // DB_ACCOUNT_UNVERIFIED), so the partner account's password is stored through the real credential API first
+            String endpointId = ownerString("select id from public.target_endpoint where tenant_id = ?::uuid"
+                    + " and system_id = ?::uuid", tenantId, systemId);
+            HttpResponse<String> stored = adminPut("/api/v1/admin/target-endpoints/" + endpointId + "/credentials",
+                    configurator, "{\"fields\":{\"accountPassword\":\"" + PARTNER_ACCOUNT_PASSWORD + "\"}}");
+            assertThat(stored.statusCode()).as("store the partner account password: %s", stored.body()).isEqualTo(200);
+
+            HttpResponse<String> requested = adminCall(path, configurator, "{\"table\":\"partner_orders\"}");
+            assertThat(requested.statusCode()).as("request: %s", requested.body()).isEqualTo(201);
+            String rowId = JSON.readTree(requested.body()).path("id").asString();
+            HttpResponse<String> approved = adminCall(path + "/" + rowId + "/approve", approver, null);
+            assertThat(approved.statusCode()).as("approve: %s", approved.body()).isEqualTo(200);
+            assertThat(JSON.readTree(approved.body()).path("status").asString()).isEqualTo("APPROVED");
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** A Keycloak service-account token whose subject is registered as a user of the tenant with one role. */
+    private String adminUserToken(UUID tenantId, String role) throws Exception {
+        ClientCredentials client = newSource("e18-" + role.toLowerCase());
+        String token = KEYCLOAK.clientCredentialsToken(client.clientId(), client.secret());
+        var claims = JSON.readTree(new String(java.util.Base64.getUrlDecoder().decode(token.split("[.]")[1]),
+                StandardCharsets.UTF_8));
+        UUID userId = UUID.randomUUID();
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES);
+                java.sql.PreparedStatement user = owner.prepareStatement("insert into app_user (id, tenant_id, issuer,"
+                        + " subject, status) values (?::uuid, ?::uuid, ?, ?, 'ACTIVE')");
+                java.sql.PreparedStatement grant = owner.prepareStatement(
+                        "insert into role_grant (tenant_id, user_id, role) values (?::uuid, ?::uuid, ?)")) {
+            user.setString(1, userId.toString());
+            user.setString(2, tenantId.toString());
+            user.setString(3, claims.path("iss").asString());
+            user.setString(4, claims.path("sub").asString());
+            user.executeUpdate();
+            grant.setString(1, tenantId.toString());
+            grant.setString(2, userId.toString());
+            grant.setString(3, role);
+            grant.executeUpdate();
+        }
+        return token;
+    }
+
+    private HttpResponse<String> adminCall(String path, String token, String body) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(backend().resolve(path)).timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token).header("Accept", "application/json");
+        if (body != null) {
+            request.header("Content-Type", "application/json");
+        }
+        return HTTP.send(request.POST(body == null ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> adminPut(String path, String token, String body) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(backend().resolve(path)).timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token).header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** The partner's restricted account (T178a): INSERT and SELECT on the one table, nothing else, no superuser. */
+    private static final String PARTNER_ACCOUNT = "e18_partner";
+    private static final String PARTNER_ACCOUNT_PASSWORD = "e18-partner-" + UUID.randomUUID().toString().substring(0, 8);
+
     @Test
     @DisplayName("DB: one row lands in the partner's approved table")
     void dbTargetJourney() throws Exception {
         try (Connection partner = java.sql.DriverManager.getConnection(TARGET_DB.getJdbcUrl(),
                 TARGET_DB.getUsername(), TARGET_DB.getPassword()); Statement create = partner.createStatement()) {
-            create.execute("create table if not exists partner_orders (order_no text, customer text, total numeric, delivery_id text unique)");
+            create.execute("create table if not exists partner_orders (order_no text, customer text, total numeric, delivery_id uuid unique)");
+            // the container's own account is a Postgres superuser: the approval now REFUSES that (DB_ACCOUNT_TOO_WIDE),
+            // so the journey runs as the narrow account a real partner would hand the platform
+            create.execute("do $$ begin if not exists (select 1 from pg_roles where rolname = '" + PARTNER_ACCOUNT
+                    + "') then create role " + PARTNER_ACCOUNT + " login password '" + PARTNER_ACCOUNT_PASSWORD
+                    + "' nosuperuser nocreatedb nocreaterole noinherit; end if; end $$");
+            create.execute("revoke all on partner_orders from " + PARTNER_ACCOUNT);
+            create.execute("grant insert, select on partner_orders to " + PARTNER_ACCOUNT);
         }
         String settings = "{\"host\":\"db.e18.test\",\"port\":" + TARGET_DB.getMappedPort(5432) + ",\"database\":\""
-                + TARGET_DB.getDatabaseName() + "\",\"user\":\"" + TARGET_DB.getUsername()
-                + "\",\"table\":\"partner_orders\",\"approvedTables\":[\"partner_orders\"]}";
-        Run run = journey("db", "DB", settings, "jdbc:postgresql://db.e18.test/" + TARGET_DB.getDatabaseName(), true);
+                + TARGET_DB.getDatabaseName() + "\",\"user\":\"" + PARTNER_ACCOUNT
+                + "\",\"table\":\"partner_orders\"}";
+        // E16 F3: the settings no longer carry approvedTables (the API refuses the key, FIELD_NOT_ALLOWED); the table
+        // is requested by one user and approved by another, as an APPROVED row bound to the system's fingerprint
+        Run run = journey("db", "DB", settings, "jdbc:postgresql://db.e18.test/" + TARGET_DB.getDatabaseName(), true,
+                this::approvePartnerOrders);
         assertJourneyReads(run);
 
         try (Connection partner = java.sql.DriverManager.getConnection(TARGET_DB.getJdbcUrl(),

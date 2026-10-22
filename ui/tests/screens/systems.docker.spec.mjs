@@ -55,14 +55,15 @@ async function fillRegister(page, { code, name, type, settings }) {
 
 const EXAMPLES = [
   { type: 'API', label: 'API', settings: { baseUrl: 'https://partner.example.test/orders', timeoutMs: 5000 } },
-  { type: 'DB', label: 'DB', settings: { host: 'db.partner.test', port: 5432, database: 'orders' } },
+  { type: 'DB', label: 'DB', settings: { host: 'db.partner.test', port: 5432, database: 'orders', user: 'etl' } }, // user: required since E16 C3 (3250bf9a)
   { type: 'MQ', label: 'MQ', settings: { host: 'mq.partner.test', port: 5672, queue: 'orders.in' } },
-  { type: 'FILE', label: 'File', settings: { rootPath: '/data/inbound/orders' } },
+  // FILE is not in this outline: a File root is refused unless the operator configures platform.config.destinations.file-base-dirs and
+  // the path lies under <base>/<tenant id> (FileRoots.saveProblem); the screens boot configures none - see the FILE negative below.
   // E16 (lane ui-kafka): the closed register now names KAFKA - bootstrap servers + a tenant topic, no secret in the form
   { type: 'KAFKA', label: 'Kafka', settings: { bootstrapServers: 'broker1.partner.test:9092,broker2.partner.test:9092', topic: 'orders.out' } }
 ];
 
-// Scenario Outline: Register a system of each type (Examples: API | DB | MQ | File | Kafka).
+// Scenario Outline: Register a system of each type (Examples: API | DB | MQ | Kafka; File is the negative below).
 for (const example of EXAMPLES) {
   test(`registers a ${example.label} system with its type-specific settings; it is listed after reload`, async ({ page }) => {
     const code = `sys-${example.type.toLowerCase()}-${RUN}`;
@@ -89,7 +90,7 @@ test('edits the type-specific settings; the new value is stored and shown after 
   await page.goto(consoleUrl());
   const code = `sys-edit-${RUN}`;
   const seeded = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
-    code, name: 'Edit me', direction: 'OUTBOUND', type: 'DB', settings: { host: 'db-old.partner.test', port: 5432, database: 'orders' }
+    code, name: 'Edit me', direction: 'OUTBOUND', type: 'DB', settings: { host: 'db-old.partner.test', port: 5432, database: 'orders', user: 'etl' }
   });
   expect(seeded.status).toBe(201);
 
@@ -124,6 +125,17 @@ test('a system of type FTP is refused and the API error is shown on screen', asy
   await expect(page.locator(`[data-system-row="sys-ftp-${RUN}"]`)).toHaveCount(0);
 });
 
+// E16 @negative: with no operator base folder (the screens boot sets none) a File system is refused at save and the screen shows the words.
+test('a File system is refused at save while the operator configures no base folder', async ({ page }) => {
+  await openSystems(page);
+  await fillRegister(page, { code: `sys-file-${RUN}`, name: 'File partner', type: 'FILE', settings: { rootPath: '/data/inbound/orders' } });
+  await page.click('[data-action="register-system"]');
+  await expect(page.locator('[data-validation-error]')).toContainText('FILE targets are not enabled');
+  await page.reload();
+  await expect(page.locator(`${PAGE}[data-systems-loaded="true"]`)).toBeVisible();
+  await expect(page.locator(`[data-system-row="sys-file-${RUN}"]`)).toHaveCount(0);
+});
+
 // E16 (lane ui-kafka) @negative: the server refuses a platform topic at save; the screen shows its words as-is
 // and links the error to the Topic field, which is marked invalid and points at the error list.
 test('a Kafka system on a platform topic is refused with the server text, shown as-is on the Topic field', async ({ page }) => {
@@ -133,7 +145,11 @@ test('a Kafka system on a platform topic is refused with the server text, shown 
 
   const error = page.locator('[data-validation-error]');
   await expect(error).toHaveCount(1);
-  await expect(error).toContainText("platform.poison is a platform topic - the platform's own register is never a tenant destination (T-184 SF-2)");
+  // The shown text goes into the assertion MESSAGE: Playwright clips a received string to ~80 chars ("...registe..." in runs 1-3 of
+  // 2026-10-22), but prints a custom message in full, so a mismatch names the whole text.
+  const shown = await error.innerText();
+  expect(shown.includes("platform.poison is a platform topic - the platform's own register is never a tenant destination (T-184 SF-2)"),
+    `shown text: [${shown}]`).toBe(true);
   const topic = page.locator('[data-form="register-system"] [data-setting="topic"]');
   await expect(topic).toHaveAttribute('aria-invalid', 'true');
   await expect(topic).toHaveAttribute('aria-describedby', /sys-validation-errors/);
@@ -278,28 +294,20 @@ test('a Kafka create with a clear-text protocol is refused at save with the R1 s
   await expect(page.locator('[data-form="register-system"] [data-setting="saslMechanism"]')).toHaveCount(0);
 });
 
-// E16 F3, authored on main for the pending product change - the approved tables' save-time refusal lives on
-// branch feature/e16-approved-tables-f3 (commit d0cf84e "UI drops approvedTables"), NOT on main yet: on main
-// the DB schema still accepts approvedTables (SystemSettings.java:122) and the API answers 201. Until it
-// merges this scenario SKIPS with its dependency named; once it merges it runs unguarded, on the same probe.
+// E16 F3 (merged to main): the approved tables' save-time refusal is live, so this scenario runs unguarded.
 test('a DB system whose settings carry approvedTables is refused FIELD_NOT_ALLOWED at save (F3)', async ({ page }) => {
   await page.goto(consoleUrl());
   const probe = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
     code: `sys-f3-${RUN}`, name: 'F3 probe', direction: 'OUTBOUND', type: 'DB',
     settings: { host: 'db.partner.test', port: 5432, database: 'orders', user: 'etl', approvedTables: ['orders', 'lines'] }
   });
-  if (probe.status === 201) {
-    test.skip(true, 'BLOCKED product gap: approvedTables is still accepted at save on main - F3 (FIELD_NOT_ALLOWED) '
-      + 'is on feature/e16-approved-tables-f3; run when it merges');
-    return;
-  }
   expect(probe.status, JSON.stringify(probe.data)).toBe(400);
   expect(probe.data?.refusal).toBe('FIELD_NOT_ALLOWED'); // the old-client marker the body carries (SystemValidationException)
   expect(probe.data?.errors).toContain('settings.approvedTables is not allowed (FIELD_NOT_ALLOWED): the tables a'
     + ' DB target may write to are requested and approved at /api/v1/admin/systems/{systemId}/approved-tables,'
     + ' never listed in the settings');
 
-  // on the F3 branch the form no longer lists the field, so the console cannot type an approval into settings
+  // the form no longer lists the field, so the console cannot type an approval into settings
   await openSystems(page);
   await page.click('[data-action="open-register"]');
   await expect(page.getByRole('dialog', { name: 'Register a system' }).locator('[data-setting="approvedTables"]')).toHaveCount(0);
@@ -336,7 +344,7 @@ test('over the per-user rate limit the connection test is refused 429 and the re
   await page.goto(consoleUrl());
   const code = `sys-ratelimit-${RUN}`;
   const seeded = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
-    code, name: 'Rate limit me', direction: 'OUTBOUND', type: 'FILE', settings: { rootPath: '/data/x' }
+    code, name: 'Rate limit me', direction: 'OUTBOUND', type: 'MQ', settings: { host: 'mq.partner.test', port: 5672, queue: 'rate' }
   });
   expect(seeded.status).toBe(201);
 
@@ -358,7 +366,7 @@ test('tenant B lists none of tenant A\'s systems and opening tenant A\'s id show
   await page.goto(consoleUrl());
   const code = `sys-tenant-a-${RUN}`;
   const seeded = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
-    code, name: 'Tenant A only', direction: 'OUTBOUND', type: 'FILE', settings: { rootPath: '/data/a' }
+    code, name: 'Tenant A only', direction: 'OUTBOUND', type: 'MQ', settings: { host: 'mq.partner.test', port: 5672, queue: 'a' }
   });
   expect(seeded.status).toBe(201);
 
@@ -397,7 +405,7 @@ test('closing the edit drawer returns to the list address and focus to the row O
   await page.goto(consoleUrl());
   const code = `sys-drawer-${RUN}`;
   const seeded = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
-    code, name: 'Drawer', direction: 'OUTBOUND', type: 'FILE', settings: { rootPath: '/data/d' }
+    code, name: 'Drawer', direction: 'OUTBOUND', type: 'MQ', settings: { host: 'mq.partner.test', port: 5672, queue: 'd' }
   });
   expect(seeded.status).toBe(201);
   await openSystems(page);

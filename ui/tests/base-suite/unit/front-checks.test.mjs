@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TENANTS, orderRecord } from '../lib/tenants.mjs';
-import { exactBytesBody, foreignIdHits, intakeStageProblems, uuidShaped } from '../lib/front-checks.mjs';
+import { exactBytesBody, foreignIdHits, intakeStageProblems, longKeyBody, uuidShaped } from '../lib/front-checks.mjs';
 
 const TID = 'f0000000-0000-4000-8000-00000000000d';
 const FLOW = 'a0000000-0000-4000-8000-00000000000a';
@@ -35,9 +35,19 @@ test('exactBytesBody: a valid order record whose JSON is exactly N bytes', () =>
     const parsed = JSON.parse(body);
     assert.equal(parsed.customerId, 'A-CUST-0001');
     assert.equal(typeof parsed.amount, 'number');
-    assert.ok(parsed.orderId.startsWith('A-ORD-0001'));
+    assert.equal(parsed.orderId, 'A-ORD-0001', 'the business key is never padded');
   }
   assert.throws(() => exactBytesBody(orderRecord(TENANTS.A, 1), 10), /smaller than/);
+});
+
+test('longKeyBody: a valid order record whose business key is exactly N bytes', () => {
+  for (const n of [2048, 2049, 5000]) {
+    const parsed = JSON.parse(longKeyBody(orderRecord(TENANTS.A, 1), n));
+    assert.equal(Buffer.byteLength(parsed.orderId, 'utf8'), n);
+    assert.ok(parsed.orderId.startsWith('A-ORD-0001'));
+    assert.equal(parsed.customerId, 'A-CUST-0001');
+  }
+  assert.throws(() => longKeyBody(orderRecord(TENANTS.A, 1), 3), /smaller than/);
 });
 
 test("foreignIdHits: the other tenant's markers and ids in an answer", () => {
