@@ -21,8 +21,7 @@ import { saveRefusal } from '../mapping/saveRefusal';
 import '../mapping/mapping.css';
 import type { FieldSchema, MappingGraph, SavedMappingAnswer } from '../mapping/graph';
 import type { CanvasSelected } from '../mapping/MappingCanvas';
-import { canSaveMapping, classifyMappingLoad, designerKey, saveThrownText } from './mapping-load';
-import { failureText } from './flow-save';
+import { canSaveMapping, classifyMappingLoad, designerKey, loadFailureText, saveThrownText, VersionLoadError } from './mapping-load';
 
 const MappingCanvas = lazy(() => import('../mapping/MappingCanvas'));
 // T-039 (E7 wave 2 lane D2): the CodeMirror raw-expression editor, its own lazy chunk like the canvas.
@@ -65,7 +64,7 @@ const loadVersion = async (versionId: string) => {
     params: { path: { versionId } }
   });
   // A5: a contract version that did not load must not read as "no fields" (Save would then skip its guard).
-  if (!response?.ok) throw new Error(`contract version ${response?.status ?? 0}`);
+  if (!response?.ok) throw new VersionLoadError(response?.status ?? 0);
   return data as { jsonSchema?: FieldSchema | null } | null;
 };
 
@@ -111,7 +110,7 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
         return;
       }
       if (outcome.kind === 'failed' || !contracts.response?.ok) {
-        setLoadError(outcome.kind === 'failed' ? outcome.text : failureText('open the mapping', contracts.response?.status ?? 0));
+        setLoadError(outcome.kind === 'failed' ? outcome.text : loadFailureText('contracts', contracts.response?.status ?? 0));
         setLoaded(true);
         return;
       }
@@ -148,9 +147,9 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
       }
       setVersions(options);
       setLoaded(true);
-    }).catch(() => {
+    }).catch((e: unknown) => {
       if (cancelled) return;
-      setLoadError(failureText('open the mapping', 0));
+      setLoadError(loadFailureText(e instanceof VersionLoadError ? 'contract-version' : 'mapping', e instanceof VersionLoadError ? e.status : 0));
       setLoaded(true);
     });
     return () => {

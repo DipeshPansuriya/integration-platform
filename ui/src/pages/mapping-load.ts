@@ -3,6 +3,7 @@
 // the stored one - and every route opens a fresh designer.
 
 import type { SavedMappingAnswer } from '../mapping/graph';
+import { refusalWords } from '../ui/refusal-words';
 import { failureText } from './flow-save';
 
 export type LoadAnswer = { data?: unknown; error?: unknown; response?: { ok?: boolean; status?: number } };
@@ -17,7 +18,27 @@ export function classifyMappingLoad(answer: LoadAnswer): MappingLoad {
   // 404: another tenant's route (ADR-011 Decision 4) or an unknown id - the same empty state.
   if (status === 404) return { kind: 'missing' };
   if (answer.response?.ok) return { kind: 'loaded', saved: (answer.data ?? {}) as SavedMappingAnswer };
-  return { kind: 'failed', text: failureText('open the mapping', status) };
+  return { kind: 'failed', text: loadFailureText('mapping', status) };
+}
+
+/** Row 372 M10: the designer needs three reads; whichever failed is named, in the shared plain words. */
+export type LoadPart = 'mapping' | 'contracts' | 'contract-version';
+const SUBJECT: Record<LoadPart, string> = {
+  mapping: 'the mapping',
+  contracts: 'the contracts list',
+  'contract-version': 'the contract versions this mapping uses'
+};
+// the mapping read keeps its existing "Could not open the mapping: ..." sentence; the other two use the shared refusal words
+export const loadFailureText = (part: LoadPart, status: number): string =>
+  part === 'mapping' ? failureText('open the mapping', status) : refusalWords(status, SUBJECT[part]);
+
+/** A contract version read that did not answer 200; carries the status so the designer can word it. */
+export class VersionLoadError extends Error {
+  status: number; // no parameter property: node's strip-only TypeScript mode (the unit tests) rejects it
+  constructor(status: number) {
+    super(`contract version ${status}`);
+    this.status = status;
+  }
 }
 
 /** Save needs an open route whose load finished cleanly: while loading or after a failure it is off. */
