@@ -114,6 +114,9 @@ test('BS-10: a 403 dead letter on the failures screen, replayed after the target
       const d = deliveryOf(messageId);
       return d?.state === 'DEAD_LETTERED' ? d : null;
     }, `the delivery of ${messageId} dead-lettered`, { timeoutMs: PIPELINE_MS });
+    // precondition named on its own: Replay answers 409 "not pinned" when either pin is NULL (DeliveryOperatorActions.act), so say which one
+    expect(delivery.pins.mappingVersionId, 'delivery.mapping_version_id is set (Replay needs both pins)').toBeTruthy();
+    expect(delivery.pins.contractVersionId, 'delivery.contract_version_id is set (Replay needs both pins; V2_3_3_1 says NULL until E9 writes it)').toBeTruthy();
     const sends = await sendsOf(delivery.id);
     expect(sends, 'exactly ONE send reached the stub (PERMANENT never redelivers) - 0 means the guard refused it').toHaveLength(1);
     expect(sends[0].body, 'the contract-translated body').toEqual(expectedTargetBody(record));
