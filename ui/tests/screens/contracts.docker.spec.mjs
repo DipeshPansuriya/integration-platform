@@ -196,6 +196,7 @@ test('the author approving their own version sees AUTHOR_IS_APPROVER; another ap
   const row = versionRow(page, TARGET_A, '1.2');
   await expect(row).toHaveAttribute('data-version-status', 'PENDING_APPROVAL');
   await row.locator('[data-action="approve-version"]').click();
+  await row.locator('[data-action="confirm-approve"]').click(); // B29 C2: Approve asks first
   // T101: the refusal is worded at the top of the affected contract's card
   await expect(page.locator(`[data-contract="${TARGET_A}/${ROLE}"] [data-refusal="author-cannot-approve"]`)).toBeVisible();
   await expect(row).toHaveAttribute('data-version-status', 'PENDING_APPROVAL');

@@ -142,3 +142,8 @@
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
+
+/* B29 C1: the empty state carries its one next action */
+.systems-page .systems-empty p {
+  margin: 0 0 var(--space-3);
+}

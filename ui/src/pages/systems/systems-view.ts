@@ -55,3 +55,11 @@ export function errorAnchor(error: string): string | null {
 export function fieldHasError(errors: string[], settingName: string): boolean {
   return errors.some((error) => errorAnchor(error) === `sys-setting-${settingName}`);
 }
+
+/** The word in a row's result cell while its connection test is running (B29 C1). */
+export const TESTING_WORD = 'Testing...';
+
+/** A row may start a test only when none is already running for it (parallel clicks hit the 429). */
+export function canStartTest(testing: ReadonlySet<string>, id: string): boolean {
+  return !testing.has(id);
+}

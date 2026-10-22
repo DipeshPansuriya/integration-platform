@@ -9,7 +9,7 @@
 
 import { useState } from 'react';
 import type { Contract, ContractVersionSummary } from '../../api/contracts';
-import { contractGroups, statusBadge } from './contracts-view';
+import { contractGroups, rowActionLabel, statusBadge } from './contracts-view';
 
 export const versionKey = (contract: Contract, version: ContractVersionSummary) =>
   `${contract.system ?? ''}/${contract.role ?? ''}/${version.versionLabel ?? ''}`;
@@ -50,6 +50,7 @@ function RefusalAlert({ code }: { code: string }) {
 function VersionRow({ contract, version, actions }: { contract: Contract; version: ContractVersionSummary; actions: VersionActions }) {
   const [changeNote, setChangeNote] = useState('');
   const [composing, setComposing] = useState(false);
+  const [confirming, setConfirming] = useState(false); // B29 C2: Approve is irreversible, so it asks first
   const id = version.id ?? '';
   const key = versionKey(contract, version);
   const badge = statusBadge(version.status);
@@ -57,13 +58,15 @@ function VersionRow({ contract, version, actions }: { contract: Contract; versio
   return (
     <tr className={compared ? 'contracts-row contracts-row-compared' : 'contracts-row'} data-version-key={key} data-version-status={version.status}>
       <td className="contracts-check">
-        <input
-          type="checkbox"
-          data-action="compare"
-          aria-label={`Compare ${key}`}
-          checked={compared}
-          onChange={(e) => actions.onCompare(id, key, e.target.checked)}
-        />
+        <label className="contracts-check-label">
+          <input
+            type="checkbox"
+            data-action="compare"
+            aria-label={`Compare ${key}`}
+            checked={compared}
+            onChange={(e) => actions.onCompare(id, key, e.target.checked)}
+          />
+        </label>
       </td>
       <td className="contracts-mono">{version.versionLabel}</td>
       <td>
@@ -77,6 +80,7 @@ function VersionRow({ contract, version, actions }: { contract: Contract; versio
               type="button"
               className="btn"
               data-action="compose-submit"
+              aria-label={rowActionLabel('Submit for approval', key)}
               aria-expanded={composing}
               onClick={() => setComposing((open) => !open)}
             >
@@ -100,11 +104,38 @@ function VersionRow({ contract, version, actions }: { contract: Contract; versio
         )}
         {version.status === 'PENDING_APPROVAL' && (
           <>
-            <button type="button" className="btn" data-action="approve-version" onClick={() => actions.onApprove(id)}>
-              Approve
-            </button>
+            {!confirming && (
+              <button
+                type="button"
+                className="btn"
+                data-action="approve-version"
+                aria-label={rowActionLabel('Approve', key)}
+                onClick={() => setConfirming(true)}
+              >
+                Approve
+              </button>
+            )}
+            {confirming && (
+              <span className="contracts-confirm-group" role="group" aria-label={rowActionLabel('Confirm approval of', key)}>
+                <span>Approve this version? It cannot be undone.</span>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  data-action="confirm-approve"
+                  onClick={() => {
+                    setConfirming(false);
+                    actions.onApprove(id);
+                  }}
+                >
+                  Yes, approve
+                </button>
+                <button type="button" className="btn" data-action="cancel-approve" onClick={() => setConfirming(false)}>
+                  Cancel
+                </button>
+              </span>
+            )}
             {actions.harnessApprover && (
-              <button type="button" className="btn" data-action="approve-as-approver" onClick={() => actions.onApprove(id, 'approver')}>
+              <button type="button" className="btn" data-action="approve-as-approver" aria-label={rowActionLabel('Approve as the harness approver:', key)} onClick={() => actions.onApprove(id, 'approver')}>
                 Approve as the harness approver
               </button>
             )}
