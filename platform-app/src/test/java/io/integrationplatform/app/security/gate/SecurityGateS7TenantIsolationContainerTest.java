@@ -30,6 +30,15 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.transaction.PlatformTransactionManager;
 import io.integrationplatform.delivery.port.Stage1Deliveries;
 import io.integrationplatform.delivery.replay.DeliveryOperatorActions;
+import io.integrationplatform.e11.DipeshExampleSeed;
+import io.integrationplatform.identity.KeycloakRealmContainer;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
@@ -103,12 +112,25 @@ class SecurityGateS7TenantIsolationContainerTest {
         }
     }
 
+    /** Source systems call the intake with client credentials from this realm (S7-A3 only). */
+    @Container
+    static final KeycloakRealmContainer KEYCLOAK = new KeycloakRealmContainer(PlatformTestWiring.OIDC_AUDIENCE,
+            "http://localhost/login/oauth2/code/keycloak", "http://localhost/");
+
+    @LocalServerPort
+    private int port;
+
     private static final AtomicBoolean GRANTED = new AtomicBoolean();
     private static PlatformTestWiring.RestrictedLogin login;
 
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
         login = PlatformTestWiring.register(registry, POSTGRES);
+        KEYCLOAK.start(); // idempotent; the issuer must be known before the context starts
+        registry.add("OIDC_ISSUER_URI", KEYCLOAK::issuerUri);
+        registry.add("CONSOLE_URL", () -> "/");
+        registry.add("platform.config.destinations.allowed-hosts", () -> "*.e11.test");
+        registry.add("ROUTING_CORE_ALLOWED_SCHEMES", () -> "http,https");
     }
 
     @BeforeEach
@@ -203,9 +225,62 @@ class SecurityGateS7TenantIsolationContainerTest {
      * Expected: Ingest resolves tenant from the credential (ADR-007 D2); B's ids never match A's routing; 403 + audit on body customerId mismatch
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: T115 is on main (68ec617c); the HTTP case needs Keycloak plus a two-tenant onboarding, and the only seed (e11 DipeshExampleSeed.onboard) is package-private in io.integrationplatform.e11, unreachable from the gate package - widen it or add the case beside it (T141 gate case S7-A3)")
-    void s7_a3_cross_tenant_message_id_submission() {
-        fail("S7-A3 body lands with T115");
+    void s7_a3_cross_tenant_message_id_submission() throws Exception {
+        GateFixture f = fixture();
+        KeycloakRealmContainer.ClientCredentials sourceA = KEYCLOAK.createConfidentialClient(
+                "s7a3-a-" + UUID.randomUUID().toString().substring(0, 8), true);
+        KeycloakRealmContainer.ClientCredentials sourceB = KEYCLOAK.createConfidentialClient(
+                "s7a3-b-" + UUID.randomUUID().toString().substring(0, 8), true);
+        DipeshExampleSeed.Tenant a;
+        DipeshExampleSeed.Tenant b;
+        try (java.sql.Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
+            a = DipeshExampleSeed.onboard(owner, "alpha", "S7-CUST-A", sourceA.clientId(), KEYCLOAK.issuerUri());
+            b = DipeshExampleSeed.onboard(owner, "bravo", "S7-CUST-B", sourceB.clientId(), KEYCLOAK.issuerUri());
+        }
+        String idempotencyKey = UUID.randomUUID().toString();
+        // B submits one record; A submits its own with the SAME idempotency key (a "cross-tenant message id")
+        HttpResponse<String> fromB = intake(sourceB, "{\"customerId\":\"S7-CUST-B\",\"orderId\":\"B-1\","
+                + "\"amount\":1}", idempotencyKey);
+        assertThat(fromB.statusCode()).as(fromB.body()).isEqualTo(202);
+        UUID trackingB = UUID.fromString(JSON.readTree(fromB.body()).path("trackingId").asString());
+        HttpResponse<String> fromA = intake(sourceA, "{\"customerId\":\"S7-CUST-A\",\"orderId\":\"A-1\","
+                + "\"amount\":1}", idempotencyKey);
+        assertThat(fromA.statusCode()).as(fromA.body()).isEqualTo(202);
+        UUID trackingA = UUID.fromString(JSON.readTree(fromA.body()).path("trackingId").asString());
+        assertThat(trackingA).as("B's id never answers A's submission").isNotEqualTo(trackingB);
+        assertThat(f.ownerScalar("select tenant_id::text from public.message where id = ?::uuid", trackingA.toString()))
+                .isEqualTo(a.id().toString());
+        assertThat(f.ownerScalar("select tenant_id::text from public.message where id = ?::uuid", trackingB.toString()))
+                .isEqualTo(b.id().toString());
+        // the ingest resolves the tenant from the credential: A's token naming B's customerId is refused 403,
+        // nothing is written for either tenant
+        String messagesBefore = f.ownerScalar("select count(*) from public.message");
+        HttpResponse<String> forged = intake(sourceA, "{\"customerId\":\"S7-CUST-B\",\"orderId\":\"X-1\","
+                + "\"amount\":1}", UUID.randomUUID().toString());
+        assertThat(forged.statusCode()).as(forged.body()).isEqualTo(403);
+        assertThat(forged.body()).as("the refusal names no tenant B data").doesNotContain("S7-CUST-B")
+                .doesNotContain(b.id().toString());
+        assertThat(f.ownerScalar("select count(*) from public.message")).isEqualTo(messagesBefore);
+        // and B's message is invisible to a transaction stamped as A
+        assertThat(f.scalar(a.id(), "select count(*) from public.message where id = ?::uuid", trackingB.toString()))
+                .isEqualTo("0");
+    }
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+
+    private HttpResponse<String> intake(KeycloakRealmContainer.ClientCredentials source, String body,
+            String idempotencyKey) throws Exception {
+        String token = KEYCLOAK.clientCredentialsToken(source.clientId(), source.secret());
+        return HTTP.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/interfaces/"
+                        + DipeshExampleSeed.INTERFACE_CODE + "/messages"))
+                .timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token)
+                .header("Content-Type", "application/json")
+                .header("X-Source-Contract-Version", DipeshExampleSeed.SOURCE_CONTRACT_LABEL)
+                .header("Idempotency-Key", idempotencyKey)
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build(), HttpResponse.BodyHandlers.ofString());
     }
 
     /**
