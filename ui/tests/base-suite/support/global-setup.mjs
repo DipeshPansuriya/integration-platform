@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
+import { demoLaunchOptions } from '../../demo/demo-mode.mjs';
 import { BS_CONSOLE_LOGINS, baseSuiteBootOptions } from '../lib/boot-options.mjs';
 import { assertRealResolver, exceptionSettings } from '../lib/settings.mjs';
 import { BS_STORAGE_STATE } from '../lib/suite-config.mjs';
@@ -61,7 +62,8 @@ export async function bootBaseSuite(options, { wiremock: withWiremock }) {
     const logTap = await startLogTap(() => backend.logDump());
     setLogTap(logTap);
 
-    const browser = await chromium.launch();
+    // {} unless E2E_DEMO=1 (tests/demo/demo-mode.mjs): then headed + slowMo, so the real Keycloak sign-in is visible too
+    const browser = await chromium.launch(demoLaunchOptions());
     try {
       const context = await browser.newContext();
       await browserLogin(await context.newPage(), consoleServer.url, backend.users.default);
