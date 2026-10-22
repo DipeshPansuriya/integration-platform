@@ -21,14 +21,14 @@ import { randomBytes } from 'node:crypto';
 import process from 'node:process';
 import { expect, test } from '@playwright/test';
 import { deliveryRowsSql } from '../base-suite/lib/direct-sql.mjs';
-import { FLOW, SOURCE_CONTRACT, TENANTS, expectedTargetBody, orderRecord } from '../base-suite/lib/tenants.mjs';
+import { SOURCE_CONTRACT, TENANTS, expectedTargetBody, orderRecord } from '../base-suite/lib/tenants.mjs';
 import { traceIdOf, traceparentOf } from '../base-suite/lib/trace.mjs';
 import { deliveriesTo } from '../base-suite/lib/wiremock.mjs';
 import { eventually, inBrowser, journal, postRecord, sameAppProcess, setStub, sourceToken } from '../base-suite/support/api.mjs';
 import { bsEnv } from '../base-suite/support/boot-state.mjs';
 import { readRows } from '../base-suite/support/db.mjs';
 import { readRun, addTracking } from '../base-suite/support/run-file.mjs';
-import { rotatedSecret } from '../base-suite/support/seed.mjs';
+import { intakeCode, rotatedSecret } from '../base-suite/support/seed.mjs';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -89,7 +89,7 @@ test('intake for the API target: 202, and exactly ONE translated delivery, witho
   expect(token, 'a source client token from the boot realm').toBeTruthy();
 
   const record = orderRecord(TENANTS.A, ORDER_OFFSET + 1);
-  const answer = await postRecord(token, FLOW.code, SOURCE_CONTRACT.versionLabel, record);
+  const answer = await postRecord(token, intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, record);
   expect(answer.status, JSON.stringify(answer.data)).toBe(202);
   expect(typeof answer.data?.trackingId).toBe('string');
   addTracking('A', [answer.data.trackingId]);
@@ -135,7 +135,7 @@ test('the tracking detail shows the four-stage timeline: INTAKE, ROUTE, TRANSFOR
 test('the traceparent the source sent is shown in the tracking detail', async ({ page }) => {
   const tp = traceparentOf(randomBytes(16), randomBytes(8)); // the fresh trace id the journey claims
   const record = orderRecord(TENANTS.A, ORDER_OFFSET + 2);
-  const answer = await postRecord(await sourceOf(page, TENANTS.A), FLOW.code, SOURCE_CONTRACT.versionLabel, record,
+  const answer = await postRecord(await sourceOf(page, TENANTS.A), intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, record,
     { traceparent: tp });
   expect(answer.status, JSON.stringify(answer.data)).toBe(202);
   await eventually(async () => {
@@ -165,7 +165,7 @@ test('a dead-lettered delivery is visible on the failures screen and replayable 
   const record = orderRecord(TENANTS.A, ORDER_OFFSET + 3);
   await setStub(TENANTS.A.stubPath, 403); // the refusal that dead-letters
   try {
-    const answer = await postRecord(await sourceOf(page, TENANTS.A), FLOW.code, SOURCE_CONTRACT.versionLabel, record);
+    const answer = await postRecord(await sourceOf(page, TENANTS.A), intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, record);
     expect(answer.status, JSON.stringify(answer.data)).toBe(202);
 
     await eventually(() =>

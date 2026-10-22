@@ -6,14 +6,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deliveryRowsSql, intakeTimingSql, messageRowsSql, outboxAggregatesSql, stageTimingsOfMessageSql, tenantIdSql } from '../lib/direct-sql.mjs';
+import { adminUserIdSql, deliveryRowsSql, intakeTimingSql, messageRowsSql, outboxAggregatesSql, stageTimingsOfMessageSql, tenantIdSql } from '../lib/direct-sql.mjs';
 import { isReadOnlySelect, pipelineWrites } from '../lib/source-scan.mjs';
 
 const SUITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CODE = 'lane-d-0a1b2c-bs-b';
 
 test('every direct read is one read-only SELECT naming the tenant code', () => {
-  for (const sql of [tenantIdSql(CODE), messageRowsSql(CODE), deliveryRowsSql(CODE), outboxAggregatesSql(CODE), intakeTimingSql(CODE)]) {
+  for (const sql of [tenantIdSql(CODE), adminUserIdSql(CODE), messageRowsSql(CODE), deliveryRowsSql(CODE), outboxAggregatesSql(CODE), intakeTimingSql(CODE)]) {
     assert.ok(isReadOnlySelect(sql), sql);
     assert.ok(sql.includes(`'${CODE}'`), `scoped to ${CODE}: ${sql}`);
   }
@@ -24,6 +24,13 @@ test('the message and delivery reads mirror the queue summary columns (interface
   assert.match(deliveryRowsSql(CODE), /select d\.message_id::text, d\.interface_id::text, d\.state, to_char\(d\.created_at at time zone 'UTC', 'YYYY-MM-DD'\)/);
   assert.match(outboxAggregatesSql(CODE), /topic = 'platform\.message\.accepted'/);
   assert.match(intakeTimingSql(CODE), /stage = 'INTAKE'/);
+});
+
+test('BS-10 actor: the tenant admin user id is one tenant-scoped read through app_user and role_grant', () => {
+  const sql = adminUserIdSql(CODE);
+  assert.match(sql, /^select u\.id::text from public\.app_user u join public\.role_grant g on g\.user_id = u\.id and g\.tenant_id = u\.tenant_id where u\.tenant_id = /);
+  assert.match(sql, /g\.role = 'TENANT_ADMIN'$/);
+  assert.throws(() => adminUserIdSql("x' or '1'='1"), /tenant code/);
 });
 
 const MESSAGE = '3c2b1a09-0000-4000-8000-0000000000d9';

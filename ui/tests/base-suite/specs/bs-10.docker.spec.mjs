@@ -25,7 +25,7 @@
 
 import { expect, test } from '@playwright/test';
 import { FIGURES, delta } from '../lib/counts.mjs';
-import { attemptRowsSql, auditRowsSql, deliveryOfMessageSql, deliveryRowsSql, eventTypesSql, tenantIdSql } from '../lib/direct-sql.mjs';
+import { adminUserIdSql, attemptRowsSql, auditRowsSql, deliveryOfMessageSql, deliveryRowsSql, eventTypesSql, tenantIdSql } from '../lib/direct-sql.mjs';
 import { causeOf, deliverFailureProblems } from '../lib/failure-cause.mjs';
 import { fill, nameOf, waitsOn } from '../lib/pending-names.mjs';
 import { attemptHistoryProblems, auditProblems, changedKeys, pinProblems, replayWalkProblems, stateWalk } from '../lib/replay.mjs';
@@ -89,7 +89,7 @@ test('BS-10: a 403 dead letter on the failures screen, replayed after the target
   const [replayMethod, replayPath] = nameOf('replayApi').split(' ');
   const replayAction = nameOf('replayAction');
   const auditAction = nameOf('auditReplayAction');
-  const auditActor = nameOf('auditActor');
+  const auditActor = readOne(adminUserIdSql(code())); // the acting admin's user id (the replay writes it as the actor)
   const { flowId } = readRun().seed.A;
   const record = orderRecord(A, 10);
   let messageId;
