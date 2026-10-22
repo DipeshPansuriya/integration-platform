@@ -158,7 +158,7 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
     void kafkaTopicTargetJourney() throws Exception {
         String topic = "e18.partner.orders";
         String settings = "{\"bootstrapServers\":\"localhost:" + TARGET_KAFKA.getMappedPort(9092)
-                + "\",\"topic\":\"" + topic + "\"}";
+                + "\",\"topic\":\"" + topic + "\",\"securityProtocol\":\"PLAINTEXT\"}"; // R1: absent = SSL; the Testcontainers broker is clear text
         Run run = journey("kafka", "KAFKA", settings, "kafka://kafka.e18.test/" + topic, true);
         assertJourneyReads(run);
 
