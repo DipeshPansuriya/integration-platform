@@ -72,6 +72,59 @@ class ApiEndpointBaseUrlContainerTest {
     }
 
     @Test
+    @DisplayName("review: link-local, ftp:, userinfo and off-list addresses are refused on PUT and POST - the old address stays")
+    void refusedAddressesKeepTheOldValue() {
+        String subject = configuratorOfA();
+        String code = randomCode("sys-api");
+        String id = call(port, "POST", SYSTEMS, subject,
+                systemBody(code, "OUTBOUND", "API", api("https://keep.partner.example/v1"))).json().path("id")
+                .asString();
+
+        for (String bad : new String[] {"http://169.254.169.254/latest/meta-data", "ftp://files.partner.example/x",
+            "https://user:pass@keep.partner.example/v1", "http://localhost/admin"}) {
+            Response put = call(port, "PUT", SYSTEMS + "/" + id, subject,
+                    systemBody(code, "OUTBOUND", "API", api(bad)));
+            assertThat(put.status()).as("PUT %s body: %s", bad, put.body()).isEqualTo(400);
+            assertThat(scalar(BASE_SQL, id)).as("after PUT %s", bad).isEqualTo("https://keep.partner.example/v1");
+            Response post = call(port, "POST", SYSTEMS, subject,
+                    systemBody(randomCode("sys-bad"), "OUTBOUND", "API", api(bad)));
+            assertThat(post.status()).as("POST %s body: %s", bad, post.body()).isEqualTo(400);
+        }
+    }
+
+    @Test
+    @DisplayName("F-2: a name-only PUT answers 200 and never copies the stored settings address into the endpoint")
+    void aNameOnlyPutLeavesTheEndpointAlone() {
+        String subject = configuratorOfA();
+        String code = randomCode("sys-api");
+        String id = call(port, "POST", SYSTEMS, subject,
+                systemBody(code, "OUTBOUND", "API", api("https://settings.partner.example/v1"))).json().path("id")
+                .asString();
+        E5SystemFixture.execute("UPDATE public.target_endpoint SET base_url = 'https://column.partner.example/x'"
+                + " WHERE system_id = ?::uuid", id);
+
+        Response renamed = call(port, "PUT", SYSTEMS + "/" + id, subject, "{\"name\":\"Renamed system\"}");
+
+        assertThat(renamed.status()).as("body: %s", renamed.body()).isEqualTo(200);
+        assertThat(scalar(BASE_SQL, id)).isEqualTo("https://column.partner.example/x");
+    }
+
+    @Test
+    @DisplayName("tenant: tenant B's configurator cannot reach tenant A's system or endpoint - 404 and the address is unchanged")
+    void aWrongTenantPutTouchesNothing() {
+        String id = call(port, "POST", SYSTEMS, configuratorOfA(),
+                systemBody(randomCode("sys-api"), "OUTBOUND", "API", api("https://alpha.partner.example/v1")))
+                .json().path("id").asString();
+        String configuratorOfB = E5SystemFixture.newUser(E5SystemFixture.tenantB().id(), "CONFIGURATOR");
+
+        Response put = call(port, "PUT", SYSTEMS + "/" + id, configuratorOfB,
+                systemBody("whatever", "OUTBOUND", "API", api("https://bravo.partner.example/v1")));
+
+        assertThat(put.status()).as("body: %s", put.body()).isEqualTo(404);
+        assertThat(scalar(BASE_SQL, id)).isEqualTo("https://alpha.partner.example/v1");
+    }
+
+    @Test
     @DisplayName("a refused baseUrl at create registers nothing; INBOUND has no endpoint; an untyped OUTBOUND keeps the placeholder")
     void otherShapesAreUntouched() {
         String subject = configuratorOfA();
