@@ -141,6 +141,8 @@ abstract class E18Base {
         // harness only: the endpoint rows carry mq://, kafka://, jdbc: and file:// base URLs; the code fixes no scheme per type
         // (dispatch is by system.type, the scheme is only guarded), so the test environment approves exactly these
         registry.add("ROUTING_CORE_ALLOWED_SCHEMES", () -> "http,https,mq,kafka,jdbc,file");
+        // test environment only (R1): the Testcontainers brokers are clear text; production keeps the default (refuse)
+        registry.add("platform.config.destinations.kafka-allow-plaintext", () -> "true");
         // test environment only: the partner database has no TLS and listens on a mapped port; FILE targets live under
         // <base>/<tenantId> (FileRoots) with the temp directory as the one approved base
         registry.add("platform.config.destinations.db-sslmode", () -> "disable");
