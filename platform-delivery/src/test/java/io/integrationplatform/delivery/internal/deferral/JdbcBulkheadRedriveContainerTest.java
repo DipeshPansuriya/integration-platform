@@ -39,7 +39,7 @@ class JdbcBulkheadRedriveContainerTest {
     private static final Instant NOW = Instant.now().truncatedTo(ChronoUnit.DAYS).plusSeconds(43_200);
 
     private final DeliveryTestDatabase db = DeliveryTestDatabase.get();
-    private final List<OutboxEntry> outbox = new ArrayList<>();
+    private final List<OutboxEntry> outbox = java.util.Collections.synchronizedList(new ArrayList<>());
     private final UUID target = UUID.randomUUID(); // own target: other tests leave deferred rows on the shared one
     private HikariDataSource pool;
     private JdbcClient jdbc;
@@ -137,5 +137,105 @@ class JdbcBulkheadRedriveContainerTest {
         assertThat(state(pending)).contains(DeliveryState.PENDING);
         assertThat(state(deferred)).contains(DeliveryState.RETRY_WAIT);
         assertThat(outbox).isEmpty();
+    }
+
+    // ------------------------------------------------------------------ F4 (review 2026-10-22)
+
+    private JdbcBulkheadRedrive redriveAs(UUID tenant, io.integrationplatform.ingest.port.OutboxWriter writer) {
+        return new JdbcBulkheadRedrive(jdbc, DeliveryTestDatabase.tenant(tenant), transactions(), writer);
+    }
+
+    private JdbcBulkheadRedrive redriveAs(UUID tenant) {
+        return redriveAs(tenant, entry -> {
+            outbox.add(entry);
+            return outbox.size();
+        });
+    }
+
+    @Test
+    @DisplayName("tenant isolation: tenant B's deferred row of the same target is never picked by tenant A's re-drive"
+            + " - only by B's own")
+    void anotherTenantsDeferredRowIsNeverPicked() {
+        JdbcDeliveryRepository repositoryB =
+                new JdbcDeliveryRepository(jdbc, DeliveryTestDatabase.tenant(DeliveryTestDatabase.TENANT_B));
+        UUID rowOfB = UUID.randomUUID();
+        tx.inTenantTx(DeliveryTestDatabase.TENANT_B, () -> repositoryB.create(rowOfB,
+                DeliveryTestDatabase.INTERFACE_ID, "tenant-b-1", 1L, target, NOW));
+        TransactionTemplate transactions = transactions();
+        JdbcBulkheadDeferrals deferralsB = new JdbcBulkheadDeferrals(jdbc,
+                DeliveryTestDatabase.tenant(DeliveryTestDatabase.TENANT_B), transactions, new JdbcOrderedStateChange(
+                        jdbc, DeliveryTestDatabase.tenant(DeliveryTestDatabase.TENANT_B), transactions));
+        assertThat(deferralsB.defer(rowOfB, NOW, 0, 0.0)).isTrue();
+
+        assertThat(redriveAs(DeliveryTestDatabase.TENANT_A).redriveOneDeferred(target))
+                .as("A sees no deferred row of this target").isFalse();
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_B, () -> repositoryB.state(rowOfB)))
+                .contains(DeliveryState.RETRY_WAIT);
+        assertThat(outbox).isEmpty();
+
+        assertThat(redriveAs(DeliveryTestDatabase.TENANT_B).redriveOneDeferred(target)).isTrue();
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_B, () -> repositoryB.state(rowOfB)))
+                .contains(DeliveryState.DUE);
+    }
+
+    @Test
+    @DisplayName("the bulkhead_deferrals > 0 predicate: an ordinary failure-retry RETRY_WAIT row (0 deferrals) is not moved")
+    void failureRetryRowWithNoDeferralsIsNotMoved() {
+        UUID retrying = newDelivery("redrive-failure-retry");
+        tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> jdbc.sql("update public.delivery set state = 'RETRY_WAIT',"
+                        + " next_attempt_at = :at where id = :id::uuid and bulkhead_deferrals = 0")
+                .param("at", java.time.OffsetDateTime.ofInstant(NOW, java.time.ZoneOffset.UTC))
+                .param("id", retrying.toString()).update());
+        assertThat(state(retrying)).contains(DeliveryState.RETRY_WAIT);
+
+        assertThat(redrive().redriveOneDeferred(target)).isFalse();
+
+        assertThat(state(retrying)).contains(DeliveryState.RETRY_WAIT);
+        assertThat(outbox).isEmpty();
+    }
+
+    @Test
+    @DisplayName("FOR UPDATE SKIP LOCKED: two concurrent re-drives, one holding its row mid-transaction, move two"
+            + " different rows - each once, one outbox row each")
+    void concurrentRedrivesNeverTakeTheSameRow() throws Exception {
+        UUID first = newDelivery("redrive-c1");
+        UUID second = newDelivery("redrive-c2");
+        deferrals().defer(first, NOW, 0, 0.0);
+        deferrals().defer(second, NOW.plusSeconds(5), 0, 0.0);
+        java.util.concurrent.CountDownLatch holding = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch letGo = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService threads = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            // thread 1 locks the oldest row and holds it (its outbox append waits) until thread 2 has finished
+            java.util.concurrent.Future<Boolean> one = threads.submit(() -> redriveAs(DeliveryTestDatabase.TENANT_A,
+                    entry -> {
+                        holding.countDown();
+                        try {
+                            letGo.await(20, java.util.concurrent.TimeUnit.SECONDS);
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                        }
+                        outbox.add(entry);
+                        return outbox.size();
+                    }).redriveOneDeferred(target));
+            assertThat(holding.await(20, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            java.util.concurrent.Future<Boolean> two =
+                    threads.submit(() -> redriveAs(DeliveryTestDatabase.TENANT_A).redriveOneDeferred(target));
+            assertThat(two.get(20, java.util.concurrent.TimeUnit.SECONDS))
+                    .as("the second call skipped the locked row and took the next one, without waiting").isTrue();
+            letGo.countDown();
+            assertThat(one.get(20, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            letGo.countDown();
+            threads.shutdownNow();
+        }
+
+        assertThat(state(first)).contains(DeliveryState.DUE);
+        assertThat(state(second)).contains(DeliveryState.DUE);
+        assertThat(outbox).extracting(OutboxEntry::aggregateId).containsExactlyInAnyOrder(first, second);
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> repository.countEvents(first, DeliveryEventType.REDRIVE))).isEqualTo(1);
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> repository.countEvents(second, DeliveryEventType.REDRIVE))).isEqualTo(1);
     }
 }
