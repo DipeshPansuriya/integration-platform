@@ -4,6 +4,17 @@
 
 const DEFAULT_SLOWMO_MS = 700;
 
+/** How long a narrated beat stays on screen: 0 normally, E2E_DEMO_PAUSE_MS (default 4000, 0..30000) in demo mode. */
+export function demoPauseMs(vars = process.env) {
+  if (vars.E2E_DEMO !== '1') return 0;
+  const raw = vars.E2E_DEMO_PAUSE_MS;
+  const ms = raw === undefined || raw === '' ? 4000 : Number(raw);
+  if (!Number.isInteger(ms) || ms < 0 || ms > 30000) {
+    throw new Error(`E2E_DEMO_PAUSE_MS must be a whole number of milliseconds from 0 to 30000, got ${raw}`);
+  }
+  return ms;
+}
+
 /** Chromium launch options for the given variables: {} normally, headed + slowMo in demo mode. */
 export function demoLaunchOptions(vars = process.env) {
   if (vars.E2E_DEMO !== '1') return {};

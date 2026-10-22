@@ -10,6 +10,7 @@ import { defineConfig } from '@playwright/test';
 import { BS_STORAGE_STATE, SEED_PROJECT, SPEC_PROJECT, suiteConfig } from '../base-suite/lib/suite-config.mjs';
 import { demoLaunchOptions } from './demo-mode.mjs';
 
+const NARRATION_PROJECT = 'demo-narration';
 const UI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const base = suiteConfig();
 const launch = demoLaunchOptions();
@@ -29,6 +30,8 @@ export default defineConfig({
   },
   projects: [
     { name: SEED_PROJECT, testMatch: /bs-seed\.setup\.mjs$/ },
-    { name: SPEC_PROJECT, testMatch: /bs-(07|08|09|10|12)\.docker\.spec\.mjs$/, dependencies: [SEED_PROJECT] }
+    // beats a to d made visible (banner + the stub journal tab); runs after the seed, before the base-suite scenarios
+    { name: NARRATION_PROJECT, testDir: path.join(UI, 'tests', 'demo'), testMatch: /narration\.docker\.spec\.mjs$/, dependencies: [SEED_PROJECT] },
+    { name: SPEC_PROJECT, testMatch: /bs-(07|08|09|10|12)\.docker\.spec\.mjs$/, dependencies: [SEED_PROJECT, NARRATION_PROJECT] }
   ]
 });
