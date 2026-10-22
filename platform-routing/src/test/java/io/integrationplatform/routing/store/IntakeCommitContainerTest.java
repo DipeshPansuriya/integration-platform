@@ -262,6 +262,58 @@ class IntakeCommitContainerTest {
                         .containsEntry(CorrelationContext.MESSAGE_ID, tracking.toString()));
     }
 
+    // ---------------------------------------------------------------- the intake key bound (BS-06.4, row 375)
+
+    /**
+     * BS-06.4's real cause (row 375): the record's business key rides btree indexes (message_ordering_idx, the
+     * ordering_key unique) that refuse index rows past Postgres's ~2704 byte page bound - an over-bound key blew
+     * the transaction into the 503 INTAKE_UNAVAILABLE catch-all. The intake now refuses it deliberately 422 with
+     * the cap named, nothing persisted (the cap value stays Dipesh's call; the store bound is ~2655 bytes of key).
+     */
+    @Test
+    @DisplayName("a business key over the intake key cap is refused 422 with nothing persisted")
+    void oversizedBusinessKeyRefusedNothingPersisted() throws SQLException {
+        assertThatThrownBy(() -> asAppRole(tenantA).accept(request(CODE, PINNED_LABEL,
+                "{\"customer_code\":\"K-" + "x".repeat(2996) + "\"}")))
+                .isInstanceOfSatisfying(IntakeRefusedException.class, refused -> {
+                    assertThat(refused.reason())
+                            .isEqualTo(IntakeRefusedException.Reason.BUSINESS_KEY_TOO_LONG);
+                    assertThat(refused.detail()).contains("2048");
+                });
+        try (Connection read = owner.getConnection()) {
+            assertThat(count(read, "select count(*) from public.message where business_key like 'K-%'", null))
+                    .as("nothing persisted for the over-bound key").isEqualTo(BigDecimal.ZERO);
+            assertThat(count(read, "select count(*) from public.ordering_key where business_key like 'K-%'", null))
+                    .as("no ordering key reserved either").isEqualTo(BigDecimal.ZERO);
+        }
+    }
+
+    @Test
+    @DisplayName("a business key exactly at the cap commits (the bound is an inclusive refusal above 2048 bytes)")
+    void businessKeyAtTheCapCommits() throws SQLException {
+        AcceptedMessage accepted = asAppRole(tenantA).accept(request(CODE, PINNED_LABEL,
+                "{\"customer_code\":\"K-" + "x".repeat(2044) + "\"}"));
+        assertThat(accepted.trackingId()).isNotNull();
+        try (Connection read = owner.getConnection()) {
+            assertThat(count(read, "select count(*) from public.payload where message_id = ?",
+                    accepted.trackingId())).as("the payload row with an at-cap key").isEqualTo(BigDecimal.ONE);
+        }
+    }
+
+    @Test
+    @DisplayName("a payload of exactly 1 MB with a short business key commits (the BS-06.4 strict-cap intent)")
+    void oneMegabytePayloadWithAReasonableKeyCommits() throws SQLException {
+        String prefix = "{\"customer_code\":\"CUST-BS064\",\"note\":\"";
+        String body = prefix + "n".repeat(1_048_576 - prefix.length() - "\"}".length()) + "\"}";
+        assertThat(body).hasSize(1_048_576);
+        AcceptedMessage accepted = asAppRole(tenantA).accept(request(CODE, PINNED_LABEL, body));
+        assertThat(accepted.trackingId()).isNotNull();
+        try (Connection read = owner.getConnection()) {
+            assertThat(count(read, "select count(*) from public.payload where message_id = ?",
+                    accepted.trackingId())).as("the 1 MB payload row").isEqualTo(BigDecimal.ONE);
+        }
+    }
+
     // ---------------------------------------------------------------- the transaction under proof
 
     /**

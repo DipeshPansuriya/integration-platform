@@ -152,6 +152,25 @@ class IntakeEndpointShapeTest {
                 .andExpect(jsonPath("$.message").value("the interface pins source contract 2.0"));
     }
 
+    // BS-06.4 (row 375, base suite run 8): an over-bound business key is a deliberate refusal - 422 with the cap
+    // named, never the catch-all 503 INTAKE_UNAVAILABLE (the key lands in btree indexes that cannot hold it).
+    @Test
+    @DisplayName("a business key over the intake key cap is refused 422 BUSINESS_KEY_TOO_LONG, not the 503")
+    void businessKeyTooLongIs422() throws Exception {
+        intake.refusal = new IntakeRefusedException(IntakeRefusedException.Reason.BUSINESS_KEY_TOO_LONG,
+                "the business key is over the 2048 byte intake key cap");
+        http.perform(post(V1)
+                        .header("X-Source-Contract-Version", "1.0")
+                        .header("Idempotency-Key", "idem-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"customer_code\":\"C-X\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_KEY_TOO_LONG"))
+                .andExpect(jsonPath("$.message").value("the business key is over the 2048 byte intake key cap"))
+                .andExpect(jsonPath("$.trackingId").doesNotExist());
+        assertThat(intake.calls.get()).isEqualTo(1);
+    }
+
     @Test
     @DisplayName("a call without the source contract version header is refused 400")
     void missingContractVersionHeaderRefused() throws Exception {
