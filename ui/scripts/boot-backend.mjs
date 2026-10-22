@@ -121,6 +121,36 @@ function jarPath() {
   return chosen ? path.join(target, chosen) : null;
 }
 
+/**
+ * The newest modification time (ms) of anything that goes into the jar: every pom.xml (root and platform-*) and
+ * every file under src/main of each platform module. Test sources are left out on purpose - they are not in the jar, so a test
+ * edit must not cost a two-minute rebuild. 0 when nothing is found.
+ */
+export function newestSourceMtime(repo = REPO) {
+  let newest = 0;
+  const visit = (entry) => {
+    const stat = fs.statSync(entry);
+    if (stat.isDirectory()) {
+      for (const child of fs.readdirSync(entry)) visit(path.join(entry, child));
+    } else {
+      newest = Math.max(newest, stat.mtimeMs);
+    }
+  };
+  const touch = (file) => { if (fs.existsSync(file)) newest = Math.max(newest, fs.statSync(file).mtimeMs); };
+  touch(path.join(repo, 'pom.xml'));
+  for (const module of fs.readdirSync(repo).filter((name) => name.startsWith('platform-'))) {
+    touch(path.join(repo, module, 'pom.xml'));
+    const main = path.join(repo, module, 'src', 'main');
+    if (fs.existsSync(main)) visit(main);
+  }
+  return newest;
+}
+
+/** A jar older than any of its sources is stale: reusing it boots yesterday's product (a false red, run 9). */
+export function jarIsStale(jar, repo = REPO) {
+  return fs.statSync(jar).mtimeMs < newestSourceMtime(repo);
+}
+
 function buildJar(jdk) {
   console.log('boot-backend: building platform-app (mvnw -pl platform-app -am package -DskipTests)');
   // Win11 26300 with NoDefaultCurrentDirectoryInExePath: cmd.exe (spawned via shell:true) does
@@ -540,7 +570,7 @@ export default async function bootBackend({
     const loginPassword = crypto.randomBytes(18).toString('base64url');
 
     let jar = jarPath();
-    if (!jar) {
+    if (!jar || jarIsStale(jar)) {
       buildJar(jdk);
       jar = jarPath();
     }
