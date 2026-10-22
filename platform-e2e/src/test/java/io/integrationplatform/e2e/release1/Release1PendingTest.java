@@ -61,11 +61,12 @@ class Release1PendingTest {
     }
 
     @Test
-    void theRealFlagsGateEveryScenarioThatNeedsAnUnmergedItem() {
-        // measured 18-Oct: the MQ adapter (T98) and the compose e2e profile (T143) are not on main
-        assertThat(Release1Pending.ON_MAIN).containsEntry("T98", false).containsEntry("T143", false);
+    void theRealFlagsHaveEveryItemOnMainSoNoScenarioIsSilentlyGated() {
+        // re-measured 22-Oct against main b6106af2: the MQ adapter (T98) and the compose e2e profile (T143) landed;
+        // a scenario is no longer disabled - it runs, or fails loudly on a missing e2e env / TBD name (E2eNames)
+        assertThat(Release1Pending.ON_MAIN).containsEntry("T98", true).containsEntry("T143", true);
         for (Release1Scenario scenario : Release1Scenario.values()) {
-            assertThat(Release1Pending.waitsOn(scenario.waitsOn())).as(scenario.id()).isPresent();
+            assertThat(Release1Pending.waitsOn(scenario.waitsOn())).as(scenario.id()).isEmpty();
         }
     }
 
@@ -80,7 +81,9 @@ class Release1PendingTest {
 
     @Test
     void anElementWaitingOnAnUnmergedItemIsDisabledWithTheItemNamed() throws NoSuchMethodException {
-        ConditionEvaluationResult result = evaluate(Fixture.class.getDeclaredMethod("gated"));
+        // explicit flags: every real flag is true since the 22-Oct re-measure, so the gate is proven on a false one
+        ConditionEvaluationResult result = WaitsOnCondition.evaluate(
+                Optional.of(Fixture.class.getDeclaredMethod("gated").getAnnotation(WaitsOn.class)), Map.of("T98", false));
 
         assertThat(result.isDisabled()).isTrue();
         assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T98"));
@@ -96,7 +99,8 @@ class Release1PendingTest {
 
     @Test
     void aClassLevelWaitsOnGatesTheWholeClass() {
-        ConditionEvaluationResult result = evaluate(GatedFixture.class);
+        ConditionEvaluationResult result = WaitsOnCondition.evaluate(
+                Optional.of(GatedFixture.class.getAnnotation(WaitsOn.class)), Map.of("T143", false));
 
         assertThat(result.isDisabled()).isTrue();
         assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T143"));

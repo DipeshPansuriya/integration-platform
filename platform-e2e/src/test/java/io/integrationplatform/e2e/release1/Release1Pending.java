@@ -11,7 +11,7 @@ import java.util.Optional;
 /**
  * Row 323 T139/T140: one flag per T-item - is its feature on local main? Flip ONE line when the item lands; every
  * scenario annotated {@code @WaitsOn(item)} then runs. Never flip for a lane or seam branch. Same pattern as the
- * base suite's {@code ui/tests/base-suite/lib/pending-names.mjs} (lane t130). Measured against main efa7d1d, 18-Oct.
+ * base suite's {@code ui/tests/base-suite/lib/pending-names.mjs} (lane t130). Re-measured against main b6106af2, 22-Oct (ui/tests/release1/pending-probes.mjs; pending-gate.test.mjs keeps this map equal to pending.mjs).
  */
 public final class Release1Pending {
 
@@ -21,24 +21,24 @@ public final class Release1Pending {
     static {
         Map<String, Boolean> flags = new LinkedHashMap<>();
         flags.put("T95", true); // tenant + systems registry
-        flags.put("T96", false); // contract version pinning on replay - not on main
-        flags.put("T98", false); // MQ (CSV) target adapter - only ApiTargetCall on main
-        flags.put("T99", false); // retry + circuit breaker per target - not on main
+        flags.put("T96", true); // contract version pinning on replay - DeliveryOperatorController NOT_PINNED
+        flags.put("T98", true); // MQ (CSV) target adapter - MqCsvOutbound
+        flags.put("T99", true); // retry + circuit breaker per target - TargetHalfOpenCap, RetryPolicy
         flags.put("T104", true); // outbox
         flags.put("T105", true); // stage timings - efa7d1d
         flags.put("T106", true); // composition - OutboxRelayRunnerConfiguration
         flags.put("T107", true); // correlation + JSON logs - efa7d1d
         flags.put("T109", true); // audit writer - JdbcAuditEventStore
         flags.put("T110", true); // tracking reads - MessageTrackingController
-        flags.put("T111", false); // replay - seam-row327-t112 e69d14e
-        flags.put("T112", false); // detail + failures screens - seam-row327-t112 80d2804
+        flags.put("T111", true); // replay - POST /deliveries/{id}/replay
+        flags.put("T112", true); // detail + failures screens - 80d2804
         flags.put("T113", true); // dashboard
-        flags.put("T115", false); // bulk intake, idempotency, same-key ordering - not on main
-        flags.put("T120", false); // daily report - DailyReportPlaceholderHandler only
-        flags.put("T121", false); // report screen - not on main
-        flags.put("T143", false); // platform-e2e compose profile - seam ed9d5ec only
-        flags.put("T144", false); // AdjustableClock (e2e profile) - seam only
-        flags.put("T157", false); // tenant B seed - be2ef40, approved, not merged
+        flags.put("T115", true); // bulk intake, idempotency, same-key ordering - messages:bulk, 96762bfd
+        flags.put("T120", true); // daily report - DailyReportPlaceholderHandler (DeliveryDailyAggregates)
+        flags.put("T121", true); // report screen - DeliveryReport.tsx
+        flags.put("T143", true); // platform-e2e compose profile - compose.yaml profiles e2e
+        flags.put("T144", true); // AdjustableClock (e2e profile) - 3f1c4ef1
+        flags.put("T157", true); // tenant B seed - be2ef407
         ON_MAIN = Collections.unmodifiableMap(flags);
     }
 

@@ -7,6 +7,7 @@ import { STORAGE_STATE } from './tests/screens/boot-state.mjs';
 
 export default defineConfig({
   testDir: 'tests/release1',
+  testIgnore: '**/unit/**', // node:test unit tests (pending-gate) run via `node --test`, never through Playwright
   timeout: 120000,
   workers: 1,
   retries: 0,
