@@ -321,5 +321,19 @@
         <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx1g -XX:MaxMetaspaceSize=512m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>
       </properties>
     </profile>
+
+    <!-- T-175 (E18): the project-close gate. ./mvnw -Pe2e-full -pl platform-app -am test runs ONLY the tests tagged
+         e2e-full (the full end-to-end suite on real containers); build-checks/e2e-full-gate.sh wraps it with the Docker
+         lock and the completeness verdict. Heap is larger than -Pcontainer: one JVM holds the whole application and
+         the harness for every scenario, and the memory budget (E18-F1-S3) is asserted against this -Xmx. -->
+    <profile>
+      <id>e2e-full</id>
+      <properties>
+        <surefire.groups>e2e-full</surefire.groups>
+        <surefire.excludedGroups></surefire.excludedGroups>
+        <surefire.timeout>3600</surefire.timeout>
+        <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx1g -XX:MaxMetaspaceSize=512m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>
+      </properties>
+    </profile>
   </profiles>
 </project>
