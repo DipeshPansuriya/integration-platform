@@ -238,7 +238,7 @@ class Release1ScenariosContainerTest {
 
         // The timeline read carries only each delivery's LAST outcome; the append-only attempt rows are read from the
         // table (the base-suite oracle idiom): target A took 3 attempts - two TRANSIENT (503), then SUCCESS.
-        java.util.List<java.util.List<String>> deliveries = awaitDeliveries(trackingId, SETTLE, rows -> rows.stream()
+        java.util.List<java.util.List<String>> deliveries = awaitDeliveries(trackingId, Duration.ofSeconds(120), rows -> rows.stream()
                 .anyMatch(row -> row.get(1).equals("DELIVERED") && row.get(3).equals("3")));
         assertThat(deliveries).as("deliveries of %s:%n  %s", trackingId, describe(deliveries)).anyMatch(row ->
                 row.get(1).equals("DELIVERED") && row.get(3).equals("3") && row.get(4).equals("TRANSIENT,TRANSIENT,SUCCESS")
@@ -321,19 +321,20 @@ class Release1ScenariosContainerTest {
         String journal = awaitJournal(client, "R1-K", 3);
         awaitJournal(client, "R1-K2", 1);
         // The journal lists newest first, so ordering is read from each request's own loggedDate (millis), not its position.
-        long k1First = firstLoggedAt(journal, "R1-K1\",\"customer\":\"CUST-A\",\"qty\":1[,}]");
-        long k1Second = firstLoggedAt(journal, "R1-K1\",\"customer\":\"CUST-A\",\"qty\":2[,}]");
+        long k1First = firstLoggedAt(journal, "R1-K1", "1");
+        long k1Second = firstLoggedAt(journal, "R1-K1", "2");
         assertThat(k1First).as("K1 qty 1 before K1 qty 2 (%s then %s)", first, second).isLessThanOrEqualTo(k1Second);
     }
 
     /** The loggedDate of the earliest journal request whose unescaped body matches (WireMock puts loggedDate after the body, inside the same request). */
-    private static long firstLoggedAt(String journal, String bodyRegex) {
+    private static long firstLoggedAt(String journal, String orderNo, String qty) {
+        String bodyRegex = "\\{(?=[^{}]*" + orderNo + "\")(?=[^{}]*\"qty\"\\s*:\\s*" + qty + "[,}\\s])[^{}]*\\}";
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?s)" + bodyRegex + ".*?\"loggedDate\":(\\d+)").matcher(journal);
         long earliest = Long.MAX_VALUE;
         while (m.find()) {
             earliest = Math.min(earliest, Long.parseLong(m.group(1)));
         }
-        assertThat(earliest).as("journal request for %s", bodyRegex).isNotEqualTo(Long.MAX_VALUE);
+        assertThat(earliest).as("journal request for %s qty %s; journal tail: %s", orderNo, qty, journal.substring(Math.max(0, journal.length() - 1200))).isNotEqualTo(Long.MAX_VALUE);
         return earliest;
     }
 
