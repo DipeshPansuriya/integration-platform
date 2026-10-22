@@ -229,7 +229,8 @@ class EndpointMatrixCoverageTest {
                 new JobAdminController(mock(JobAdminService.class), mock(PollingSchedulingBoundary.class)),
                 new DeliveryReportController(mock(DeliveryDailyAggregates.class),
                         mock(PlatformTransactionManager.class)),
-                new ReportFacadeController(mock(ReportFacade.class)),
+                new ReportFacadeController(mock(ReportFacade.class), mock(ObjectProvider.class),
+                        mock(ObjectProvider.class)),
                 new ApprovedTableAdminController(mock(ApprovedTableService.class), mock(ConfigActors.class))};
     }
 
