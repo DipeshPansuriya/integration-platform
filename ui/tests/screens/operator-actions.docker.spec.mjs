@@ -132,6 +132,8 @@ async function openDetail(page, messageId) {
 
 const replayButton = (page, messageId) =>
   page.locator(`[data-failure-row="${messageId}"] [data-action-cell] button[data-action="replay"]`);
+// B28 B2: Replay on the failures screen asks first - the first press turns the button into "Confirm replay", the next sends.
+const armAndPress = async (button) => { await button.click(); await expect(button).toHaveText('Confirm replay'); await button.click(); };
 const answerOf = (page, deliveryId) => page.locator(`[role="status"][data-action-answer="${deliveryId}"]`);
 
 test('failures: Replay moves a pinned dead-lettered delivery to due, says so, and appends one REPLAY event', async ({ page }) => {
@@ -143,12 +145,12 @@ test('failures: Replay moves a pinned dead-lettered delivery to due, says so, an
 
   await openFailures(page, flow.id);
   await expect(page.locator(`${FAILURES} table[data-failures] th[scope="col"]`).last()).toHaveText('Action');
-  await expect(page.locator(`[data-failure-row="${routeOnly}"]`).getByRole('button')).toHaveCount(0);
+  await expect(page.locator(`[data-failure-row="${routeOnly}"]`).getByRole('button', { name: /retry|replay/i })).toHaveCount(0); // the Copy button is not an action
 
   const button = replayButton(page, msg);
   await expect(button).toHaveAttribute('data-delivery-id', delivery);
   const answered = page.waitForResponse((r) => r.url().endsWith(`/deliveries/${delivery}/replay`) && r.request().method() === 'POST');
-  await button.click();
+  await armAndPress(button);
   expect((await answered).status()).toBe(200);
   await expect(answerOf(page, delivery)).toHaveText(TEXT.replayed);
 
@@ -164,7 +166,7 @@ test('failures: an unpinned dead-lettered delivery is refused with the not-pinne
   const delivery = seedDelivery(tenantId, flow.id, msg, 'DEAD_LETTERED', { pinned: false });
 
   await openFailures(page, flow.id);
-  await replayButton(page, msg).click();
+  await armAndPress(replayButton(page, msg));
   await expect(answerOf(page, delivery)).toHaveText(TEXT.notPinned);
   expect(stateOf(delivery)).toBe('DEAD_LETTERED');
   expect(eventsOf(delivery, 'REPLAY')).toBe(0);
@@ -193,7 +195,7 @@ test('failures: the button is disabled while its POST is in flight and stays dis
   let posts = 0;
   await page.route(`**/deliveries/${delivery}/replay`, async (route) => { posts += 1; await gate; await route.continue(); });
   const button = replayButton(page, msg);
-  await button.click();
+  await armAndPress(button);
   await expect(button).toBeDisabled();
   release();
   await expect(answerOf(page, delivery)).toHaveText(TEXT.replayed);
@@ -300,6 +302,8 @@ test('a11y: Replay is reachable by Tab with a visible focus ring and Enter annou
   for (let i = 0; i < 10 && !(await button.evaluate((el) => el === document.activeElement)); i += 1) await page.keyboard.press('Tab');
   await expect(button).toBeFocused();
   expect(await button.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe('none');
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter'); // asks
+  await expect(button).toHaveText('Confirm replay');
+  await page.keyboard.press('Enter'); // sends
   await expect(answerOf(page, delivery)).toHaveText(TEXT.replayed);
 });
