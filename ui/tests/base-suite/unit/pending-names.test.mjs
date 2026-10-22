@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { NAMES, ON_MAIN, absentReason, fill, isPending, nameOf, pendingNames, waitsOn } from '../lib/pending-names.mjs';
+import { NAMES, ON_MAIN, absentReason, fill, isPending, nameOf, pendingNames, waitsOn, waitsOnFlags } from '../lib/pending-names.mjs';
 
 test('the screens and reads measured on lane t112 / T110 are provisional values, not placeholders', () => {
   assert.equal(nameOf('detailRoute'), '#/messages/{trackingId}');
@@ -22,9 +22,11 @@ test('the T107 log fields are on main efa7d1d (CorrelationContext.java:25-28)', 
   assert.equal(nameOf('logFieldCorrelation'), 'correlationId');
 });
 
-test('a TBD name fails the step, naming the key and the item it waits for', () => {
-  assert.throws(() => nameOf('replayApi'), /replayApi is still TBD\(T111\).*pending-names\.mjs/);
-  assert.throws(() => nameOf('auditActor'), /TBD\(T111\)/, 'T109 is on main; the replay writer T111 sets the actor');
+test('the T111 replay names are resolved against main aeddfdd9 (DeliveryOperatorController.java:61, AuditActions.java:23)', () => {
+  assert.equal(nameOf('replayApi'), 'POST /api/v1/admin/messages/deliveries/{deliveryId}/replay');
+  assert.equal(nameOf('replayAction'), '[data-action="replay"]');
+  assert.equal(nameOf('auditReplayAction'), 'OPERATOR_REPLAY');
+  assert.throws(() => nameOf('auditActor'), /unknown name auditActor/, 'the actor is a run-time user id (direct-sql.mjs adminUserIdSql), not a registry name');
 });
 
 test('the Kafka harness names are set by T130: the boot names its broker container and the in-container consumer', () => {
@@ -49,14 +51,15 @@ test('a name T107 does not have is null with a reason - never a made-up name, ne
 test('ON_MAIN: one boolean per T-item, frozen, measured on main efa7d1d', () => {
   assert.equal(Object.isFrozen(ON_MAIN), true);
   for (const item of ['T105', 'T106', 'T107', 'T109', 'T110', 'T138']) assert.equal(ON_MAIN[item], true, item);
-  for (const item of ['T111', 'T112', 'T113']) assert.equal(ON_MAIN[item], false, item);
+  for (const item of ['T111', 'T112', 'T113']) assert.equal(ON_MAIN[item], true, `${item}: its screen / endpoint is on main aeddfdd9`);
 });
 
 test('waitsOn: null when every item is on main, else one reason naming each missing item and the flag to flip', () => {
   assert.equal(waitsOn('T110'), null);
   assert.equal(waitsOn('T106', 'T109'), null);
   assert.equal(waitsOn('T105', 'T107'), null, 'BS-09 runs once T105 + T107 are on main');
-  const reason = waitsOn('T110', 'T112', 'T111');
+  assert.equal(waitsOn('T111', 'T112', 'T113'), null, 'BS-08 / BS-10 run: replay and the screens landed (main aeddfdd9)');
+  const reason = waitsOnFlags({ T110: true, T111: false, T112: false }, 'T110', 'T112', 'T111');
   assert.match(reason, /waits on T112, T111/);
   assert.match(reason, /ON_MAIN.*pending-names\.mjs/);
   assert.throws(() => waitsOn('T999'), /unknown item T999/, 'a typo never reads as landed');
@@ -76,12 +79,12 @@ test('isPending: any value reading TBD( - any case - is a placeholder', () => {
 
 test('pendingNames lists every placeholder still open - the handoff list comes from here', () => {
   const open = pendingNames();
-  assert.ok(open.length >= 4, `at least the T111 names: ${JSON.stringify(open)}`);
+  assert.deepEqual(open, [], 'T111 landed: no placeholder is open any more (a new TBD(<item>) added later must be listed here)');
   for (const [key, value] of open) {
     assert.ok(isPending(value), key);
     assert.match(value, /^TBD\(T\d{3}(\|T\d{3})*\)$/, `${key}: one item-named placeholder`);
   }
-  assert.ok(open.some(([key]) => key === 'replayApi'));
+  assert.ok(!open.some(([key]) => key === 'replayApi'), 'resolved');
   assert.ok(!open.some(([key]) => key === 'detailRoute'));
   assert.ok(!open.some(([key]) => key === 'logFieldStage' || key === 'kafkaStageTopics'), 'absent and landed names are not open');
 });
