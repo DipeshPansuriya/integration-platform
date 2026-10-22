@@ -154,7 +154,7 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
             </div>
             <div>
               <dt>State</dt>
-              <dd data-message-state>
+              <dd data-message-state data-state-raw={timeline.state}>
                 <span className={`badge badge-${stateBadge(timeline.state).tone}`} title={timeline.state}>{stateBadge(timeline.state).word}</span>
               </dd>
             </div>

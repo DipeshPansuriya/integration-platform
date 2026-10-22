@@ -267,7 +267,7 @@ test('@negative @role a READ_ONLY user sees its own failure, is refused the repl
 
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant-reader' });
   await openFailures(page, otherFlow);
-  await replayButton(page, msg).click();
+  await armAndPress(replayButton(page, msg));
   await expect(answerOf(page, delivery)).toHaveText(TEXT.refused);
   expect(stateOf(delivery)).toBe('DEAD_LETTERED');
   expect(eventsOf(delivery, 'REPLAY')).toBe(0);

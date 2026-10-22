@@ -123,7 +123,7 @@ test('the tracking detail shows the four-stage timeline: INTAKE, ROUTE, TRANSFOR
   await expect(page.locator('[data-page="message-detail"][data-message-loaded="true"]')).toBeVisible();
 
   await expect(page.locator('[data-tracking-id]')).toHaveText(trackingId);
-  await expect(page.locator('[data-message-state]')).toHaveText('DELIVERED');
+  await expect(page.locator('[data-message-state]')).toHaveAttribute('data-state-raw', 'DELIVERED'); // the dd shows the word; the raw enum rides in data-state-raw
   for (const stage of ['INTAKE', 'ROUTE', 'TRANSFORM', 'DELIVER']) {
     const row = page.locator(`[data-timeline] tr[data-stage-row="${stage}"]`);
     await expect(row, `the ${stage} stage row is on the timeline`).toHaveCount(1);
