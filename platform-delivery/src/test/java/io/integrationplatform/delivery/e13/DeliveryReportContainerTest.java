@@ -27,7 +27,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
 /**
  * T-139 (E13-C3/C4): the tenant delivery report (GET /api/v1/reports/delivery?day=) reads the daily aggregate and
@@ -104,7 +103,7 @@ class DeliveryReportContainerTest {
         assertThat(mine(controller(TENANT_B).report(TODAY).getBody())).isEmpty();
         TenantContext none = Optional::empty;
         DeliveryReportController unbound = new DeliveryReportController(
-                new JdbcDeliveryDailyAggregateStore(jdbc, none), new DataSourceTransactionManager(pool));
+                new JdbcDeliveryDailyAggregateStore(jdbc, none), stamping(none));
         assertThatThrownBy(() -> unbound.report(TODAY)).isInstanceOf(RuntimeException.class);
     }
 
@@ -156,7 +155,25 @@ class DeliveryReportContainerTest {
     }
 
     private DeliveryReportController controller(UUID tenant) {
-        return new DeliveryReportController(store(tenant), new DataSourceTransactionManager(pool));
+        return new DeliveryReportController(store(tenant), stamping(DeliveryTestDatabase.tenant(tenant)));
+    }
+
+    /** Like the product's TenantStampingTransactionManager (R11): stamps app.tenant_id local to each transaction. */
+    private org.springframework.jdbc.support.JdbcTransactionManager stamping(TenantContext tenant) {
+        return new org.springframework.jdbc.support.JdbcTransactionManager(pool) {
+            @Override
+            protected void prepareTransactionalConnection(java.sql.Connection connection,
+                    org.springframework.transaction.TransactionDefinition definition) throws java.sql.SQLException {
+                super.prepareTransactionalConnection(connection, definition);
+                Optional<UUID> id = tenant.currentTenantId();
+                if (id.isPresent()) {
+                    try (var stamp = connection.prepareStatement("select set_config('app.tenant_id', ?, true)")) {
+                        stamp.setString(1, id.get().toString());
+                        stamp.execute();
+                    }
+                }
+            }
+        };
     }
 
     private List<DailyCounts> mine(List<DailyCounts> all) {
