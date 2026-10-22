@@ -182,7 +182,7 @@ class Release1ScenariosContainerTest {
         client.wiremockReset(wiremockBase()); // target A healthy again
         // the replay is per delivery (DeliveryOperatorController.java:61): read this message's delivery id off the failure row
         java.util.regex.Matcher dead = java.util.regex.Pattern
-                .compile("\"trackingId\"\s*:\s*\"" + trackingId + "\"[^}]*?\"deliveryId\"\s*:\s*\"([0-9a-f-]{36})\"")
+                .compile("\"trackingId\"\\s*:\\s*\"" + trackingId + "\"[^}]*?\"deliveryId\"\\s*:\\s*\"([0-9a-f-]{36})\"")
                 .matcher(failures);
         assertThat(dead.find()).as("the failure row of %s carries a deliveryId", trackingId).isTrue();
         HttpResponse<String> replay = client.post(E2eNames.nameOf("replayApi").replace("{deliveryId}", dead.group(1)),
