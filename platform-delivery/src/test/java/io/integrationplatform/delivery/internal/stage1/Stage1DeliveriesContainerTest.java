@@ -65,8 +65,14 @@ class Stage1DeliveriesContainerTest {
 
     private static Stage1Delivery stage1Delivery(UUID messageId, UUID routeId, UUID targetId,
             UUID mappingVersionId) {
-        return new Stage1Delivery(messageId, routeId, DAY, targetId, mappingVersionId, "tenant|interface|K",
-                INTERFACE, "K", 7L);
+        return new Stage1Delivery(messageId, routeId, DAY, targetId, mappingVersionId, contractOf(mappingVersionId),
+                "tenant|interface|K", INTERFACE, "K", 7L);
+    }
+
+    /** The target contract version pinned beside a mapping version (BS-10): any stable value per mapping version. */
+    private static UUID contractOf(UUID mappingVersionId) {
+        return mappingVersionId == null ? null
+                : UUID.nameUUIDFromBytes(("contract-of-" + mappingVersionId).getBytes());
     }
 
     private JdbcStage1Deliveries stage1(UUID tenant) {
@@ -76,7 +82,7 @@ class Stage1DeliveriesContainerTest {
     private List<Map<String, Object>> deliveryRows(UUID tenant, UUID messageId) {
         return tx.inTenantTx(tenant, () -> jdbc.sql(
                         "select state, created_at, message_id, route_id, mapping_version_id, target_id,"
-                                + " interface_id, business_key, key_seq"
+                                + " interface_id, business_key, key_seq, contract_version_id"
                                 + " from public.delivery where message_id = :message_id::uuid order by route_id")
                 .param("message_id", messageId.toString())
                 .query((rs, n) -> Map.<String, Object>of(
@@ -88,7 +94,8 @@ class Stage1DeliveriesContainerTest {
                         "target_id", String.valueOf(rs.getObject(6)),
                         "interface_id", String.valueOf(rs.getObject(7)),
                         "business_key", String.valueOf(rs.getObject(8)),
-                        "key_seq", String.valueOf(rs.getObject(9))))
+                        "key_seq", String.valueOf(rs.getObject(9)),
+                        "contract_version_id", String.valueOf(rs.getObject(10))))
                 .list());
     }
 
@@ -128,9 +135,11 @@ class Stage1DeliveriesContainerTest {
         });
         assertThat(rows).anySatisfy(row -> assertThat(row).containsEntry("route_id", ROUTE_A.toString())
                 .containsEntry("mapping_version_id", MAP3.toString())
+                .containsEntry("contract_version_id", contractOf(MAP3).toString()) // BS-10: operator replay needs it
                 .containsEntry("target_id", DeliveryTestDatabase.TARGET_ID.toString()));
         assertThat(rows).anySatisfy(row -> assertThat(row).containsEntry("route_id", ROUTE_B.toString())
                 .containsEntry("mapping_version_id", MAP7.toString())
+                .containsEntry("contract_version_id", contractOf(MAP7).toString())
                 .containsEntry("target_id", TARGET_B.toString()));
     }
 

@@ -165,7 +165,7 @@ class DeliverStageStartContainerTest {
         inTx(() -> {
             JdbcStage1Deliveries stage1 = new JdbcStage1Deliveries(repository(), writer());
             stage1.insertPerRoute(List.of(
-                    new Stage1Delivery(message, UUID.randomUUID(), acceptedAt, TARGET, null, null, null, null, null)));
+                    new Stage1Delivery(message, UUID.randomUUID(), acceptedAt, TARGET, null, null, null, null, null, null)));
             return stage1.markMessageRouted(message);
         });
         return new Seeded(message, deliveries(message).get(0));
