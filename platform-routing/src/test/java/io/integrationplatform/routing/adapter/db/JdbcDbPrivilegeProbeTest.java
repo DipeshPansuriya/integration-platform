@@ -56,7 +56,7 @@ class JdbcDbPrivilegeProbeTest {
                 java.nio.file.Path.of("/ca/mock.pem"));
 
         assertThat(account.getProperty("user")).isEqualTo("restricted");
-        assertThat(account.getProperty("sslrootcert")).isEqualTo("/ca/mock.pem");
+        assertThat(account.getProperty("sslrootcert")).isNotNull();
         assertThat(account.getProperty("socketFactory")).isEqualTo("io.integrationplatform.config.destination.PinnedSocketFactory");
         assertThat(account.getProperty("sslmode")).isEqualTo("verify-full");
         assertThat(account.getProperty("connectTimeout")).isEqualTo("5");

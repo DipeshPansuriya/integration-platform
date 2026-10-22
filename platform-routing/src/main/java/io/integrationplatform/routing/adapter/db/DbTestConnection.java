@@ -31,12 +31,13 @@ public class DbTestConnection {
     private final DbBrokerProbe probe;
     /** Null when no credential slice is composed - then the answer is the socket-only reachability it always was. */
     private final DbPrivilegeProbe privileges;
-    /** R6: enforced before any probe, socket-only or credentialed - the send path's allow-list. */
+    /** R6: the send path's allow-list, enforced before any probe; NULL only for the legacy socket-only constructor,
+     * which keeps the pre-R6 answer shape it exists for (the production bean always hands the operator's list). */
     private final java.util.Set<Integer> allowedPorts;
     private final Duration timeout;
 
     public DbTestConnection(DestinationGuard guard, DbBrokerProbe probe, Duration timeout) {
-        this(guard, probe, null, java.util.Set.of(), timeout);
+        this(guard, probe, null, (java.util.Collection<Integer>) null, timeout);
     }
 
     public DbTestConnection(DestinationGuard guard, DbBrokerProbe probe, java.util.Set<Integer> allowedPorts,
@@ -48,8 +49,11 @@ public class DbTestConnection {
             java.util.Collection<Integer> allowedPorts, Duration timeout) {
         this.guard = Objects.requireNonNull(guard, "guard");
         this.probe = Objects.requireNonNull(probe, "probe");
+        if (privileges != null) {
+            Objects.requireNonNull(allowedPorts, "the credentialed probe runs only on an operator port list");
+        }
         this.privileges = privileges;
-        this.allowedPorts = java.util.Set.copyOf(allowedPorts);
+        this.allowedPorts = allowedPorts == null ? null : java.util.Set.copyOf(allowedPorts);
         this.timeout = Objects.requireNonNull(timeout, "timeout");
     }
 
@@ -62,8 +66,11 @@ public class DbTestConnection {
                     + e.getClass().getSimpleName() + ")", null);
         }
         try {
-            // F1: the port first (nothing spent on a refused port), exactly like the send path
-            DbTargetCall.requireAllowedPort(settings.port(), allowedPorts);
+            // F1: the port first (nothing spent on a refused port), exactly like the send path (R6; the legacy
+            // constructor carries no list and keeps the pre-R6 behaviour)
+            if (allowedPorts != null) {
+                DbTargetCall.requireAllowedPort(settings.port(), allowedPorts);
+            }
             guard.checkHost(settings.host());
         } catch (DestinationRefusedException | IllegalStateException e) {
             return answer(systemId, "FAILED", "DESTINATION_REFUSED", 0, String.valueOf(e.getMessage()), null);
