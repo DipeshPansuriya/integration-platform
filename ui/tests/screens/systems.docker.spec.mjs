@@ -145,9 +145,11 @@ test('a Kafka system on a platform topic is refused with the server text, shown 
 
   const error = page.locator('[data-validation-error]');
   await expect(error).toHaveCount(1);
-  // plain-string compare: on a mismatch Playwright prints the FULL shown text (toContainText truncates it to 80 chars - the first two runs
-  // 2026-10-22 failed here with the tail hidden, so the cause of the mismatch is still unread)
-  expect(await error.innerText()).toContain("platform.poison is a platform topic - the platform's own register is never a tenant destination (T-184 SF-2)");
+  // The shown text goes into the assertion MESSAGE: Playwright clips a received string to ~80 chars ("...registe..." in runs 1-3 of
+  // 2026-10-22), but prints a custom message in full, so a mismatch names the whole text.
+  const shown = await error.innerText();
+  expect(shown.includes("platform.poison is a platform topic - the platform's own register is never a tenant destination (T-184 SF-2)"),
+    `shown text: [${shown}]`).toBe(true);
   const topic = page.locator('[data-form="register-system"] [data-setting="topic"]');
   await expect(topic).toHaveAttribute('aria-invalid', 'true');
   await expect(topic).toHaveAttribute('aria-describedby', /sys-validation-errors/);
