@@ -2,6 +2,7 @@ package io.integrationplatform.routing.stage2.bulkhead;
 
 import io.integrationplatform.delivery.DeliveryClaimService;
 import io.integrationplatform.delivery.port.BulkheadDeferrals;
+import io.integrationplatform.delivery.port.BulkheadRedrive;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts.BulkheadFacts;
 import io.integrationplatform.routing.adapter.api.TargetEndpointView;
@@ -17,6 +18,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.DoubleSupplier;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionOperations;
 
 /**
@@ -52,7 +55,10 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
     private final DeliveryBulkheadFacts facts;
     private final BulkheadRegistry bulkheads;
     private final Stage2Claim claims;
+    private static final Logger LOG = LoggerFactory.getLogger(DeliveryDueDispatch.class);
+
     private final BulkheadDeferrals deferrals;
+    private final BulkheadRedrive redrive;
     private final Stage2SendDispatch sends;
     private final TargetEndpointViews targets;
     private final Supplier<Instant> clock;
@@ -60,7 +66,8 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
 
     public DeliveryDueDispatch(WorkerTenantBinding binding, TransactionOperations transactions,
             DeliveryBulkheadFacts facts, BulkheadRegistry bulkheads, Stage2Claim claims,
-            BulkheadDeferrals deferrals, Stage2SendDispatch sends, TargetEndpointViews targets,
+            BulkheadDeferrals deferrals, BulkheadRedrive redrive, Stage2SendDispatch sends,
+            TargetEndpointViews targets,
             Supplier<Instant> clock, DoubleSupplier jitter) {
         this.binding = Objects.requireNonNull(binding, "binding");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
@@ -68,6 +75,7 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
         this.bulkheads = Objects.requireNonNull(bulkheads, "bulkheads");
         this.claims = Objects.requireNonNull(claims, "claims");
         this.deferrals = Objects.requireNonNull(deferrals, "deferrals");
+        this.redrive = Objects.requireNonNull(redrive, "redrive");
         this.sends = Objects.requireNonNull(sends, "sends");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -112,7 +120,7 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
                     CorrelationContext.tag(CorrelationContext.TENANT_ID, tenantId);
                     // B19 F3: the binding is thread-confined, so the pool thread binds the record's tenant itself;
                     // runAs unbinds in its own finally, before the permit returns - nothing leaks to the next task
-                    binding.runAs(tenantId, () -> sends.dispatch(send));
+                    binding.runAs(tenantId, () -> sendThenRedrive(send, delivery.targetEndpointId()));
                 } finally {
                     bulkhead.release();
                 }
@@ -123,6 +131,26 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
         } finally {
             if (!handedOff) {
                 bulkhead.release();
+            }
+        }
+    }
+
+    /**
+     * Drain fix (ADR-010 section 2 addendum): the send ends, its slot is about to free - so ONE bulkhead-deferred
+     * delivery of the same target is re-driven now, in the same tenant binding, instead of waiting for the 60 s
+     * retry job. One per finished send keeps the per-target cap, and a re-driven record only runs again by taking a
+     * permit through {@link #dispatch}, so there is no loop. A failing re-drive is logged and swallowed: it must
+     * never fail the finished send; the retry job remains the safety net.
+     */
+    private void sendThenRedrive(Stage2Send send, UUID targetEndpointId) {
+        try {
+            sends.dispatch(send);
+        } finally {
+            try {
+                redrive.redriveOneDeferred(targetEndpointId);
+            } catch (RuntimeException failed) {
+                LOG.warn("slot-free re-drive for target {} failed; the delivery retry job will pick up the"
+                        + " deferred delivery", targetEndpointId, failed);
             }
         }
     }
