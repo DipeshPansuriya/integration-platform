@@ -97,10 +97,17 @@ class Release1ScenariosContainerTest {
             assertThat(stat.getExitCode()).as("artemis queue stat; stderr: %s", stat.getStderr()).isZero();
             stdout = stat.getStdout();
         }
+        int column = -1; // the MESSAGE_COUNT column, found by its header (the column order differs between Artemis versions)
         for (String line : stdout.split("\\R")) {
-            if (line.contains("|" + queue) || line.contains("| " + queue)) {
-                String[] cells = line.split("\\|");
-                return Long.parseLong(cells[cells.length - 2].trim()); // MESSAGE_COUNT column precedes the last
+            String[] cells = line.split("\\|");
+            if (line.contains("MESSAGE_COUNT")) {
+                for (int i = 0; i < cells.length; i++) {
+                    if (cells[i].trim().equals("MESSAGE_COUNT")) {
+                        column = i;
+                    }
+                }
+            } else if (column > 0 && cells.length > column && cells[1].trim().equals(queue)) {
+                return Long.parseLong(cells[column].trim());
             }
         }
         throw new AssertionError("queue " + queue + " not in artemis stat output: " + stdout);
@@ -117,6 +124,25 @@ class Release1ScenariosContainerTest {
             java.util.concurrent.locks.LockSupport.parkNanos(Duration.ofMillis(250).toNanos()); // poll interval, not a fixed wait
         }
         throw new AssertionError("WireMock journal did not show " + expected + "x " + needle + " within " + SETTLE);
+    }
+
+    /** Polls a GET until its body holds every needle (the pipeline is asynchronous), else returns the last body. */
+    private static String awaitBody(Release1Client client, String path, String bearer, Duration limit, String... needles)
+            throws Exception {
+        Instant until = Instant.now().plus(limit);
+        String body = "";
+        while (Instant.now().isBefore(until)) {
+            body = client.get(path, bearer).body();
+            boolean all = true;
+            for (String needle : needles) {
+                all &= body.contains(needle);
+            }
+            if (all) {
+                return body;
+            }
+            java.util.concurrent.locks.LockSupport.parkNanos(Duration.ofMillis(500).toNanos()); // poll interval
+        }
+        return body;
     }
 
     private static String acceptOne(Release1Client client, String key, int qty) throws Exception {
@@ -178,8 +204,8 @@ class Release1ScenariosContainerTest {
         String trackingId = acceptOne(client, "SC03", 3);
         awaitJournal(client, "R1-SC03", 3);
 
-        String timeline = client.get(E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
-                Release1Client.bearer("TENANT_ADMIN")).body();
+        String timeline = awaitBody(client, E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
+                Release1Client.bearer("TENANT_ADMIN"), SETTLE, "DELIVERED");
         assertThat(timeline).contains("RETRY_WAIT").contains("DELIVERED");
         assertThat(Release1Client.occurrences(timeline, "\"attemptNo\"")).as("3 append-only attempts").isEqualTo(3);
     }
@@ -193,7 +219,8 @@ class Release1ScenariosContainerTest {
         client.wiremockStub(wiremockBase(), "{\"request\":{\"method\":\"POST\",\"urlPathPattern\":\"/target-a/.*\"},"
                 + "\"response\":{\"status\":500},\"priority\":1}");
         String trackingId = acceptOne(client, "SC04", 4);
-        String failures = client.get(E2eNames.nameOf("failuresApi"), Release1Client.bearer("TENANT_ADMIN")).body();
+        String failures = awaitBody(client, E2eNames.nameOf("failuresApi"), Release1Client.bearer("TENANT_ADMIN"),
+                Duration.ofSeconds(120), trackingId, "DEAD_LETTERED");
         assertThat(failures).contains(trackingId).contains("DEAD_LETTERED");
 
         java.util.regex.Matcher delivery = java.util.regex.Pattern
@@ -208,8 +235,8 @@ class Release1ScenariosContainerTest {
                 Release1Client.bearer("APPROVER"));
         assertThat(replay.statusCode()).isBetween(200, 202);
 
-        String timeline = client.get(E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
-                Release1Client.bearer("TENANT_ADMIN")).body();
+        String timeline = awaitBody(client, E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
+                Release1Client.bearer("TENANT_ADMIN"), SETTLE, "DELIVERED");
         assertThat(timeline).as("pinned v1.0 on replay, history kept").contains("\"contractVersion\":\"1.0\"")
                 .contains("DEAD_LETTERED").contains("DELIVERED");
     }
@@ -281,8 +308,8 @@ class Release1ScenariosContainerTest {
     void sc09StageTimingsPresent() throws Exception {
         Release1Client client = client();
         String trackingId = acceptOne(client, "SC09", 9);
-        String timeline = client.get(E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
-                Release1Client.bearer("TENANT_ADMIN")).body();
+        String timeline = awaitBody(client, E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),
+                Release1Client.bearer("TENANT_ADMIN"), SETTLE, "INTAKE", "ROUTE", "TRANSFORM", "DELIVER\"");
         assertThat(timeline).contains("INTAKE").contains("ROUTE").contains("TRANSFORM").contains("DELIVER")
                 .contains("\"durationMs\"");
     }
