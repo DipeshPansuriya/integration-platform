@@ -52,11 +52,11 @@ test('s4.1 every --grl-* override maps to its app token', () => {
   }
 });
 
-test('s4.1 the --grl-* overrides are scoped under .rules-editor only (never global)', () => {
+test('s4.1 the --grl-* overrides are scoped under .rules-editor, or :root[data-theme] for the body-mounted dialogs (B29 C5; --grl-* is read by jdm only)', () => {
   const grlRules = cssRules(css()).filter((r) => /--grl-/.test(r.body));
   assert.ok(grlRules.length > 0, 'an override block');
   for (const r of grlRules) {
-    for (const part of r.selector.split(',')) assert.match(part, /\.rules-editor\b/, `selector "${part.trim()}" is not scoped`);
+    for (const part of r.selector.split(',')) assert.match(part, /\.rules-editor\b|^\s*:root\[data-theme\]\s*$/, `selector "${part.trim()}" is not scoped`);
   }
 });
 
@@ -66,7 +66,7 @@ test('kale-design floor: every rule in rules-editor.css is scoped to a rules pag
   assert.doesNotMatch(text, /\b(rgb|rgba|hsl|hsla)\(/i, 'no literal colour function');
   for (const r of cssRules(text)) {
     for (const part of r.selector.split(',')) {
-      assert.match(part, /\.rules-editor|\.rules-home|\[data-page="rules-(editor|home)"\]/, `unscoped selector "${part.trim()}"`);
+      assert.match(part, /\.rules-editor|\.rules-home|\[data-page="rules-(editor|home)"\]|^\s*:root\[data-theme\]\s*$/, `unscoped selector "${part.trim()}"`);
     }
   }
 });
