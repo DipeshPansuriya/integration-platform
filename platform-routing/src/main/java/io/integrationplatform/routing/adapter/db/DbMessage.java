@@ -9,9 +9,9 @@ import java.util.Map;
  * statement parameter. {@code password} is zeroed by {@code DbTargetCall} after the attempt.
  *
  * <p>The send carries the platform's delivery id for the target table's {@code delivery_id} column (the adapter
- * inserts {@code ON CONFLICT (delivery_id) DO NOTHING}), so an ambiguous commit never double-inserts on retry
- * (E16-C4). shortcut: {@code delivery_id} is the fixed column convention; a per-target column name arrives with
- * the endpoint-settings registry extension.
+ * checks the delivery id's pre-state in the insert's transaction and skips an already-stored delivery, so an
+ * ambiguous commit never double-inserts on retry - E16-C4 and E16 leftovers). shortcut: {@code delivery_id} is the
+ * fixed column convention; a per-target column name arrives with the endpoint-settings registry extension.
  */
 public record DbMessage(DbSettings settings, String user, char[] password, String table, List<String> columns,
         List<List<Object>> values) {

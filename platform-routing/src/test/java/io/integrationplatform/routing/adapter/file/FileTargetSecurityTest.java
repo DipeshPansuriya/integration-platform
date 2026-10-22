@@ -183,6 +183,24 @@ class FileTargetSecurityTest {
     }
 
     @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("R5 (CWE-73/918): a name with a separator or .. is refused as a name BEFORE the folder is probed on disk")
+    void anImpureFileNameIsRefusedAsANameBeforeTheFolderIsProbedOnDisk() throws IOException {
+        for (String name : List.of("../escape.csv", "..\\escape.csv", "sub/escape.csv", "sub\\escape.csv")) {
+            try {
+                deliver(tenantRoot.toString(), name);
+                throw new AssertionError("the mapped name " + name + " should have been refused");
+            } catch (TargetFaultException fault) {
+                assertThat(fault.getMessage()).as(name).contains("is not a plain file name")
+                        .doesNotContain("outside the target's folder");
+            }
+        }
+
+        assertThat(names(tenantRoot)).as("nothing is written anywhere").isEmpty();
+    }
+
+    @Test
     @Tag("security")
     @DisplayName("TOCTOU: the write uses the path the guard resolved, not the settings text, so it lands where the guard looked")
     void theWriteUsesTheResolvedPath() throws IOException {

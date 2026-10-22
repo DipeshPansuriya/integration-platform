@@ -69,12 +69,17 @@ class DbTargetPostgresTest {
     }
 
     DbTargetCall call(DbSettings settings, char[] password) {
+        return call(settings, password, List.of(Map.of("awb", "ABX1", "pieces", 2)));
+    }
+
+    /** E16 leftovers: a delivery may resolve SEVERAL rows (the multi-row insert case). */
+    DbTargetCall call(DbSettings settings, char[] password, java.util.List<? extends Map<String, ?>> rowsForDelivery) {
         List<Integer> ports = allowedPorts(settings.port());
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of(TARGET.getHost())),
                 name -> List.of(InetAddress.getLoopbackAddress()), List.of(TARGET.getHost()), ports);
         DbOutbound outbound = new DbTargetOutbound(
                 id -> Optional.of(new DbTargets.DbTarget(settings, password)),
-                s -> Optional.of(List.of(Map.of("awb", "ABX1", "pieces", 2))));
+                s -> Optional.of(java.util.List.<Map<String, ?>>copyOf(rowsForDelivery)));
         return new DbTargetCall(outbound, new JdbcDbSender(Duration.ofSeconds(5), "disable"), guard, ports,
                 CircuitBreakerRegistry.ofDefaults(), meters, ObservationRegistry.create());
     }
@@ -104,6 +109,13 @@ class DbTargetPostgresTest {
             sql.execute("GRANT SELECT, INSERT ON orders_in TO restricted");
             // the bigserial id default calls nextval(): without USAGE on its sequence the insert is 42501
             sql.execute("GRANT USAGE ON SEQUENCE orders_in_id_seq TO restricted");
+            // E16 leftovers: a multi-row delivery's table holds delivery_id WITHOUT a unique constraint (the
+            // pre-state check is the idempotency), so rows 2..N no longer hit the (delivery_id) conflict
+            sql.execute("CREATE TABLE orders_multi (id bigserial PRIMARY KEY, delivery_id uuid NOT NULL,"
+                    + " awb text NOT NULL, pieces integer NOT NULL)");
+            sql.execute("CREATE INDEX orders_multi_delivery_idx ON orders_multi (delivery_id)");
+            sql.execute("GRANT SELECT, INSERT ON orders_multi TO restricted");
+            sql.execute("GRANT USAGE ON SEQUENCE orders_multi_id_seq TO restricted");
         }
     }
 
@@ -128,6 +140,53 @@ class DbTargetPostgresTest {
         call(settings("orders_in"), RESTRICTED_PASSWORD.toCharArray()).call(send());
 
         assertThat(count("select count(*) from orders_in where delivery_id = '" + deliveryId + "'")).isEqualTo(1);
+    }
+
+    @Test
+    void aMultiRowDeliveryStoresEveryRowAndARedeliveryStoresNoMore() throws Exception {
+        List<Map<String, ?>> twoRows = List.of(Map.of("awb", "ABX1", "pieces", 2),
+                Map.of("awb", "ABX2", "pieces", 5));
+        DbTargetCall call = call(settings("orders_multi"), RESTRICTED_PASSWORD.toCharArray(), twoRows);
+
+        call.call(send());
+        assertThat(count("select count(*) from orders_multi where delivery_id = '" + deliveryId + "'"))
+                .as("every row of the multi-row delivery is stored (was dropped while reporting SUCCESS)").isEqualTo(2);
+
+        call.call(send()); // the redelivery / ambiguous-retry re-run
+        assertThat(count("select count(*) from orders_multi where delivery_id = '" + deliveryId + "'"))
+                .as("the pre-state check keeps redelivery idempotent without ON CONFLICT").isEqualTo(2);
+    }
+
+    @Test
+    void aMultiRowDeliveryAgainstAUniqueDeliveryIdTableIsRefusedNotSilentlyDropped() throws Exception {
+        List<Map<String, ?>> twoRows = List.of(Map.of("awb", "ABX1", "pieces", 2),
+                Map.of("awb", "ABX2", "pieces", 5));
+
+        assertThatThrownBy(() -> call(settings("orders_in"), RESTRICTED_PASSWORD.toCharArray(), twoRows).call(send()))
+                .isInstanceOf(TargetFaultException.class)
+                .extracting(f -> ((TargetFaultException) f).outcomeClass())
+                .isEqualTo(OutcomeClass.PERMANENT);
+
+        assertThat(count("select count(*) from orders_in where delivery_id = '" + deliveryId + "'"))
+                .as("the whole transaction rolled back: no half-delivery, no silent row drop").isZero();
+    }
+
+    @Test
+    void testConnectionRefusesAPortOutsideTheAllowListBeforeItProbes() {
+        DbTestConnection connection = new DbTestConnection(
+                new DestinationGuard(AllowList.of(List.of(TARGET.getHost())),
+                        name -> List.of(InetAddress.getLoopbackAddress()), List.of(TARGET.getHost()),
+                        List.of(TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT))),
+                (host, port, timeout) -> { throw new AssertionError("must not probe an off-list port"); },
+                java.util.Set.of(TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), Duration.ofSeconds(5));
+        String json = "{\"host\":\"" + TARGET.getHost() + "\",\"port\":22,\"database\":\""
+                + TARGET.getDatabaseName() + "\"}";
+
+        DbBrokerProbe unusedProbedPort = null;
+        Map<String, Object> answer = connection.test(java.util.UUID.randomUUID(), json);
+
+        assertThat(answer.get("result")).isEqualTo("FAILED");
+        assertThat(answer.get("reason")).isEqualTo("DESTINATION_REFUSED");
     }
 
     @Test
@@ -173,7 +232,8 @@ class DbTargetPostgresTest {
                 new DestinationGuard(AllowList.of(List.of(TARGET.getHost())),
                         name -> List.of(InetAddress.getLoopbackAddress()), List.of(TARGET.getHost()),
                         List.of(TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT))),
-                (host, port, timeout) -> { /* the probe answers: reachable */ }, Duration.ofSeconds(5));
+                (host, port, timeout) -> { /* the probe answers: reachable */ },
+                java.util.Set.of(TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), Duration.ofSeconds(5));
         String json = "{\"host\":\"" + TARGET.getHost() + "\",\"port\":"
                 + TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + ",\"database\":\""
                 + TARGET.getDatabaseName() + "\"}";
@@ -184,7 +244,7 @@ class DbTargetPostgresTest {
                 List.of());
         DbTestConnection stopped = new DbTestConnection(guard(TARGET.getHost(), refused.port()), (host, port, timeout) -> {
             throw new java.io.IOException("not answering");
-        }, Duration.ofSeconds(5));
+        }, java.util.Set.copyOf(allowedPorts(refused.port())), Duration.ofSeconds(5));
 
         assertThat(stopped.test(UUID.randomUUID(), "{\"host\":\"" + TARGET.getHost() + "\",\"port\":"
                 + refused.port() + ",\"database\":\"db\"}").get("reason")).isEqualTo("DATABASE_UNREACHABLE");
