@@ -115,7 +115,11 @@ class Release1ScenariosContainerTest {
 
     /** Polls the WireMock journal (request bodies unescaped) until `needle` shows `expected` times; the failure carries the journal's tail. */
     private static String awaitJournal(Release1Client client, String needle, int expected) throws Exception {
-        Instant until = Instant.now().plus(SETTLE);
+        return awaitJournal(client, needle, expected, SETTLE);
+    }
+
+    private static String awaitJournal(Release1Client client, String needle, int expected, Duration limit) throws Exception {
+        Instant until = Instant.now().plus(limit);
         String body = "";
         while (Instant.now().isBefore(until)) {
             body = Release1Client.journalText(client.wiremockJournal(wiremockBase()).body());
@@ -234,7 +238,7 @@ class Release1ScenariosContainerTest {
         client.wiremockStub(wiremockBase(), scenario.formatted(200, "third", "done"));
 
         String trackingId = acceptOne(client, "SC03", 3);
-        awaitJournal(client, "R1-SC03", 3);
+        awaitJournal(client, "R1-SC03", 3, Duration.ofSeconds(120)); // the retries ride the retry job tick, not a fixed delay
 
         // The timeline read carries only each delivery's LAST outcome; the append-only attempt rows are read from the
         // table (the base-suite oracle idiom): target A took 3 attempts - two TRANSIENT (503), then SUCCESS.
@@ -329,7 +333,7 @@ class Release1ScenariosContainerTest {
     /** The loggedDate of the earliest journal request whose unescaped body matches (WireMock puts loggedDate after the body, inside the same request). */
     private static long firstLoggedAt(String journal, String orderNo, String qty) {
         String bodyRegex = "\\{(?=[^{}]*" + orderNo + "\")(?=[^{}]*\"qty\"\\s*:\\s*" + qty + "[,}\\s])[^{}]*\\}";
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?s)" + bodyRegex + ".*?\"loggedDate\":(\\d+)").matcher(journal);
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?s)\"loggedDate\"\\s*:\\s*(\\d+)[^{]*?" + bodyRegex).matcher(journal); // loggedDate precedes the body in a request entry
         long earliest = Long.MAX_VALUE;
         while (m.find()) {
             earliest = Math.min(earliest, Long.parseLong(m.group(1)));
