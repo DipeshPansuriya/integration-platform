@@ -1,0 +1,229 @@
+/* B28 (UI audit Lane B): the five operator screens - Queue, Failures, Message detail, Activity, Delivery
+   report - brought to the shipped Flows pattern (flows.css: .flows-grid card, .flows-filter toolbar, alerts,
+   empty state). Tokens only (tokens.css; no new colour); base.css owns .table / .badge / .btn and the bare
+   element defaults. Every rule is scoped under .operator-page. */
+
+.operator-page .op-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-3);
+}
+.operator-page .op-head h1,
+.operator-page .op-head h2 {
+  margin: 0;
+}
+.operator-page .op-lead,
+.operator-page .op-muted {
+  margin: var(--space-1) 0 0;
+  color: var(--color-ink-muted);
+  font-size: 13px;
+}
+.operator-page .op-head .op-lead {
+  max-width: 62ch;
+}
+
+/* quiet filter row (flows.css .flows-filter): label above field, aligned on the control baseline */
+.operator-page .op-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-end;
+  margin: var(--space-2) 0 var(--space-3);
+}
+.operator-page .op-toolbar label {
+  margin: 0;
+}
+
+/* worklist table inside ONE card (flows.css .flows-grid) */
+.operator-page .op-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-1);
+  overflow-x: auto;
+}
+.operator-page .op-card .op-table {
+  width: 100%;
+  margin: 0;
+}
+.operator-page .op-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.operator-page .op-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.operator-page .op-table th[scope='row'] {
+  color: var(--color-ink);
+  font-size: 13px;
+  white-space: normal;
+  border-bottom: 1px solid var(--color-border);
+}
+.operator-page .op-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.operator-page .op-sub {
+  color: var(--color-ink-muted);
+  font-size: 12.5px;
+}
+.operator-page a.badge {
+  text-decoration: none;
+}
+.operator-page a.badge:hover {
+  text-decoration: underline;
+}
+
+/* B1: the long last-error text wraps and clamps, so the Action column stays in the card */
+.operator-page .op-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  max-width: 34rem;
+  min-width: 12rem;
+  overflow-wrap: anywhere;
+  font-size: 12.5px;
+}
+.operator-page .op-id {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+.operator-page .op-copy {
+  padding: 2px 8px;
+  font-size: 12.5px;
+}
+
+/* alerts and empty states: worded, never colour alone (flows.css) */
+.operator-page .op-alert {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid;
+  border-radius: var(--r-2);
+  margin: var(--space-3) 0;
+}
+.operator-page .op-alert-danger {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-text);
+  color: var(--color-danger-text);
+}
+.operator-page .op-empty {
+  padding: var(--space-5, var(--space-4)) var(--space-4);
+  margin: var(--space-3) 0;
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--r-3);
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+}
+.operator-page p.op-status {
+  margin: var(--space-2) 0;
+  color: var(--color-ink-muted);
+  font-size: 13px;
+}
+
+/* B2: busy / done / confirm are visible, not only aria-disabled (base.css styles button[disabled] only) */
+.operator-page .op-action {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.operator-page .op-hint {
+  color: var(--color-ink-muted);
+  font-size: 12.5px;
+}
+.operator-page [aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.operator-page button[data-state='busy']::after {
+  content: ' …';
+}
+.operator-page button[data-state='done'] {
+  cursor: default;
+  background: var(--color-success-bg);
+  border-color: var(--color-success-text);
+  color: var(--color-success-text);
+  opacity: 1;
+}
+.operator-page button[data-state='done']::before {
+  content: '\2713  ';
+}
+.operator-page button[data-state='confirm'] {
+  border-color: var(--color-warn-text);
+  background: var(--color-warn-bg);
+  color: var(--color-warn-text);
+}
+
+/* message detail / activity event: a summary card with a two-column dl */
+.operator-page .op-panel {
+  padding: var(--space-3) var(--space-4);
+  margin: 0 0 var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-1);
+}
+.operator-page .op-dl {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+.operator-page .op-dl > div {
+  display: contents;
+}
+.operator-page .op-dl dt {
+  color: var(--color-ink-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.operator-page .op-dl dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.operator-page .op-pre {
+  max-height: 16rem;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  overflow: auto;
+  background: var(--color-neutral-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.operator-page .op-section {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: 15px;
+}
+.operator-page .op-pager {
+  display: flex;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+
+/* designed empty state inside the card: the header stays, the row says what is missing */
+.operator-page .op-table td.op-empty-cell {
+  height: auto;
+  padding: var(--space-5) var(--space-4);
+  text-align: center;
+  color: var(--color-ink-muted);
+  border-bottom: 0;
+}

@@ -38,6 +38,7 @@ async function load(page, apiSpecifiers) {
         setup(b) {
           b.onResolve({ filter: /^react(\/jsx-runtime)?$/ }, (a) => ({ path: a.path, namespace: 'stub' }));
           b.onResolve({ filter: api }, (a) => ({ path: a.path, namespace: 'api' }));
+          b.onLoad({ filter: /\.css$/ }, () => ({ contents: '', loader: 'js' })); // pages import their own stylesheet; Vite handles it, the harness ignores it
           b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: STUBS[a.path], loader: 'js' }));
           b.onLoad({ filter: /.*/, namespace: 'api' }, () => ({
             contents: 'export default null;\n' + ['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery', 'queueSummary', 'deliveryReport']

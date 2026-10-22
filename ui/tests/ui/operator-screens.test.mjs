@@ -50,6 +50,7 @@ test('B3 a rejected request leaves the error state (no unhandled rejection) and 
   const [input] = findAll(screen.tree(), byData('data-day-filter'));
   input.props.onChange({ target: { value: '2026-10-01' } });
   await screen.settle();
+  await screen.settle(); // the harness re-renders on settle: the second pass shows the answer that landed after the first
   assert.equal(findAll(screen.tree(), byData('data-refusal', 'delivery-report-error')).length, 1, 'catch -> error state');
   first({ ok: true, data: [{ interfaceId: 'i', targetId: 't', successes: 1, failuresTransient: 0, failuresAmbiguous: 0, failuresPermanent: 0, retriesMade: 0, retriedThenSucceeded: 0, stillStuck: 0 }] });
   await screen.settle();
