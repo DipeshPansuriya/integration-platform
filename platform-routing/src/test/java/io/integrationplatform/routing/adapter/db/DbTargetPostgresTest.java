@@ -78,7 +78,7 @@ class DbTargetPostgresTest {
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of(TARGET.getHost())),
                 name -> List.of(InetAddress.getLoopbackAddress()), List.of(TARGET.getHost()), ports);
         DbOutbound outbound = new DbTargetOutbound(
-                id -> Optional.of(new DbTargets.DbTarget(settings, password)),
+                id -> Optional.of(new DbTargets.DbTarget(settings, password.clone())), // a fresh clone per resolve: the vault's open/close contract R5 (DbTargetCall zeroes the copy it was given after the attempt); a shared array would fail the redelivery's dial with 28P01
                 s -> Optional.of(java.util.List.<Map<String, ?>>copyOf(rowsForDelivery)));
         return new DbTargetCall(ApprovedTablesFixtures.ALL, outbound, new JdbcDbSender(Duration.ofSeconds(5), "disable"), guard, ports,
                 CircuitBreakerRegistry.ofDefaults(), meters, ObservationRegistry.create());

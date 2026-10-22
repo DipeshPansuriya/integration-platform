@@ -24,7 +24,8 @@ public class JdbcDbRouteColumns extends TenantScopedRepository implements Missin
      * The mapped column that the pinned target contract's {@code properties} does not carry, as
      * {@code systemCode.table.column}. Roots come from the same parse the mapping save uses ({@code targetRoots}:
      * the first segment of each link's {@code target} path); the properties check is its SQL twin
-     * ({@code schema -> 'properties' ? root}).
+     * ({@code jsonb_exists(schema -> 'properties', root)}; the raw {@code ?} operator is a Spring JDBC
+     * traditional-placeholder collision - never send both shapes in one statement).
      */
     private static final String SELECT_MISSING = """
             select distinct
@@ -34,19 +35,19 @@ public class JdbcDbRouteColumns extends TenantScopedRepository implements Missin
                 where te.id = r.target_endpoint_id) || '.' || roots.root as v
             from public.route r
             cross join lateral (
-              select distinct split_part(link ->> 'target', '.', 1) as root
-              from public.mapping m, jsonb_array_elements(m.field_mappings) as t(link)
-              where m.route_id = r.id and m.field_mappings is not null
-                and jsonb_typeof(m.field_mappings) = 'array'
-                and coalesce(link ->> 'target', '') <> '') roots""";
+              select distinct split_part(link ->> 'target', '.', 1) as root,
+                mm.target_contract_version_id as version_id
+              from public.mapping mm, jsonb_array_elements(case when jsonb_typeof(mm.field_mappings) = 'array'
+                then mm.field_mappings else '[]'::jsonb end) as t(link)
+              where mm.route_id = r.id and coalesce(link ->> 'target', '') <> '') roots""";
 
     private static final String MISSING_FOR_INTERFACE = """
             r.interface_id = :interface_id::uuid and r.status = 'ACTIVE'
             and exists (select 1 from public.target_endpoint te join public.system s on s.id = te.system_id
               where te.id = r.target_endpoint_id and s.type = 'DB' and s.settings ->> 'table' is not null)
-            and not coalesce((select cv.json_schema_draft_2020_12 -> 'properties'
-                from public.contract_version cv where cv.id = m.target_contract_version_id),
-              '{}'::jsonb) ? roots.root::text""";
+            and not jsonb_exists(coalesce((select cv.json_schema_draft_2020_12 -> 'properties'
+                from public.contract_version cv where cv.id = roots.version_id),
+              '{}'::jsonb), roots.root::text)""";
 
     public JdbcDbRouteColumns(JdbcClient jdbcClient, TenantContext tenantContext) {
         super(jdbcClient, tenantContext);
