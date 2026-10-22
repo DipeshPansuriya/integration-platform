@@ -41,6 +41,12 @@ test('E2E_DEMO=1: headed with the default 700 ms pause before each action', () =
   assert.equal(options.slowMo, 700);
 });
 
+test('E2E_DEMO_HEADLESS=1 keeps the pauses but shows no window (the rehearsal)', () => {
+  const options = demoLaunchOptions({ E2E_DEMO: '1', E2E_DEMO_HEADLESS: '1' });
+  assert.equal(options.headless, true);
+  assert.equal(options.slowMo, 700);
+});
+
 test('E2E_DEMO_SLOWMO_MS sets the pause; a bad value fails before any boot', () => {
   assert.equal(demoLaunchOptions({ E2E_DEMO: '1', E2E_DEMO_SLOWMO_MS: '1200' }).slowMo, 1200);
   assert.equal(demoLaunchOptions({ E2E_DEMO: '1', E2E_DEMO_SLOWMO_MS: '0' }).slowMo, 0);
