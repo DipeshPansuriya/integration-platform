@@ -52,7 +52,7 @@ class DbTargetPostgresTest {
 
     DbSettings settings(String table) {
         return new DbSettings(TARGET.getHost(), TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT),
-                TARGET.getDatabaseName(), "restricted", table, List.of("orders_in"));
+                TARGET.getDatabaseName(), "restricted", table);
     }
 
     /** A port nothing listens on right now: bind an ephemeral one and release it (never mappedPort + n, which can pass 65535). */
@@ -220,7 +220,7 @@ class DbTargetPostgresTest {
             sql.execute("select 1"); // sanity: the container is up, the closed port is the refusal source
         }
         DbSettings closed = new DbSettings(TARGET.getHost(), closedPort(), TARGET.getDatabaseName(), "restricted",
-                "orders_in", List.of("orders_in"));
+                "orders_in");
 
         assertThatThrownBy(() -> call(closed, RESTRICTED_PASSWORD.toCharArray()).call(send()))
                 .isInstanceOf(TargetFaultException.TransientFaultException.class);
@@ -240,8 +240,7 @@ class DbTargetPostgresTest {
 
         assertThat(connection.test(UUID.randomUUID(), json).get("result")).isEqualTo("SUCCESS");
 
-        DbSettings refused = new DbSettings(TARGET.getHost(), closedPort(), TARGET.getDatabaseName(), null, null,
-                List.of());
+        DbSettings refused = new DbSettings(TARGET.getHost(), closedPort(), TARGET.getDatabaseName(), null, null);
         DbTestConnection stopped = new DbTestConnection(guard(TARGET.getHost(), refused.port()), (host, port, timeout) -> {
             throw new java.io.IOException("not answering");
         }, java.util.Set.copyOf(allowedPorts(refused.port())), Duration.ofSeconds(5));

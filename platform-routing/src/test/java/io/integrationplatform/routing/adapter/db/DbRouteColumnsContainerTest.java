@@ -154,7 +154,7 @@ class DbRouteColumnsContainerTest {
         UUID id = UUID.randomUUID();
         try (PreparedStatement sql = owner.prepareStatement("INSERT INTO public.target_endpoint (id, tenant_id,"
                 + " system_id, code, name, base_url, http_method, auth_method, timeout_ms)"
-                + " VALUES (?::uuid, ?::uuid, ?::uuid, ?, 'n', 'https://x.example', 'POST', 'NONE', 30000)")) {
+                + " VALUES (?::uuid, ?::uuid, ?::uuid, ?, 'n', 'https://x.example', 'POST', 'NO_AUTH', 30000)")) {
             sql.setString(1, id.toString());
             sql.setString(2, tenantId.toString());
             sql.setString(3, system.toString());

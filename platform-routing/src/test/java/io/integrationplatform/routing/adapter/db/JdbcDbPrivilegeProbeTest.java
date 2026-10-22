@@ -52,9 +52,11 @@ class JdbcDbPrivilegeProbeTest {
     @DisplayName("the dial reuses the send path's account Properties: pinned factory, TLS, timeouts, no URL password")
     void theDialReusesTheSendPathAccountProperties() {
         Properties account = JdbcDbSender.accountProperties("restricted", SECRET,
-                InetAddress.getLoopbackAddress(), "verify-full", Duration.ofSeconds(5));
+                InetAddress.getLoopbackAddress(), "verify-full", Duration.ofSeconds(5),
+                java.nio.file.Path.of("/ca/mock.pem"));
 
         assertThat(account.getProperty("user")).isEqualTo("restricted");
+        assertThat(account.getProperty("sslrootcert")).isEqualTo("/ca/mock.pem");
         assertThat(account.getProperty("socketFactory")).isEqualTo("io.integrationplatform.config.destination.PinnedSocketFactory");
         assertThat(account.getProperty("sslmode")).isEqualTo("verify-full");
         assertThat(account.getProperty("connectTimeout")).isEqualTo("5");

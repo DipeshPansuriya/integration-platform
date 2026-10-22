@@ -52,7 +52,7 @@ public class JdbcDbPrivilegeProbe implements DbPrivilegeProbe {
                 "the restricted account's password is not in the vault; store it for this target's endpoint"));
         try {
             Properties account = JdbcDbSender.accountProperties(settings.user(), password, pinnedAddress,
-                    settings.sslmode() == null ? defaultSslmode : settings.sslmode(), timeout);
+                    settings.sslmode() == null ? defaultSslmode : settings.sslmode(), timeout, null);
             try (Connection connection = DriverManager.getConnection(JdbcDbSender.url(settings), account)) {
                 if (settings.table() == null) {
                     return List.of(); // the target names no table: the credentialed connect is the whole probe

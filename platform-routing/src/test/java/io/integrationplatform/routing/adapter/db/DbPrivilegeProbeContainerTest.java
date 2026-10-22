@@ -43,12 +43,13 @@ class DbPrivilegeProbeContainerTest {
 
     private final UUID systemId = UUID.randomUUID();
 
-    /** The container password the probe is opened with - the send path's vault open is a unit seam behind this. */
-    private DbSystemCredentials credentials(String password) {
-        return system -> Optional.of(password.toCharArray());
+    /** The vault seam hands the probe the ORIGINAL array the caller holds (like the send path's open/close contract):
+     * only then can a wipe test assert on the caller's own bytes going cold. */
+    private DbSystemCredentials credentials(char[] password) {
+        return system -> Optional.of(password);
     }
 
-    private JdbcDbPrivilegeProbe probe(String password) {
+    private JdbcDbPrivilegeProbe probe(char[] password) {
         // the container speaks no TLS: the operator default's stronger modes are the production wiring (DbTargetPostgresTest precedent)
         return new JdbcDbPrivilegeProbe(credentials(password), "disable");
     }
@@ -105,7 +106,7 @@ class DbPrivilegeProbeContainerTest {
     void theProbeReportsTheRealGrantsOnTheTargetTable() throws Exception {
         char[] password = RESTRICTED_PASSWORD.toCharArray();
 
-        List<String> grants = probe(new String(password)).probe(systemId, settings("orders_in",
+        List<String> grants = probe(password).probe(systemId, settings("orders_in",
                 TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), pinnedAddress(), Duration.ofSeconds(5));
 
         assertThat(grants).containsExactly("INSERT", "SELECT");
@@ -115,7 +116,7 @@ class DbPrivilegeProbeContainerTest {
     @Test
     @DisplayName("an ungranted table reports no privileges - the truth, never an optimistic list")
     void anUngrantedTableReportsNoPrivileges() throws Exception {
-        List<String> grants = probe(RESTRICTED_PASSWORD).probe(systemId, settings("users",
+        List<String> grants = probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("users",
                 TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), pinnedAddress(), Duration.ofSeconds(5));
 
         assertThat(grants).isEmpty();
@@ -124,7 +125,7 @@ class DbPrivilegeProbeContainerTest {
     @Test
     @DisplayName("a wrong password is AUTH_REFUSED, not a success or a transport crash")
     void aWrongPasswordIsAuthRefused() {
-        assertThatThrownBy(() -> probe("not-the-password").probe(systemId, settings("orders_in",
+        assertThatThrownBy(() -> probe("not-the-password".toCharArray()).probe(systemId, settings("orders_in",
                 TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), pinnedAddress(), Duration.ofSeconds(5)))
                 .isInstanceOfSatisfying(DbPrivilegeProbe.ProbeRefused.class,
                         e -> assertThat(e.reason).isEqualTo("AUTH_REFUSED"));
@@ -132,10 +133,12 @@ class DbPrivilegeProbeContainerTest {
 
     @Test
     @DisplayName("a closed port is a database that did not answer")
-    void aClosedPortIsUnreachable() {
-        assertThatThrownBy(() -> probe(RESTRICTED_PASSWORD).probe(systemId, settings("orders_in",
-                TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + 9000), pinnedAddress(),
-                Duration.ofSeconds(5)))
+    void aClosedPortIsUnreachable() throws Exception {
+        // a port nothing listens on right now: bind an ephemeral one and release it (never mappedPort + n, which can
+        // pass 65535 and trip the DbSettings validation before any dial - the DbTargetPostgresTest closedPort precedent)
+        int closed = DbTargetPostgresTest.closedPort();
+        assertThatThrownBy(() -> probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("orders_in",
+                closed), pinnedAddress(), Duration.ofSeconds(5)))
                 .isInstanceOf(IOException.class);
     }
 
@@ -143,7 +146,7 @@ class DbPrivilegeProbeContainerTest {
     @DisplayName("through DbTestConnection the credentialed answer carries the grants in detail")
     void theTestConnectionAnswerCarriesTheGrants() {
         DbTestConnection connection = new DbTestConnection(guard(), (host, port, timeout) -> { },
-                probe(RESTRICTED_PASSWORD), List.of(TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)),
+                probe(RESTRICTED_PASSWORD.toCharArray()), List.of(TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)),
                 Duration.ofSeconds(5));
         String json = "{\"host\":\"" + TARGET.getHost() + "\",\"port\":"
                 + TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + ",\"database\":\""

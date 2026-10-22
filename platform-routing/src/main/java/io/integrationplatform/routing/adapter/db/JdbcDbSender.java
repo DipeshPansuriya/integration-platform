@@ -109,12 +109,14 @@ public final class JdbcDbSender implements DbSender {
     /** F1/F2/F5: every driver option, set on the Properties object (never the URL). */
     Properties properties(DbMessage message, InetAddress pinnedAddress) {
         return accountProperties(message.user(), message.password(), pinnedAddress,
-                message.settings().sslmode() == null ? defaultSslmode : message.settings().sslmode(), timeout);
+                message.settings().sslmode() == null ? defaultSslmode : message.settings().sslmode(), timeout,
+                sslRootCert);
     }
 
-    /** The one account Properties builder, shared with the test-connection privilege probe (task 11). */
+    /** The one account Properties builder, shared with the test-connection privilege probe (task 11):
+     * the probe wires no root cert of its own (null), the send path passes the operator's. */
     static Properties accountProperties(String user, char[] password, InetAddress pinnedAddress, String sslmode,
-            Duration timeout) {
+            Duration timeout, java.nio.file.Path sslRootCert) {
         Properties account = new Properties();
         account.setProperty("user", user);
         if (password != null) {

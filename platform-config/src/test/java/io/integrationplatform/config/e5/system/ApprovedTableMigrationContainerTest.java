@@ -197,15 +197,19 @@ class ApprovedTableMigrationContainerTest {
     @Test
     @DisplayName("D2: every existing approvedTables entry moved as PENDING_APPROVAL (deduplicated, plain identifiers only), requested by 'migration'")
     void backfillMovedTheEntriesAsPending() throws Exception {
+        // the test's own slice only (requested_by = 'migration' marks exactly the backfill's rows): the class shares
+        // one migrated database, so state-machine/actor rows the other tests insert must not reach this expectation
         assertThat(scalar("select string_agg(table_name || ':' || status || ':' || requested_by, ',' order by"
-                + " lower(table_name)) from public.db_target_approved_table where system_id = ?::uuid",
-                dbSystemA.toString())).isIn("orders_in:PENDING_APPROVAL:migration,users:PENDING_APPROVAL:migration",
+                + " lower(table_name)) from public.db_target_approved_table where system_id = ?::uuid"
+                + " and requested_by = 'migration'", dbSystemA.toString()))
+                .isIn("orders_in:PENDING_APPROVAL:migration,users:PENDING_APPROVAL:migration",
                         "Orders_IN:PENDING_APPROVAL:migration,users:PENDING_APPROVAL:migration");
-        assertThat(scalar("select count(*) from public.db_target_approved_table where system_id = ?::uuid",
-                dbSystemB.toString())).isEqualTo("1");
-        assertThat(scalar("select count(*) from public.db_target_approved_table where system_id = ?::uuid",
-                apiSystemA.toString())).isEqualTo("0");
-        assertThat(scalar("select count(*) from public.db_target_approved_table where status <> 'PENDING_APPROVAL'"))
+        assertThat(scalar("select count(*) from public.db_target_approved_table where system_id = ?::uuid"
+                + " and requested_by = 'migration'", dbSystemB.toString())).isEqualTo("1");
+        assertThat(scalar("select count(*) from public.db_target_approved_table where system_id = ?::uuid"
+                + " and requested_by = 'migration'", apiSystemA.toString())).isEqualTo("0");
+        assertThat(scalar("select count(*) from public.db_target_approved_table where status <> 'PENDING_APPROVAL'"
+                + " and requested_by = 'migration'"))
                 .as("nothing is grandfathered as approved").isEqualTo("0");
     }
 
@@ -220,8 +224,12 @@ class ApprovedTableMigrationContainerTest {
     @Test
     @DisplayName("The backfilled rows carry the fingerprint of the system's host, port, database and account (Karan 1)")
     void backfilledRowsAreBoundToTheTarget() throws Exception {
-        assertThat(scalar("select count(*) from public.db_target_approved_table a join public.system s on s.id = a.system_id"
-                + " where a.target_hash = public.db_target_fingerprint(s.settings)")).isEqualTo("3");
+        // the backfill's own rows only (requested_by = 'migration'): approval rows other tests insert carry the same
+        // SQL fingerprint and would inflate an unfiltered count
+        assertThat(scalar("select count(*) from public.db_target_approved_table a"
+                + " join public.system s on s.id = a.system_id"
+                + " where a.requested_by = 'migration'"
+                + " and a.target_hash = public.db_target_fingerprint(s.settings)")).isEqualTo("3");
     }
 
     @Test
@@ -357,7 +365,9 @@ class ApprovedTableMigrationContainerTest {
     }
 
     private boolean currentTargetMatches(String id) throws SQLException {
-        return Boolean.parseBoolean(scalar("select a.target_hash = public.db_target_fingerprint(s.settings)"
+        // ::text: getString of a boolean renders 't'/'f', which Boolean.parseBoolean reads as FALSE - the same
+        // rendering defect theFunctionIsHardened had; cast so the comparison is read as a real word
+        return Boolean.parseBoolean(scalar("select (a.target_hash = public.db_target_fingerprint(s.settings))::text"
                 + " from public.db_target_approved_table a join public.system s on s.id = a.system_id"
                 + " where a.id = ?::uuid", id));
     }
@@ -368,7 +378,8 @@ class ApprovedTableMigrationContainerTest {
         assertThat(scalar("select prosecdef || '|' || array_to_string(proconfig, ',') from pg_proc"
                 + " where proname = 'config_decide_db_table_approval'")).startsWith("true|search_path=pg_catalog")
                 .contains("pg_temp");
+        // has_function_privilege returns a boolean: JDBC getString renders it 'f' (no ::text on a pg_catalog call)
         assertThat(scalar("select has_function_privilege('public', 'public.config_decide_db_table_approval(uuid, text)',"
-                + " 'EXECUTE')")).isEqualTo("false");
+                + " 'EXECUTE')")).isEqualTo("f");
     }
 }
