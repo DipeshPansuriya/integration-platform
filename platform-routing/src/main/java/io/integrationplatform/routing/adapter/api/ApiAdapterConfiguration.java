@@ -3,6 +3,7 @@ package io.integrationplatform.routing.adapter.api;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.SocketDialer;
 import io.integrationplatform.delivery.port.TargetHalfOpenCap;
+import io.integrationplatform.delivery.replay.ActiveTargetContracts;
 import io.integrationplatform.routing.stage2.TargetCall;
 import io.integrationplatform.tenancy.TenantContext;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -29,6 +30,12 @@ public class ApiAdapterConfiguration {
     @Bean
     TargetEndpointViews targetEndpointViews(JdbcClient jdbcClient, TenantContext tenantContext) {
         return new JdbcTargetEndpointViews(jdbcClient, tenantContext);
+    }
+
+    /** T172: the active contract an operator replay pins for a delivery whose route has no mapping. */
+    @Bean
+    ActiveTargetContracts activeTargetContracts(JdbcClient jdbcClient, TenantContext tenantContext) {
+        return new JdbcActiveTargetContracts(jdbcClient, tenantContext);
     }
 
     /** E10 T96: the delivery-retry trigger's per-target half-open cap, from the target's system settings. */

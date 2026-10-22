@@ -1,6 +1,7 @@
 package io.integrationplatform.routing.stage1;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.config.flow.application.FlowBundle;
 import io.integrationplatform.delivery.port.Stage1Delivery;
@@ -63,6 +64,17 @@ class Stage1FanOutPlanTest {
                     assertThat(delivery.mappingVersionId()).isNull();
                     assertThat(delivery.contractVersionId()).isNull();
                 });
+    }
+
+    @Test
+    @DisplayName("T172: a mapping version whose snapshot lacks the target contract id is refused loudly, never a NULL pin")
+    void mappingVersionWithoutTargetContractIsRefused() {
+        FlowBundle.Parsed snapshot = new FlowBundle.Parsed(List.of(route(ROUTE_A, 1, null, "ACTIVE", ENDPOINT_A)),
+                List.of(mapping(ROUTE_A, VERSION_A, null)));
+
+        assertThatThrownBy(() -> Stage1FanOut.plan(message, snapshot)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(ROUTE_A).hasMessageContaining(VERSION_A)
+                .hasMessageContaining("target contract");
     }
 
     @Test
