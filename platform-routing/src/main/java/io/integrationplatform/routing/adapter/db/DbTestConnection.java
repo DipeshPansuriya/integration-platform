@@ -13,16 +13,24 @@ import java.util.Objects;
  * the destination guard before any probe, a malformed settings row is a FAILED/BAD_SETTINGS answer and a database
  * that does not answer is a FAILED answer, never an exception. The protocol-level connect with the restricted
  * account is proven on the container leg (the scenario); the probe answers reachability, audited by the caller.
+ *
+ * <p>R6 (CWE-918, limited): the SAME port allow-list the send path applies ({@code DbTargetCall.requireAllowedPort},
+ * {@code platform.config.destinations.db-allowed-ports}) is applied here before anything is probed - an off-list
+ * port is a {@code DESTINATION_REFUSED} answer, so an allow-listed host cannot be port-scanned with SUCCESS /
+ * DATABASE_UNREACHABLE answers over ports 1-65535.
  */
 public class DbTestConnection {
 
     private final DestinationGuard guard;
     private final DbBrokerProbe probe;
+    private final java.util.Set<Integer> allowedPorts;
     private final Duration timeout;
 
-    public DbTestConnection(DestinationGuard guard, DbBrokerProbe probe, Duration timeout) {
+    public DbTestConnection(DestinationGuard guard, DbBrokerProbe probe, java.util.Set<Integer> allowedPorts,
+            Duration timeout) {
         this.guard = Objects.requireNonNull(guard, "guard");
         this.probe = Objects.requireNonNull(probe, "probe");
+        this.allowedPorts = java.util.Set.copyOf(allowedPorts);
         this.timeout = Objects.requireNonNull(timeout, "timeout");
     }
 
@@ -35,8 +43,10 @@ public class DbTestConnection {
                     + e.getClass().getSimpleName() + ")");
         }
         try {
+            // F1: the port first (nothing spent on a refused port), exactly like the send path
+            DbTargetCall.requireAllowedPort(settings.port(), allowedPorts);
             guard.checkHost(settings.host());
-        } catch (DestinationRefusedException e) {
+        } catch (DestinationRefusedException | IllegalStateException e) {
             return answer(systemId, "FAILED", "DESTINATION_REFUSED", 0, String.valueOf(e.getMessage()));
         }
         long start = System.nanoTime();

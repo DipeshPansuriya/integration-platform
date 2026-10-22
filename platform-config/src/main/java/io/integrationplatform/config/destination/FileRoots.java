@@ -80,10 +80,11 @@ public final class FileRoots {
     }
 
     /**
-     * The send-time answer: the REAL path of the existing folder, only when it lies, links resolved, inside the real
-     * path of {@code <base>/<tenant>} which itself lies inside the real path of the base. Empty for every other case
-     * (outside, missing, not a folder, unreadable, no base, no tenant) - one answer, so the caller cannot be used to
-     * probe the file system.
+     * The send-time answer: the REAL path of the existing folder, only when the tenant folder IS the real
+     * {@code <base>/<tenant id>} (exactly - R11: a folder that is a link to any other folder under the base, such as
+     * another tenant's, does not pass an {@code startsWith} either) and the chosen root lies, links resolved, inside
+     * it. Empty for every other case (outside, missing, not a folder, unreadable, no base, no tenant) - one answer,
+     * so the caller cannot be used to probe the file system.
      */
     public Optional<Path> resolve(String rootPath, UUID tenantId) {
         Optional<Path> lexical = lexical(rootPath, tenantId);
@@ -93,7 +94,11 @@ public final class FileRoots {
         for (Path base : bases) {
             Path tenantRoot = base.resolve(tenantId.toString());
             try {
-                if (!Files.isDirectory(tenantRoot) || !tenantRoot.toRealPath().startsWith(base.toRealPath())) {
+                // R11: the folder must BE base/<tenant id>; a link to another folder under the base (another
+                // tenant's) used to pass the startsWith check. The target folders must not be writable by the
+                // receiving party - a junction swapped in between this check and the open is out of scope here.
+                if (!Files.isDirectory(tenantRoot)
+                        || !tenantRoot.toRealPath().equals(base.toRealPath().resolve(tenantId.toString()))) {
                     continue;
                 }
             } catch (IOException unreadable) {

@@ -25,11 +25,11 @@ import org.slf4j.LoggerFactory;
 
 /**
  * T-149: writes one due delivery with the five controls (mirrors KafkaTopicTargetCall): a breaker per endpoint,
- * bounded statement/connect timeouts with no reconnect, the delivery id for the target's idempotent insert
- * (ON CONFLICT (delivery_id) DO NOTHING), the destination guard and approved-table contract, and metrics, trace
- * and log per attempt. An unapproved table is refused PERMANENT (destination refused, nothing written); a channel
- * that dropped after the statement may have been sent is AMBIGUOUS - the layer-2 retry re-inserts the SAME
- * delivery id and the target holds exactly one row for it (E16-C4).
+ * bounded statement/connect timeouts with no reconnect, the delivery id for the target's idempotent insert (the
+ * sender's pre-state check skips an already-stored delivery id), the destination guard and approved-table contract,
+ * and metrics, trace and log per attempt. An unapproved table is refused PERMANENT (destination refused, nothing
+ * written); a channel that dropped after the statement may have been sent is AMBIGUOUS - the layer-2 retry re-runs
+ * the SAME delivery id and the pre-state check re-inserts nothing that is already there (E16-C4).
  */
 public final class DbTargetCall implements TargetCall {
 
@@ -139,8 +139,8 @@ public final class DbTargetCall implements TargetCall {
                     breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, refused);
                     throw new TargetFaultException(OutcomeClass.AMBIGUOUS,
                             "the channel to the target database of target endpoint " + send.targetEndpointId()
-                                    + " dropped after the statement may have been sent: the retry re-inserts the "
-                                    + "delivery id idempotently");
+                                    + " dropped after the statement may have been sent: the retry re-runs the "
+                                    + "delivery id idempotently (the pre-state check)");
                 }
                 breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, refused);
                 throw new TargetFaultException.TransientFaultException("the send to the target database of target "

@@ -8,8 +8,13 @@ public final class DestinationRefusedException extends Exception {
     private final Refusal refusal;
     private final String detail;
 
+    /**
+     * R10 (CWE-209): the message is the SAME sentence for every {@link Refusal#REFUSED_ADDRESS} - a refused range and
+     * a platform host read identically, so a caller cannot map which addresses are the platform's own. The range's
+     * name (for the audit log only) rides in {@link #detail()}.
+     */
     public DestinationRefusedException(Refusal refusal, String detail) {
-        super("destination refused: " + refusal + (detail == null ? "" : " (" + detail + ")"), null, false, false);
+        super("destination refused: " + refusal, null, false, false);
         this.refusal = Objects.requireNonNull(refusal, "refusal");
         this.detail = detail;
     }

@@ -48,10 +48,12 @@ public class DbAdapterConfiguration {
     }
 
     @Bean
-    MqConnectionCheck dbConnectionCheck(DestinationGuard guard, SocketDialer dialer) {
+    MqConnectionCheck dbConnectionCheck(DestinationGuard guard, SocketDialer dialer,
+            @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts) {
         DbBrokerProbe probe = new SocketDbBrokerProbe(guard, dialer);
-        return (systemId, settingsJson) -> new DbTestConnection(guard, probe, Duration.ofSeconds(5))
-                .test(systemId, settingsJson);
+        // R6: test-connection applies the SAME port allow-list the send path applies
+        return (systemId, settingsJson) -> new DbTestConnection(guard, probe, java.util.Set.copyOf(allowedPorts),
+                Duration.ofSeconds(5)).test(systemId, settingsJson);
     }
 
     @Bean
