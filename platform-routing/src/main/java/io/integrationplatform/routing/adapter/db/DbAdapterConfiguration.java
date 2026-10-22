@@ -118,10 +118,38 @@ public class DbAdapterConfiguration {
     @Bean
     DbTargetCall dbTargetCall(ApprovedTables approvedTables, DbOutbound outbound, DbSender sender, DestinationGuard guard,
             @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts,
+            ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager,
             ObjectProvider<CircuitBreakerRegistry> breakers, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations) {
-        return new DbTargetCall(approvedTables, outbound, sender, guard, allowedPorts, breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
+        return compose(approvedTables, outbound, sender, guard, allowedPorts, transactionManager.getIfAvailable(),
+                breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP));
+    }
+
+    /**
+     * T175 (T71 for DB): the platform reads of a send - settings, credential, mapped rows ({@code resolve}) and the F3
+     * approved-table check - each run in their own short tenant-stamped transaction that is over before the
+     * destination is dialled. The target insert dials the target's own connection ({@code JdbcDbSender}) and holds no
+     * pooled application connection while it waits. The approval stays a hard gate before the insert: a lookup that
+     * cannot answer throws (TRANSIENT), it is never read as approved.
+     */
+    static DbTargetCall compose(ApprovedTables approvedTables, DbOutbound outbound, DbSender sender,
+            DestinationGuard guard, java.util.List<Integer> allowedPorts,
+            org.springframework.transaction.PlatformTransactionManager transactions,
+            CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations) {
+        if (transactions != null) {
+            org.springframework.transaction.support.TransactionTemplate tx =
+                    new org.springframework.transaction.support.TransactionTemplate(transactions);
+            DbOutbound reads = outbound;
+            ApprovedTables approval = approvedTables;
+            outbound = send -> tx.execute(status -> reads.resolve(send));
+            org.springframework.transaction.support.TransactionTemplate readOnly =
+                    new org.springframework.transaction.support.TransactionTemplate(transactions);
+            readOnly.setReadOnly(true);
+            approvedTables = (endpointId, table) ->
+                    Boolean.TRUE.equals(readOnly.execute(status -> approval.isApproved(endpointId, table)));
+        }
+        return new DbTargetCall(approvedTables, outbound, sender, guard, allowedPorts, breakers, meters, observations);
     }
 }

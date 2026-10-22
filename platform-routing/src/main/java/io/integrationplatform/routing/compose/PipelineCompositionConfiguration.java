@@ -123,20 +123,19 @@ class PipelineCompositionConfiguration {
 
     /**
      * The ONE layer-1 route (T-119) with the API adapter as its target call (ADR-015, {@code ApiAdapterConfiguration}).
-     * The call runs inside one tenant-stamped transaction: the adapter's endpoint view and the transform body read
-     * the tenant's rows on it (R08/R11) - the shape the E10 container proof composes. Attempt rows and the outcome
-     * hand-off each commit in their own short transaction, as the recorder path does.
+     * The call runs in no transaction (T71, T175): each adapter reads the tenant's rows (R08/R11) in its own short
+     * tenant-stamped transaction before it dials the target. The type lookup, attempt rows and the outcome hand-off
+     * each commit in their own short transaction, as the recorder path does.
      */
     @Bean
     LayerOneRouteBuilder layerOneRoute(TargetCallRegistry targetCalls,
             JdbcMqTargets mqTargets, SendOutcomes outcomes, PlatformTransactionManager transactionManager) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         // row 327: picked by the stored system.type; an unknown type is refused PERMANENT, never dropped
-        // E9-C9 (T71): a call that leaves the process must not hold a pooled connection while it waits on the
-        // target. The API, MQ and KAFKA adapters open their own short tenant-stamped reads; DB and FILE still run
-        // whole inside one tenant-stamped transaction until their adapters do the same.
-        java.util.Map<String, TargetCall> perType = new java.util.LinkedHashMap<>();
-        targetCalls.calls().forEach((type, call) -> perType.put(type, wrapForType(type, call, transactions)));
+        // T71/T175: a call that leaves the process must not hold a pooled connection while it waits on the
+        // target. Every adapter (API, MQ, KAFKA, DB, FILE) opens its own short tenant-stamped reads, so no type is
+        // wrapped in a whole-call transaction here.
+        java.util.Map<String, TargetCall> perType = new java.util.LinkedHashMap<>(targetCalls.calls());
         TargetCall inTenantTransaction = TargetCall.byType(
                 endpointId -> transactions.execute(status -> mqTargets.typeOf(endpointId)), perType);
         Stage2AttemptWriter attempts = (deliveryId, layer, outcome, startedAt, finishedAt, detail) ->
@@ -157,18 +156,6 @@ class PipelineCompositionConfiguration {
             }
         };
         return new LayerOneRouteBuilder(inTenantTransaction, attempts, handoff, LayerOneWaits.defaults());
-    }
-
-    /**
-     * E15/E9 (T71): the API, MQ and KAFKA adapters open their own short tenant-stamped reads and hold no connection
-     * while the network call waits; only the types whose adapters still read the database mid-call (DB, FILE) keep
-     * the whole-call transaction.
-     */
-    static TargetCall wrapForType(String type, TargetCall call, TransactionTemplate transactions) {
-        return switch (type) {
-            case "API", "MQ", "KAFKA" -> call;
-            default -> send -> transactions.executeWithoutResult(status -> call.call(send));
-        };
     }
 
     @Bean
