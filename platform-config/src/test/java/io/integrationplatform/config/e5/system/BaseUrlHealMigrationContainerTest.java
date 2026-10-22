@@ -50,6 +50,11 @@ class BaseUrlHealMigrationContainerTest {
     private final UUID blankBaseUrl = UUID.randomUUID();
     private final UUID nonStringBaseUrl = UUID.randomUUID();
     private final UUID nearPlaceholder = UUID.randomUUID();
+    private final UUID tabbed = UUID.randomUUID();
+    private final UUID userinfo = UUID.randomUUID();
+    private final UUID ftp = UUID.randomUUID();
+    private final UUID tooLong = UUID.randomUUID();
+    private final UUID innerNewline = UUID.randomUUID();
     private Path migrationDir;
 
     @BeforeAll
@@ -88,6 +93,15 @@ class BaseUrlHealMigrationContainerTest {
             seed(owner, tenantA, nonStringBaseUrl, "TARGET", "API", "{\"baseUrl\":42}", PLACEHOLDER);
             seed(owner, tenantA, nearPlaceholder, "TARGET", "API", "{\"baseUrl\":\"https://near.partner.example/\"}",
                     "https://endpoint.invalid");
+            seed(owner, tenantA, tabbed, "TARGET", "API",
+                    "{\"baseUrl\":\"\t\n https://tabbed.partner.example/x \r\n\"}", PLACEHOLDER);
+            seed(owner, tenantA, userinfo, "TARGET", "API", "{\"baseUrl\":\"https://user:pw@evil.example/\"}",
+                    PLACEHOLDER);
+            seed(owner, tenantA, ftp, "TARGET", "API", "{\"baseUrl\":\"ftp://files.partner.example/\"}", PLACEHOLDER);
+            seed(owner, tenantA, tooLong, "TARGET", "API",
+                    "{\"baseUrl\":\"https://long.partner.example/" + "a".repeat(2100) + "\"}", PLACEHOLDER);
+            seed(owner, tenantA, innerNewline, "TARGET", "API", "{\"baseUrl\":\"https://in\nner.partner.example/\"}",
+                    PLACEHOLDER);
         }
         flyway(locations).load().migrate();
     }
@@ -120,6 +134,22 @@ class BaseUrlHealMigrationContainerTest {
         assertThat(base(blankBaseUrl)).isEqualTo(PLACEHOLDER);
         assertThat(base(nonStringBaseUrl)).isEqualTo(PLACEHOLDER);
         assertThat(base(nearPlaceholder)).isEqualTo("https://endpoint.invalid");
+    }
+
+    @Test
+    @DisplayName("review F-1: tab, newline and CR padding (not only spaces) is trimmed before the copy")
+    void controlCharacterPaddingIsTrimmed() throws Exception {
+        assertThat(base(tabbed)).isEqualTo("https://tabbed.partner.example/x");
+    }
+
+    @Test
+    @DisplayName("review F-2: userinfo, a non-http scheme, > 2048 characters and an embedded control character keep"
+            + " the placeholder (still refused at send)")
+    void valuesThatFailTheShapeFilterKeepThePlaceholder() throws Exception {
+        assertThat(base(userinfo)).isEqualTo(PLACEHOLDER);
+        assertThat(base(ftp)).isEqualTo(PLACEHOLDER);
+        assertThat(base(tooLong)).isEqualTo(PLACEHOLDER);
+        assertThat(base(innerNewline)).isEqualTo(PLACEHOLDER);
     }
 
     @Test
