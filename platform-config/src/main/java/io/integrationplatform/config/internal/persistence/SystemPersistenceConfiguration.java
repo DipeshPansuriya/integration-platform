@@ -7,6 +7,7 @@ import io.integrationplatform.config.destination.HostResolver;
 import io.integrationplatform.config.destination.MqConnectionCheck;
 import io.integrationplatform.config.destination.OutboundHttpCheck;
 import io.integrationplatform.config.destination.SocketDialer;
+import io.integrationplatform.config.system.application.ApprovedTableService;
 import io.integrationplatform.config.system.application.SystemAdminService;
 import io.integrationplatform.config.system.application.TestConnectionAudit;
 import io.integrationplatform.config.system.application.TestConnectionService;
@@ -170,6 +171,20 @@ class SystemPersistenceConfiguration {
     FileRoots fileRoots(Environment environment) {
         return FileRoots.of(Binder.get(environment).bind(FileRoots.PROPERTY, Bindable.listOf(String.class))
                 .orElse(List.of()));
+    }
+
+    @Bean
+    JdbcApprovedTableRepository jdbcApprovedTableRepository(JdbcClient jdbcClient,
+            ObjectProvider<TenantContext> tenantContexts) {
+        return new JdbcApprovedTableRepository(jdbcClient, tenantContexts);
+    }
+
+    /** E16 F3: the approved tables of a DB target; the audit event names the bound tenant (none bound fails closed). */
+    @Bean
+    ApprovedTableService approvedTableService(JdbcApprovedTableRepository tables, JdbcSystemRepository systems,
+            org.springframework.context.ApplicationEventPublisher events, ObjectProvider<TenantContext> tenantContexts) {
+        return new ApprovedTableService(tables, systems, events,
+                () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId());
     }
 
     @Bean

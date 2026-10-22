@@ -65,19 +65,13 @@ test('other types get no client-side rule: the server stays the authority', () =
   }
 });
 
-test('DB form carries the server fields: host, port, database required; user, table, approvedTables optional', () => {
+test('DB form carries the server fields: host, port, database required; user, table optional (no approvedTables: E16 F3)', () => {
   const fields = systems.settingsFieldsOf('DB');
   assert.deepEqual(fields.map((f) => [f.name, f.required]), [
-    ['host', true], ['port', true], ['database', true], ['user', false], ['table', false], ['approvedTables', false]
+    ['host', true], ['port', true], ['database', true], ['user', false], ['table', false]
   ]);
 });
 
-test('approvedTables is a comma list on screen and an array on the wire, and back', () => {
-  const sent = systems.settingsFromForm('DB', { host: 'h', port: '5432', database: 'd', approvedTables: ' orders , lines,, ' });
-  assert.deepEqual(sent, { host: 'h', port: 5432, database: 'd', approvedTables: ['orders', 'lines'] });
-  assert.equal(systems.formFromSettings({ approvedTables: ['orders', 'lines'], port: 5432 }).approvedTables, 'orders, lines');
-  assert.deepEqual(systems.settingsFromForm('DB', { host: 'h', port: '1', database: 'd', approvedTables: ' ' }), { host: 'h', port: 1, database: 'd' });
-});
 
 test('FILE keeps its one required field; the form adds no rule for it', () => {
   assert.deepEqual(systems.settingsFieldsOf('FILE').map((f) => [f.name, f.required]), [['rootPath', true]]);

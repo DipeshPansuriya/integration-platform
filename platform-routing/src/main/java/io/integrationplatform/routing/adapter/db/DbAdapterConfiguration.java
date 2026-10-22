@@ -47,12 +47,33 @@ public class DbAdapterConfiguration {
         });
     }
 
+    /**
+     * T-149 with E16 F3 (task 11, Karan change 4): the DB test-connection answers the account's real privileges on
+     * the exact target table when the credential slice is composed (its own short read-only transaction - the
+     * T-104 rule that no platform connection is held while a destination answers is kept); otherwise it stays the
+     * socket-only reachability answer it always was.
+     */
     @Bean
-    MqConnectionCheck dbConnectionCheck(DestinationGuard guard, SocketDialer dialer,
-            @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts) {
+    MqConnectionCheck dbConnectionCheck(DestinationGuard guard, SocketDialer dialer, JdbcClient jdbcClient,
+            TenantContext tenantContext, ObjectProvider<SendTimeCredentials> vault,
+            ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactions,
+            @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts,
+            @Value("${platform.config.destinations.db-sslmode:require}") String sslmode) {
         DbBrokerProbe probe = new SocketDbBrokerProbe(guard, dialer);
         // R6: test-connection applies the SAME port allow-list the send path applies
-        return (systemId, settingsJson) -> new DbTestConnection(guard, probe, java.util.Set.copyOf(allowedPorts),
+        DbPrivilegeProbe privileges = null;
+        SendTimeCredentials credentials = vault.getIfAvailable();
+        org.springframework.transaction.PlatformTransactionManager manager = transactions.getIfAvailable();
+        if (credentials != null && manager != null) {
+            org.springframework.transaction.support.TransactionTemplate readOnly =
+                    new org.springframework.transaction.support.TransactionTemplate(manager);
+            readOnly.setReadOnly(true);
+            privileges = new JdbcDbPrivilegeProbe(
+                    new JdbcDbSystemCredentials(jdbcClient, tenantContext, credentials, readOnly), sslmode);
+        }
+        DbBrokerProbe socketProbe = probe;
+        DbPrivilegeProbe privilegeProbe = privileges;
+        return (systemId, settingsJson) -> new DbTestConnection(guard, socketProbe, privilegeProbe, allowedPorts,
                 Duration.ofSeconds(5)).test(systemId, settingsJson);
     }
 
@@ -76,12 +97,30 @@ public class DbAdapterConfiguration {
         return new DbTargetOutbound(targets, rowsPort);
     }
 
+    /** E16 F3: the send-time and publish-time reads of the tenant's approved tables (one JDBC adapter, both ports). */
     @Bean
-    DbTargetCall dbTargetCall(DbOutbound outbound, DbSender sender, DestinationGuard guard,
+    JdbcApprovedTables jdbcApprovedTables(JdbcClient jdbcClient, TenantContext tenantContext) {
+        return new JdbcApprovedTables(jdbcClient, tenantContext);
+    }
+
+    /** E16 F3 (task 9): the publish-time read of the mapped columns not in the route's approved target contract. */
+    @Bean
+    JdbcDbRouteColumns jdbcDbRouteColumns(JdbcClient jdbcClient, TenantContext tenantContext) {
+        return new JdbcDbRouteColumns(jdbcClient, tenantContext);
+    }
+
+    /** E16 F3 (tasks 9 and 10): an unapproved DB table, or a mapped column outside the approved contract, refuses. */
+    @Bean
+    DbTablePublishListener dbTablePublishListener(JdbcApprovedTables approved, JdbcDbRouteColumns missingColumns) {
+        return new DbTablePublishListener(approved, missingColumns);
+    }
+
+    @Bean
+    DbTargetCall dbTargetCall(ApprovedTables approvedTables, DbOutbound outbound, DbSender sender, DestinationGuard guard,
             @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts,
             ObjectProvider<CircuitBreakerRegistry> breakers, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations) {
-        return new DbTargetCall(outbound, sender, guard, allowedPorts, breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
+        return new DbTargetCall(approvedTables, outbound, sender, guard, allowedPorts, breakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP));
     }

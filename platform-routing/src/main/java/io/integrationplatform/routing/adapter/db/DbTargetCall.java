@@ -39,10 +39,14 @@ public final class DbTargetCall implements TargetCall {
             .slidingWindowSize(10).minimumNumberOfCalls(5).failureRateThreshold(50)
             .waitDurationInOpenState(Duration.ofSeconds(30)).permittedNumberOfCallsInHalfOpenState(2).build();
 
-    /** T-149 @security: a DB send never touches a table outside the target's approved list. */
-    public static void requireApprovedTable(String table, java.util.List<String> approvedTables) {
-        if (approvedTables.stream().noneMatch(approved -> approved.equalsIgnoreCase(table))) {
-            throw new IllegalStateException("the table '" + table + "' is not on the target's approved list");
+    /**
+     * E16 F3: the table must be APPROVED in the tenant's approval table (and still bound to this target); the answer
+     * never comes from the system settings. A refusal is an {@link IllegalStateException}, which the send classes
+     * PERMANENT (destination refused, nothing written).
+     */
+    static void requireApprovedTable(String table, boolean approved) {
+        if (!approved) {
+            throw new IllegalStateException("the table '" + table + "' is not approved for this target");
         }
     }
 
@@ -55,6 +59,7 @@ public final class DbTargetCall implements TargetCall {
 
     private static final Logger LOG = LoggerFactory.getLogger(DbTargetCall.class);
 
+    private final ApprovedTables approvedTables;
     private final DbOutbound outbound;
     private final DbSender sender;
     private final DestinationGuard guard;
@@ -63,9 +68,10 @@ public final class DbTargetCall implements TargetCall {
     private final MeterRegistry meters;
     private final ObservationRegistry observations;
 
-    public DbTargetCall(DbOutbound outbound, DbSender sender, DestinationGuard guard,
+    public DbTargetCall(ApprovedTables approvedTables, DbOutbound outbound, DbSender sender, DestinationGuard guard,
             java.util.Collection<Integer> allowedPorts,
             CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations) {
+        this.approvedTables = java.util.Objects.requireNonNull(approvedTables, "approvedTables");
         this.outbound = outbound;
         this.sender = sender;
         this.guard = guard;
@@ -109,7 +115,7 @@ public final class DbTargetCall implements TargetCall {
                 // FULL guard: allow-list, platform hosts, refused ranges on EVERY resolved address; the host is
                 // resolved ONCE here and the checked address is what the sender dials
                 requireAllowedPort(message.settings().port(), allowedPorts);
-                requireApprovedTable(message.table(), message.settings().approvedTables());
+                requireApprovedTable(message.table(), lookupApproved(send, message.table(), breaker, started));
                 checked = guard.check(java.net.URI.create("http://" + message.settings().host() + ":"
                         + message.settings().port()));
             } catch (DestinationRefusedException | IllegalStateException | IllegalArgumentException refused) {
@@ -159,6 +165,22 @@ public final class DbTargetCall implements TargetCall {
             if (message != null && message.password() != null) {
                 Arrays.fill(message.password(), '\0');
             }
+        }
+    }
+
+    /**
+     * E16 F3: the approval lookup on the platform database. A failed lookup is a TRANSIENT fault (the layer-2 retry asks
+     * again) - it is never read as "approved" and never as a permanent refusal of a table that may well be approved.
+     */
+    private boolean lookupApproved(Stage2Send send, String table, CircuitBreaker breaker, long started) {
+        try {
+            return approvedTables.isApproved(send.targetEndpointId(), table);
+        } catch (RuntimeException lookupFailed) {
+            LOG.warn("approved-table lookup failed for endpoint {}: {}", send.targetEndpointId(),
+                    lookupFailed.getClass().getSimpleName());
+            breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, lookupFailed);
+            throw new TargetFaultException.TransientFaultException("the approved tables of target endpoint "
+                    + send.targetEndpointId() + " could not be read; the send is retried, never assumed approved");
         }
     }
 }

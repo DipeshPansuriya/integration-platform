@@ -1,6 +1,5 @@
 package io.integrationplatform.routing.adapter.db;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -10,20 +9,19 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * T-149: a DB target's registry settings - host, port, database (the type's save-side schema) and the adapter
  * extensions the send needs: the optional restricted account's {@code user}, the target {@code table} this
- * endpoint writes and the {@code approvedTables} the target owner approved. A bad value is a configuration bug
+ * endpoint writes. The tables the target owner approved are NOT a setting (E16 F3): they live in
+ * {@code db_target_approved_table} and are read through {@link ApprovedTables}. A bad value is a configuration bug
  * (the send refuses it PERMANENT); shape follows {@code MqSettings.fromJson}.
  *
- * <p>shortcut: {@code user}, {@code table} and {@code approvedTables} travel inside the DB system's registry JSON
+ * <p>shortcut: {@code user} and {@code table} travel inside the DB system's registry JSON
  * because {@code target_endpoint} does not yet carry its own {@code type}/{@code settings} columns (E5's registry
  * extension); move them to the endpoint row (validated against the extended save-side schema) when that lands.
  */
-public record DbSettings(String host, int port, String database, String user, String table,
-        List<String> approvedTables, String sslmode) {
+public record DbSettings(String host, int port, String database, String user, String table, String sslmode) {
 
     /** Without a per-target TLS mode: the sender's configured default applies. */
-    public DbSettings(String host, int port, String database, String user, String table,
-            List<String> approvedTables) {
-        this(host, port, database, user, table, approvedTables, null);
+    public DbSettings(String host, int port, String database, String user, String table) {
+        this(host, port, database, user, table, null);
     }
 
     /** The TLS modes a target may ask for; the unencrypted modes are never a per-target choice (F5). */
@@ -59,10 +57,6 @@ public record DbSettings(String host, int port, String database, String user, St
         if (table != null && !validIdentifier(table)) {
             throw new IllegalStateException("the DB target table '" + table + "' is not a plain identifier");
         }
-        approvedTables = approvedTables == null ? List.of() : List.copyOf(approvedTables);
-        if (!approvedTables.stream().allMatch(DbSettings::validIdentifier)) {
-            throw new IllegalStateException("the DB target's approved tables must be plain identifiers");
-        }
         if (user != null && user.isBlank()) {
             user = null;
         }
@@ -76,7 +70,7 @@ public record DbSettings(String host, int port, String database, String user, St
     public static DbSettings fromJson(String json) {
         JsonNode node = JSON.readTree(json);
         return new DbSettings(text(node, "host"), port(node), text(node, "database"), optionalUser(node),
-                optionalTable(node), approvedTables(node), optionalText(node, "sslmode"));
+                optionalTable(node), optionalText(node, "sslmode"));
     }
 
     private static int port(JsonNode node) {
@@ -119,20 +113,5 @@ public record DbSettings(String host, int port, String database, String user, St
             throw new IllegalStateException("DB settings need a non-blank table");
         }
         return table.toUpperCase(Locale.ROOT).equals(table.toLowerCase(Locale.ROOT)) ? table : table;
-    }
-
-    private static List<String> approvedTables(JsonNode node) {
-        JsonNode field = node.get("approvedTables");
-        if (field == null || field.isNull()) {
-            return List.of();
-        }
-        if (!field.isArray()) {
-            throw new IllegalStateException("DB settings need approvedTables as an array");
-        }
-        List<String> approved = new ArrayList<>();
-        for (JsonNode name : field) {
-            approved.add(name.isString() ? name.stringValue() : name.toString());
-        }
-        return approved;
     }
 }

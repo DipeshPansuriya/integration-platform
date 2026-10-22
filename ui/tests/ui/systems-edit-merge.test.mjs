@@ -22,7 +22,7 @@ const STORED = {
     securityProtocol: 'SASL_SSL', saslMechanism: 'SCRAM-SHA-512', username: 'svc-orders', truststore: '/etc/ssl/kafka.jks', halfOpenTrialCalls: 3
   },
   DB: {
-    host: 'db.partner.test', port: 5432, database: 'orders', user: 'etl', table: 'orders', approvedTables: ['orders', 'lines'],
+    host: 'db.partner.test', port: 5432, database: 'orders', user: 'etl', table: 'orders',
     sslmode: 'verify-full', halfOpenTrialCalls: 2
   },
   FILE: { rootPath: '/data/inbound', fileNamePattern: '*.csv', halfOpenTrialCalls: 1 },
@@ -59,7 +59,7 @@ test('FILE keeps fileNamePattern; API keeps errorDictionary (an object) intact',
 });
 
 test('a cleared owned optional field is removed; a non-owned key beside it stays', () => {
-  const db = edit('DB', { ...untouched('DB'), user: '', table: '  ', approvedTables: '' });
+  const db = edit('DB', { ...untouched('DB'), user: '', table: '  ' });
   assert.deepEqual(db, { host: 'db.partner.test', port: 5432, database: 'orders', sslmode: 'verify-full', halfOpenTrialCalls: 2 });
   const api = edit('API', { ...untouched('API'), timeoutMs: '', followRedirects: false });
   assert.deepEqual(api, { baseUrl: 'https://partner.example.test/orders', errorDictionary: { '404': 'NOT_FOUND' }, halfOpenTrialCalls: 4 });

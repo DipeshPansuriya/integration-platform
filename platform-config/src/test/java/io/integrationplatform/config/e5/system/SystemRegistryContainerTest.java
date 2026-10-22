@@ -96,7 +96,7 @@ class SystemRegistryContainerTest {
         "API  | OUTBOUND | {\"baseUrl\":\"https://api.partner.example/v1\",\"timeoutMs\":3000}",
         "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\"}",
         "MQ   | OUTBOUND | {\"host\":\"mq.partner.example\",\"port\":1414,\"queue\":\"ORDERS.IN\"}",
-        "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\",\"table\":\"orders_in\",\"approvedTables\":[\"orders_in\"]}",
+        "DB   | OUTBOUND | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\",\"table\":\"orders_in\"}",
         "KAFKA | OUTBOUND | {\"bootstrapServers\":\"kafka.partner.example:9092\",\"topic\":\"orders-out\"}"})
     @DisplayName("Scenario Outline: Register a system of each type - stored in the systems table's extension")
     void registerASystemOfEachType(String type, String direction, String settings) {
@@ -259,13 +259,13 @@ class SystemRegistryContainerTest {
         Response privateApi = call(port, "POST", SYSTEMS, subject,
                 systemBody(randomCode("sys-priv"), "OUTBOUND", "API", "{\"baseUrl\":\"http://10.0.0.5/orders\"}"));
         assertThat(privateApi.status()).as("body: %s", privateApi.body()).isEqualTo(400);
-        assertThat(String.join("\n", errorsOf(privateApi))).contains("baseUrl").contains("private");
+        assertThat(String.join("\n", errorsOf(privateApi))).contains("baseUrl").contains("refused address");
 
         Response metadataMq = call(port, "POST", SYSTEMS, subject,
                 systemBody(randomCode("sys-meta"), "OUTBOUND", "MQ",
                         "{\"host\":\"169.254.169.254\",\"port\":1414,\"queue\":\"Q\"}"));
         assertThat(metadataMq.status()).as("body: %s", metadataMq.body()).isEqualTo(400);
-        assertThat(String.join("\n", errorsOf(metadataMq))).contains("host").contains("link-local");
+        assertThat(String.join("\n", errorsOf(metadataMq))).contains("host").contains("refused address");
 
         Response offList = call(port, "POST", SYSTEMS, subject,
                 systemBody(randomCode("sys-offlist"), "OUTBOUND", "API", "{\"baseUrl\":\"https://not-allowed.example/\"}"));
@@ -287,7 +287,7 @@ class SystemRegistryContainerTest {
         Response refusedEdit = call(port, "PUT", SYSTEMS + "/" + id, subject,
                 "{\"type\":\"API\",\"settings\":{\"baseUrl\":\"http://[::ffff:10.0.0.5]/\"}}");
         assertThat(refusedEdit.status()).as("body: %s", refusedEdit.body()).isEqualTo(400);
-        assertThat(String.join("\n", errorsOf(refusedEdit))).contains("private");
+        assertThat(String.join("\n", errorsOf(refusedEdit))).contains("refused address");
         assertThat(scalar("SELECT settings->>'baseUrl' FROM public.system WHERE id = ?::uuid", id))
                 .as("a refused edit changes nothing").isEqualTo("https://a.partner.example/");
     }
@@ -296,5 +296,98 @@ class SystemRegistryContainerTest {
         List<String> errors = new ArrayList<>();
         response.json().path("errors").forEach(node -> errors.add(node.asString()));
         return errors;
+    }
+
+    // ---------------------------------------------------------------- E16 F3 (authored, not run: Docker lock held)
+
+    private static final String DB_SETTINGS = "{\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\","
+            + "\"user\":\"ipass_orders\",\"table\":\"orders_in\"}";
+
+    private String dbSystemOfA() {
+        Response created = call(port, "POST", SYSTEMS, configuratorOfA(),
+                systemBody(randomCode("sys-db"), "OUTBOUND", "DB", DB_SETTINGS));
+        assertThat(created.status()).as("body: %s", created.body()).isEqualTo(201);
+        return created.json().path("id").asString();
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("E16 F3 task 1: a configurator saving DB settings with approvedTables is refused 400 FIELD_NOT_ALLOWED, on create and on edit")
+    void approvedTablesInSettingsIsRefused() {
+        String withKey = DB_SETTINGS.replace("}", ",\"approvedTables\":[\"users\"]}");
+
+        Response create = call(port, "POST", SYSTEMS, configuratorOfA(),
+                systemBody(randomCode("sys-db"), "OUTBOUND", "DB", withKey));
+        assertThat(create.status()).as("body: %s", create.body()).isEqualTo(400);
+        assertThat(create.json().path("refusal").asString()).isEqualTo("FIELD_NOT_ALLOWED");
+
+        String id = dbSystemOfA();
+        Response edit = call(port, "PUT", SYSTEMS + "/" + id, configuratorOfA(),
+                "{\"type\":\"DB\",\"settings\":" + withKey + "}");
+        assertThat(edit.status()).as("body: %s", edit.body()).isEqualTo(400);
+        assertThat(edit.json().path("refusal").asString()).isEqualTo("FIELD_NOT_ALLOWED");
+    }
+
+    @Test
+    @DisplayName("E16 F3 tasks 4-7: a configurator requests, a different approver approves; the list shows PENDING then APPROVED")
+    void aConfiguratorRequestsAndAnotherPersonApproves() {
+        String id = dbSystemOfA();
+        String path = SYSTEMS + "/" + id + "/approved-tables";
+        String configurator = configuratorOfA();
+
+        Response requested = call(port, "POST", path, configurator, "{\"table\":\"orders_in\"}");
+        assertThat(requested.status()).as("body: %s", requested.body()).isEqualTo(201);
+        assertThat(requested.json().path("status").asString()).isEqualTo("PENDING_APPROVAL");
+        String rowId = requested.json().path("id").asString();
+
+        assertThat(call(port, "POST", path, configurator, "{\"table\":\"ORDERS_IN\"}").status())
+                .as("a second request for the same table, any case").isEqualTo(409);
+        assertThat(call(port, "POST", path, configurator, "{\"table\":\"x; drop table y\"}").status()).isEqualTo(400);
+        assertThat(call(port, "POST", path + "/" + rowId + "/approve", configurator, null).status())
+                .as("a configurator holds no APPROVE_DB_TABLE").isEqualTo(403);
+
+        String approver = E5SystemFixture.newUser(E5SystemFixture.tenantA().id(), "APPROVER");
+        Response approved = call(port, "POST", path + "/" + rowId + "/approve", approver, null);
+        assertThat(approved.status()).as("body: %s", approved.body()).isEqualTo(200);
+        assertThat(approved.json().path("status").asString()).isEqualTo("APPROVED");
+        assertThat(approved.json().path("targetCurrent").asBoolean()).isTrue();
+        assertThat(call(port, "GET", path, configurator, null).json().get(0).path("status").asString())
+                .isEqualTo("APPROVED");
+        assertThat(call(port, "POST", path + "/" + rowId + "/approve", approver, null).status()).isEqualTo(409);
+        assertThat(call(port, "POST", path + "/" + rowId + "/revoke", approver, null).status()).isEqualTo(200);
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("E16 F3 D4: a tenant admin who requested a table can never approve it, even as the only admin")
+    void aRequesterNeverApprovesTheirOwnRequest() {
+        String id = dbSystemOfA();
+        String path = SYSTEMS + "/" + id + "/approved-tables";
+        String admin = E5SystemFixture.newUser(E5SystemFixture.tenantA().id(), "TENANT_ADMIN");
+
+        Response requested = call(port, "POST", path, admin, "{\"table\":\"orders_in\"}");
+        assertThat(requested.status()).as("body: %s", requested.body()).isEqualTo(201);
+        Response self = call(port, "POST", path + "/" + requested.json().path("id").asString() + "/approve", admin, null);
+
+        assertThat(self.status()).as("body: %s", self.body()).isEqualTo(403);
+        assertThat(self.json().path("refusal").asString()).isEqualTo("REQUESTER_IS_APPROVER");
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("tenant")
+    @DisplayName("E16 F3: tenant B sees 404 for tenant A's system and rows, and its token cannot approve them")
+    void approvedTablesAreTenantScoped() {
+        String id = dbSystemOfA();
+        String path = SYSTEMS + "/" + id + "/approved-tables";
+        String rowId = call(port, "POST", path, configuratorOfA(), "{\"table\":\"orders_in\"}").json().path("id").asString();
+        String adminOfB = E5SystemFixture.newUser(E5SystemFixture.tenantB().id(), "TENANT_ADMIN");
+
+        assertThat(call(port, "GET", path, adminOfB, null).status()).isEqualTo(404);
+        assertThat(call(port, "POST", path + "/" + rowId + "/approve", adminOfB, null).status()).isEqualTo(404);
+        assertThat(scalar("select status from public.db_target_approved_table where id = ?::uuid", rowId))
+                .isEqualTo("PENDING_APPROVAL");
     }
 }

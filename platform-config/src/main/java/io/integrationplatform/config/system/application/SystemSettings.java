@@ -22,7 +22,9 @@ import tools.jackson.databind.JsonNode;
  *   <tr><td>API</td><td>baseUrl (http/https address with a host, no user info)</td>
  *       <td>timeoutMs (100-300000), followRedirects (boolean, default false), errorDictionary (T-182:
  *       status 100-599 to TRANSIENT, AMBIGUOUS or PERMANENT; never a retryable class for 400, 401, 403, 422)</td></tr>
- *   <tr><td>DB</td><td>host, port (1-65535), database, user (E16 C3: the restricted account)</td><td>table, approvedTables (plain identifiers; E16)</td></tr>
+ *   <tr><td>DB</td><td>host, port (1-65535), database, user (E16 C3: the restricted account)</td><td>table (plain identifier; E16).
+ *       The approved tables are NOT a setting (E16 F3): a save carrying {@code approvedTables} is refused
+ *       {@value #FIELD_NOT_ALLOWED}; they are requested and approved through the approved-tables API</td></tr>
  *   <tr><td>MQ</td><td>host, port (1-65535), queue</td><td>-</td></tr>
  *   <tr><td>FILE</td><td>rootPath</td><td>fileNamePattern (plain name; {deliveryId}, {ext}; E16)</td></tr>
  *   <tr><td>KAFKA</td><td>bootstrapServers (host:port list), topic (never a platform topic)</td>
@@ -42,6 +44,16 @@ public final class SystemSettings {
     public static final List<String> TYPES = List.of("API", "DB", "MQ", "FILE", "KAFKA");
 
     static final int MAX_TEXT = 2048;
+
+    /** E16 F3: the refusal code of a settings key that moved out of the settings (a save carrying it is 400). */
+    public static final String FIELD_NOT_ALLOWED = "FIELD_NOT_ALLOWED";
+
+    private static final String APPROVED_TABLES = "approvedTables";
+
+    /** E16 F3: whether {@code name} is a plain SQL identifier (a DB target's table name). */
+    public static boolean isIdentifier(String name) {
+        return name != null && IDENTIFIER.matcher(name).matches();
+    }
 
     /** E16: the protocol a KAFKA system without {@code securityProtocol} is dialled with - TLS, never clear text. */
     public static final String KAFKA_DEFAULT_PROTOCOL = "SSL";
@@ -70,8 +82,6 @@ public final class SystemSettings {
         TEXT, PORT, HTTP_URL, TIMEOUT_MS, BOOLEAN, TRIAL_CALLS, ERROR_DICTIONARY,
         /** E16: a plain SQL identifier (the DB target's account and table). */
         IDENTIFIER,
-        /** E16: an array of plain SQL identifiers (the DB target's approved tables). */
-        IDENTIFIER_LIST,
         /** E16: comma-separated host:port list (the Kafka target's bootstrap servers). */
         BOOTSTRAP_SERVERS,
         /** E16: a Kafka topic that is not one of the platform's own (T-184 SF-2). */
@@ -119,8 +129,7 @@ public final class SystemSettings {
                 new Field("errorDictionary", Kind.ERROR_DICTIONARY, false), TRIAL_CALLS));
         schemas.put("DB", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
                 new Field("database", Kind.TEXT, true), new Field("user", Kind.IDENTIFIER, true),
-                new Field("table", Kind.IDENTIFIER, false), new Field("approvedTables", Kind.IDENTIFIER_LIST, false),
-                TRIAL_CALLS));
+                new Field("table", Kind.IDENTIFIER, false), TRIAL_CALLS));
         List<Field> dbWithTls = new ArrayList<>(schemas.get("DB")); // F5: optional encrypted-only sslmode
         dbWithTls.add(new Field("sslmode", Kind.SSL_MODE, false));
         schemas.put("DB", List.copyOf(dbWithTls));
@@ -200,7 +209,11 @@ public final class SystemSettings {
             }
         }
         for (String name : settings.propertyNames()) {
-            if (schema.stream().noneMatch(field -> field.name().equals(name))) {
+            if (typeName.equals("DB") && name.equals(APPROVED_TABLES)) {
+                errors.add("settings." + APPROVED_TABLES + " is not allowed (" + FIELD_NOT_ALLOWED + "): the tables a"
+                        + " DB target may write to are requested and approved at"
+                        + " /api/v1/admin/systems/{systemId}/approved-tables, never listed in the settings");
+            } else if (schema.stream().noneMatch(field -> field.name().equals(name))) {
                 errors.add("settings." + clip(name) + " is not a known " + typeName + " setting");
             }
         }
@@ -230,7 +243,6 @@ public final class SystemSettings {
             case HTTP_URL -> httpUrlProblem(value);
             case IDENTIFIER -> value.isString() && IDENTIFIER.matcher(value.stringValue()).matches() ? null
                     : "must be a plain identifier (letters, digits, underscore)";
-            case IDENTIFIER_LIST -> identifierListProblem(value);
             case SSL_MODE -> value.isString() && DB_SSL_MODES.contains(value.stringValue()) ? null
                     : "must be one of " + String.join(", ", DB_SSL_MODES);
             case BOOTSTRAP_SERVERS -> bootstrapServersProblem(value);
@@ -313,18 +325,6 @@ public final class SystemSettings {
         return errors;
     }
 
-    private static String identifierListProblem(JsonNode value) {
-        String expected = "must be an array of plain identifiers (letters, digits, underscore)";
-        if (!value.isArray() || value.size() > 64) {
-            return expected;
-        }
-        for (JsonNode entry : value) {
-            if (!entry.isString() || !IDENTIFIER.matcher(entry.stringValue()).matches()) {
-                return expected;
-            }
-        }
-        return null;
-    }
 
     private static String bootstrapServersProblem(JsonNode value) {
         String expected = "must be a comma-separated list of host:port, port 1 to 65535";

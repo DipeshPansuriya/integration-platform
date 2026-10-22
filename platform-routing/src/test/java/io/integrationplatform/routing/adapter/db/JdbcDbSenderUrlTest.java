@@ -31,7 +31,7 @@ class JdbcDbSenderUrlTest {
     }
 
     static DbSettings settings(String host, String database, String sslmode) {
-        return new DbSettings(host, 5432, database, "restricted", "orders_in", List.of("orders_in"), sslmode);
+        return new DbSettings(host, 5432, database, "restricted", "orders_in", sslmode);
     }
 
     @Test
@@ -63,8 +63,8 @@ class JdbcDbSenderUrlTest {
     @Tag("negative")
     @Tag("security")
     void anAccountWithUrlOrSqlSyntaxCannotBeBuilt() {
-        assertThatThrownBy(() -> new DbSettings("db.partner.example", 5432, "orders", "a\"b", "orders_in",
-                List.of("orders_in"), null)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new DbSettings("db.partner.example", 5432, "orders", "a\"b", "orders_in", null))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -120,7 +120,7 @@ class JdbcDbSenderUrlTest {
                 }
             });
             DbSettings settings = new DbSettings("db.rebinding.invalid", listener.getLocalPort(), "orders",
-                    "restricted", "orders_in", List.of("orders_in"), null);
+                    "restricted", "orders_in", null);
 
             assertThatThrownBy(() -> new JdbcDbSender(Duration.ofSeconds(3), "disable")
                     .insert(message(settings), UUID.randomUUID(), InetAddress.getLoopbackAddress()))
