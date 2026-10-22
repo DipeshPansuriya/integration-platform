@@ -22,6 +22,7 @@ import {
 import { hasHarnessLogin, loadHarnessConfig } from '../api/harness-config';
 import { statusBadge } from './dashboard-counts';
 import { harnessApproveOffered, isImmutable, lifecycleActions, lifecycleSteps, NEW_FLOW_HASH } from './flow-lifecycle';
+import { actionFailure, PENDING_LABEL, statusAnnouncement } from './versions-view';
 import './flows.css';
 
 function bundleOf(detail: FlowDetail) {
@@ -61,10 +62,20 @@ export function Versions() {
   const [published, setPublished] = useState(false);
   const [bundleEqualsSnapshot, setBundleEqualsSnapshot] = useState<boolean | null>(null);
   const [harnessApprover, setHarnessApprover] = useState(false);
+  // A4/A7: the action in flight (its buttons all go inert), the worded failure of the last action, and
+  // the polite announcement of the last status change.
+  const [pending, setPending] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState('');
 
   const setVersionStatus = (next: string) => {
     statusRef.current = next;
     setStatus(next);
+  };
+  /** A status the user's own action produced (not a row click): announced to assistive tech. */
+  const advanceTo = (next: string) => {
+    setVersionStatus(next);
+    setAnnouncement(statusAnnouncement(next));
   };
   /** The clicked row becomes THE selected version: handlers act on it, and every surface that shows
    * or compares per version (status, submit snapshot, published bundle) re-syncs to it. */
@@ -76,14 +87,25 @@ export function Versions() {
     setPublished(false);
     setBundleEqualsSnapshot(null);
     setRefusal(null); // a refusal answered for the previous row
+    setFailure(null);
+    setAnnouncement('');
   };
   /** Clicks are fire-and-forget for the specs; actions run in click order on real answers. */
-  const enqueue = (action: () => Promise<void>) => {
-    queueRef.current = queueRef.current.then(() => action().catch((e) => console.error('versions action failed', e)));
+  const enqueue = (name: string, action: () => Promise<void>) => {
+    setPending(name);
+    setFailure(null);
+    queueRef.current = queueRef.current
+      .then(() =>
+        action().catch((e) => {
+          console.error('versions action failed', e);
+          setFailure(actionFailure(name, 0));
+        })
+      )
+      .then(() => setPending(null));
   };
 
-  useEffect(() => {
-    void loadHarnessConfig().then(() => setHarnessApprover(hasHarnessLogin('approver')));
+  const loadFlows = () => {
+    setLoad('loading');
     void listFlows().then((list) => {
       if (!list.ok) {
         setLoad('error');
@@ -94,11 +116,22 @@ export function Versions() {
       // Select (never create): the first draft row, else the first row.
       const first = list.data.find((row) => row.status === 'DRAFT') ?? list.data[0];
       if (first && selectedRef.current === null) selectFlow(first);
-    });
+    }).catch(() => setLoad('error'));
+  };
+
+  useEffect(() => {
+    void loadHarnessConfig().then(() => setHarnessApprover(hasHarnessLogin('approver')));
+    loadFlows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const detailOf = async (id: string): Promise<FlowDetail | null> => {
+  /** Reads the selected version; a failed read is worded for the action that needed it (A4). */
+  const detailOf = async (id: string, action: string): Promise<FlowDetail | null> => {
+    const read = await readFlow(id);
+    if (!read.ok) setFailure(actionFailure(action, read.status));
+    return read.ok ? read.data : null;
+  };
+  const detailQuiet = async (id: string): Promise<FlowDetail | null> => {
     const read = await readFlow(id);
     return read.ok ? read.data : null;
   };
@@ -107,17 +140,22 @@ export function Versions() {
     const id = selectedRef.current;
     if (!id) return;
     setRefusal(null);
-    const detail = await detailOf(id);
+    const detail = await detailOf(id, 'submit-for-approval');
     if (!detail) return;
     setSnapshotAtSubmit(bundleOf(detail));
     const note = changeNote.trim() || 'console submit (no change note given)';
     let result = await submitFlow(id, note);
     if (!result.ok && result.status === 409) {
       // No draft to submit: the immutable-version design says the only way is a NEW draft (T-019).
-      await saveFlowDraft(id, detailBody(detail));
+      const resaved = await saveFlowDraft(id, detailBody(detail));
+      if (!resaved.ok) {
+        setFailure(actionFailure('submit-for-approval', resaved.status));
+        return;
+      }
       result = await submitFlow(id, note);
     }
-    if (result.ok) setVersionStatus('SUBMITTED');
+    if (result.ok) advanceTo('SUBMITTED');
+    else setFailure(actionFailure('submit-for-approval', result.status));
   };
 
   const onApprove = async (asLogin?: string) => {
@@ -126,12 +164,12 @@ export function Versions() {
     setRefusal(null);
     const result = await approveFlow(id, asLogin);
     if (result.ok) {
-      setVersionStatus('APPROVED');
+      advanceTo('APPROVED');
       return;
     }
     if (result.refusal === 'AUTHOR_IS_APPROVER') setRefusal('author-cannot-approve');
     else if (result.status === 409) setRefusal('not-pending-approval');
-    else setRefusal(`approve-refused-${result.status}`);
+    else setFailure(actionFailure('approve', result.status));
   };
 
   const onPublish = async () => {
@@ -141,23 +179,24 @@ export function Versions() {
     const result = await publishFlow(id);
     if (!result.ok) {
       // T83: a server-refused publish (e.g. the T-037 sample-run gate's 409) is shown, never swallowed.
-      setRefusalText(result.error ?? `the API answered ${result.status}`);
+      setRefusalText(result.error ?? actionFailure('publish', result.status));
       setRefusal('publish');
       return;
     }
     setPublished(true);
-    setVersionStatus('PUBLISHED');
-    const detail = await detailOf(id);
+    advanceTo('PUBLISHED');
+    const detail = await detailQuiet(id);
     setBundleEqualsSnapshot(detail !== null && snapshotAtSubmit !== null && bundleOf(detail) === snapshotAtSubmit);
   };
 
-  const saveCurrentDraft = async (): Promise<boolean> => {
+  const saveCurrentDraft = async (action: string): Promise<boolean> => {
     const id = selectedRef.current;
     if (!id) return false;
-    const detail = await detailOf(id);
+    const detail = await detailOf(id, action);
     if (!detail) return false;
     const result = await saveFlowDraft(id, detailBody(detail));
-    if (result.ok) setVersionStatus('DRAFT');
+    if (result.ok) advanceTo('DRAFT');
+    else setFailure(actionFailure(action, result.status));
     return result.ok;
   };
 
@@ -167,11 +206,11 @@ export function Versions() {
       setRefusal('submitted-version-immutable');
       return;
     }
-    await saveCurrentDraft();
+    if (await saveCurrentDraft('save-draft')) setAnnouncement('Draft saved.');
   };
 
   const onNewDraft = async () => {
-    if (await saveCurrentDraft()) {
+    if (await saveCurrentDraft('new-draft')) {
       setRefusal(null);
       setPublished(false);
       setBundleEqualsSnapshot(null);
@@ -194,7 +233,10 @@ export function Versions() {
       {load === 'loading' && <p className="flows-muted" aria-live="polite">Loading flows...</p>}
       {load === 'error' && (
         <p role="alert" className="flows-alert flows-alert-danger" data-load-error="flows">
-          The flow list could not be loaded. Reload the page to try again.
+          The flow list could not be loaded. Check your connection and try again.{' '}
+          <button type="button" className="btn" data-action="retry-load" onClick={loadFlows}>
+            Retry
+          </button>
         </p>
       )}
       {load === 'ready' && flows.length === 0 && (
@@ -265,28 +307,28 @@ export function Versions() {
 
               <div className="versions-actions">
                 {actions.includes('save-draft') && (
-                  <button type="button" className="btn" data-action="save-draft" onClick={() => enqueue(onSaveDraft)}>
-                    Save draft
+                  <button type="button" className="btn" data-action="save-draft" disabled={pending !== null} aria-busy={pending === 'save-draft'} onClick={() => enqueue('save-draft', onSaveDraft)}>
+                    {pending === 'save-draft' ? PENDING_LABEL['save-draft'] : 'Save draft'}
                   </button>
                 )}
                 {actions.includes('submit-for-approval') && (
-                  <button type="button" className="btn btn-primary" data-action="submit-for-approval" onClick={() => enqueue(onSubmit)}>
-                    Submit for approval
+                  <button type="button" className="btn btn-primary" data-action="submit-for-approval" disabled={pending !== null} aria-busy={pending === 'submit-for-approval'} onClick={() => enqueue('submit-for-approval', onSubmit)}>
+                    {pending === 'submit-for-approval' ? PENDING_LABEL['submit-for-approval'] : 'Submit for approval'}
                   </button>
                 )}
                 {actions.includes('approve') && (
-                  <button type="button" className="btn btn-primary" data-action="approve" onClick={() => enqueue(() => onApprove())}>
-                    Approve
+                  <button type="button" className="btn btn-primary" data-action="approve" disabled={pending !== null} aria-busy={pending === 'approve'} onClick={() => enqueue('approve', () => onApprove())}>
+                    {pending === 'approve' ? PENDING_LABEL.approve : 'Approve'}
                   </button>
                 )}
                 {actions.includes('publish') && (
-                  <button type="button" className="btn btn-primary" data-action="publish" disabled={status !== 'APPROVED'} onClick={() => enqueue(onPublish)}>
-                    Publish
+                  <button type="button" className="btn btn-primary" data-action="publish" disabled={status !== 'APPROVED' || pending !== null} aria-busy={pending === 'publish'} onClick={() => enqueue('publish', onPublish)}>
+                    {pending === 'publish' ? PENDING_LABEL.publish : 'Publish'}
                   </button>
                 )}
                 {actions.includes('new-draft') && (
-                  <button type="button" className="btn" data-action="new-draft" onClick={() => enqueue(onNewDraft)}>
-                    New draft
+                  <button type="button" className="btn" data-action="new-draft" disabled={pending !== null} aria-busy={pending === 'new-draft'} onClick={() => enqueue('new-draft', onNewDraft)}>
+                    {pending === 'new-draft' ? PENDING_LABEL['new-draft'] : 'New draft'}
                   </button>
                 )}
               </div>
@@ -323,11 +365,14 @@ export function Versions() {
                   Publish refused: {refusalText}
                 </p>
               )}
-              {refusal !== null && !['author-cannot-approve', 'submitted-version-immutable', 'not-pending-approval', 'publish'].includes(refusal) && (
-                <p role="alert" className="flows-alert flows-alert-danger" data-refusal={refusal}>
-                  The API refused this action ({refusal}).
+              {failure !== null && (
+                <p role="alert" className="flows-alert flows-alert-danger" data-action-failure="true">
+                  {failure}
                 </p>
               )}
+              <p className="flows-sr-only" role="status" aria-live="polite" data-live-region="true">
+                {announcement}
+              </p>
               {published && <p className="flows-alert flows-alert-success" data-published="true">Published.</p>}
               {bundleEqualsSnapshot !== null && (
                 <p data-bundle-equals-snapshot={String(bundleEqualsSnapshot)}>
@@ -338,7 +383,7 @@ export function Versions() {
               {harnessApproveOffered(status, harnessApprover) && (
                 <div className="versions-harness" aria-label="Test harness">
                   <span className="flows-muted">Test harness</span>
-                  <button type="button" className="btn versions-ghost" data-action="approve-as-approver" onClick={() => enqueue(() => onApprove('approver'))}>
+                  <button type="button" className="btn versions-ghost" data-action="approve-as-approver" disabled={pending !== null} onClick={() => enqueue('approve', () => onApprove('approver'))}>
                     Approve as the harness approver
                   </button>
                 </div>
