@@ -168,10 +168,10 @@ test('selector contract kept exactly (screens specs key off these)', () => {
   }
 });
 
-test('s7 a11y: h2 screen heading, h3 per table (JdmDecisionTable), kept load states verbatim', () => {
+test('s7 a11y: h1 screen heading, h3 per table (JdmDecisionTable), kept load states verbatim', () => {
   const src = read('RulesEditor.tsx');
   assert.match(src, /Loading the rule set\.\.\./);
   assert.match(src, /Rule set not found\./);
-  assert.match(src, /<h2[^>]*>Rules<\/h2>/);
+  assert.match(src, /<h1[^>]*>Rules<\/h1>/);
   assert.match(src, /<label[\s\S]{0,80}Kind filter|aria-label="Filter by kind"/);
 });

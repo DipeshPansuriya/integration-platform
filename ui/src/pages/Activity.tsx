@@ -11,6 +11,7 @@ import { listActivity, readActivity, type ActivityPage } from '../api/activity';
 import {
   activityQuery,
   activityRows,
+  activityTone,
   eventIdFromHash,
   pagerState,
   refusalState,
@@ -71,7 +72,7 @@ function EventDetail({ eventId }: { eventId: string }) {
           <dt>Actor</dt>
           <dd data-actor-cell>{row.actor}</dd>
           <dt>Action</dt>
-          <dd>{row.action}</dd>
+          <dd><span className={`badge badge-${activityTone(row.action)}`} data-activity-action>{row.action}</span></dd>
           <dt>Targets</dt>
           <dd>{row.targets}</dd>
           <dt>Before</dt>
@@ -187,7 +188,7 @@ export function Activity() {
                 <a href={`#/activity/${encodeURIComponent(row.id)}`}><time dateTime={row.at} className="op-mono">{utcText(row.at)}</time></a>
               </td>
               <td data-actor-cell>{row.actor}</td>
-              <td>{row.action}</td>
+              <td><span className={`badge badge-${activityTone(row.action)}`} data-activity-action>{row.action}</span></td>
               <td>{row.targets}</td>
             </tr>
           ))}

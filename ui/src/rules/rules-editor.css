@@ -48,7 +48,7 @@
   flex-wrap: wrap;
   padding-bottom: var(--space-4);
 }
-:is(.rules-home, .rules-editor) .rules-head h2 {
+:is(.rules-home, .rules-editor) .rules-head h1 {
   margin: 0;
 }
 :is(.rules-home, .rules-editor) .rules-card {

@@ -234,9 +234,9 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
   return (
     <div data-page="flow-definition" className="flows-page">
       <div className="flows-head">
-        <h2 ref={heading} tabIndex={-1}>
+        <h1 ref={heading} tabIndex={-1}>
           Flow definition
-        </h2>
+        </h1>
         <a href="#/flows" data-action="back-to-flows" onClick={onBack}>
           All flows
         </a>

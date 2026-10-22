@@ -10,7 +10,7 @@
   flex-wrap: wrap;
   padding-bottom: var(--space-4);
 }
-.contracts-page .contracts-head h2 {
+.contracts-page .contracts-head h1 {
   margin: 0;
 }
 

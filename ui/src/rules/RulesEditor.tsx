@@ -82,7 +82,7 @@ function RulesHome() {
     <div data-page="rules-home">
       <div className="rules-home">
         <div className="rules-head">
-          <h2>Rules</h2>
+          <h1>Rules</h1>
           <button
             type="button"
             className="btn btn-primary"
@@ -260,7 +260,7 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
       <div className="rules-editor rules-layout">
         <div className="rules-main">
           <div className="rules-head">
-            <h2>{kindBadge(kind).word}</h2>
+            <h1>{kindBadge(kind).word}</h1>
           </div>
           <section className="rules-card" aria-label="Rule set settings">
             <div className="rules-settings">

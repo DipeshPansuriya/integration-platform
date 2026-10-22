@@ -32,6 +32,11 @@ export function reportRows(answer: readonly DailyCounts[]): ReportRow[] {
   });
 }
 
+/** A failed or still-stuck count above zero needs attention (danger badge); zero stays plain text. */
+export function countTone(count: number): 'danger' | 'plain' {
+  return count > 0 ? 'danger' : 'plain';
+}
+
 export function reportColumns(): string[] {
   return ['Interface', 'Target', 'Successes', 'Failures', 'Deliveries', 'Retries made', 'Retried then succeeded', 'Still stuck'];
 }

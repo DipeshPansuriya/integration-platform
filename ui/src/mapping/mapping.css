@@ -11,7 +11,7 @@
   flex-wrap: wrap;
   padding-bottom: var(--space-4);
 }
-.mapping-page .mapping-head h2 {
+.mapping-page .mapping-head h1 {
   margin: 0;
 }
 .mapping-page .mapping-lede,

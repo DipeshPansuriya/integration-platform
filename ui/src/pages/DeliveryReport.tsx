@@ -6,6 +6,7 @@ import { deliveryReport } from '../api/reports';
 import {
   NO_DAY_COPY,
   emptyReportText,
+  countTone,
   reportColumns,
   reportQuery,
   reportRows,
@@ -21,6 +22,10 @@ const REFUSAL_COPY: Record<'refused' | 'error', string> = {
   refused: 'You do not have permission to read the message timeline, so the delivery report is refused.',
   error: 'The delivery report could not be loaded.',
 };
+
+function Count({ value }: { value: number }) {
+  return countTone(value) === 'danger' ? <span className="badge badge-danger">{value}</span> : <>{value}</>;
+}
 
 export default function DeliveryReport() {
   const [rows, setRows] = useState<ReportRow[]>([]);
@@ -104,11 +109,11 @@ export default function DeliveryReport() {
                   <td className="op-mono">{row.interfaceId}</td>
                   <td className="op-mono">{row.targetId}</td>
                   <td className="num">{row.successes}</td>
-                  <td className="num">{row.failures}</td>
+                  <td className="num"><Count value={row.failures} /></td>
                   <td className="num">{row.deliveries}</td>
                   <td className="num">{row.retriesMade}</td>
                   <td className="num">{row.retriedThenSucceeded}</td>
-                  <td className="num">{row.stillStuck}</td>
+                  <td className="num"><Count value={row.stillStuck} /></td>
                 </tr>
               ))}
               {view === 'empty' && (

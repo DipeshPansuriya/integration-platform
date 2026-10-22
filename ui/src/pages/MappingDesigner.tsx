@@ -290,7 +290,7 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
   return (
     <div data-page="mapping-designer" data-mapping-loaded={loaded ? 'true' : undefined} className="mapping-page">
       <div className="mapping-head">
-        <h2>Mapping designer</h2>
+        <h1>Mapping designer</h1>
         {routeId && <a href="#/mappings" data-action="all-mappings">All mappings</a>}
       </div>
       {routeId ? (

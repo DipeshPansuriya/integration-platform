@@ -229,7 +229,7 @@ export function Versions({ selectId = null }: { selectId?: string | null }) {
 
   return (
     <div data-page="versions" className="versions-page">
-      <h2>Versions and approval</h2>
+      <h1>Versions and approval</h1>
       {load === 'loading' && <p className="flows-muted" aria-live="polite">Loading flows...</p>}
       {load === 'error' && (
         <p role="alert" className="flows-alert flows-alert-danger" data-load-error="flows">

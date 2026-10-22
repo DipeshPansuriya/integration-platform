@@ -93,7 +93,7 @@ export function ContractVersions() {
     <div data-page="contracts" data-contracts-loaded={String(loaded)}>
       <div className="contracts-page">
         <div className="contracts-head">
-          <h2>Contract versions</h2>
+          <h1>Contract versions</h1>
           <button type="button" className="btn btn-primary" data-action="open-import" onClick={() => setImporting(true)}>
             Import a contract version
           </button>

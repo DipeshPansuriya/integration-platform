@@ -122,7 +122,7 @@ export function Systems() {
     <div data-page="systems" data-systems-loaded={String(loaded)}>
       <div className="systems-page">
         <div className="systems-head">
-          <h2>Systems</h2>
+          <h1>Systems</h1>
           <button type="button" className="btn btn-primary" data-action="open-register" onClick={() => setRegistering(true)}>
             Register system
           </button>

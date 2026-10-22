@@ -11,7 +11,7 @@
   flex-wrap: wrap;
   padding-bottom: var(--space-4); /* B15: the title's space below moves here, so the head centres on the title */
 }
-:is(.flows-page, .versions-page) .flows-head h2 {
+:is(.flows-page, .versions-page) .flows-head h1 {
   margin: 0;
 }
 
