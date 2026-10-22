@@ -103,19 +103,22 @@ class SecurityGateS2TenantIsolationContainerTest {
         return DriverManager.getConnection(POSTGRES.getJdbcUrl(), login.username(), login.password());
     }
 
-    /** Every public table under row-level security in the full product schema (all modules' migrations). */
-    private static List<String> rlsTables() throws SQLException {
-        List<String> tables = new ArrayList<>();
+    private static List<String> names(String sql) throws SQLException {
+        List<String> found = new ArrayList<>();
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES);
-                Statement sql = owner.createStatement();
-                ResultSet rs = sql.executeQuery("select c.relname from pg_class c join pg_namespace n on n.oid ="
-                        + " c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity"
-                        + " order by 1")) {
+                Statement sql1 = owner.createStatement();
+                ResultSet rs = sql1.executeQuery(sql)) {
             while (rs.next()) {
-                tables.add(rs.getString(1));
+                found.add(rs.getString(1));
             }
         }
-        return tables;
+        return found;
+    }
+
+    /** Every public relation under row-level security: ordinary tables, partitioned parents and the partitions. */
+    private static List<String> rlsTables() throws SQLException {
+        return names("select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where"
+                + " n.nspname = 'public' and c.relkind in ('r', 'p') and c.relrowsecurity order by 1");
     }
 
     /**
@@ -188,26 +191,59 @@ class SecurityGateS2TenantIsolationContainerTest {
      */
     @Test
     void s2_a5_rls_control_2_autocommit_fails_closed() throws SQLException {
+        String app = login.username();
         List<String> tables = rlsTables();
-        assertThat(tables).as("the full schema has RLS tables to sweep").hasSizeGreaterThan(10);
+        assertThat(tables).as("the full schema has RLS relations to sweep").hasSizeGreaterThan(10);
+        // the six partitioned parents are in the sweep (a relkind 'r' filter used to skip them) ...
+        assertThat(tables).contains("message", "payload", "delivery", "delivery_attempt", "audit_event",
+                "message_stage_timing");
+        assertThat(names("select c.relname from pg_class c where c.relkind = 'p' and c.relnamespace ="
+                + " 'public'::regnamespace and not c.relrowsecurity")).as("partitioned parents without RLS").isEmpty();
+        // the enforcement conditions behind the error code, on EVERY table: a real tenant policy, and a role RLS binds
+        assertThat(names("select c.relname from pg_class c where c.relkind in ('r', 'p') and c.relrowsecurity and"
+                + " c.relnamespace = 'public'::regnamespace and not exists (select 1 from pg_policy p where p.polrelid"
+                + " = c.oid and p.polpermissive and p.polcmd in ('*', 'r') and pg_get_expr(p.polqual, p.polrelid) like"
+                + " '%current_setting(''app.tenant_id''%')"))
+                .as("RLS tables with no permissive read policy keyed on app.tenant_id").isEmpty();
+        assertThat(names("select rolname from pg_roles where rolname in ('" + app + "', 'ipaas_app') and (rolsuper"
+                + " or rolbypassrls)")).as("application roles that bypass RLS").isEmpty();
+        assertThat(names("select c.relname from pg_class c where c.relkind in ('r', 'p') and c.relrowsecurity and"
+                + " c.relnamespace = 'public'::regnamespace and not c.relforcerowsecurity and pg_get_userbyid(c.relowner)"
+                + " in ('" + app + "', 'ipaas_app')")).as("RLS tables the application role owns without FORCE").isEmpty();
+        // no tenant-keyed relation (partitions included) is readable by the application role with RLS off
+        assertThat(names("select c.relname from pg_class c where c.relkind in ('r', 'p') and c.relnamespace ="
+                + " 'public'::regnamespace and not c.relrowsecurity and exists (select 1 from pg_attribute a where"
+                + " a.attrelid = c.oid and a.attname = 'tenant_id' and a.attnum > 0 and not a.attisdropped) and"
+                + " has_table_privilege('" + app + "', c.oid, 'SELECT')"))
+                .as("tenant-keyed relations readable by the application role with row-level security off").isEmpty();
         List<String> leaked = new ArrayList<>();
-        try (Connection app = appConnection()) {
-            assertThat(app.getAutoCommit()).isTrue();
+        List<String> swept = new ArrayList<>();
+        try (Connection appConn = appConnection()) {
+            assertThat(appConn.getAutoCommit()).isTrue();
             for (String table : tables) {
-                // autocommit and a fresh session: no transaction-scoped app.tenant_id exists, so the policy must error
-                try (Statement sql = app.createStatement(); ResultSet rs = sql.executeQuery("select * from public.\""
-                        + table + "\"")) {
+                boolean readable = names("select 'x' where has_table_privilege('" + app + "', 'public.\"" + table
+                        + "\"', 'SELECT')").size() == 1;
+                if (!readable) {
+                    continue; // no SELECT grant: refused by privilege, and the policy conditions above still hold
+                }
+                swept.add(table);
+                // autocommit and a fresh session: no transaction-scoped app.tenant_id exists, so the POLICY must
+                // error. 42501 would be a missing grant, not row-level security, so it does not count here.
+                try (Statement sql = appConn.createStatement(); ResultSet rs = sql.executeQuery("select * from"
+                        + " public.\"" + table + "\"")) {
                     int rows = 0;
                     while (rs.next()) {
                         rows++;
                     }
                     leaked.add(table + " returned " + rows + " rows without erroring");
                 } catch (SQLException expected) {
-                    assertThat(expected.getSQLState()).as(table).isIn("42704", "22P02", "42501");
+                    assertThat(expected.getSQLState()).as(table).isIn("42704", "22P02");
                 }
             }
         }
         assertThat(leaked).as("tables that answered an unstamped autocommit read").isEmpty();
+        assertThat(swept).as("RLS relations readable by the application role, each proven fail-closed")
+                .contains("message", "payload", "delivery").hasSizeGreaterThan(10);
     }
 
     /**
