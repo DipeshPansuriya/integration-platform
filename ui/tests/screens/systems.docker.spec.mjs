@@ -224,6 +224,87 @@ test('editing a Kafka system keeps the security settings the form does not show'
   expect(stored.data.settings).toEqual({ bootstrapServers: 'broker1.partner.test:9092', topic: 'orders.v2', ...kept });
 });
 
+// E16 R1's other side, reviewed against main ce40797 (the KafkaSecurityProtocol module test owns the SEND
+// default): a Kafka system SAVED without a securityProtocol is accepted - clear text is never invented and
+// nothing is written on screen; the run-time default is SSL (SystemSettings.KAFKA_DEFAULT_PROTOCOL).
+test('a Kafka system saved without a securityProtocol is accepted and stays without one on screen', async ({ page }) => {
+  await page.goto(consoleUrl());
+  const code = `sys-kdefault-${RUN}`;
+  const seeded = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
+    code, name: 'Kafka default TLS', direction: 'OUTBOUND', type: 'KAFKA',
+    settings: { bootstrapServers: 'broker1.partner.test:9092', topic: 'orders.out' }
+  });
+  expect(seeded.status).toBe(201);
+
+  await openSystems(page);
+  await page.locator(`[data-system-row="${code}"] [data-action="open-system"]`).click();
+  const editor = page.locator('[data-form="edit-system"]');
+  // no securityProtocol stored -> the read-only "other stored settings" list carries no protocol row
+  await expect(editor).toBeVisible();
+  await expect(editor.locator('[data-extra-setting="securityProtocol"]')).toHaveCount(0);
+
+  // an unchanged save is a no-op on the wire: the absent protocol is never refused, never filled in
+  await page.click('[data-action="save-system"]');
+  await expect(page.locator('[data-saved="true"]')).toBeVisible();
+  const stored = await inBrowser(page, 'GET', `/api/v1/admin/systems/${seeded.data.id}`);
+  expect(stored.status).toBe(200);
+  expect(stored.data.settings).toEqual({ bootstrapServers: 'broker1.partner.test:9092', topic: 'orders.out' });
+});
+
+// E16 R1 (Karan, commit ce40797 "Kafka plaintext off by default"): at SAVE the server refuses a tenant's
+// clear-text protocol - PLAINTEXT and SASL_PLAINTEXT alike - unless the operator set
+// platform.config.destinations.kafka-allow-plaintext (default off in the screens boot, screen-hosts.mjs).
+// The register form offers no protocol field (the screen's security stance: clear text cannot be typed),
+// so this scenario is the signed-in session's API contract; the refusal wording is asserted as-is.
+const R1_TEXT = 'settings.securityProtocol must be SSL or SASL_SSL; clear text is off unless the operator '
+  + 'sets platform.config.destinations.kafka-allow-plaintext';
+
+test('a Kafka create with a clear-text protocol is refused at save with the R1 server words', async ({ page }) => {
+  await page.goto(consoleUrl());
+  const base = { code: `sys-kplain-${RUN}`, name: 'Clear text partner', direction: 'OUTBOUND',
+    settings: { bootstrapServers: 'broker1.partner.test:9092', topic: 'orders.out' } };
+  for (const protocol of ['PLAINTEXT', 'SASL_PLAINTEXT']) {
+    const refusal = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
+      ...base, type: 'KAFKA', settings: { ...base.settings, securityProtocol: protocol }
+    });
+    expect(refusal.status, JSON.stringify(refusal.data)).toBe(400);
+    expect(refusal.data?.errors).toContain(R1_TEXT);
+  }
+
+  // the screen never offers the protocol as an input, so clear text cannot be typed from the console
+  await openSystems(page);
+  await page.click('[data-action="open-register"]');
+  await expect(page.locator('[data-form="register-system"] [data-setting="securityProtocol"]')).toHaveCount(0);
+  await expect(page.locator('[data-form="register-system"] [data-setting="saslMechanism"]')).toHaveCount(0);
+});
+
+// E16 F3, authored on main for the pending product change - the approved tables' save-time refusal lives on
+// branch feature/e16-approved-tables-f3 (commit d0cf84e "UI drops approvedTables"), NOT on main yet: on main
+// the DB schema still accepts approvedTables (SystemSettings.java:122) and the API answers 201. Until it
+// merges this scenario SKIPS with its dependency named; once it merges it runs unguarded, on the same probe.
+test('a DB system whose settings carry approvedTables is refused FIELD_NOT_ALLOWED at save (F3)', async ({ page }) => {
+  await page.goto(consoleUrl());
+  const probe = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
+    code: `sys-f3-${RUN}`, name: 'F3 probe', direction: 'OUTBOUND', type: 'DB',
+    settings: { host: 'db.partner.test', port: 5432, database: 'orders', user: 'etl', approvedTables: ['orders', 'lines'] }
+  });
+  if (probe.status === 201) {
+    test.skip(true, 'BLOCKED product gap: approvedTables is still accepted at save on main - F3 (FIELD_NOT_ALLOWED) '
+      + 'is on feature/e16-approved-tables-f3; run when it merges');
+    return;
+  }
+  expect(probe.status, JSON.stringify(probe.data)).toBe(400);
+  expect(probe.data?.refusal).toBe('FIELD_NOT_ALLOWED'); // the old-client marker the body carries (SystemValidationException)
+  expect(probe.data?.errors).toContain('settings.approvedTables is not allowed (FIELD_NOT_ALLOWED): the tables a'
+    + ' DB target may write to are requested and approved at /api/v1/admin/systems/{systemId}/approved-tables,'
+    + ' never listed in the settings');
+
+  // on the F3 branch the form no longer lists the field, so the console cannot type an approval into settings
+  await openSystems(page);
+  await page.click('[data-action="open-register"]');
+  await expect(page.getByRole('dialog', { name: 'Register a system' }).locator('[data-setting="approvedTables"]')).toHaveCount(0);
+});
+
 // V-3 (row 306 defect batch, lane C): the Test connection button on the systems screen calls the
 // real POST /api/v1/admin/systems/{systemId}/test-connection and shows what the endpoint answers.
 // The screens harness allow-list (screen-hosts.mjs) covers the seed host, so the test call reaches

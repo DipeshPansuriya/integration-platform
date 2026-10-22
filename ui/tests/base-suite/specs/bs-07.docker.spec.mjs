@@ -23,7 +23,7 @@ import { eventually, inBrowser, journal, postRecord, sameAppProcess, sourceToken
 import { bsEnv } from '../support/boot-state.mjs';
 import { readRows } from '../support/db.mjs';
 import { addTracking, readRun } from '../support/run-file.mjs';
-import { rotatedSecret } from '../support/seed.mjs';
+import { intakeCode, rotatedSecret } from '../support/seed.mjs';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -52,7 +52,7 @@ for (const [own, other] of [[TENANTS.A, TENANTS.B], [TENANTS.B, TENANTS.A]]) {
     const token = await sourceOf(page, own);
     const record = orderRecord(own, 1);
 
-    const answer = await postRecord(token, FLOW.code, SOURCE_CONTRACT.versionLabel, record);
+    const answer = await postRecord(token, intakeCode(own), SOURCE_CONTRACT.versionLabel, record);
     expect(answer.status, JSON.stringify(answer.data)).toBe(202);
     const trackingId = answer.data.trackingId;
     addTracking(own.key, [trackingId]);
@@ -84,7 +84,7 @@ test("tenant B's source naming tenant A's customerId reaches nothing of tenant A
   const token = await sourceOf(page, TENANTS.B);
   const forged = forgedRecord(1);
 
-  const answer = await postRecord(token, FLOW.code, SOURCE_CONTRACT.versionLabel, forged);
+  const answer = await postRecord(token, intakeCode(TENANTS.B), SOURCE_CONTRACT.versionLabel, forged);
   // TBD(T106): whether intake refuses a customerId the credential is not bound to, or accepts it into
   // tenant B only [Inferred]. Either way nothing of tenant A may move: asserted below, not the status.
   if (answer.status === 202) {

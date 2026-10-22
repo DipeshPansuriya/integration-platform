@@ -151,8 +151,8 @@ class SystemRegistryContainerTest {
         assertThat(many.status()).as("body: %s", many.body()).isEqualTo(400);
         List<String> errors = errorsOf(many);
         assertThat(String.join("\n", errors)).contains("code").contains("direction").contains("host")
-                .contains("port").contains("database");
-        assertThat(errors).hasSize(5);
+                .contains("port").contains("database").contains("user");
+        assertThat(errors).hasSize(6); // code, direction, host, port, database and the restricted DB account (user)
         assertThat(many.json().path("error").asString()).as("the summary names every error too")
                 .contains("code").contains("database");
     }

@@ -36,6 +36,15 @@ class TargetSettingsUnitTest {
     }
 
     @Test
+    @Tag("negative")
+    @DisplayName("a system without the halfOpenTrialCalls key (the row's value is SQL NULL) is the default 3, not a NullPointerException")
+    void aRowWithANullValueIsTheDefault() {
+        assertThat(JdbcTargetHalfOpenCap.fromRows(java.util.Arrays.asList((String) null))).isEqualTo(3);
+        assertThat(JdbcTargetHalfOpenCap.fromRows(java.util.List.of())).isEqualTo(3);
+        assertThat(JdbcTargetHalfOpenCap.fromRows(java.util.List.of("5"))).isEqualTo(5);
+    }
+
+    @Test
     @DisplayName("the column alone reads as before")
     void theColumnAlone() {
         assertThat(JdbcTargetEndpointViews.dictionary("{\"503\":\"TRANSIENT\",\"418\":\"permanent\"}", null))

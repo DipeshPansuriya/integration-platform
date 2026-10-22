@@ -24,8 +24,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * the lead wires the two register() seams and flips the gate the way {@code KafkaAdapterConfiguration} is wired.
  *
  * <p>E16 security: {@code platform.config.destinations.db-allowed-ports} (default 5432) lists the database ports a
- * target may use; {@code platform.config.destinations.db-sslmode} (default {@code require}) is the TLS mode of a
- * target that names none.
+ * target may use; {@code platform.config.destinations.db-sslmode} (default {@code require}; require, verify-ca or
+ * verify-full - validated at start) is the TLS mode of a target that names none; {@code db-sslrootcert-dir} and
+ * {@code db-sslrootcert} (a file name under that directory) give the driver the CA for verify-ca / verify-full.
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty("IPASS_DB_TARGET_ENABLED")
@@ -59,6 +60,7 @@ public class DbAdapterConfiguration {
             @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts,
             @Value("${platform.config.destinations.db-sslmode:require}") String sslmode) {
         DbBrokerProbe probe = new SocketDbBrokerProbe(guard, dialer);
+        // R6: test-connection applies the SAME port allow-list the send path applies
         DbPrivilegeProbe privileges = null;
         SendTimeCredentials credentials = vault.getIfAvailable();
         org.springframework.transaction.PlatformTransactionManager manager = transactions.getIfAvailable();
@@ -76,8 +78,14 @@ public class DbAdapterConfiguration {
     }
 
     @Bean
-    DbSender dbSender(@Value("${platform.config.destinations.db-sslmode:require}") String sslmode) {
-        return new JdbcDbSender(Duration.ofSeconds(5), sslmode);
+    DbSender dbSender(@Value("${platform.config.destinations.db-sslmode:require}") String sslmode,
+            @Value("${platform.config.destinations.db-sslrootcert-dir:}") String rootCertDir,
+            @Value("${platform.config.destinations.db-sslrootcert:}") String rootCert,
+            org.springframework.core.env.Environment environment) {
+        // R8: a typo or an unencrypted mode stops the start instead of failing open; R3: the operator's CA file
+        String mode = DbTlsPolicy.requireSslmode(sslmode, environment.acceptsProfiles(
+                org.springframework.core.env.Profiles.of("test")));
+        return new JdbcDbSender(Duration.ofSeconds(5), mode, DbTlsPolicy.rootCert(rootCertDir, rootCert));
     }
 
     @Bean

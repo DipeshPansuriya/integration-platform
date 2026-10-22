@@ -74,7 +74,7 @@ class DbTargetHardeningTest {
     void aMappedColumnCannotBeThePlatformsIdempotencyColumn() throws Exception {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("awb", "ABX1");
-        row.put("Delivery_Id", UUID.randomUUID()); // would void ON CONFLICT (delivery_id) DO NOTHING
+        row.put("Delivery_Id", UUID.randomUUID()); // would void the platform's own idempotency column
 
         assertPermanentAndNothingSent(() -> call(SETTINGS, row).call(send));
     }
@@ -95,8 +95,7 @@ class DbTargetHardeningTest {
 
         String statement = JdbcDbSender.insert(message);
 
-        assertThat(statement).isEqualTo("INSERT INTO orders_in (awb, pieces, delivery_id) VALUES (?, ?, ?)"
-                + " ON CONFLICT (delivery_id) DO NOTHING");
+        assertThat(statement).isEqualTo("INSERT INTO orders_in (awb, pieces, delivery_id) VALUES (?, ?, ?)");
         assertThat(statement).doesNotContain("DROP").doesNotContain(hostile);
     }
 }

@@ -42,13 +42,13 @@ class DestinationSettingsCheckTest {
 
     @ParameterizedTest(name = "{0} {1} -> {2}")
     @CsvSource(delimiter = '|', value = {
-        "API | {\"baseUrl\":\"http://127.0.0.1:8080/orders\"}            | settings.baseUrl | loopback",
-        "API | {\"baseUrl\":\"http://10.0.0.5/orders\"}                  | settings.baseUrl | private",
-        "API | {\"baseUrl\":\"http://[::ffff:10.0.0.5]/\"}               | settings.baseUrl | private",
-        "MQ  | {\"host\":\"169.254.169.254\",\"port\":1414,\"queue\":\"Q\"} | settings.host    | link-local",
-        "MQ  | {\"host\":\"127.0.0.1\",\"port\":1414,\"queue\":\"Q\"}       | settings.host    | loopback",
-        "DB  | {\"host\":\"fd00::1\",\"port\":5432,\"database\":\"d\"}      | settings.host    | unique-local",
-        "DB  | {\"host\":\"100.64.0.1\",\"port\":5432,\"database\":\"d\"}   | settings.host    | carrier-grade-nat",
+        "API | {\"baseUrl\":\"http://127.0.0.1:8080/orders\"}            | settings.baseUrl | refused address",
+        "API | {\"baseUrl\":\"http://10.0.0.5/orders\"}                  | settings.baseUrl | refused address",
+        "API | {\"baseUrl\":\"http://[::ffff:10.0.0.5]/\"}               | settings.baseUrl | refused address",
+        "MQ  | {\"host\":\"169.254.169.254\",\"port\":1414,\"queue\":\"Q\"} | settings.host    | refused address",
+        "MQ  | {\"host\":\"127.0.0.1\",\"port\":1414,\"queue\":\"Q\"}       | settings.host    | refused address",
+        "DB  | {\"host\":\"fd00::1\",\"port\":5432,\"database\":\"d\"}      | settings.host    | refused address",
+        "DB  | {\"host\":\"100.64.0.1\",\"port\":5432,\"database\":\"d\"}   | settings.host    | refused address",
         "API | {\"baseUrl\":\"https://not-allowed.example/\"}             | settings.baseUrl | allow-list",
         "MQ  | {\"host\":\"mq.elsewhere.example\",\"port\":1414,\"queue\":\"Q\"} | settings.host | allow-list"})
     @Tag("negative")
@@ -60,6 +60,23 @@ class DestinationSettingsCheckTest {
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0)).contains(field).contains(reason);
         assertThat(lookups).isEmpty();
+    }
+
+    @Test
+    @Tag("security")
+    @DisplayName("R10 (CWE-209): a refused range and a platform host read the SAME at save - no mapping oracle")
+    void aRefusedRangeAndAPlatformHostGiveTheIdenticalAnswer() {
+        DestinationGuard withPlatformNames = new DestinationGuard(AllowList.of(List.of("*.partner.example")), host -> {
+            throw new AssertionError("must not resolve " + host);
+        }, List.of(), List.of(), List.of("platform.example"));
+
+        assertThat(errors("DB", "{\"host\":\"127.0.0.1\",\"port\":5432,\"database\":\"d\"}"))
+                .as("a refused range").isEqualTo(List.of(
+                        "settings.host is refused: the host is a refused address"));
+        assertThat(DestinationSettingsCheck.errors("DB", JSON.readTree("{\"host\":\"platform.example\","
+                        + "\"port\":5432,\"database\":\"d\"}"), withPlatformNames))
+                .as("a platform host: the same sentence, no range or platform-name disclosure").isEqualTo(List.of(
+                        "settings.host is refused: the host is a refused address"));
     }
 
     @Test

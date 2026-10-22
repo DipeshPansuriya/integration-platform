@@ -267,6 +267,7 @@ public class IntakeController {
             case INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED -> "INTERFACE_NOT_FOUND";
             case CONTRACT_PIN_MISMATCH -> "CONTRACT_PIN_MISMATCH";
             case BUSINESS_KEY_UNRESOLVED -> "BUSINESS_KEY_UNRESOLVED";
+            case BUSINESS_KEY_TOO_LONG -> "BUSINESS_KEY_TOO_LONG";
             case IDEMPOTENCY_KEY_REUSED -> "IDEMPOTENCY_KEY_REUSED";
         };
         HttpStatus status = refusal.reason() == IntakeRefusedException.Reason.INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED

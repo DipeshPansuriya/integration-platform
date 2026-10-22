@@ -92,11 +92,14 @@ public final class DestinationSettingsCheck {
         }
     }
 
+    /** R10 (CWE-209): one neutral reason - a refused range and a platform host read the same, no mapping oracle. */
     private static String reason(DestinationRefusedException refused) {
         if (refused.refusal() == Refusal.NOT_ON_ALLOW_LIST) {
             return "the host is not on the destination allow-list";
         }
-        return refused.detail() == null ? refused.refusal().name()
-                : "the host is a refused address (" + refused.detail() + ")";
+        if (refused.refusal() == Refusal.REFUSED_ADDRESS) {
+            return "the host is a refused address";
+        }
+        return refused.refusal().name();
     }
 }

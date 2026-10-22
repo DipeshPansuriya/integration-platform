@@ -10,6 +10,7 @@ import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.ingest.port.OutboxWriter;
 import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.tenancy.TenantContext;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -34,6 +35,15 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code @Transactional} methods are that commit boundary. A single call is a bulk of one whose rejection throws.
  */
 public class IntakeService implements IntakeTransaction {
+
+    /**
+     * BS-06.4 (row 375, base suite run 8): the record's business key rides the message_store's btree indexes
+     * (message_ordering_idx, the ordering_key unique), where an oversized key blew the transaction into the
+     * 503 INTAKE_UNAVAILABLE catch-all (PSQLException "index row requires N bytes, maximum size is 8191" on the
+     * ordering_key upsert). Intake refuses such a record deliberately 422 BEFORE the ordering plan; the value
+     * (~2 KB, well under the ~8 KB store bound every probe showed) is the operator's to raise with evidence.
+     */
+    static final int MAX_BUSINESS_KEY_BYTES = 2048;
 
     private static final Logger log = LoggerFactory.getLogger(IntakeService.class);
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -118,6 +128,16 @@ public class IntakeService implements IntakeTransaction {
                 keys[i] = BusinessKeyRule.resolve(version.businessKeyRule(), records.get(i));
             } catch (IntakeRefusedException unresolved) {
                 results[i] = RecordResult.rejected(i, unresolved.reason().name(), unresolved.detail());
+                continue;
+            }
+            // BS-06.4: before the ordering plan - an over-bound key would enter ordering_key's btree and blow the
+            // transaction into the 503 catch-all; it is refused here instead, nothing persisted.
+            int keyBytes = keys[i].getBytes(StandardCharsets.UTF_8).length;
+            if (keyBytes > MAX_BUSINESS_KEY_BYTES) {
+                results[i] = RecordResult.rejected(i, IntakeRefusedException.Reason.BUSINESS_KEY_TOO_LONG.name(),
+                        "the business key is " + keyBytes + " bytes over the " + MAX_BUSINESS_KEY_BYTES
+                                + " byte intake key cap");
+                keys[i] = null;
             }
         }
         List<String> validKeys = Arrays.stream(keys).filter(Objects::nonNull).toList();

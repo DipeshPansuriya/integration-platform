@@ -91,6 +91,21 @@ class JdbcDbSenderUrlTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    void aTargetWithNoStoredPasswordGetsAnExplicitEmptyPasswordAndNeverAmbientPgpass() throws Exception {
+        DbMessage message = new DbMessage(settings("db.partner.example", "orders", null), "restricted", null,
+                "orders_in", List.of("awb"), List.of(List.of("A1")));
+
+        Properties p = new JdbcDbSender(Duration.ofSeconds(5)).properties(message,
+                InetAddress.getByName("93.184.216.34"));
+
+        // R7 (CWE-522/1188): with no password property the pgjdbc driver reads ~/.pgpass / PGPASSFILE on this
+        // host; an explicit empty password means the driver never consults ambient credentials.
+        assertThat(p.getProperty("password")).as("an explicit empty password, never a pgpass fallback").isEmpty();
+    }
+
     /** The real pgjdbc driver, a host name that cannot resolve, and a local listener: the connect lands on the pin. */
     @Test
     @Tag("security")

@@ -109,6 +109,15 @@ public final class FileTargetCall implements TargetCall {
                 throw new TargetFaultException(outcome, "the target folder of endpoint " + send.targetEndpointId()
                         + " is not available - nothing is written");
             }
+            if (!plainName(message.fileName())) {
+                // R5 (CWE-73/918): the file name is checked as a name BEFORE ConfinedPath resolves it on disk -
+                // an old order probed a UNC name under Windows first, which sends NTLM credentials to it; a file
+                // name is a name: no folders, drive letters, device names or over-long names
+                outcome = OutcomeClass.PERMANENT;
+                breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+                throw new TargetFaultException(outcome, "the mapped file name of delivery " + send.deliveryId()
+                        + " is not a plain file name for target endpoint " + send.targetEndpointId());
+            }
             Optional<Path> target = ConfinedPath.under(directory.get(), message.fileName());
             if (target.isEmpty()) {
                 // @security: a mapped name outside the folder (e.g. "../") never touches the file system
@@ -117,13 +126,6 @@ public final class FileTargetCall implements TargetCall {
                 throw new TargetFaultException(outcome, "the mapped file name of delivery " + send.deliveryId()
                         + " is refused for target endpoint " + send.targetEndpointId()
                         + " (outside the target's folder)");
-            }
-            if (!plainName(message.fileName())) {
-                // a file name is a name: no folders, drive letters, device names or over-long names
-                outcome = OutcomeClass.PERMANENT;
-                breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
-                throw new TargetFaultException(outcome, "the mapped file name of delivery " + send.deliveryId()
-                        + " is not a plain file name for target endpoint " + send.targetEndpointId());
             }
             try {
                 FileWrite.deliver(target.get(), message.body());

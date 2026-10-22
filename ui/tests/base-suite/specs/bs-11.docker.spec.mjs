@@ -28,7 +28,7 @@ import { appLogFrom, appLogSize, eventually, inBrowser, journal, must, postRecor
 import { bsEnv } from '../support/boot-state.mjs';
 import { readRows } from '../support/db.mjs';
 import { addTracking, readRun } from '../support/run-file.mjs';
-import { rotatedSecret } from '../support/seed.mjs';
+import { intakeCode, rotatedSecret } from '../support/seed.mjs';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -70,7 +70,7 @@ async function postProbe(page, record) {
   const { clientId, secretValue } = await rotatedSecret(page, A, readRun().seed.A.credentialId);
   const token = await sourceToken(clientId, secretValue);
   const logFrom = await appLogSize();
-  const answer = await postRecord(token, FLOW.code, SOURCE_CONTRACT.versionLabel, record);
+  const answer = await postRecord(token, intakeCode(A), SOURCE_CONTRACT.versionLabel, record);
   return { answer, logFrom };
 }
 

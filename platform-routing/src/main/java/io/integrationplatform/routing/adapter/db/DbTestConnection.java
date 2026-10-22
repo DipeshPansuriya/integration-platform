@@ -15,6 +15,11 @@ import java.util.Objects;
  * that does not answer is a FAILED answer, never an exception. The protocol-level connect with the restricted
  * account is proven on the container leg (the scenario); the probe answers reachability, audited by the caller.
  *
+ * <p>R6 (CWE-918, limited): the SAME port allow-list the send path applies ({@code DbTargetCall.requireAllowedPort},
+ * {@code platform.config.destinations.db-allowed-ports}) is applied here before anything is probed - an off-list
+ * port is a {@code DESTINATION_REFUSED} answer, so an allow-listed host cannot be port-scanned with SUCCESS /
+ * DATABASE_UNREACHABLE answers over ports 1-65535.
+ *
  * <p>E16 F3 (design note task 11, Karan change 4): with a privilege probe wired the answer is the account's truth -
  * after the socket probe the same guard-pinned address is dialled credentialed over JDBC on an allowed port and the
  * account's grants on the exact target table are reported in the response's {@code detail}. A missing credential or
@@ -26,12 +31,17 @@ public class DbTestConnection {
     private final DbBrokerProbe probe;
     /** Null when no credential slice is composed - then the answer is the socket-only reachability it always was. */
     private final DbPrivilegeProbe privileges;
-    /** Enforced only when a privilege probe is wired (the socket-only constructor keeps its old behaviour). */
+    /** R6: enforced before any probe, socket-only or credentialed - the send path's allow-list. */
     private final java.util.Set<Integer> allowedPorts;
     private final Duration timeout;
 
     public DbTestConnection(DestinationGuard guard, DbBrokerProbe probe, Duration timeout) {
         this(guard, probe, null, java.util.Set.of(), timeout);
+    }
+
+    public DbTestConnection(DestinationGuard guard, DbBrokerProbe probe, java.util.Set<Integer> allowedPorts,
+            Duration timeout) {
+        this(guard, probe, null, (java.util.Collection<Integer>) allowedPorts, timeout);
     }
 
     public DbTestConnection(DestinationGuard guard, DbBrokerProbe probe, DbPrivilegeProbe privileges,
@@ -52,8 +62,10 @@ public class DbTestConnection {
                     + e.getClass().getSimpleName() + ")", null);
         }
         try {
+            // F1: the port first (nothing spent on a refused port), exactly like the send path
+            DbTargetCall.requireAllowedPort(settings.port(), allowedPorts);
             guard.checkHost(settings.host());
-        } catch (DestinationRefusedException e) {
+        } catch (DestinationRefusedException | IllegalStateException e) {
             return answer(systemId, "FAILED", "DESTINATION_REFUSED", 0, String.valueOf(e.getMessage()), null);
         }
         long start = System.nanoTime();
