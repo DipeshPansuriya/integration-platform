@@ -75,17 +75,23 @@ public final class JdbcDbSender implements DbSender {
 
     /** F1/F2/F5: every driver option, set on the Properties object (never the URL). */
     Properties properties(DbMessage message, InetAddress pinnedAddress) {
+        return accountProperties(message.user(), message.password(), pinnedAddress,
+                message.settings().sslmode() == null ? defaultSslmode : message.settings().sslmode(), timeout);
+    }
+
+    /** The one account Properties builder, shared with the test-connection privilege probe (task 11). */
+    static Properties accountProperties(String user, char[] password, InetAddress pinnedAddress, String sslmode,
+            Duration timeout) {
         Properties account = new Properties();
-        account.setProperty("user", message.user());
-        if (message.password() != null) {
-            account.setProperty("password", new String(message.password()));
+        account.setProperty("user", user);
+        if (password != null) {
+            account.setProperty("password", new String(password));
         }
         int seconds = Math.max(1, (int) timeout.toSeconds());
         account.setProperty("connectTimeout", String.valueOf(seconds));
         account.setProperty("socketTimeout", String.valueOf(seconds));
         account.setProperty("socketFactory", PinnedSocketFactory.class.getName());
         account.setProperty(PinnedSocketFactory.PINNED_PROPERTY, pinnedAddress.getHostAddress());
-        String sslmode = message.settings().sslmode() == null ? defaultSslmode : message.settings().sslmode();
         account.setProperty("sslmode", sslmode);
         return account;
     }

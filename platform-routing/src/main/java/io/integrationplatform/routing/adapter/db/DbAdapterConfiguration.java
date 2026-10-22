@@ -46,11 +46,33 @@ public class DbAdapterConfiguration {
         });
     }
 
+    /**
+     * T-149 with E16 F3 (task 11, Karan change 4): the DB test-connection answers the account's real privileges on
+     * the exact target table when the credential slice is composed (its own short read-only transaction - the
+     * T-104 rule that no platform connection is held while a destination answers is kept); otherwise it stays the
+     * socket-only reachability answer it always was.
+     */
     @Bean
-    MqConnectionCheck dbConnectionCheck(DestinationGuard guard, SocketDialer dialer) {
+    MqConnectionCheck dbConnectionCheck(DestinationGuard guard, SocketDialer dialer, JdbcClient jdbcClient,
+            TenantContext tenantContext, ObjectProvider<SendTimeCredentials> vault,
+            ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactions,
+            @Value("${platform.config.destinations.db-allowed-ports:5432}") java.util.List<Integer> allowedPorts,
+            @Value("${platform.config.destinations.db-sslmode:require}") String sslmode) {
         DbBrokerProbe probe = new SocketDbBrokerProbe(guard, dialer);
-        return (systemId, settingsJson) -> new DbTestConnection(guard, probe, Duration.ofSeconds(5))
-                .test(systemId, settingsJson);
+        DbPrivilegeProbe privileges = null;
+        SendTimeCredentials credentials = vault.getIfAvailable();
+        org.springframework.transaction.PlatformTransactionManager manager = transactions.getIfAvailable();
+        if (credentials != null && manager != null) {
+            org.springframework.transaction.support.TransactionTemplate readOnly =
+                    new org.springframework.transaction.support.TransactionTemplate(manager);
+            readOnly.setReadOnly(true);
+            privileges = new JdbcDbPrivilegeProbe(
+                    new JdbcDbSystemCredentials(jdbcClient, tenantContext, credentials, readOnly), sslmode);
+        }
+        DbBrokerProbe socketProbe = probe;
+        DbPrivilegeProbe privilegeProbe = privileges;
+        return (systemId, settingsJson) -> new DbTestConnection(guard, socketProbe, privilegeProbe, allowedPorts,
+                Duration.ofSeconds(5)).test(systemId, settingsJson);
     }
 
     @Bean
