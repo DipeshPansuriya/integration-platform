@@ -6,6 +6,7 @@ import { useState, type FormEvent } from 'react';
 import { clientSettingsErrors, extraSettingsOf, formFromSettings, settingsForEdit, updateSystem, type SystemView } from '../../api/systems';
 import { ERRORS_ID, SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
 import { topFieldHasError } from './systems-view';
+import { useDrawerSaved } from '../../ui/Drawer';
 
 export function EditSystemForm({ system, onSaved }: { system: SystemView; onSaved: () => Promise<void> }) {
   const [name, setName] = useState(system.name);
@@ -14,6 +15,7 @@ export function EditSystemForm({ system, onSaved }: { system: SystemView; onSave
   const [errors, setErrors] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const markSaved = useDrawerSaved(); // row 372 M4: only an accepted save lifts the drawer's discard guard
 
   const extras = extraSettingsOf(type, system.settings, system.type);
 
@@ -41,6 +43,7 @@ export function EditSystemForm({ system, onSaved }: { system: SystemView; onSave
         else setErrors(result.errors?.length ? result.errors : [`The API refused the save (HTTP ${result.status}).`]);
         return;
       }
+      markSaved();
       setSaved(true);
       await onSaved();
     } finally {

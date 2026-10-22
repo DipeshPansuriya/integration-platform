@@ -99,7 +99,8 @@ test('C3 drawer: a dirty form asks before Esc / scrim / Close discards it', () =
   assert.match(d, /data-action="discard-changes"/);
   assert.match(d, /data-action="keep-editing"/);
   assert.match(d, /onInput=/);
-  assert.match(d, /onSubmit=/);
+  assert.doesNotMatch(d, /onSubmit=/, 'row 372 M4: a submit event no longer clears the guard; useDrawerSaved does');
+  assert.match(d, /useDrawerSaved/);
   assert.match(d, /data-action="close-drawer"/, 'hook kept');
   assert.match(read('ui/drawer.css'), /\.drawer-discard/);
 });

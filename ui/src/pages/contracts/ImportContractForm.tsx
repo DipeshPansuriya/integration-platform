@@ -7,6 +7,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { CONTRACT_ROLES, importContractVersion, type ContractFormat, type ContractRole } from '../../api/contracts';
 import { listSystems, type SystemView } from '../../api/systems';
+import { useDrawerSaved } from '../../ui/Drawer';
 import { refusalWords } from '../../ui/refusal-words';
 import { roleWord } from './contracts-view';
 
@@ -22,6 +23,7 @@ export function ImportContractForm({ onImported }: { onImported: () => Promise<v
   const [refusal, setRefusal] = useState<{ error: string; parserErrors: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [systemsRefused, setSystemsRefused] = useState<number | null>(null);
+  const markSaved = useDrawerSaved(); // row 372 M4: only an accepted import lifts the drawer's discard guard
 
   useEffect(() => {
     void listSystems().then((result) => {
@@ -49,6 +51,7 @@ export function ImportContractForm({ onImported }: { onImported: () => Promise<v
         setRefusal({ error, parserErrors: (result.errors ?? []).filter((line) => line !== result.error) });
         return;
       }
+      markSaved();
       setImported(`${result.data.system ?? system} ${result.data.versionLabel ?? versionLabel} (${result.data.status ?? 'DRAFT'})`);
       await onImported();
     } finally {

@@ -16,7 +16,11 @@ const FRAGMENT = Symbol.for('hook-harness.fragment');
 const STUBS = {
   react: 'export const useState = (i) => globalThis.__hookHarness.useState(i);\n'
     + 'export const useEffect = (f, d) => globalThis.__hookHarness.useEffect(f, d);\n'
-    + 'export const useCallback = (f, d) => globalThis.__hookHarness.useCallback(f, d);\n',
+    + 'export const useCallback = (f, d) => globalThis.__hookHarness.useCallback(f, d);\n'
+    + 'export const useRef = (i) => globalThis.__hookHarness.useRef(i);\n'
+    + 'export const useId = () => ":r0:";\n'
+    + 'export const createContext = (d) => ({ Provider: Symbol("Provider"), _d: d });\n'
+    + 'export const useContext = (c) => c._d;\n',
   'react/jsx-runtime': 'const h = (type, props) => globalThis.__hookHarness.element(type, props);\n'
     + 'export const jsx = h; export const jsxs = h; export const Fragment = Symbol.for("hook-harness.fragment");\n'
 };
@@ -90,6 +94,10 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
         const cleanup = effect();
         effects[i].cleanup = typeof cleanup === 'function' ? cleanup : undefined;
       });
+    },
+    useRef(initial) {
+      const [cell] = this.useState(() => ({ current: initial }));
+      return cell;
     },
     // ponytail: the first function wins (the screens that use useCallback pass only setters, so no stale-closure risk).
     useCallback(fn) {

@@ -10,12 +10,22 @@
 //   children: ReactNode    - the drawer body (a form, a refusal, ...)
 //   id?: string            - stamped as data-drawer={id}, a hook for screen tests
 //   closeLabel?: string    - the Close button's word (default "Close")
-// B29 C3: once a person types in the body, Esc / scrim / Close ask "Discard changes?" inline first;
-// submitting a form clears that (the values were sent), so a saved drawer closes without asking.
+// B29 C3: once a person types in the body, Esc / scrim / Close ask "Discard changes?" inline first.
+// Row 372 M4: only the caller's SUCCESS clears that (a form calls useDrawerSaved() once the API accepted the
+// save) - a submit event alone does not, because a refused save keeps the input and must keep the guard.
+// Row 372 M3: the prompt is a modal of its own (aria-modal, the head and body behind it inert, Tab kept inside it)
+// and "Keep editing" hands focus back to the first field (else Close), so Esc and Tab keep working.
 
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { FOCUSABLE, closeAction, drawerKeyAction, nextFocusIndex } from './drawer-keys';
 import './drawer.css';
+
+/** A form inside the drawer calls this once its save was accepted: the typed values were sent, so Close needs no prompt. */
+const DrawerSavedContext = createContext<() => void>(() => undefined);
+export const useDrawerSaved = () => useContext(DrawerSavedContext);
+
+// `inert` is not in @types/react 18; React 18 renders the empty string as the bare attribute.
+const INERT = { inert: '' } as Record<string, string>;
 
 export type DrawerProps = {
   open: boolean;
@@ -38,6 +48,8 @@ export function Drawer({ open, title, onClose, children, id, closeLabel = 'Close
 function DrawerPanel({ title, onClose, children, id, closeLabel }: Omit<DrawerProps, 'open'>) {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
+  const discardBox = useRef<HTMLDivElement>(null);
+  const wasConfirming = useRef(false);
   const [dirty, setDirty] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const requestClose = () => {
@@ -55,6 +67,15 @@ function DrawerPanel({ title, onClose, children, id, closeLabel }: Omit<DrawerPr
     };
   }, []);
 
+  // Keep editing / Esc on the prompt: the autoFocus button unmounts, so put focus back inside the drawer.
+  useEffect(() => {
+    if (wasConfirming.current && !confirming) {
+      const back = panel.current?.querySelector<HTMLElement>(`form ${FOCUSABLE}`) ?? panel.current?.querySelector<HTMLElement>('[data-action="close-drawer"]');
+      back?.focus();
+    }
+    wasConfirming.current = confirming;
+  }, [confirming]);
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const action = drawerKeyAction(event.key);
     if (action === 'close') {
@@ -62,7 +83,8 @@ function DrawerPanel({ title, onClose, children, id, closeLabel }: Omit<DrawerPr
       if (confirming) setConfirming(false);
       else requestClose();
     } else if (action === 'trap' && panel.current) {
-      const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const scope = confirming && discardBox.current ? discardBox.current : panel.current; // the prompt is modal inside the drawer
+      const items = Array.from(scope.querySelectorAll<HTMLElement>(FOCUSABLE));
       const next = nextFocusIndex(items.length, items.indexOf(document.activeElement as HTMLElement), event.shiftKey);
       if (next >= 0) {
         event.preventDefault();
@@ -84,7 +106,7 @@ function DrawerPanel({ title, onClose, children, id, closeLabel }: Omit<DrawerPr
         data-drawer={id}
         onKeyDown={onKeyDown}
       >
-        <div className="drawer-head">
+        <div className="drawer-head" {...(confirming ? INERT : {})}>
           <h2 id={titleId} className="drawer-title">
             {title}
           </h2>
@@ -93,7 +115,7 @@ function DrawerPanel({ title, onClose, children, id, closeLabel }: Omit<DrawerPr
           </button>
         </div>
         {confirming && (
-          <div className="drawer-discard" role="alertdialog" aria-labelledby={`${titleId}-discard`}>
+          <div ref={discardBox} className="drawer-discard" role="alertdialog" aria-modal="true" aria-labelledby={`${titleId}-discard`}>
             <p id={`${titleId}-discard`}>Discard changes? What you typed here has not been saved.</p>
             <button type="button" className="btn" data-action="keep-editing" autoFocus onClick={() => setConfirming(false)}>
               Keep editing
@@ -103,8 +125,8 @@ function DrawerPanel({ title, onClose, children, id, closeLabel }: Omit<DrawerPr
             </button>
           </div>
         )}
-        <div className="drawer-body" onInput={() => setDirty(true)} onSubmit={() => setDirty(false)}>
-          {children}
+        <div className="drawer-body" onInput={() => setDirty(true)} {...(confirming ? INERT : {})}>
+          <DrawerSavedContext.Provider value={() => setDirty(false)}>{children}</DrawerSavedContext.Provider>
         </div>
       </div>
     </div>

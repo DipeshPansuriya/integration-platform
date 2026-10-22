@@ -6,6 +6,7 @@ import { useState, type FormEvent } from 'react';
 import { clientSettingsErrors, registerSystem, settingsFromForm } from '../../api/systems';
 import { ERRORS_ID, SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
 import { topFieldHasError } from './systems-view';
+import { useDrawerSaved } from '../../ui/Drawer';
 
 export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promise<void> }) {
   const [code, setCode] = useState('');
@@ -16,6 +17,7 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
   const [errors, setErrors] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const markSaved = useDrawerSaved(); // row 372 M4: only an accepted save lifts the drawer's discard guard
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -41,6 +43,7 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
         setErrors(result.errors?.length ? result.errors : [`The API refused the save (HTTP ${result.status}).`]);
         return;
       }
+      markSaved();
       setSaved(true);
       setCode('');
       setName('');
