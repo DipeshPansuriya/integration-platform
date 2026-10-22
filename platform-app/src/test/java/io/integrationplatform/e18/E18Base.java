@@ -69,7 +69,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Tag("container")
 @Tag("e2e-full")
 @ExtendWith(E18Outcomes.class)
-@ActiveProfiles("showcase")
+@ActiveProfiles({"showcase", "test"}) // 'test' unlocks DbTlsPolicy's disable mode: the partner Postgres has no TLS (R1 seam)
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 @Import(E18Base.TestNetwork.class)
 abstract class E18Base {
