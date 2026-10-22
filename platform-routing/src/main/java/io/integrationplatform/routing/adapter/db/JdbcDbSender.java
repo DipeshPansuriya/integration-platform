@@ -76,6 +76,10 @@ public final class JdbcDbSender implements DbSender {
         }
     }
 
+    static final String LOCK_TIMEOUT_SQL = "select set_config('lock_timeout', '4000', true)";
+
+    static final String ADVISORY_LOCK_SQL = "select pg_advisory_xact_lock(hashtextextended(?::text, 0))";
+
     /**
      * E16 leftovers (CWE-1288 class): a multi-row delivery's rows ALL carry the delivery id, so the old
      * {@code ON CONFLICT (delivery_id) DO NOTHING} silently kept only row 1 and still reported SUCCESS. Now every
@@ -87,6 +91,15 @@ public final class JdbcDbSender implements DbSender {
      */
     void insert(Connection connection, DbMessage message, UUID deliveryId) throws SQLException {
         connection.setAutoCommit(false);
+        // T178b: serialise attempts of ONE delivery (no UNIQUE(delivery_id) needed): the lock is taken before the
+        // pre-state check, bounded below the socket timeout, and released at commit or rollback
+        try (PreparedStatement bound = connection.prepareStatement(LOCK_TIMEOUT_SQL)) {
+            bound.execute();
+        }
+        try (PreparedStatement lock = connection.prepareStatement(ADVISORY_LOCK_SQL)) {
+            lock.setString(1, deliveryId.toString());
+            lock.execute();
+        }
         try (PreparedStatement check = connection.prepareStatement(selectDelivery(message.table()))) {
             check.setObject(1, deliveryId);
             try (java.sql.ResultSet answer = check.executeQuery()) {
