@@ -389,8 +389,10 @@ class DeliveryDueDispatchTest {
             facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
             claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
             send.onCall = thread -> assertThat(redrive.calls).as("not before the send ends").isEmpty();
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            deferOnce(dispatch, registry, target);
 
-            dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
+            dispatch.onWork(deliveryRecord(delivery), TENANT);
             awaitOneSend(send);
             awaitRedrives(1);
 
@@ -452,8 +454,10 @@ class DeliveryDueDispatchTest {
             facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
             claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
             redrive.failure = new IllegalStateException("database down");
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            deferOnce(dispatch, registry, target);
 
-            dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
+            dispatch.onWork(deliveryRecord(delivery), TENANT);
             awaitOneSend(send);
             awaitRedrives(1);
 
@@ -483,8 +487,10 @@ class DeliveryDueDispatchTest {
             send.onCall = thread -> {
                 throw new IllegalStateException("target call blew up");
             };
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            deferOnce(dispatch, registry, target);
 
-            dispatch(registry).onWork(deliveryRecord(delivery), TENANT);
+            dispatch.onWork(deliveryRecord(delivery), TENANT);
             awaitRedrives(1);
 
             assertThat(redrive.calls).hasSize(1);
@@ -509,6 +515,81 @@ class DeliveryDueDispatchTest {
         } finally {
             registry.shutdown();
         }
+    }
+
+    @Test
+    @DisplayName("F1: nothing was deferred locally - a finished send runs NO re-drive scan (no transaction under the permit)")
+    void noLocalDeferralNoScan() throws Exception {
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+
+            dispatch(registry).onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+            awaitOneSend(send);
+            awaitPoolIdle(registry, target);
+
+            assertThat(redrive.calls).as("no deferral since the start - no scan").isEmpty();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("F1: a deferral of THIS target enables one scan; a scan that finds nothing clears it until the next deferral")
+    void scanFollowsDeferralAndStopsWhenNothingIsFound() throws Exception {
+        UUID target = UUID.randomUUID();
+        UUID otherTarget = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            redrive.result = false; // the scan finds nothing
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            facts.byDelivery.put(UUID.fromString("00000000-0000-4000-8000-0000000000f1"),
+                    new BulkheadFacts(otherTarget, "ko", 0));
+            registry.of(otherTarget).tryAcquire();
+            dispatch.onWork(deliveryRecord(UUID.fromString("00000000-0000-4000-8000-0000000000f1")), TENANT);
+            deferOnce(dispatch, registry, target); // a deferral of another target changed nothing for this one
+
+            dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+            awaitOneSend(send);
+            awaitRedrives(1);
+            awaitPoolIdle(registry, target);
+            assertThat(redrive.calls).extracting(RedriveCall::targetEndpointId).containsExactly(target);
+
+            dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT); // second send, nothing deferred since
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (send.calls.size() < 2 && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            awaitPoolIdle(registry, target);
+
+            assertThat(send.calls).hasSize(2);
+            assertThat(redrive.calls).as("the empty scan cleared the flag - no second scan").hasSize(1);
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    /** Defers one record of the target (its only permit is taken for the call) so the next send end scans. */
+    private void deferOnce(DeliveryDueDispatch dispatch, BulkheadRegistry registry, UUID target) {
+        BulkheadFacts before = facts.facts.orElse(new BulkheadFacts(target, "key-1", 0));
+        facts.facts = Optional.of(new BulkheadFacts(target, "key-d", 0));
+        assertThat(registry.of(target).tryAcquire()).isTrue();
+        dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+        registry.of(target).release();
+        facts.facts = Optional.of(before);
+        assertThat(deferrals.calls).as("the record deferred").isNotEmpty();
+    }
+
+    /** Queued behind the send on the target's single pool thread: returns once the send's task has fully ended. */
+    private static void awaitPoolIdle(BulkheadRegistry registry, UUID target) throws InterruptedException {
+        CountDownLatch ran = new CountDownLatch(1);
+        assertThat(registry.of(target).execute(ran::countDown)).isTrue();
+        assertThat(ran.await(5, TimeUnit.SECONDS)).isTrue();
     }
 
     private void awaitRedrives(int count) {
@@ -573,6 +654,7 @@ class DeliveryDueDispatchTest {
 
         final List<RedriveCall> calls = java.util.Collections.synchronizedList(new ArrayList<>());
         RuntimeException failure;
+        boolean result = true;
 
         @Override
         public boolean redriveOneDeferred(UUID targetEndpointId) {
@@ -580,7 +662,7 @@ class DeliveryDueDispatchTest {
             if (failure != null) {
                 throw failure;
             }
-            return true;
+            return result;
         }
     }
 
