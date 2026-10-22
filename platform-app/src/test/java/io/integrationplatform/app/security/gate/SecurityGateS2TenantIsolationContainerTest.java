@@ -14,6 +14,21 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeSet;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
@@ -43,6 +58,33 @@ class SecurityGateS2TenantIsolationContainerTest {
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
         login = PlatformTestWiring.register(registry, POSTGRES);
+    }
+
+    /** The worker-style tenant binding the application's composite TenantContext composes (as a stage consumer's). */
+    @TestConfiguration
+    static class BindingConfiguration {
+        @Bean
+        @org.springframework.context.annotation.Primary
+        GateFixture.BoundTenant gateBoundTenant(
+                @org.springframework.beans.factory.annotation.Qualifier("requestTenantContext")
+                io.integrationplatform.tenancy.TenantContext request) {
+            return new GateFixture.BoundTenant(request);
+        }
+    }
+
+    @Autowired
+    private PlatformTransactionManager transactions;
+    @Autowired
+    private GateFixture.BoundTenant binding;
+    @Autowired
+    private JdbcClient jdbc;
+    @Autowired
+    private DataSource dataSource;
+
+    private GateFixture fixture() throws SQLException {
+        GateFixture fixture = new GateFixture(POSTGRES, login, binding, transactions);
+        fixture.seedTenants();
+        return fixture;
     }
 
     private static final java.util.concurrent.atomic.AtomicBoolean GRANTED =
@@ -111,9 +153,33 @@ class SecurityGateS2TenantIsolationContainerTest {
      * Expected: Session-scope stamping refuses or has no effect on policies (only transaction-scoped stamping from the bound tenant); the query errors or stays A-bound
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: no external dependency left (T142 harness is on main); body not yet written - needs the real stamping transaction manager (TenantContext bound, then assert the setting is empty after commit); raw-SQL RLS is covered by platform-tenancy RowLevelSecurityGateTest (T141 gate case S2-A4)")
-    void s2_a4_rls_guc_control_1_no_session() {
-        fail("S2-A4 body lands with T142");
+    void s2_a4_rls_guc_control_1_no_session() throws Exception {
+        GateFixture fixture = fixture();
+        fixture.insertMessage(GateFixture.TENANT_A, Instant.now(), "a4-A");
+        fixture.insertMessage(GateFixture.TENANT_B, Instant.now(), "a4-B");
+        // the production manager stamps from the bound tenant, and the policy then shows that tenant only
+        assertThat(fixture.inTenantTx(GateFixture.TENANT_A,
+                () -> jdbc.sql("select current_setting('app.tenant_id')").query(String.class).single()))
+                .isEqualTo(GateFixture.TENANT_A.toString());
+        assertThat(fixture.inTenantTx(GateFixture.TENANT_A, () -> jdbc.sql(
+                "select count(*) from public.message where business_key = 'a4-B'").query(Long.class).single()))
+                .as("tenant B's row as seen from a transaction stamped A").isZero();
+        assertThat(fixture.inTenantTx(GateFixture.TENANT_A, () -> jdbc.sql(
+                "select count(*) from public.message where business_key = 'a4-A'").query(Long.class).single()))
+                .isEqualTo(1L);
+        // transaction-scoped only: after a commit and after a rollback no session-level stamp is left on the pooled
+        // connections, so a later statement outside a stamped transaction cannot ride an earlier tenant (S2-A4)
+        assertThatThrownBy(() -> fixture.inTenantTx(GateFixture.TENANT_A, () -> {
+            throw new IllegalStateException("rolled back on purpose");
+        })).isInstanceOf(IllegalStateException.class);
+        for (int i = 0; i < 6; i++) {
+            try (Connection pooled = dataSource.getConnection(); Statement sql = pooled.createStatement();
+                    ResultSet rs = sql.executeQuery("select current_setting('app.tenant_id', true)")) {
+                rs.next();
+                assertThat(rs.getString(1)).as("session value on pooled connection %d after the stamped tx", i)
+                        .isIn(null, "");
+            }
+        }
     }
 
     /**
@@ -149,9 +215,45 @@ class SecurityGateS2TenantIsolationContainerTest {
      * Expected: 0 cross reads; evidence via the existing cross-tenant denial JUnit suite re-run
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: T157 and T158 are on main; body not yet written - needs the job-path case (L-6) on the db-scheduler handler; DB-level pooled reuse is covered by platform-tenancy RowLevelSecurityGateTest.settingNeverLeaksAcrossPooledConnections (T141 gate case S2-A6)")
-    void s2_a6_rls_control_4_pooled_connection_reuse() {
-        fail("S2-A6 body lands with T157");
+    void s2_a6_rls_control_4_pooled_connection_reuse() throws Exception {
+        GateFixture fixture = fixture();
+        for (int i = 0; i < 3; i++) {
+            fixture.insertMessage(GateFixture.TENANT_A, Instant.now(), "a6-A-" + i);
+        }
+        for (int i = 0; i < 5; i++) {
+            fixture.insertMessage(GateFixture.TENANT_B, Instant.now(), "a6-B-" + i);
+        }
+        // worker path: 8 threads alternate the two tenants over the one pool; every transaction must see its own
+        // rows and its own stamp only, whatever connection (and whatever previous tenant) it inherits
+        ExecutorService threads = Executors.newFixedThreadPool(8);
+        try {
+            List<Future<String>> results = new ArrayList<>();
+            for (int i = 0; i < 400; i++) {
+                UUID tenant = i % 2 == 0 ? GateFixture.TENANT_A : GateFixture.TENANT_B;
+                long expected = tenant.equals(GateFixture.TENANT_A) ? 3 : 5;
+                results.add(threads.submit(() -> fixture.inTenantTx(tenant, () -> {
+                    long rows = jdbc.sql("select count(*) from public.message where business_key like 'a6-%'")
+                            .query(Long.class).single();
+                    String stamp = jdbc.sql("select current_setting('app.tenant_id')").query(String.class).single();
+                    return rows == expected && stamp.equals(tenant.toString()) ? null
+                            : tenant + " saw " + rows + " rows, stamp " + stamp;
+                })));
+            }
+            List<String> crossed = new ArrayList<>();
+            for (Future<String> result : results) {
+                String problem = result.get(60, TimeUnit.SECONDS);
+                if (problem != null) {
+                    crossed.add(problem);
+                }
+            }
+            assertThat(crossed).as("transactions that saw another tenant's rows or stamp").isEmpty();
+        } finally {
+            threads.shutdownNow();
+        }
+        // and a connection that served a tenant before never answers a transaction with no tenant bound
+        assertThatThrownBy(() -> new org.springframework.transaction.support.TransactionTemplate(transactions)
+                .execute(status -> jdbc.sql("select count(*) from public.message").query(Long.class).single()))
+                .satisfies(e -> assertThat(GateFixture.sqlState(e)).isIn("42704", "22P02", "42501"));
     }
 
     /**
@@ -159,9 +261,30 @@ class SecurityGateS2TenantIsolationContainerTest {
      * Expected: PostgreSQL refuses via composite FK ((tenant_id, id)), HTTP 4xx to the caller, no row
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: T157 is on main but a behavioural insert needs seeded mapping/contract rows (platform-e2e TenantBSeed / admin API); composite FKs exist in V2_2_730__mapping_versions.sql; body not yet written (T141 gate case S2-A7)")
-    void s2_a7_composite_fk_rejection() {
-        fail("S2-A7 body lands with T157");
+    void s2_a7_composite_fk_rejection() throws Exception {
+        GateFixture fixture = fixture();
+        UUID systemA = UUID.randomUUID();
+        UUID systemB = UUID.randomUUID();
+        fixture.ownerExecute("insert into public.system (id, tenant_id, code, name, direction) values (?::uuid,"
+                + " ?::uuid, 'a7-a', 'A7 A', 'SOURCE'), (?::uuid, ?::uuid, 'a7-b', 'A7 B', 'SOURCE')",
+                systemA.toString(), GateFixture.TENANT_A.toString(), systemB.toString(), GateFixture.TENANT_B.toString());
+        String contract = "insert into public.contract (id, tenant_id, system_id, code, role, name) values"
+                + " (gen_random_uuid(), ?::uuid, ?::uuid, ?, 'SOURCE_REQUEST', 'A7')";
+        // control: a same-tenant parent is accepted, so the refusal below is the composite FK and nothing else
+        fixture.ownerExecute(contract, GateFixture.TENANT_A.toString(), systemA.toString(), "a7-ok");
+        // tenant A's contract naming tenant B's system id: the (tenant_id, system_id) FK refuses it, even for the owner
+        assertThatThrownBy(() -> fixture.ownerExecute(contract, GateFixture.TENANT_A.toString(), systemB.toString(),
+                "a7-cross"))
+                .isInstanceOf(SQLException.class)
+                .satisfies(e -> assertThat(((SQLException) e).getSQLState()).isEqualTo("23503"));
+        assertThat(fixture.ownerScalar("select count(*) from public.contract where code = 'a7-cross'")).isEqualTo("0");
+        // every FK onto a tenant-scoped parent (other than the tenant directory) is composite
+        assertThat(fixture.ownerScalar("select count(*) from pg_constraint c where c.contype = 'f' and"
+                + " c.connamespace = 'public'::regnamespace and array_length(c.conkey, 1) = 1 and"
+                + " c.confrelid <> 'public.tenant'::regclass and exists (select 1 from pg_attribute a where"
+                + " a.attrelid = c.confrelid and a.attname = 'tenant_id' and not a.attisdropped)"))
+                .as("single-column FKs onto tenant-scoped parents (each should be a composite (tenant_id, id) FK)")
+                .isEqualTo("0");
     }
 
     /**

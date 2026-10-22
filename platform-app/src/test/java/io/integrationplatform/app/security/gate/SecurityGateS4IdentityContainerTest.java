@@ -1,10 +1,17 @@
 package io.integrationplatform.app.security.gate;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * T141 / T-147 Release 1 security gate, suite S4 (Identity), from release-1-security-test-plan.md.
@@ -89,8 +96,52 @@ class SecurityGateS4IdentityContainerTest {
      * Expected: Agent client holds no role and no mapper that emits a tenant claim (one realm, tenants not in Keycloak - ADR-007 D1); a forged tenant claim on an agent token is only **cross-checked** - mismatch denies and audits (ADR-007 D2), never binds
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: T162 is on main (ffede093); body not yet written - Keycloak realm check on the operator-agent client, reuse platform-tenancy KeycloakRealmContainerTest (T141 gate case S4-A8)")
-    void s4_a8_keycloak_side_configuration_of_the_agent() {
-        fail("S4-A8 body lands with T162");
+    void s4_a8_keycloak_side_configuration_of_the_agent() throws Exception {
+        Path file = Path.of("../compose/keycloak/platform-realm.json");
+        if (!Files.exists(file)) {
+            file = Path.of("compose/keycloak/platform-realm.json");
+        }
+        JsonNode realm = JsonMapper.builder().build().readTree(Files.readString(file));
+        JsonNode agent = null;
+        for (JsonNode client : realm.get("clients")) {
+            if ("operator-agent".equals(client.path("clientId").asString())) {
+                agent = client;
+            }
+        }
+        assertThat(agent).as("the operator-agent client in the realm seed").isNotNull();
+        // a machine client: client credentials only, no browser flow, no password grant, no implicit
+        assertThat(agent.path("serviceAccountsEnabled").asBoolean()).isTrue();
+        assertThat(agent.path("publicClient").asBoolean()).as("confidential").isFalse();
+        assertThat(agent.path("standardFlowEnabled").asBoolean()).isFalse();
+        assertThat(agent.path("directAccessGrantsEnabled").asBoolean()).isFalse();
+        assertThat(agent.path("implicitFlowEnabled").asBoolean()).isFalse();
+        // no mapper of its own, and its scopes are exactly the subject and the audience: no role, no tenant claim
+        assertThat(agent.path("protocolMappers").size()).as("client-level protocol mappers").isZero();
+        List<String> scopes = new ArrayList<>();
+        agent.path("defaultClientScopes").forEach(n -> scopes.add(n.asString()));
+        agent.path("optionalClientScopes").forEach(n -> scopes.add(n.asString()));
+        assertThat(scopes).containsExactlyInAnyOrder("basic", "platform-api-audience");
+        for (JsonNode scope : realm.get("clientScopes")) {
+            if (scopes.contains(scope.path("name").asString())) {
+                for (JsonNode mapper : scope.path("protocolMappers")) {
+                    assertThat(mapper.toString().toLowerCase()).as("mapper %s of scope %s",
+                            mapper.path("name").asString(), scope.path("name").asString())
+                            .doesNotContain("tenant").doesNotContain("realm-management").doesNotContain("role");
+                }
+            }
+        }
+        // the realm-wide default scopes do not smuggle a role or tenant mapper onto it either
+        for (JsonNode name : realm.path("defaultDefaultClientScopes")) {
+            assertThat(name.asString()).isNotEqualTo("platform-admin-roles");
+        }
+        // its service account holds no realm role, client role or attribute (tenants are not in Keycloak - ADR-007 D1)
+        for (JsonNode user : realm.path("users")) {
+            if ("operator-agent".equals(user.path("serviceAccountClientId").asString())) {
+                assertThat(user.path("realmRoles").size()).isZero();
+                assertThat(user.path("clientRoles").size()).isZero();
+                assertThat(user.path("attributes").size()).isZero();
+            }
+        }
+        assertThat(realm.path("roles").size()).as("the realm defines no roles at all").isZero();
     }
 }
