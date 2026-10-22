@@ -32,7 +32,7 @@ test('C1 systems: the pending test state blocks parallel clicks and says Testing
   assert.equal(systemsView.canStartTest(new Set(['a']), 'b'), true);
   const page = read('pages/Systems.tsx');
   assert.match(page, /canStartTest\(/);
-  assert.match(page, /disabled=\{testing\.has\(system\.id\)\}/);
+  assert.match(page, /aria-disabled=\{testing\.has\(system\.id\) \? 'true' : undefined\}/); // row 372 M2: aria-disabled, not native
   assert.match(page, /TESTING_WORD/);
   assert.match(page, /data-test-connection-pending/);
   assert.match(page, /data-action="test-connection"/, 'hook kept');

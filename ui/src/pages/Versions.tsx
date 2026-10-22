@@ -54,6 +54,7 @@ export function Versions({ selectId = null }: { selectId?: string | null }) {
   const selectedRef = useRef<string | null>(null); // handlers act on click time, not render time
   const statusRef = useRef<string>('DRAFT'); // what a click sees, even mid-chain
   const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const inflight = useRef(0); // L2: queued actions not yet ended; pending clears only when this reaches 0
   const [status, setStatus] = useState<string>('DRAFT');
   const [changeNote, setChangeNote] = useState('');
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -92,6 +93,7 @@ export function Versions({ selectId = null }: { selectId?: string | null }) {
   };
   /** Clicks are fire-and-forget for the specs; actions run in click order on real answers. */
   const enqueue = (name: string, action: () => Promise<void>) => {
+    inflight.current += 1;
     setPending(name);
     setFailure(null);
     queueRef.current = queueRef.current
@@ -101,7 +103,15 @@ export function Versions({ selectId = null }: { selectId?: string | null }) {
           setFailure(actionFailure(name, 0));
         })
       )
-      .then(() => setPending(null));
+      .then(() => {
+        inflight.current -= 1;
+        if (inflight.current === 0) setPending(null);
+      });
+  };
+  /** M2: busy buttons are aria-disabled (still focusable), so a press while busy is ignored here instead. */
+  const press = (name: string, action: () => Promise<void>) => {
+    if (pending !== null) return;
+    enqueue(name, action);
   };
 
   const loadFlows = () => {
@@ -118,6 +128,14 @@ export function Versions({ selectId = null }: { selectId?: string | null }) {
       if (first && selectedRef.current === null) selectFlow(first);
     }).catch(() => setLoad('error'));
   };
+
+  // L1: #/versions/A -> #/versions/B on the mounted page follows the route.
+  useEffect(() => {
+    if (!selectId || load !== 'ready' || selectedRef.current === selectId) return;
+    const next = flows.find((flow) => flow.id === selectId);
+    if (next) selectFlow(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectId, load]);
 
   useEffect(() => {
     void loadHarnessConfig().then(() => setHarnessApprover(hasHarnessLogin('approver')));
@@ -307,27 +325,27 @@ export function Versions({ selectId = null }: { selectId?: string | null }) {
 
               <div className="versions-actions">
                 {actions.includes('save-draft') && (
-                  <button type="button" className="btn" data-action="save-draft" disabled={pending !== null} aria-busy={pending === 'save-draft'} onClick={() => enqueue('save-draft', onSaveDraft)}>
+                  <button type="button" className="btn" data-action="save-draft" aria-disabled={pending !== null ? 'true' : undefined} aria-busy={pending === 'save-draft'} onClick={() => press('save-draft', onSaveDraft)}>
                     {pending === 'save-draft' ? PENDING_LABEL['save-draft'] : 'Save draft'}
                   </button>
                 )}
                 {actions.includes('submit-for-approval') && (
-                  <button type="button" className="btn btn-primary" data-action="submit-for-approval" disabled={pending !== null} aria-busy={pending === 'submit-for-approval'} onClick={() => enqueue('submit-for-approval', onSubmit)}>
+                  <button type="button" className="btn btn-primary" data-action="submit-for-approval" aria-disabled={pending !== null ? 'true' : undefined} aria-busy={pending === 'submit-for-approval'} onClick={() => press('submit-for-approval', onSubmit)}>
                     {pending === 'submit-for-approval' ? PENDING_LABEL['submit-for-approval'] : 'Submit for approval'}
                   </button>
                 )}
                 {actions.includes('approve') && (
-                  <button type="button" className="btn btn-primary" data-action="approve" disabled={pending !== null} aria-busy={pending === 'approve'} onClick={() => enqueue('approve', () => onApprove())}>
+                  <button type="button" className="btn btn-primary" data-action="approve" aria-disabled={pending !== null ? 'true' : undefined} aria-busy={pending === 'approve'} onClick={() => press('approve', () => onApprove())}>
                     {pending === 'approve' ? PENDING_LABEL.approve : 'Approve'}
                   </button>
                 )}
                 {actions.includes('publish') && (
-                  <button type="button" className="btn btn-primary" data-action="publish" disabled={status !== 'APPROVED' || pending !== null} aria-describedby="versions-publish-note" aria-busy={pending === 'publish'} onClick={() => enqueue('publish', onPublish)}>
+                  <button type="button" className="btn btn-primary" data-action="publish" aria-disabled={status !== 'APPROVED' || pending !== null ? 'true' : undefined} aria-describedby="versions-publish-note" aria-busy={pending === 'publish'} onClick={() => (status === 'APPROVED' ? press('publish', onPublish) : undefined)}>
                     {pending === 'publish' ? PENDING_LABEL.publish : 'Publish'}
                   </button>
                 )}
                 {actions.includes('new-draft') && (
-                  <button type="button" className="btn" data-action="new-draft" disabled={pending !== null} aria-busy={pending === 'new-draft'} onClick={() => enqueue('new-draft', onNewDraft)}>
+                  <button type="button" className="btn" data-action="new-draft" aria-disabled={pending !== null ? 'true' : undefined} aria-busy={pending === 'new-draft'} onClick={() => press('new-draft', onNewDraft)}>
                     {pending === 'new-draft' ? PENDING_LABEL['new-draft'] : 'New draft'}
                   </button>
                 )}
@@ -388,7 +406,7 @@ export function Versions({ selectId = null }: { selectId?: string | null }) {
               {harnessApproveOffered(status, harnessApprover) && (
                 <div className="versions-harness" aria-label="Test harness">
                   <span className="flows-muted">Test harness</span>
-                  <button type="button" className="btn versions-ghost" data-action="approve-as-approver" disabled={pending !== null} onClick={() => enqueue('approve', () => onApprove('approver'))}>
+                  <button type="button" className="btn versions-ghost" data-action="approve-as-approver" aria-disabled={pending !== null ? 'true' : undefined} onClick={() => press('approve', () => onApprove('approver'))}>
                     Approve as the harness approver
                   </button>
                 </div>

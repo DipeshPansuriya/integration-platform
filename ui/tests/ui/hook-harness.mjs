@@ -20,7 +20,8 @@ const STUBS = {
     + 'export const useRef = (i) => globalThis.__hookHarness.useRef(i);\n'
     + 'export const useId = () => ":r0:";\n'
     + 'export const createContext = (d) => ({ Provider: Symbol("Provider"), _d: d });\n'
-    + 'export const useContext = (c) => c._d;\n',
+    + 'export const useContext = (c) => c._d;\n'
+    + 'export const Fragment = Symbol.for("hook-harness.fragment");\n',
   'react/jsx-runtime': 'const h = (type, props) => globalThis.__hookHarness.element(type, props);\n'
     + 'export const jsx = h; export const jsxs = h; export const Fragment = Symbol.for("hook-harness.fragment");\n'
 };
@@ -45,7 +46,7 @@ async function load(page, apiSpecifiers) {
           b.onLoad({ filter: /\.css$/ }, () => ({ contents: '', loader: 'js' })); // pages import their own stylesheet; Vite handles it, the harness ignores it
           b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: STUBS[a.path], loader: 'js' }));
           b.onLoad({ filter: /.*/, namespace: 'api' }, () => ({
-            contents: 'export default null;\n' + ['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery', 'queueSummary', 'deliveryReport']
+            contents: 'export default null;\n' + [...new Set(['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery', 'queueSummary', 'deliveryReport', ...Object.keys(globalThis.__hookHarness.api)])]
               .map((n) => `export const ${n} = (...a) => globalThis.__hookHarness.api.${n}(...a);`).join('\n'),
             loader: 'js'
           }));
@@ -133,6 +134,11 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
   render();
   return {
     tree: () => current,
+    /** Re-renders with new props (a route change on a mounted screen). */
+    setProps(next) {
+      props = next;
+      render();
+    },
     components: (name) => components.filter((c) => c.type.name === name).map((c) => c.props),
     /** Runs every effect cleanup, as React does when the screen leaves. */
     unmount() {

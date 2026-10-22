@@ -5,7 +5,7 @@
 // B28 (UI audit B2): data-state (ready/confirm/busy/done) drives a visible busy/done style (operator.css), and the
 // opt-in `confirm` makes the first press ask "Confirm replay" (with Cancel) - only the next press sends.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { replayDelivery, retryDelivery } from '../api/operator';
 import { actionAnswerText, confirmLabel, confirmPrompt, pressStep, type OperatorAction } from './operator-actions';
 import './operator.css';
@@ -16,6 +16,13 @@ export function OperatorActionButton({ action, onDone, confirm = false }: { acti
   const [done, setDone] = useState(false);
   const [text, setText] = useState('');
   const [asking, setAsking] = useState(false);
+  // Row 372 M6: Cancel unmounts itself, so focus goes back to the action button when the confirm step closes.
+  const main = useRef<HTMLButtonElement>(null);
+  const wasAsking = useRef(false);
+  useEffect(() => {
+    if (wasAsking.current && !asking) main.current?.focus();
+    wasAsking.current = asking;
+  }, [asking]);
 
   async function run() {
     const step = pressStep({ confirm, asking, busy, done });
@@ -42,7 +49,7 @@ export function OperatorActionButton({ action, onDone, confirm = false }: { acti
   const state = done ? 'done' : busy ? 'busy' : asking ? 'confirm' : 'ready';
   return (
     <span className="op-action">
-      <button type="button" data-action={action.kind} data-delivery-id={action.deliveryId} data-state={state} aria-disabled={busy || done ? 'true' : undefined} onClick={run}>
+      <button ref={main} type="button" data-action={action.kind} data-delivery-id={action.deliveryId} data-state={state} aria-disabled={busy || done ? 'true' : undefined} onClick={run}>
         {asking ? confirmLabel(action) : action.label}
       </button>
       {asking && (

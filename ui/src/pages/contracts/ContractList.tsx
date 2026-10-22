@@ -7,7 +7,7 @@
 // "Submit for approval" opens a small inline group (note + Submit); a refused action is worded at
 // the top of the card it concerns.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Contract, ContractVersionSummary } from '../../api/contracts';
 import { contractGroups, rowActionLabel, statusBadge } from './contracts-view';
 
@@ -51,6 +51,13 @@ function VersionRow({ contract, version, actions }: { contract: Contract; versio
   const [changeNote, setChangeNote] = useState('');
   const [composing, setComposing] = useState(false);
   const [confirming, setConfirming] = useState(false); // B29 C2: Approve is irreversible, so it asks first
+  // Row 372 M6: the Approve button unmounts while the confirm group shows - "Yes, approve" takes focus on arm (autoFocus), Cancel hands it back.
+  const approveButton = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (wasConfirming.current && !confirming) approveButton.current?.focus();
+    wasConfirming.current = confirming;
+  }, [confirming]);
   const id = version.id ?? '';
   const key = versionKey(contract, version);
   const badge = statusBadge(version.status);
@@ -106,6 +113,7 @@ function VersionRow({ contract, version, actions }: { contract: Contract; versio
           <>
             {!confirming && (
               <button
+                ref={approveButton}
                 type="button"
                 className="btn"
                 data-action="approve-version"
@@ -122,6 +130,7 @@ function VersionRow({ contract, version, actions }: { contract: Contract; versio
                   type="button"
                   className="btn btn-primary"
                   data-action="confirm-approve"
+                  autoFocus
                   onClick={() => {
                     setConfirming(false);
                     actions.onApprove(id);

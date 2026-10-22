@@ -87,7 +87,8 @@ summary:focus-visible {
 [data-theme="dark"] .btn-primary:hover {
   filter: brightness(0.9);
 }
-.btn[disabled] {
+.btn[disabled],
+.btn[aria-disabled="true"] { /* row 372 M2: busy buttons stay focusable, so they carry aria-disabled and look the same */
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -448,7 +449,7 @@ summary:focus-visible {
 :where(main.content) :where(button):where(:hover):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
   border-color: var(--color-border-strong);
 }
-:where(main.content) :where(button[disabled]):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+:where(main.content) :where(button[disabled], button[aria-disabled="true"]):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
   opacity: 0.45;
   cursor: not-allowed;
 }

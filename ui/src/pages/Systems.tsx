@@ -198,6 +198,7 @@ export function Systems() {
                         className="systems-settings-text"
                         title={summary}
                         tabIndex={0}
+                        role="group"
                         aria-label={`Settings of ${system.code}: ${summary}`}
                       >
                         {summary}
@@ -249,7 +250,7 @@ export function Systems() {
                         type="button"
                         className="btn"
                         data-action="test-connection"
-                        disabled={testing.has(system.id)}
+                        aria-disabled={testing.has(system.id) ? 'true' : undefined}
                         aria-label={`Test connection for ${system.code}`}
                         onClick={() => void onTestConnection(system)}
                       >

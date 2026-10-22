@@ -44,7 +44,7 @@ test('A7: each action has a pending label for its busy button', () => {
 });
 
 test('wiring: lifecycle buttons are disabled while pending, a polite live region exists, failures are role=alert, load error has Retry', () => {
-  assert.match(page, /disabled=\{pending !== null\}/);
+  assert.match(page, /aria-disabled=\{pending !== null \? 'true' : undefined\}/); // row 372 M2
   assert.match(page, /aria-busy/);
   assert.match(page, /data-live-region/);
   assert.match(page, /aria-live="polite"/);
