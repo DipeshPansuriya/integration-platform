@@ -17,6 +17,7 @@ import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
@@ -26,6 +27,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * concurrent writer is not blocked), and a leftover violator aborts the migration with a clear message instead of
  * leaving a NOT VALID constraint that would fail the violator's next UPDATE.
  */
+@Tag("container")
 class DeliveryContractPinMigrationContainerTest {
 
     private static final String OWNER = "ipaas_migrator";
