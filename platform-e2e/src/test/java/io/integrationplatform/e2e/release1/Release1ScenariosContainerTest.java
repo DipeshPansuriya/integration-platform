@@ -234,7 +234,7 @@ class Release1ScenariosContainerTest {
                 + "\"response\":{\"status\":200},\"priority\":10}"); // the reset removed the runner's default 200
         HttpResponse<String> replay = client.post(
                 E2eNames.nameOf("replayApi").replace("{deliveryId}", delivery.group(1)), "{}",
-                Release1Client.bearer("APPROVER"));
+                Release1Client.bearer("TENANT_ADMIN")); // REPLAY_DEAD_LETTER: tenant admin and support, never APPROVER
         assertThat(replay.statusCode()).isBetween(200, 202);
 
         String timeline = awaitBody(client, E2eNames.nameOf("timelineApi").replace("{trackingId}", trackingId),

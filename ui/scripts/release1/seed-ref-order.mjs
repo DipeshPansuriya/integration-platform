@@ -16,8 +16,9 @@ const objectOf = (fields) => ({
 export const REF = Object.freeze({
   flowCode: 'REF-ORDER',
   source: Object.freeze({ system: 'ref-source', name: 'Reference source', versionLabel: '1.0', document: objectOf({ orderNo: 'string', customer: 'string', qty: 'number' }) }),
-  targetA: Object.freeze({ system: 'ref-target-a', name: 'Reference target A (API)', versionLabel: '1.0', document: objectOf({ orderNo: 'string', customer: 'string', qty: 'number' }),
-    expression: "{'orderNo': orderNo, 'customer': customer, 'qty': qty}",
+  targetA: Object.freeze({ system: 'ref-target-a', name: 'Reference target A (API)', versionLabel: '1.0', document: objectOf({ orderNo: 'string', customer: 'string', qty: 'number', contractVersion: 'string' }),
+    // the body carries the contract version it was rendered under (SC-01 reads it back from the WireMock journal)
+    expression: "{'orderNo': orderNo, 'customer': customer, 'qty': qty, 'contractVersion': '1.0'}",
     links: Object.freeze([['orderNo', 'orderNo'], ['customer', 'customer'], ['qty', 'qty']]) }),
   targetB: Object.freeze({ system: 'ref-target-b', name: 'Reference target B (MQ-CSV)', versionLabel: '2.0', document: objectOf({ order_no: 'string', customer: 'string', total: 'number' }),
     expression: "{'order_no': orderNo, 'customer': customer, 'total': qty}",
