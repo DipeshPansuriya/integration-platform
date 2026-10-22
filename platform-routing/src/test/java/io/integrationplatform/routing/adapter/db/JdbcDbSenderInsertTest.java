@@ -32,8 +32,8 @@ class JdbcDbSenderInsertTest {
     static final UUID DELIVERY = UUID.randomUUID();
 
     static DbMessage message() {
-        return new DbMessage(new DbSettings("db.partner.example", 5432, "orders", "restricted", "orders_in",
-                List.of("orders_in")), "restricted", "pw".toCharArray(), "orders_in", List.of("awb", "pieces"),
+        return new DbMessage(new DbSettings("db.partner.example", 5432, "orders", "restricted", "orders_in"),
+                "restricted", "pw".toCharArray(), "orders_in", List.of("awb", "pieces"),
                 List.of(List.of("A1", 1), List.of("A2", 2)));
     }
 

@@ -40,6 +40,10 @@ public final class ConfigAuditActions {
     public static final String CREDENTIAL_SOURCE_ROTATED = "CREDENTIAL_SOURCE_ROTATED";
     public static final String CREDENTIAL_SOURCE_REVOKED = "CREDENTIAL_SOURCE_REVOKED";
     public static final String CREDENTIAL_TARGET_SAVED = "CREDENTIAL_TARGET_SAVED";
+    /** E16 F3: a DB target table is requested, approved by a different approver, or revoked. */
+    public static final String DB_TABLE_REQUESTED = "DB_TABLE_REQUESTED";
+    public static final String DB_TABLE_APPROVED = "DB_TABLE_APPROVED";
+    public static final String DB_TABLE_REVOKED = "DB_TABLE_REVOKED";
 
     private ConfigAuditActions() {
     }

@@ -22,7 +22,7 @@ export function listedAnswer<T>(data: T | undefined, error: unknown, response: R
 export const SYSTEM_TYPES = ['API', 'DB', 'MQ', 'FILE', 'KAFKA'] as const;
 export type SystemType = (typeof SYSTEM_TYPES)[number];
 
-/** 'list' = a comma-separated list on screen, an array on the wire (the DB target's approved tables). */
+/** 'list' = a comma-separated list on screen, an array on the wire (no field uses it today: the DB approved tables moved out of the settings, E16 F3). */
 export type SettingKind = 'text' | 'number' | 'boolean' | 'list';
 export type SettingField = { name: string; label: string; kind: SettingKind; required: boolean; hint?: string };
 
@@ -37,8 +37,7 @@ export const SETTINGS_BY_TYPE: Record<SystemType, SettingField[]> = {
     { name: 'port', label: 'Port', kind: 'number', required: true },
     { name: 'database', label: 'Database', kind: 'text', required: true },
     { name: 'user', label: 'Account name', kind: 'text', required: false, hint: 'A plain identifier. The password is a credential, stored separately.' },
-    { name: 'table', label: 'Table', kind: 'text', required: false },
-    { name: 'approvedTables', label: 'Approved tables', kind: 'list', required: false, hint: 'Comma-separated plain table names.' }
+    { name: 'table', label: 'Table', kind: 'text', required: false, hint: 'A second person must approve the table (approved-tables API) before the first send.' }
   ],
   MQ: [
     { name: 'host', label: 'Host', kind: 'text', required: true },

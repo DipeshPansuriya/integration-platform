@@ -53,7 +53,7 @@ class DbTargetSsrfTest {
 
     static String settings(String host, int port, String database) {
         return "{\"host\":\"" + host + "\",\"port\":" + port + ",\"database\":\"" + database
-                + "\",\"user\":\"restricted\",\"table\":\"orders_in\",\"approvedTables\":[\"orders_in\"]}";
+                + "\",\"user\":\"restricted\",\"table\":\"orders_in\"}";
     }
 
     DbTargetCall call(String settingsJson, List<InetAddress> resolves) {
@@ -64,7 +64,7 @@ class DbTargetSsrfTest {
                     lookups.incrementAndGet();
                     return resolves;
                 }, List.of(), List.of(), List.of("10.9.9.9", "platform-db.internal"));
-        return new DbTargetCall(new DbTargetOutbound(targets, s -> Optional.of(List.of(Map.of("awb", "A1")))),
+        return new DbTargetCall(ApprovedTablesFixtures.ALL, new DbTargetOutbound(targets, s -> Optional.of(List.of(Map.of("awb", "A1")))),
                 sender, guard, List.of(5432, 5433), CircuitBreakerRegistry.ofDefaults(), new SimpleMeterRegistry(),
                 ObservationRegistry.create());
     }
@@ -161,7 +161,7 @@ class DbTargetSsrfTest {
             throw new IllegalStateException("the DB database must be 1 to 63 letters, digits, dot, hyphen or underscore");
         };
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of("*.partner.example")), n -> List.of(PUBLIC));
-        DbTargetCall call = new DbTargetCall(new DbTargetOutbound(legacy, s -> Optional.of(List.of(Map.of("awb", "A1")))),
+        DbTargetCall call = new DbTargetCall(ApprovedTablesFixtures.ALL, new DbTargetOutbound(legacy, s -> Optional.of(List.of(Map.of("awb", "A1")))),
                 sender, guard, List.of(5432), CircuitBreakerRegistry.ofDefaults(), new SimpleMeterRegistry(),
                 ObservationRegistry.create());
 
