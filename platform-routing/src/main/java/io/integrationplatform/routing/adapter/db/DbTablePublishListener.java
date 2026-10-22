@@ -18,9 +18,11 @@ public final class DbTablePublishListener {
     private static final int MAX_NAMED = 5;
 
     private final UnapprovedTables unapproved;
+    private final MissingContractColumns missingColumns;
 
-    public DbTablePublishListener(UnapprovedTables unapproved) {
+    public DbTablePublishListener(UnapprovedTables unapproved, MissingContractColumns missingColumns) {
         this.unapproved = Objects.requireNonNull(unapproved, "unapproved");
+        this.missingColumns = Objects.requireNonNull(missingColumns, "missingColumns");
     }
 
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT, fallbackExecution = true)
@@ -31,6 +33,14 @@ public final class DbTablePublishListener {
             throw new InterfacePublishRefused("the publish was refused: the DB table is not approved for the target ("
                     + named + (missing.size() > MAX_NAMED ? ", ..." : "") + "); request and approve it first",
                     new IllegalStateException("unapproved DB tables: " + missing));
+        }
+        List<String> columns = missingColumns.ofInterface(published.interfaceId());
+        if (!columns.isEmpty()) {
+            String named = String.join(", ", columns.stream().limit(MAX_NAMED).toList());
+            throw new InterfacePublishRefused("the publish was refused: the mapping references column(s) the "
+                    + "approved contract does not have (" + named + (columns.size() > MAX_NAMED ? ", ..." : "")
+                    + "); bind the mapping to a contract that has them first",
+                    new IllegalStateException("mapped columns not in the approved contract: " + columns));
         }
     }
 }

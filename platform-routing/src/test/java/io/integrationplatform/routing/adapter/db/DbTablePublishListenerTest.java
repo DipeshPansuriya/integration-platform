@@ -24,7 +24,7 @@ class DbTablePublishListenerTest {
     @Test
     @DisplayName("every DB table approved: the publish goes through")
     void approvedTablesPublish() {
-        new DbTablePublishListener(id -> List.of()).onInterfacePublished(published());
+        new DbTablePublishListener(id -> List.of(), id -> List.of()).onInterfacePublished(published());
     }
 
     @Test
@@ -35,7 +35,7 @@ class DbTablePublishListenerTest {
         DbTablePublishListener listener = new DbTablePublishListener(id -> {
             assertThat(id).isEqualTo(iface);
             return List.of("orders-db.users");
-        });
+        }, id -> List.of());
 
         assertThatThrownBy(() -> listener.onInterfacePublished(published()))
                 .isInstanceOfSatisfying(InterfacePublishRefused.class,
@@ -48,7 +48,7 @@ class DbTablePublishListenerTest {
     void aFailedLookupFailsThePublish() {
         DbTablePublishListener listener = new DbTablePublishListener(id -> {
             throw new IllegalStateException("db down");
-        });
+        }, id -> List.of());
 
         assertThatThrownBy(() -> listener.onInterfacePublished(published())).isInstanceOf(IllegalStateException.class);
     }

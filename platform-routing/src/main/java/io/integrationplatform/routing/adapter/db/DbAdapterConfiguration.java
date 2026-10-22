@@ -73,10 +73,16 @@ public class DbAdapterConfiguration {
         return new JdbcApprovedTables(jdbcClient, tenantContext);
     }
 
-    /** E16 F3 (task 10): an interface whose DB table is not approved cannot be published (ADR-017). */
+    /** E16 F3 (task 9): the publish-time read of the mapped columns not in the route's approved target contract. */
     @Bean
-    DbTablePublishListener dbTablePublishListener(JdbcApprovedTables approved) {
-        return new DbTablePublishListener(approved);
+    JdbcDbRouteColumns jdbcDbRouteColumns(JdbcClient jdbcClient, TenantContext tenantContext) {
+        return new JdbcDbRouteColumns(jdbcClient, tenantContext);
+    }
+
+    /** E16 F3 (tasks 9 and 10): an unapproved DB table, or a mapped column outside the approved contract, refuses. */
+    @Bean
+    DbTablePublishListener dbTablePublishListener(JdbcApprovedTables approved, JdbcDbRouteColumns missingColumns) {
+        return new DbTablePublishListener(approved, missingColumns);
     }
 
     @Bean
