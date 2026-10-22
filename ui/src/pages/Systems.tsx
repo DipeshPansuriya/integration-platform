@@ -130,6 +130,10 @@ export function Systems() {
         {listRefusal !== null && (
           <p role="alert" className="systems-alert systems-alert-danger" data-refusal={`list-refused-${listRefusal}`}>
             {refusalWords(listRefusal, 'the systems list')}
+            {' '}
+            <button type="button" className="btn" data-action="retry-load" onClick={() => void refresh()}>
+              Retry
+            </button>
           </p>
         )}
         {!loaded && (

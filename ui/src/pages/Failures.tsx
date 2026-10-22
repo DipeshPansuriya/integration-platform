@@ -57,7 +57,7 @@ function FailureRowView({ row, showFlow, action, now, copied, onCopy, onDone }: 
     <tr data-failure-row={row.trackingId} data-failing-stage={row.failingStage} data-origin={row.origin}>
       <td>
         <span className="op-id">
-          <a href={row.detailHash} data-message-link={row.trackingId} className="op-mono">
+          <a href={row.detailHash} data-message-link={row.trackingId} className="op-mono" title={row.trackingId}>
             {row.trackingId}
           </a>
           <button type="button" className="op-copy" data-copy-id={row.trackingId} aria-label={`Copy tracking id ${row.trackingId}`} onClick={() => onCopy(row.trackingId)}>
@@ -239,7 +239,7 @@ export function Failures() {
       </div>
       {/* One persistent live region: loading, empty, refused and error are announced from it. */}
       <p
-        role="status"
+        role={load === 'refused' || load === 'error' ? 'alert' : 'status'}
         className={designedEmpty ? 'op-empty' : load === 'refused' || load === 'error' ? 'op-alert op-alert-danger' : 'op-status'}
         data-status="failures"
         data-empty={designedEmpty ? 'failures-none' : undefined}

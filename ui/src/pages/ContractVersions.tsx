@@ -101,6 +101,10 @@ export function ContractVersions() {
         {listRefusal !== null && (
           <p role="alert" className="contracts-alert contracts-alert-danger" data-refusal={`list-refused-${listRefusal}`}>
             {refusalWords(listRefusal, 'the contracts list')}
+            {' '}
+            <button type="button" className="btn" data-action="retry-load" onClick={() => void refresh()}>
+              Retry
+            </button>
           </p>
         )}
         {!loaded && (

@@ -77,6 +77,14 @@
 }
 .operator-page a.badge {
   text-decoration: none;
+  position: relative;
+}
+/* row 372 F2: the badge keeps its look; an invisible 4px margin above and below lifts the hit target to >= 28px */
+.operator-page a.badge::after {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
+  min-height: 28px;
 }
 .operator-page a.badge:hover {
   text-decoration: underline;
@@ -103,6 +111,17 @@
 .operator-page .op-copy {
   padding: 2px 8px;
   font-size: 12.5px;
+  min-height: 28px; /* row 372 F2: a hit target of at least 28px */
+}
+/* row 372 F1: the 36-char id is capped (full id in title and the Copy label) so it cannot widen the table past the card */
+.operator-page .op-id a {
+  display: inline-block;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 28px;
+  vertical-align: middle;
 }
 
 /* alerts and empty states: worded, never colour alone (flows.css) */
