@@ -38,6 +38,6 @@ test('M1 MessageDetail: the state dd shows the word and carries the raw enum in 
 
 test('M1 the e2e-full journey reads the raw enum from the attribute, not the worded text', () => {
   const text = spec('e2e-full/e2e-full-journeys.docker.spec.mjs');
-  assert.match(text, /\[data-message-state\]'\)\)\.toHaveAttribute\('data-state-raw', 'DELIVERED'\)/);
-  assert.doesNotMatch(text, /\[data-message-state\]'\)\)\.toHaveText\('DELIVERED'\)/);
+  assert.match(text, /\[data-message-state\]'\)\)\.toHaveAttribute\('data-state-raw', 'ROUTED'\)/); // main: the message state is the routing outcome
+  assert.doesNotMatch(text, /\[data-message-state\]'\)\)\.toHaveText\('(DELIVERED|ROUTED)'\)/);
 });
