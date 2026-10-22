@@ -5,8 +5,8 @@ import java.util.UUID;
 
 /**
  * T178a: the approval's question to the target database - is the restricted account wider than INSERT and SELECT on the
- * table being approved? The routing module answers it with its credentialed privilege probe (config may not depend on
- * routing). Fail closed: anything but a clean "narrow" answer is a refusal.
+ * table being approved? The composition root answers it from routing's own {@code DbAccountWidth} port, backed by its
+ * credentialed privilege probe (config may not depend on routing). Fail closed: anything but a clean "narrow" answer is a refusal.
  */
 @FunctionalInterface
 public interface DbAccountWidthCheck {

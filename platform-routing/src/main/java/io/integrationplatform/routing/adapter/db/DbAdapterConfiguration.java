@@ -66,10 +66,11 @@ public class DbAdapterConfiguration {
 
     /**
      * T178a: the approval's width question, answered by the SAME probe as the test-connection; with no vault slice
-     * composed the check refuses every approval (fail closed).
+     * composed the check refuses every approval (fail closed). B30: routing's own port - the composition root hands
+     * it to config's approval (routing uses no config application type).
      */
     @Bean
-    io.integrationplatform.config.system.application.DbAccountWidthCheck dbAccountWidthCheck(DestinationGuard guard,
+    DbAccountWidth dbAccountWidth(DestinationGuard guard,
             SocketDialer dialer, JdbcClient jdbcClient, TenantContext tenantContext,
             ObjectProvider<SendTimeCredentials> vault,
             ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactions,
