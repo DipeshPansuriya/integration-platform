@@ -3,7 +3,7 @@ type: ADR
 title: "ADR-011 - Target types, contract registry and version graph, bulk at intake, ordering, Kafka records carry ids only, background tenant from the row"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy. 2026-10-22 - E16 F3 amendment (approved tables, D1-D4) and F3 hardening addendum (S1, S2, S3, S5, residuals)"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -363,7 +363,56 @@ in the project workspace). This amends the `DB` row of Decision 1 ("only tables 
   boundary**: a tenant whose admin and approver collude can approve any table - but only in a database whose credentials
   that tenant supplied itself. The decider is stamped into the transaction (`app.actor_id`) by the platform from the
   validated session, not authenticated by the database (the app connects as one role); a database-authenticated actor
-  needs a tenancy-module change and stays open. The privilege probe at test-connection (the restricted account's real
-  grants: `has_table_privilege`, no CREATE) is **not built**; until it is, the account's real privileges are the target
-  database owner's responsibility, and this approval list is the platform-side control only. A platform-operator
-  ceiling (option A) waits for the operator login (ADR-012).
+  needs a tenancy-module change and stays open. The privilege probe at test-connection is now built but **reports
+  only** (see the hardening addendum below); the account's real privileges remain the target database owner's
+  responsibility, and this approval list is the platform-side control only. A platform-operator ceiling (option A)
+  waits for the operator login (ADR-012).
+
+### Addendum 2026-10-22 - F3 hardening (merge `d2aed86e`, on main at `aeddfdd9`)
+
+Sources: Karan's re-check and Varun's review (`_reports/2026-10-22-f3-hardening-security.md`,
+`_reports/2026-10-22-f3-hardening-review.md` in the project workspace). Container tests are named for each control;
+both reports are static reads (neither reviewer ran them).
+
+- **S1 - an INSERT is only ever a fresh request** (`V2_4_1340:15-31`). The one `FOR ALL` policy of `V2_4_1330` is
+  replaced by one policy per command: SELECT (tenant); INSERT `WITH CHECK` tenant AND `status = 'PENDING_APPROVAL'`
+  AND `decided_by`, `decided_at`, `revoked_by`, `revoked_at` all NULL; UPDATE (tenant). The app role still holds
+  SELECT and INSERT only - no UPDATE, no DELETE (`V2_4_1330:67`) - so the UPDATE policy serves only the definer
+  function `config_decide_db_table_approval`, which runs as the owner under FORCE ROW LEVEL SECURITY. APPROVED and
+  REVOKED are reachable only through that function; it refuses self-approval (`REFUSED_SELF_APPROVAL`, backed by the
+  `four_eyes` CHECK). `INSERT ... ON CONFLICT DO UPDATE` needs UPDATE and is refused (42501). No DELETE policy:
+  deliberate; a later purge job must run as a role that bypasses RLS. Tests: `anInsertIsAlwaysPending`,
+  `noUpdateAndNoDeleteForTheAppRole` (`ApprovedTableMigrationContainerTest`); no test names the ON CONFLICT case.
+- **S5 - the fingerprint includes `sslmode`** (`V2_4_1340:39-46`). One SQL definition, `db_target_fingerprint`, read by
+  the send, the publish check, the request insert and the decision, so weakening `verify-full` to `require` invalidates
+  an approval like a repoint does. The data step (`V2_4_1340:48-`) re-hashes **only** rows whose stored hash equals
+  the old four-field hash of the system's current settings; a row already stale from a repoint keeps its old hash and
+  stays refused, so the upgrade never revives it (Karan F-1). Tests: `sslmodeIsPartOfTheFingerprint`,
+  `aRepointedRowStaysStaleAcrossTheUpgrade`.
+- **S2 - privilege probe, report only** (`JdbcDbPrivilegeProbe.java:32-45`). Test-connection asks the server for the
+  account's effective privileges on `public.<table>` (roles, PUBLIC and inheritance included): INSERT, SELECT, UPDATE,
+  DELETE, TRUNCATE, TRIGGER, BYPASSRLS, superuser, CREATE on the schema, membership of `pg_write_all_data`. Anything
+  beyond INSERT and SELECT appends `WIDE ACCOUNT` to the answer's `detail` text (`DbTestConnection.java:113-121`); the
+  answer stays `SUCCESS` and nothing gates a send or an approval on it. Not probed: REFERENCES, column-level grants,
+  CREATEROLE, the other predefined roles, privileges on other tables; a missing table reads as "none". **Open
+  decision (Dipesh):** refuse a WIDE account at approve time, or keep the probe informational - recommended: refuse,
+  after widening what counts as WIDE.
+- **S3 - `currentSchema=public` pinned** in `JdbcDbSender.accountProperties` (`JdbcDbSender.java:145-147`), shared by
+  the send and the probe; it outranks a role-level `search_path` (test `theSchemaIsPinnedAgainstARoleSearchPath`).
+  **Behaviour change:** an existing target whose account relied on another default schema now writes to
+  `public.<table>` or fails 42P01/42501 - move or grant the table before upgrading.
+- **Operator notes** (`JdbcDbSender.java:31-38`). The restricted account needs SELECT as well as INSERT (the
+  `delivery_id` pre-state check reads the table). The partner `delivery_id` column must be `uuid` (a text column fails
+  42883, PERMANENT). An INSERT-only account fails 42501, classified PERMANENT with a message naming INSERT and SELECT
+  (`DbTargetCall.java:138-145`); the same text also appears for other 42501 causes (missing USAGE on the schema or the
+  table's sequence). Before go-live the operator lists every migrated PENDING row to the approver: DB sends stop until
+  each table is approved.
+- **Known residuals - accepted risk pending Dipesh.**
+  (a) Code running as the app role still chooses `requested_by`, `requested_at` and `target_hash` on a PENDING row, so
+  it can name another user as requester and then approve through the function with its own stamped actor; it cannot
+  insert an APPROVED row. **Open decision (Dipesh):** accept and record here, or add a `BEFORE INSERT` trigger deriving
+  `requested_by` from `app.actor_id` and `target_hash` from the live settings - recommended: accept; add the trigger
+  only if he asks. (b) On PostgreSQL 14 and older PUBLIC holds CREATE on `public`, so every account reads WIDE (a
+  false positive; accurate on 15+). Target database versions: TBD. (c) A repoint A to B and back to A revives the
+  original approval (only the live hash is compared); a `TARGET_CHANGED` state would close it - not built. (d) The
+  table owner (migration role) can still write any state; DBA-level, outside the app's reach.
