@@ -123,7 +123,9 @@ test('the tracking detail shows the four-stage timeline: INTAKE, ROUTE, TRANSFOR
   await expect(page.locator('[data-page="message-detail"][data-message-loaded="true"]')).toBeVisible();
 
   await expect(page.locator('[data-tracking-id]')).toHaveText(trackingId);
-  await expect(page.locator('[data-message-state]')).toHaveText('DELIVERED');
+  // the MESSAGE state is the routing outcome (ACCEPTED / ROUTED / ROUTE_FAILED, lib/counts.mjs:13); DELIVERED is a DELIVERY state, proven
+  // by J1 and by the DELIVER stage row below (run 2 of 2026-10-22 read ROUTED here: a test defect, not a product one)
+  await expect(page.locator('[data-message-state]')).toHaveText('ROUTED');
   for (const stage of ['INTAKE', 'ROUTE', 'TRANSFORM', 'DELIVER']) {
     const row = page.locator(`[data-timeline] tr[data-stage-row="${stage}"]`);
     await expect(row, `the ${stage} stage row is on the timeline`).toHaveCount(1);
