@@ -6,11 +6,11 @@
 //                      plus BS-07's unnamed-loopback leg) and ONE Kafka broker (the pinned image, main's
 //                      three topics - BS-09 reads their headers), both started only by the boot, inside its lock
 //   appEnv             the dev-only exception's profile and host (settings.mjs), ADDED through mergeAppEnv -
-//                      their real names are TBD(row278) (row 278's build) and arrive only through the
-//                      environment; nothing here names a profile, a host or an app property
+//                      their decided values arrive only through the environment; nothing here names a
+//                      host or an app property
 //   sourceCredentials  the realm's admin client secret by its NAME (PLATFORM_ADMIN_CLIENT_SECRET, a random
 //                      value in memory only), so each tenant's source credential is issued through the API
-// Not configured, or still TBD(row278): requireException throws here - before any build, lock or container.
+// Not configured or misconfigured: requireException throws here - before any build, lock or container.
 
 import { requireException } from './settings.mjs';
 import { TENANTS, TENANT_B_PLAN } from './tenants.mjs';

@@ -11,7 +11,10 @@
 import { expect } from '@playwright/test';
 import { targetUrl } from '../lib/settings.mjs';
 import { FLOW, LINKS, SOURCE_CONTRACT, TARGET_CONTRACT, orderRecord, expectedTargetBody } from '../lib/tenants.mjs';
+import { activeCredentialId } from '../lib/credentials.mjs';
+import { interfaceCodeOf } from '../lib/interface-code.mjs';
 import { bsEnv } from './boot-state.mjs';
+import { readRun } from './run-file.mjs';
 import { inBrowser, must } from './api.mjs';
 
 const DESIGNER = '[data-page="mapping-designer"]';
@@ -27,16 +30,18 @@ export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {})
   // every API call names its login itself; the page-wide marker is set ONLY around the designer below,
   // so an approver's call can never ride the author's marker
   await page.setExtraHTTPHeaders({});
+  // the in-page API calls need a document (a blank page cannot read the XSRF cookie): open the signed-in console first
+  await page.goto(`${bsEnv('consoleUrl')}/#/`);
   const as = (method, apiPath, body, what, login = tenant.admin) => inBrowser(page, method, apiPath, body, login).then((a) => must(a, `${tenant.key}: ${what}`));
   // F1: WireMock is published on the exception port (boot-options.mjs)
   const targetBase = targetBaseUrl ?? targetUrl(settings, settings.port, tenant.stubPath);
 
-  // TBD(row278|T106): the API adapter's send URL - today the production body port is empty
+  // TBD(T106): the API adapter's send URL - today the production body port is empty
   // (ApiAdapterConfiguration.java:38-39) and where the delivery reads its base URL (this system setting or a
   // target-endpoint row) is the "endpoint base-URL gap" T130 step 7 waits on. Re-measure at the lock slot.
   const source = await as('POST', '/api/v1/admin/systems', {
     code: SOURCE_CONTRACT.system, name: SOURCE_CONTRACT.name, direction: 'INBOUND', type: 'API',
-    settings: { baseUrl: `https://${SOURCE_CONTRACT.system}.partner.test/` }
+    settings: { baseUrl: `${new URL(targetBase).origin}/${SOURCE_CONTRACT.system}/` } // the guard checks every API system's host: the source rides the one allow-listed host too
   }, 'source system');
   const target = await as('POST', '/api/v1/admin/systems', {
     code: TARGET_CONTRACT.system, name: TARGET_CONTRACT.name, direction: 'OUTBOUND', type: 'API',
@@ -67,11 +72,13 @@ export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {})
   await as('POST', `/api/v1/admin/flows/${flow.id}/approve`, undefined, 'approve orders', tenant.approver);
   await as('POST', `/api/v1/admin/flows/${flow.id}/publish`, undefined, 'publish orders');
 
+  // the flow create answer carries no code; the interface's generated code (flow-<uuid>) is what the intake is addressed by
+  const published = await as('GET', `/api/v1/admin/flows/${flow.id}`, undefined, 'read published orders');
   const credential = await as('POST', `/api/v1/admin/systems/${source.id}/source-credentials`, { customerId: tenant.customerId }, 'source credential');
   expect(credential.customerId, 'the credential is bound to the tenant\'s own customer').toBe(tenant.customerId);
   // ids only - the secret in `credential` is dropped here
   return {
-    sourceSystemId: source.id, targetSystemId: target.id, flowId: flow.id, routeId: route.id, mappingId: route.mappingId,
+    sourceSystemId: source.id, targetSystemId: target.id, flowId: flow.id, interfaceCode: published.code, routeId: route.id, mappingId: route.mappingId,
     credentialId: credential.id, clientId: credential.clientId, versionIds
   };
 }
@@ -112,8 +119,18 @@ export async function runSample(page, record, state) {
   }
 }
 
+/** The code the common intake is addressed by for this tenant (the flow's generated interface code, lib/interface-code.mjs). */
+export const intakeCode = (tenant) => interfaceCodeOf(readRun(), tenant.key);
+
 /** A usable source secret for this scenario only: rotate the seeded credential, keep the answer in memory. */
 export async function rotatedSecret(page, tenant, credentialId) {
-  const rotated = must(await inBrowser(page, 'POST', `/api/v1/admin/source-credentials/${credentialId}/rotate`, undefined, tenant.admin), `${tenant.key}: rotate credential`);
+  // the seeded id is rotated once; a later scenario file must rotate the replacement, found by listing the source
+  // system's credentials (the same id twice is a 409 "the credential is already being rotated")
+  const sourceSystemId = readRun().seed?.[tenant.key]?.sourceSystemId;
+  const listed = sourceSystemId
+    ? await inBrowser(page, 'GET', `/api/v1/admin/systems/${sourceSystemId}/source-credentials`, undefined, tenant.admin)
+    : null;
+  const currentId = activeCredentialId(listed?.status === 200 ? listed.data : null, credentialId);
+  const rotated = must(await inBrowser(page, 'POST', `/api/v1/admin/source-credentials/${currentId}/rotate`, undefined, tenant.admin), `${tenant.key}: rotate credential`);
   return { clientId: rotated.clientId, secretValue: rotated.secret };
 }

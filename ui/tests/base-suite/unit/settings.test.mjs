@@ -9,17 +9,17 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import * as settingsModule from '../lib/settings.mjs';
 import {
   EXCEPTION_ENV,
   NOT_CONFIGURED,
-  PLACEHOLDER,
   assertRealResolver,
   exceptionSettings,
   requireException,
   targetUrl
 } from '../lib/settings.mjs';
 
-// Fixture values only: row 278's real profile, host and app setting name are TBD(row278) until row 278's build lands.
+// Fixture values for the unit tests (the host does not resolve); the DECIDED real values are asserted below.
 const VALID = Object.freeze({
   IPASS_BS_EXCEPTION_PROFILE: 'showcase',
   IPASS_BS_EXCEPTION_HOST: 'target.showcase.test',
@@ -35,10 +35,10 @@ test('the exception is read from exactly four environment names', () => {
     hostVar: 'IPASS_BS_EXCEPTION_HOST_VAR',
     port: 'IPASS_BS_EXCEPTION_PORT'
   });
-  assert.equal(NOT_CONFIGURED, 'dev-only exception not configured - waits for row 278');
+  assert.equal(NOT_CONFIGURED, 'dev-only exception not configured');
 });
 
-test('unset: not configured, the reason waits for row 278 and names every missing variable', () => {
+test('unset: not configured, the reason names every missing variable', () => {
   const settings = exceptionSettings({});
   assert.equal(settings.configured, false);
   assert.ok(settings.reason.startsWith(NOT_CONFIGURED), settings.reason);
@@ -59,24 +59,24 @@ test('partly set: only the missing names are listed', () => {
   assert.ok(!settings.reason.includes('IPASS_BS_EXCEPTION_PROFILE'));
 });
 
-test('the TBD(row278) placeholder is never a configuration: a still-TBD value fails, naming row 278', () => {
-  assert.equal(PLACEHOLDER, 'TBD(row278)');
-  const allTbd = exceptionSettings({
-    IPASS_BS_EXCEPTION_PROFILE: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST: PLACEHOLDER, IPASS_BS_EXCEPTION_HOST_VAR: PLACEHOLDER,
-    IPASS_BS_EXCEPTION_PORT: PLACEHOLDER
+test('the four settings are DECIDED: no placeholder export, no TBD(row278) wording in any reason', () => {
+  assert.equal(settingsModule.PLACEHOLDER, undefined, 'the placeholder is gone');
+  const reasons = [exceptionSettings({}).reason, exceptionSettings(withEnv({ IPASS_BS_EXCEPTION_PORT: 'abc' })).reason,
+    exceptionSettings(withEnv({ IPASS_BS_EXCEPTION_PROFILE: 'dev-showcase' })).reason];
+  for (const reason of reasons) assert.doesNotMatch(reason, /row ?278|tbd/i, reason);
+});
+
+test('the decided values (showcase / localhost / PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS / 8089) configure the app', () => {
+  const settings = exceptionSettings({
+    IPASS_BS_EXCEPTION_PROFILE: 'showcase',
+    IPASS_BS_EXCEPTION_HOST: 'localhost',
+    IPASS_BS_EXCEPTION_HOST_VAR: 'PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS',
+    IPASS_BS_EXCEPTION_PORT: '8089'
   });
-  const named = (reason) => reason.match(/IPASS_BS_EXCEPTION_[A-Z_]+/g);
-  assert.equal(allTbd.configured, false);
-  assert.match(allTbd.reason, /still TBD\(row278\)/);
-  assert.deepEqual(named(allTbd.reason), Object.values(EXCEPTION_ENV));
-  assert.equal(allTbd.appEnv, undefined, 'no app environment from a placeholder');
-  for (const [name, value] of [['IPASS_BS_EXCEPTION_PROFILE', 'tbd'], ['IPASS_BS_EXCEPTION_HOST', 'tbd.showcase.test'],
-    ['IPASS_BS_EXCEPTION_HOST_VAR', 'TBD_ROW278_HOST'], ['IPASS_BS_EXCEPTION_PORT', 'tbd']]) {
-    const settings = exceptionSettings(withEnv({ [name]: value }));
-    assert.equal(settings.configured, false, `${name}=${value}`);
-    assert.deepEqual(settings.missing, [], 'a TBD value is set - still TBD, not missing');
-    assert.deepEqual(named(settings.reason), [name], settings.reason);
-  }
+  assert.equal(settings.configured, true, settings.reason);
+  assert.equal(settings.port, 8089);
+  assert.deepEqual(settings.appEnv, { SPRING_PROFILES_ACTIVE: 'showcase', PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS: 'localhost',
+    PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '8089', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'localhost', ROUTING_CORE_ALLOWED_SCHEMES: 'http,https' });
 });
 
 test('configured: the app gets the named profile and the one host through the variable row 278 names', () => {
@@ -86,7 +86,7 @@ test('configured: the app gets the named profile and the one host through the va
   assert.equal(settings.host, 'target.showcase.test', 'trimmed and lower-cased like the guard normalises');
   assert.equal(settings.port, 32768, 'the exception port as a number');
   assert.deepEqual(settings.appEnv, { SPRING_PROFILES_ACTIVE: 'showcase', SHOWCASE_TARGET_HOST: 'target.showcase.test',
-    PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '32768', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'target.showcase.test' });
+    PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '32768', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'target.showcase.test', ROUTING_CORE_ALLOWED_SCHEMES: 'http,https' });
 });
 
 test('F1/F2: the host variable can never be the port or allow-list property the exception sets itself', () => {
@@ -126,12 +126,15 @@ test('one exact host: no wildcard, port, scheme, path, user info or space', () =
     'a single-label name the system resolver knows is a host name');
 });
 
-test('the profile is ONE named profile - never default, never a list', () => {
-  for (const profile of ['default', 'DEFAULT', 'showcase,prod', 'show case', 'showcase;prod']) {
+test('the profile is exactly "showcase" - the only profile the app starts the exception under (SystemPersistenceConfiguration.java:64,98-101)', () => {
+  for (const profile of ['default', 'DEFAULT', 'showcase,prod', 'show case', 'showcase;prod', 'dev-showcase', 'Showcase', 'SHOWCASE',
+    'showcase,dev', 'dev', 'local', 'test', 'prod']) {
     const settings = exceptionSettings(withEnv({ IPASS_BS_EXCEPTION_PROFILE: profile }));
     assert.equal(settings.configured, false, profile);
+    assert.match(settings.reason, /IPASS_BS_EXCEPTION_PROFILE|profile/, profile);
+    assert.ok(!settings.reason.startsWith(NOT_CONFIGURED), `${profile}: misconfigured, not unset`);
   }
-  assert.equal(exceptionSettings(withEnv({ IPASS_BS_EXCEPTION_PROFILE: 'dev-showcase' })).configured, true);
+  assert.equal(exceptionSettings(withEnv({ IPASS_BS_EXCEPTION_PROFILE: ' showcase ' })).configured, true, 'trimmed, then exact');
 });
 
 test('the host variable is a plain environment name - not the profile switch, not a JVM option', () => {

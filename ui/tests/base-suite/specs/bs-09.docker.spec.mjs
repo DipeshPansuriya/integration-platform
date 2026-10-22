@@ -30,7 +30,7 @@ import { bsEnv } from '../support/boot-state.mjs';
 import { readOne, readRows } from '../support/db.mjs';
 import { topicRecords } from '../support/kafka.mjs';
 import { addTracking, readRun } from '../support/run-file.mjs';
-import { rotatedSecret } from '../support/seed.mjs';
+import { intakeCode, rotatedSecret } from '../support/seed.mjs';
 
 // BS-09 needs features not on main yet: ONE flag per T-item (ON_MAIN in pending-names.mjs). While one is
 // missing the file is test.fixme - reported as fixme with the item named, never a silent pass.
@@ -67,7 +67,7 @@ test('BS-09: one correlation id at intake, route, transform and deliver - JSON l
   const correlationId = traceIdOf(traceparent);
 
   const from = await appLogSize();
-  const answer = await postRecord(token, FLOW.code, SOURCE_CONTRACT.versionLabel, orderRecord(TENANTS.A, 3), { traceparent });
+  const answer = await postRecord(token, intakeCode(TENANTS.A), SOURCE_CONTRACT.versionLabel, orderRecord(TENANTS.A, 3), { traceparent });
   expect(answer.status, JSON.stringify(answer.data)).toBe(202);
   const messageId = answer.data.trackingId;
   addTracking('A', [messageId]);
