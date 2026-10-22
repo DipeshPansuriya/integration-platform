@@ -6,14 +6,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deliveryRowsSql, intakeTimingSql, messageRowsSql, outboxAggregatesSql, stageTimingsOfMessageSql, tenantIdSql } from '../lib/direct-sql.mjs';
+import { deliveryRowsSql, intakeTimingSql, operatorIdsSql, messageRowsSql, outboxAggregatesSql, stageTimingsOfMessageSql, tenantIdSql } from '../lib/direct-sql.mjs';
 import { isReadOnlySelect, pipelineWrites } from '../lib/source-scan.mjs';
 
 const SUITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CODE = 'lane-d-0a1b2c-bs-b';
 
 test('every direct read is one read-only SELECT naming the tenant code', () => {
-  for (const sql of [tenantIdSql(CODE), messageRowsSql(CODE), deliveryRowsSql(CODE), outboxAggregatesSql(CODE), intakeTimingSql(CODE)]) {
+  for (const sql of [tenantIdSql(CODE), operatorIdsSql(CODE), messageRowsSql(CODE), deliveryRowsSql(CODE), outboxAggregatesSql(CODE), intakeTimingSql(CODE)]) {
     assert.ok(isReadOnlySelect(sql), sql);
     assert.ok(sql.includes(`'${CODE}'`), `scoped to ${CODE}: ${sql}`);
   }
@@ -58,4 +58,13 @@ test('no base-suite source writes a pipeline row (message, delivery, outbox, tim
   for (const file of sources) {
     assert.deepEqual(pipelineWrites(fs.readFileSync(file, 'utf8')), [], file);
   }
+});
+
+test("the operator read lists the tenant's TENANT_ADMIN app_user ids - the actor of a replay (BS-10), read-only", () => {
+  const sql = operatorIdsSql(CODE);
+  assert.ok(isReadOnlySelect(sql), sql);
+  assert.match(sql, /select u\.id::text from public\.app_user u join public\.role_grant g on g\.user_id = u\.id and g\.tenant_id = u\.tenant_id/);
+  assert.match(sql, /g\.role = 'TENANT_ADMIN'/);
+  assert.ok(sql.includes(`'${CODE}'`), 'scoped to the tenant code');
+  assert.throws(() => operatorIdsSql("x'; drop table app_user; --"), /not a tenant code/);
 });

@@ -28,9 +28,8 @@ test('the T111 replay names are measured on main', () => {
   assert.equal(nameOf('auditReplayAction'), 'OPERATOR_REPLAY');
 });
 
-test('a TBD name fails the step, naming the key and what it waits for', () => {
-  assert.throws(() => nameOf('auditActor'), /auditActor is still TBD\(runtime: bound user id.*pending-names\.mjs/,
-    'the actor is the operator user id at run time - BS-10 fails closed until it reads it');
+test('the replay actor is no static name - a typo or a stale key is refused', () => {
+  assert.throws(() => nameOf('auditActor'), /unknown name auditActor/, 'BS-10 reads the operator id with operatorIdsSql');
 });
 
 test('the Kafka harness names are set by T130: the boot names its broker container and the in-container consumer', () => {
@@ -84,7 +83,7 @@ test('isPending: any value reading TBD( - any case - is a placeholder', () => {
 
 test('pendingNames lists every placeholder still open - the handoff list comes from here', () => {
   const open = pendingNames();
-  assert.deepEqual(open.map(([key]) => key), ['auditActor'], `only the run-time actor is open: ${JSON.stringify(open)}`);
+  assert.deepEqual(open, [], `nothing open once T111 landed: ${JSON.stringify(open)}`);
   for (const [key, value] of open) {
     assert.ok(isPending(value), key);
     assert.match(value, /^TBD\([^)]+\)$/, `${key}: one named placeholder`);

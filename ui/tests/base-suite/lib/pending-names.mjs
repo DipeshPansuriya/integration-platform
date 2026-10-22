@@ -32,10 +32,8 @@ export const NAMES = Object.freeze({
   replayApi: 'POST /api/v1/admin/messages/deliveries/{deliveryId}/replay', // DeliveryOperatorEndpointRoles.java:16/:21, DeliveryOperatorController.java:61
   replayAction: '[data-action-cell] [data-action="replay"]', // OperatorActionButton.tsx:34 inside the failures row cell (Failures.tsx:51)
   auditReplayAction: 'OPERATOR_REPLAY', // AuditActions.java:23 (audit_event.action of one replay)
-  // The replay writer passes the BOUND USER's id uuid as the actor (DeliveryOperatorController.java:63 ->
-  // JdbcAuditEventStore.java:42), a per-run value no static name can hold: BS-10 must read the operator's
-  // app_user id at run time. Fails closed (nameOf) until that lookup is written.
-  auditActor: 'TBD(runtime: bound user id of the replaying operator, app_user.id)',
+  // The replay actor is the bound user's id uuid (DeliveryOperatorController.java:63 -> JdbcAuditEventStore.java:42): a
+  // per-run value, so it is no name here - BS-10 reads it with direct-sql.mjs operatorIdsSql (read-only SELECT).
 
   // T107 on main efa7d1d: MDC fields CorrelationContext.java:25-28, written as top-level JSON fields
   // (logback-spring.xml:3-5, StructuredLogEncoder logstash :10-11)

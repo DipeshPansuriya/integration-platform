@@ -67,6 +67,10 @@ export const eventTypesSql = (code, deliveryId) => {
   return `select e.type from public.delivery_event e where e.tenant_id = ${tenantOf(code)} and e.delivery_id = ${id} order by e.id`;
 };
 
+/** Rows: app_user id of each TENANT_ADMIN of the tenant - the bound user a replay audits as its actor (DeliveryOperatorController.java:63). One row expected. */
+export const operatorIdsSql = (code) => "select u.id::text from public.app_user u join public.role_grant g on g.user_id = u.id and g.tenant_id = u.tenant_id"
+  + ` where u.tenant_id = ${tenantOf(code)} and g.role = 'TENANT_ADMIN' order by u.id`;
+
 /** Rows: audit id | tenant id | actor | action | target ids + before/after state as one line - of the tenant, in order. */
 export const auditRowsSql = (code) => "select a.id::text, a.tenant_id::text, a.actor, a.action,"
   + " translate(a.target_ids::text || ' ' || coalesce(a.before_state, '') || ' ' || coalesce(a.after_state, ''), chr(124) || chr(10) || chr(13), '   ')"
