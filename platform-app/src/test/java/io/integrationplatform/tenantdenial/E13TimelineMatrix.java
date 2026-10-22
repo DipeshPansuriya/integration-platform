@@ -66,7 +66,7 @@ final class E13TimelineMatrix implements LaneMatrix {
         return List.of(messageId(tenant).toString());
     }
 
-    private static UUID messageId(SeededTenant tenant) {
+    static UUID messageId(SeededTenant tenant) {
         return LaneMatrix.laneId(tenant, "e13-timeline-message");
     }
 

@@ -320,7 +320,10 @@ final class EndpointMatrix {
             // F10's clear removes the tenant's whole message set.
             new B9FlowRoutesMatrix(), new E11IntakeMatrix(), new F10QueueSummaryMatrix(), new E13TimelineMatrix(),
             new T111DeliveryOperatorMatrix(),
-            new E12ActivityMatrix());
+            new E12ActivityMatrix(),
+            // forged-tenant triage 2026-10-22: endpoints the coverage guard listed without an entry
+            new E14JobAdminMatrix(), new E16ApprovedTableMatrix(), new E13ReportFacadeMatrix(),
+            new E13DeliveryReportMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),
