@@ -39,7 +39,7 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
     static final String LAST_OUTCOME = "stage2.lastOutcome";
 
     /** Exchange property: how long the open circuit refuses calls (set only by a breaker refusal). */
-    static final String CIRCUIT_RETRY_AFTER = "stage2.circuitRetryAfter";
+    public static final String CIRCUIT_RETRY_AFTER = "stage2.circuitRetryAfter";
 
     private static final Logger log = LoggerFactory.getLogger(LayerOneRouteBuilder.class);
 

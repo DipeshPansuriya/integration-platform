@@ -151,6 +151,17 @@ creates N deliveries for N matched routes, not 2N (test).
   instance restart); the 1 s to 30 s backoff is now the backstop wait, not the normal path.
   Test: `DeliveryDueDispatchTest` (full bulkhead, deferral, slot freed, re-driven at once) and
   `JdbcBulkheadRedriveContainerTest` (the real tables).
+  **Consequences of the addendum (T-177 follow-ups, Varun F2/F3/F5/F6):**
+  - **The backoff no longer sheds load against a slow partner.** The 1 s to 30 s `BULKHEAD_FULL`
+    backoff used to space the retries of a deferred delivery; the slot-free re-drive ignores it, so a
+    slow or hanging target is no longer relieved by waiting. Only the **per-target bulkhead** (the
+    permit cap, a re-driven record must still win a permit) and the **circuit breaker** protect it.
+  - **No re-drive chain on an open breaker.** A send that ended as `CIRCUIT_DEFER` (nothing was
+    sent) does not re-drive; the retry job stays the only path until the breaker lets a call through.
+  - **HELD and duplicate claims hand the turn on**, at most 8 in a row per target (reset by a real
+    send); beyond that the retry job takes the tail.
+  - **Operability:** the re-drive writes `REDRIVE` with the detail `slot-free` (the job writes none);
+    a failed re-drive logs one WARN line without a stack trace (stack at DEBUG).
 - The pool is per instance: the effective limit for a target is pool size x instances.
 - **Gate:** with target A answering only after its 10 s timeout, target B delivers the same
   number of messages in the same wall-clock time as with target A idle (500 deliveries to B,
