@@ -109,6 +109,45 @@ public class DbTestConnection {
         }
     }
 
+    /**
+     * T178a: the approve-time verdict. Empty only when the credentialed probe ran and the account holds nothing beyond
+     * INSERT and SELECT on the table; every doubt (no probe, no table, a refused or unreachable probe) is a refusal -
+     * fail closed. The text starts {@code DB_ACCOUNT_TOO_WIDE} or {@code DB_ACCOUNT_UNVERIFIED}.
+     */
+    public java.util.Optional<String> accountWidthRefusal(java.util.UUID systemId, String settingsJson) {
+        DbSettings settings;
+        try {
+            settings = DbSettings.fromJson(settingsJson);
+        } catch (RuntimeException e) {
+            return unverified("the DB settings are unusable (" + e.getClass().getSimpleName() + ")");
+        }
+        if (privileges == null || settings.table() == null || allowedPorts == null) {
+            return unverified("no credentialed privilege probe can run for this target");
+        }
+        try {
+            DbTargetCall.requireAllowedPort(settings.port(), allowedPorts);
+            io.integrationplatform.config.destination.CheckedDestination checked =
+                    guard.check(java.net.URI.create("http://" + settings.host() + ":" + settings.port()));
+            List<String> extra = privileges.probe(systemId, settings, checked.pinnedAddress(), timeout).stream()
+                    .filter(p -> !p.equals("INSERT") && !p.equals("SELECT")).toList();
+            return extra.isEmpty() ? java.util.Optional.empty()
+                    : java.util.Optional.of("DB_ACCOUNT_TOO_WIDE: the account '" + settings.user() + "' holds more than"
+                            + " INSERT and SELECT on '" + settings.table() + "' (" + String.join(", ", extra)
+                            + "); grant the restricted account only what the send needs");
+        } catch (DbPrivilegeProbe.ProbeRefused e) {
+            return unverified("the probe was refused (" + e.reason + ")");
+        } catch (IOException e) {
+            return unverified("the target database did not answer");
+        } catch (DestinationRefusedException | RuntimeException e) {
+            return unverified("the probe could not run (" + e.getClass().getSimpleName() + ")");
+        }
+    }
+
+    private static java.util.Optional<String> unverified(String why) {
+        return java.util.Optional.of("DB_ACCOUNT_UNVERIFIED: " + why
+                + "; an approval is refused when the account's privileges cannot be read");
+    }
+
     /** Karan change 4: the grants in the response - named on the table they apply to; no table, nothing reported. */
     private static String detail(DbSettings settings, List<String> granted) {
         if (settings.table() == null) {

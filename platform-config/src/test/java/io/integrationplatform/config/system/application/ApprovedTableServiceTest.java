@@ -48,8 +48,14 @@ class ApprovedTableServiceTest {
     private final JdbcApprovedTableRepository tables = mock(JdbcApprovedTableRepository.class);
     private final JdbcSystemRepository systems = mock(JdbcSystemRepository.class);
     private final List<Object> events = new ArrayList<>();
+    private final DbAccountWidthCheck width = mock(DbAccountWidthCheck.class);
     private final ApprovedTableService service = new ApprovedTableService(tables, systems, events::add,
-            () -> Optional.of(TENANT));
+            () -> Optional.of(TENANT), width);
+
+    @org.junit.jupiter.api.BeforeEach
+    void narrowAccountByDefault() {
+        when(width.refusalFor(any(), anyString())).thenReturn(Optional.empty());
+    }
 
     private static SystemDetail system(String type) {
         return new SystemDetail(SYSTEM, "orders-db", "Orders DB", "TARGET", type, "{}");
@@ -250,5 +256,63 @@ class ApprovedTableServiceTest {
         assertThat(service.list(SYSTEM)).extracting(m -> m.get("status")).containsExactly("APPROVED",
                 "PENDING_APPROVAL");
         verify(tables, never()).insertRequest(any(), any(), any());
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("T178a: approving a table on a WIDE account is 409 with the reason; the decision is never attempted")
+    void aWideAccountIsRefusedAtApproval() {
+        when(systems.findSystem(SYSTEM)).thenReturn(Optional.of(system("DB")));
+        when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)));
+        when(width.refusalFor(any(), anyString())).thenReturn(Optional.of("DB_ACCOUNT_TOO_WIDE: SUPERUSER, TRUNCATE"));
+
+        assertThatThrownBy(() -> service.decide(SYSTEM, ROW, "APPROVE", APPROVER))
+                .isInstanceOfSatisfying(ConfigApiException.class, e -> {
+                    assertThat(e.httpStatus()).isEqualTo(409);
+                    assertThat(e.body().toString()).contains("DB_ACCOUNT_TOO_WIDE").contains("SUPERUSER");
+                });
+        verify(tables, never()).decide(anyString(), anyString(), anyString());
+        assertThat(events).isEmpty();
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("T178a: fail closed - a width check that throws refuses the approval (probe unavailable)")
+    void aProbeThatCannotRunRefusesTheApproval() {
+        when(systems.findSystem(SYSTEM)).thenReturn(Optional.of(system("DB")));
+        when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)));
+        when(width.refusalFor(any(), anyString())).thenThrow(new IllegalStateException("probe down"));
+
+        assertThatThrownBy(() -> service.decide(SYSTEM, ROW, "APPROVE", APPROVER))
+                .isInstanceOfSatisfying(ConfigApiException.class, e -> {
+                    assertThat(e.httpStatus()).isEqualTo(409);
+                    assertThat(e.body().toString()).contains("DB_ACCOUNT_UNVERIFIED");
+                });
+        verify(tables, never()).decide(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("T178a: the probe sees the approved table's name; a revoke or a self-approval never dials the partner")
+    void theProbeRunsOnlyForARealApproval() {
+        when(systems.findSystem(SYSTEM)).thenReturn(Optional.of(system("DB")));
+        when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)),
+                Optional.of(row("APPROVED", SYSTEM)));
+        when(tables.decide(ROW, APPROVER.toString(), "APPROVE")).thenReturn("APPROVED");
+        service.decide(SYSTEM, ROW, "APPROVE", APPROVER);
+        org.mockito.ArgumentCaptor<String> settings = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(width).refusalFor(any(), settings.capture());
+        assertThat(settings.getValue()).contains("\"table\":\"orders_in\"");
+
+        org.mockito.Mockito.clearInvocations(width);
+        when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)));
+        when(tables.decide(ROW, REQUESTER.toString(), "APPROVE")).thenReturn("REFUSED_SELF_APPROVAL");
+        assertThatThrownBy(() -> service.decide(SYSTEM, ROW, "APPROVE", REQUESTER))
+                .isInstanceOfSatisfying(ConfigApiException.class, e -> assertThat(e.httpStatus()).isEqualTo(403));
+        when(tables.find(ROW)).thenReturn(Optional.of(row("APPROVED", SYSTEM)));
+        when(tables.decide(ROW, APPROVER.toString(), "REVOKE")).thenReturn("REVOKED");
+        service.decide(SYSTEM, ROW, "REVOKE", APPROVER);
+        verify(width, never()).refusalFor(any(), anyString());
     }
 }
