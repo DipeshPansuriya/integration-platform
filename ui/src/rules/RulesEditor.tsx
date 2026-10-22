@@ -196,6 +196,8 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
   const [tables, setTables] = useState<EditableTable[]>([]);
   const [name, setName] = useState('');
   const [saved, setSaved] = useState(false);
+  // A9: edits not yet saved - the browser asks before a reload or tab close, and the test panel says what it runs.
+  const [dirty, setDirty] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
 
   useEffect(() => {
@@ -211,9 +213,17 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
     });
   }, [adapter, ruleSetId]);
 
+  useEffect(() => {
+    if (!dirty) return;
+    const onUnload = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, [dirty]);
+
   function onTableChange(nodeId: string, table: unknown) {
     adapter.updateTable(nodeId, table);
     setSaved(false);
+    setDirty(true);
   }
 
   async function save() {
@@ -221,8 +231,10 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
     setRefusal(null);
     await adapter.settle(); // the editor's last edit must reach the adapter before it is saved
     const result = await saveRuleSet(ruleSetId, name, adapter.toZen());
-    if (result.ok) setSaved(true);
-    else if (result.status === 404) setLoad({ state: 'not-found' });
+    if (result.ok) {
+      setSaved(true);
+      setDirty(false);
+    } else if (result.status === 404) setLoad({ state: 'not-found' });
     else setRefusal(result);
   }
 
@@ -260,12 +272,18 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
                   onChange={(e) => {
                     setName(e.target.value);
                     setSaved(false);
+                    setDirty(true);
                   }}
                 />
               </label>
               <button type="button" className="btn btn-primary" data-action="save-rule-set" onClick={() => void save()}>
                 Save
               </button>
+              {dirty && !saved && (
+                <span className="rules-muted" data-unsaved="true">
+                  Unsaved changes
+                </span>
+              )}
               {saved && (
                 <span className="rules-saved" role="status" data-saved="true">
                   Saved.
@@ -281,6 +299,11 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
               </p>
             )}
           </section>
+          {dirty && (
+            <p className="rules-muted" role="status" data-test-panel-note="true">
+              You have unsaved edits: the test panel runs the last saved version. Save first to test them.
+            </p>
+          )}
           {refusal && !anchored && <SaveRefusal refusal={refusal} />}
           {tables.map((t) => (
             <div key={t.nodeId} className="rules-card rules-table-card">
