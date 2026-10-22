@@ -97,12 +97,12 @@ class Release1ScenariosContainerTest {
             assertThat(stat.getExitCode()).as("artemis queue stat; stderr: %s", stat.getStderr()).isZero();
             stdout = stat.getStdout();
         }
-        int column = -1; // the MESSAGE_COUNT column, found by its header (the column order differs between Artemis versions)
+        int column = -1; // the MESSAGE COUNT column, found by its header (the column order differs between Artemis versions)
         for (String line : stdout.split("\\R")) {
             String[] cells = line.split("\\|");
-            if (line.contains("MESSAGE_COUNT")) {
+            if (column < 0 && line.contains("MESSAGES")) { // header row 1: |NAME|ADDRESS|CONSUMER|MESSAGE|MESSAGES|... ("COUNT" is row 2)
                 for (int i = 0; i < cells.length; i++) {
-                    if (cells[i].trim().equals("MESSAGE_COUNT")) {
+                    if (cells[i].trim().equals("MESSAGE")) {
                         column = i;
                     }
                 }
@@ -220,8 +220,10 @@ class Release1ScenariosContainerTest {
                 + "\"response\":{\"status\":500},\"priority\":1}");
         String trackingId = acceptOne(client, "SC04", 4);
         String failures = awaitBody(client, E2eNames.nameOf("failuresApi"), Release1Client.bearer("TENANT_ADMIN"),
-                Duration.ofSeconds(120), trackingId, "DEAD_LETTERED");
-        assertThat(failures).contains(trackingId).contains("DEAD_LETTERED");
+                Duration.ofSeconds(120), trackingId, "\"failingStage\":\"DELIVER\"");
+        // the failures read lists a failed delivery by failingStage / errorClass; it carries no state word (measured
+        // 22-Oct on f0a5095f), so DEAD_LETTERED is asserted on the timeline below
+        assertThat(failures).contains(trackingId).contains("\"failingStage\":\"DELIVER\"");
 
         java.util.regex.Matcher delivery = java.util.regex.Pattern
                 .compile("\"trackingId\"\\s*:\\s*\"" + trackingId + "\"[^}]*?\"deliveryId\"\\s*:\\s*\"([^\"]+)\"")
