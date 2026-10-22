@@ -15,6 +15,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.transaction.PlatformTransactionManager;
+import io.integrationplatform.delivery.port.Stage1Deliveries;
+import io.integrationplatform.delivery.replay.DeliveryOperatorActions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
@@ -38,6 +53,55 @@ class SecurityGateS7TenantIsolationContainerTest {
 
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestImages.POSTGRES);
+
+    /** The worker-style tenant binding the application's composite TenantContext composes (as a stage consumer's). */
+    @TestConfiguration
+    static class BindingConfiguration {
+        @Bean
+        @org.springframework.context.annotation.Primary
+        GateFixture.BoundTenant gateBoundTenant(
+                @org.springframework.beans.factory.annotation.Qualifier("requestTenantContext")
+                io.integrationplatform.tenancy.TenantContext request) {
+            return new GateFixture.BoundTenant(request);
+        }
+    }
+
+    @Autowired
+    private PlatformTransactionManager transactions;
+    @Autowired
+    private GateFixture.BoundTenant binding;
+    @Autowired
+    private Stage1Deliveries stage1;
+    @Autowired
+    private DeliveryOperatorActions actions;
+
+    private GateFixture fixture() throws SQLException {
+        GateFixture fixture = new GateFixture(POSTGRES, login, binding, transactions);
+        fixture.seedTenants();
+        return fixture;
+    }
+
+    private <T> List<T> concurrently(int threads, Callable<T> task) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<T>> futures = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    return task.call();
+                }));
+            }
+            start.countDown();
+            List<T> results = new ArrayList<>();
+            for (Future<T> future : futures) {
+                results.add(future.get(60, TimeUnit.SECONDS));
+            }
+            return results;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
 
     private static final AtomicBoolean GRANTED = new AtomicBoolean();
     private static PlatformTestWiring.RestrictedLogin login;
@@ -75,9 +139,26 @@ class SecurityGateS7TenantIsolationContainerTest {
      * Expected: ON CONFLICT DO NOTHING → exactly 1 delivery, 1 outbox row; the loser gets 0 rows and writes nothing
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T68 (E8 message store / E9 stage-1) is on main (c33503da, V2_3_930); body not yet written - DB-level case on the real schema (T141 gate case S7-A1)")
-    void s7_a1_unique_under_parallel_double_submit() {
-        fail("S7-A1 body lands with T68");
+    void s7_a1_unique_under_parallel_double_submit() throws Exception {
+        GateFixture f = fixture();
+        Instant now = Instant.now();
+        for (int round = 0; round < 5; round++) {
+            UUID message = f.insertMessage(GateFixture.TENANT_A, now, "s7a1-" + round);
+            List<io.integrationplatform.delivery.port.Stage1Delivery> routes = List.of(
+                    GateFixture.delivery(message, UUID.randomUUID(), now),
+                    GateFixture.delivery(message, UUID.randomUUID(), now),
+                    GateFixture.delivery(message, UUID.randomUUID(), now));
+            // the same record handled by two consumers at once: exactly one of them inserts each route
+            List<Integer> inserted = concurrently(2,
+                    () -> f.inTenantTx(GateFixture.TENANT_A, () -> stage1.insertPerRoute(routes)));
+            assertThat(inserted.stream().mapToInt(Integer::intValue).sum()).as("round %d: %s", round, inserted)
+                    .isEqualTo(3);
+            assertThat(f.scalar(GateFixture.TENANT_A, "select count(*) from public.delivery where message_id ="
+                    + " ?::uuid", message.toString())).isEqualTo("3");
+            assertThat(f.ownerScalar("select count(*) from public.outbox o join public.delivery d on d.id ="
+                    + " o.aggregate_id where d.message_id = ?::uuid and o.topic = 'platform.delivery.due'",
+                    message.toString())).as("one outbox row per delivery").isEqualTo("3");
+        }
     }
 
     /**
@@ -85,9 +166,36 @@ class SecurityGateS7TenantIsolationContainerTest {
      * Expected: Same row DEAD_LETTERED → DUE, never a second delivery row; created_at still the message's accepted day
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: T111 is on main (fcad1c39); body not yet written - replay re-drive on the real schema (T141 gate case S7-A2)")
-    void s7_a2_replay_re_drive_creates_no_second() {
-        fail("S7-A2 body lands with T111");
+    void s7_a2_replay_re_drive_creates_no_second() throws Exception {
+        GateFixture f = fixture();
+        Instant acceptedAt = Instant.now().truncatedTo(ChronoUnit.DAYS).minus(12, ChronoUnit.HOURS);
+        UUID message = f.insertMessage(GateFixture.TENANT_A, acceptedAt, "s7a2");
+        f.inTenantTx(GateFixture.TENANT_A, () -> stage1.insertPerRoute(
+                List.of(GateFixture.delivery(message, UUID.randomUUID(), acceptedAt))));
+        UUID delivery = UUID.fromString(f.scalar(GateFixture.TENANT_A,
+                "select id::text from public.delivery where message_id = ?::uuid", message.toString()));
+        // the delivery has been pinned and dead-lettered by its run (owner stands in for the earlier attempts)
+        f.ownerExecute("update public.delivery set contract_version_id = gen_random_uuid(), state = 'DEAD_LETTERED',"
+                + " dead_letter_class = 'PERMANENT' where id = ?::uuid", delivery.toString());
+        String createdBefore = f.ownerScalar("select created_at::text from public.delivery where id = ?::uuid",
+                delivery.toString());
+        // another tenant's operator cannot even see it
+        assertThat(binding.callAs(GateFixture.TENANT_B, () -> actions.replay(delivery, "gate-b")).outcome())
+                .isEqualTo(DeliveryOperatorActions.Outcome.NOT_FOUND);
+        assertThat(f.ownerScalar("select state from public.delivery where id = ?::uuid", delivery.toString()))
+                .isEqualTo("DEAD_LETTERED");
+        // the owner's replay re-drives the same row
+        assertThat(binding.callAs(GateFixture.TENANT_A, () -> actions.replay(delivery, "gate-a")).outcome())
+                .isEqualTo(DeliveryOperatorActions.Outcome.MOVED_TO_DUE);
+        assertThat(f.ownerScalar("select state from public.delivery where id = ?::uuid", delivery.toString()))
+                .isEqualTo("DUE");
+        // a repeated replay is refused as the wrong state and creates nothing
+        assertThat(binding.callAs(GateFixture.TENANT_A, () -> actions.replay(delivery, "gate-a")).outcome())
+                .isEqualTo(DeliveryOperatorActions.Outcome.WRONG_STATE);
+        assertThat(f.ownerScalar("select count(*) from public.delivery where message_id = ?::uuid", message.toString()))
+                .as("never a second delivery row").isEqualTo("1");
+        assertThat(f.ownerScalar("select created_at::text from public.delivery where id = ?::uuid",
+                delivery.toString())).as("created_at is still the message's accepted day").isEqualTo(createdBefore);
     }
 
     /**
@@ -95,7 +203,7 @@ class SecurityGateS7TenantIsolationContainerTest {
      * Expected: Ingest resolves tenant from the credential (ADR-007 D2); B's ids never match A's routing; 403 + audit on body customerId mismatch
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: T115 is on main (68ec617c); body not yet written - cross-tenant message id submission over the intake API (platform-e2e or SpringBootTest) (T141 gate case S7-A3)")
+    @Disabled("NOT RE-ENABLED 2026-10-22: T115 is on main (68ec617c); the HTTP case needs Keycloak plus a two-tenant onboarding, and the only seed (e11 DipeshExampleSeed.onboard) is package-private in io.integrationplatform.e11, unreachable from the gate package - widen it or add the case beside it (T141 gate case S7-A3)")
     void s7_a3_cross_tenant_message_id_submission() {
         fail("S7-A3 body lands with T115");
     }
@@ -115,9 +223,44 @@ class SecurityGateS7TenantIsolationContainerTest {
      * Expected: No state machine regression; the conditional update only mutates ACCEPTED; ROUTE_FAILED follows its ADR-010 path
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T68 (E8 message store / E9 stage-1) is on main (c33503da, V2_3_930); body not yet written - DB-level case on the real schema (T141 gate case S7-A5)")
-    void s7_a5_message_state_transitions_resistant_to_replay() {
-        fail("S7-A5 body lands with T68");
+    void s7_a5_message_state_transitions_resistant_to_replay() throws Exception {
+        GateFixture f = fixture();
+        Instant now = Instant.now();
+        // a duplicate record handled by two consumers at once: exactly one flip, ACCEPTED -> ROUTED
+        UUID raced = f.insertMessage(GateFixture.TENANT_A, now, "s7a5-race");
+        List<Boolean> flips = concurrently(2,
+                () -> f.inTenantTx(GateFixture.TENANT_A, () -> stage1.markMessageRouted(raced)));
+        assertThat(flips).containsExactlyInAnyOrder(true, false);
+        assertThat(f.scalar(GateFixture.TENANT_A, "select state from public.message where id = ?::uuid",
+                raced.toString())).isEqualTo("ROUTED");
+        // replays of a ROUTED message change nothing
+        String routedAt = f.scalar(GateFixture.TENANT_A, "select routed_at::text from public.message where id ="
+                + " ?::uuid", raced.toString());
+        assertThat(f.inTenantTx(GateFixture.TENANT_A, () -> stage1.markMessageRouted(raced))).isFalse();
+        assertThat(f.scalar(GateFixture.TENANT_A, "select routed_at::text from public.message where id = ?::uuid",
+                raced.toString())).isEqualTo(routedAt);
+        // a ROUTE_FAILED message is not resurrected by a replayed record (the guard only mutates ACCEPTED)
+        UUID failed = f.insertMessage(GateFixture.TENANT_A, now, "s7a5-failed");
+        f.asTenant(GateFixture.TENANT_A, c -> {
+            try (java.sql.PreparedStatement st = c.prepareStatement("update public.message set state = 'ROUTE_FAILED',"
+                    + " updated_at = now() where id = ?::uuid")) {
+                st.setString(1, failed.toString());
+                return st.executeUpdate();
+            }
+        });
+        assertThat(f.inTenantTx(GateFixture.TENANT_A, () -> stage1.markMessageRouted(failed))).isFalse();
+        assertThat(f.scalar(GateFixture.TENANT_A, "select state from public.message where id = ?::uuid",
+                failed.toString())).isEqualTo("ROUTE_FAILED");
+        // the closed state set: a state outside it is refused by the table
+        UUID other = f.insertMessage(GateFixture.TENANT_A, now, "s7a5-bogus");
+        assertThatThrownBy(() -> f.asTenant(GateFixture.TENANT_A, c -> {
+            try (java.sql.PreparedStatement st = c.prepareStatement("update public.message set state = 'BOGUS'"
+                    + " where id = ?::uuid")) {
+                st.setString(1, other.toString());
+                return st.executeUpdate();
+            }
+        })).isInstanceOf(SQLException.class)
+                .satisfies(e -> assertThat(((SQLException) e).getSQLState()).isEqualTo("23514"));
     }
 
     /**
