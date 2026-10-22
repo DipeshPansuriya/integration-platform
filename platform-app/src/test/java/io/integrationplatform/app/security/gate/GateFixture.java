@@ -150,8 +150,8 @@ final class GateFixture {
     }
 
     static Stage1Delivery delivery(UUID messageId, UUID routeId, Instant acceptedAt) {
-        return new Stage1Delivery(messageId, routeId, acceptedAt, null, UUID.randomUUID(), "gate|K", UUID.randomUUID(),
-                "K", 1L);
+        return new Stage1Delivery(messageId, routeId, acceptedAt, null, UUID.randomUUID(), null,
+                "gate|K", UUID.randomUUID(), "K", 1L);
     }
 
     /** The SQLSTATE at the bottom of a (possibly Spring-translated) failure. */
