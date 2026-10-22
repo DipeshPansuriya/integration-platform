@@ -1,10 +1,9 @@
-package io.integrationplatform.ingest;
+package io.integrationplatform.e11;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.integrationplatform.PlatformTestWiring;
 import io.integrationplatform.TestImages;
-import io.integrationplatform.e11.DipeshExampleSeed;
 import io.integrationplatform.identity.KeycloakRealmContainer;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -17,9 +16,8 @@ import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Testcontainers;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
@@ -27,8 +25,10 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import tools.jackson.databind.JsonMapper;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * BS-06.4 reproduction (row 375, base suite run 8; the front spec's {@code exactBytesBody} shape) over the
@@ -57,6 +57,9 @@ class IntakePayloadBoundaryReproContainerTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
+    private static final String UUID_REGEX =
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
+
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestImages.POSTGRES);
 
@@ -67,6 +70,7 @@ class IntakePayloadBoundaryReproContainerTest {
 
     private static PlatformTestWiring.RestrictedLogin login;
     private static KeycloakRealmContainer.ClientCredentials source;
+    private static UUID tenantAId;
     private static ApplicationContext appContext;
     private static URI backend;
     private static long startedAtOnboarding;
@@ -100,7 +104,8 @@ class IntakePayloadBoundaryReproContainerTest {
         source = KEYCLOAK.createConfidentialClient("bs064-src-" + UUID.randomUUID().toString().substring(0, 8),
                 true);
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            DipeshExampleSeed.onboard(owner, "alpha", "CUST-A", source.clientId(), KEYCLOAK.issuerUri());
+            tenantAId = DipeshExampleSeed.onboard(owner, "alpha", "CUST-A", source.clientId(),
+                    KEYCLOAK.issuerUri()).id();
         }
     }
 
@@ -123,8 +128,7 @@ class IntakePayloadBoundaryReproContainerTest {
         assertThat(JSON.readTree(answer.body()).path("message").asString()).contains("2048");
         assertThat(context.getStartupDate()).as("no restart").isEqualTo(startedAtOnboarding);
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            assertThat(count(owner, "select count(*) from public.message m join public.tenant t"
-                    + " on t.id = m.tenant_id where t.code = 'alpha'"))
+            assertThat(count(owner, "select count(*) from public.message", "tenant_id", tenantAId))
                     .as("nothing persisted for the over-bound key").isEqualTo(0);
         }
     }
@@ -144,18 +148,13 @@ class IntakePayloadBoundaryReproContainerTest {
         assertThat(tracking).matches(UUID_REGEX);
         assertThat(appContext.getStartupDate()).as("no restart").isEqualTo(startedAtOnboarding);
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            assertThat(count(owner, "select count(*) from public.message m join public.tenant t"
-                    + " on t.id = m.tenant_id where t.code = 'alpha'"))
+            assertThat(count(owner, "select count(*) from public.message", "tenant_id", tenantAId))
                     .as("the 1 MB record is committed").isEqualTo(1);
             assertThat(count(owner, "select count(*) from public.payload p join public.message m"
-                    + " on m.id = p.message_id and m.tenant_id = p.tenant_id"
-                    + " join public.tenant t on t.id = m.tenant_id where t.code = 'alpha'"))
-                    .as("the payload family row").isEqualTo(1);
+                    + " on m.id = p.message_id and m.tenant_id = p.tenant_id", "p.tenant_id", tenantAId))
+                    .as("the payload family row count").isEqualTo(1);
         }
     }
-
-    private static final String UUID_REGEX =
-            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
 
     /** A source POST to the one common intake, exactly as the base suite's rawIntake sends it. */
     private static HttpResponse<String> post(KeycloakRealmContainer.ClientCredentials caller, String body)
@@ -172,10 +171,14 @@ class IntakePayloadBoundaryReproContainerTest {
                 .build(), HttpResponse.BodyHandlers.ofString());
     }
 
-    private static int count(Connection sql, String statement) throws Exception {
-        try (PreparedStatement query = sql.prepareStatement(statement); ResultSet rows = query.executeQuery()) {
-            rows.next();
-            return rows.getInt(1);
+    /** A count where the seeded tenant is the predicate (the seed's codes are generated `tnt-e11-…` values). */
+    private static int count(Connection sql, String statement, String tenantColumn, UUID tenantId) throws Exception {
+        try (PreparedStatement query = sql.prepareStatement(statement + " where " + tenantColumn + " = ?::uuid")) {
+            query.setObject(1, tenantId);
+            try (ResultSet rows = query.executeQuery()) {
+                rows.next();
+                return rows.getInt(1);
+            }
         }
     }
 }
