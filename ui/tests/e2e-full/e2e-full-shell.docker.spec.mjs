@@ -12,13 +12,18 @@ test('e2e-full UI: the signed-in shell opens the dashboard for its own tenant', 
   await expect(page.locator('[data-session-tenant]')).toHaveText(process.env.CONSOLE_TENANT_CODE);
 });
 
+/** A read from inside the page: the browser's own session cookie (page.request does not send it to /api: 401, dry run + run 2026-10-22). */
+async function inBrowser(page, apiPath) {
+  return page.evaluate(async (apiPath) => (await fetch(apiPath, { credentials: 'include' })).status, apiPath);
+}
+
 test('e2e-full UI: the tracking read answers 404 for a message the tenant does not own (no cross-tenant leak)', async ({ page }) => {
   const unknown = '00000000-0000-4000-8000-0000000000ff';
-  const answer = await page.request.get(`${consoleUrl()}/api/v1/admin/messages/${unknown}/timeline`);
-  expect([403, 404]).toContain(answer.status());
+  await page.goto(`${consoleUrl()}/#/`);
+  expect([403, 404]).toContain(await inBrowser(page, `/api/v1/admin/messages/${unknown}/timeline`));
 });
 
 test('e2e-full UI: the failures read answers for the signed-in tenant', async ({ page }) => {
-  const answer = await page.request.get(`${consoleUrl()}/api/v1/admin/messages/failures`);
-  expect(answer.status()).toBe(200);
+  await page.goto(`${consoleUrl()}/#/`);
+  expect(await inBrowser(page, '/api/v1/admin/messages/failures')).toBe(200);
 });
