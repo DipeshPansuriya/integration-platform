@@ -377,7 +377,7 @@ both reports are static reads (neither reviewer ran them).
 - **S1 - an INSERT is only ever a fresh request** (`V2_4_1340:15-31`). The one `FOR ALL` policy of `V2_4_1330` is
   replaced by one policy per command: SELECT (tenant); INSERT `WITH CHECK` tenant AND `status = 'PENDING_APPROVAL'`
   AND `decided_by`, `decided_at`, `revoked_by`, `revoked_at` all NULL; UPDATE (tenant). The app role still holds
-  SELECT and INSERT only - no UPDATE, no DELETE (`V2_4_1330:67`) - so the UPDATE policy serves only the definer
+  SELECT and INSERT only - no UPDATE, no DELETE (`V2_4_1330:101`) - so the UPDATE policy serves only the definer
   function `config_decide_db_table_approval`, which runs as the owner under FORCE ROW LEVEL SECURITY. APPROVED and
   REVOKED are reachable only through that function; it refuses self-approval (`REFUSED_SELF_APPROVAL`, backed by the
   `four_eyes` CHECK). `INSERT ... ON CONFLICT DO UPDATE` needs UPDATE and is refused (42501). No DELETE policy:
@@ -404,7 +404,7 @@ both reports are static reads (neither reviewer ran them).
 - **Operator notes** (`JdbcDbSender.java:31-38`). The restricted account needs SELECT as well as INSERT (the
   `delivery_id` pre-state check reads the table). The partner `delivery_id` column must be `uuid` (a text column fails
   42883, PERMANENT). An INSERT-only account fails 42501, classified PERMANENT with a message naming INSERT and SELECT
-  (`DbTargetCall.java:138-145`); the same text also appears for other 42501 causes (missing USAGE on the schema or the
+  (`DbTargetCall.java:138-144`); the same text also appears for other 42501 causes (missing USAGE on the schema or the
   table's sequence). Before go-live the operator lists every migrated PENDING row to the approver: DB sends stop until
   each table is approved.
 - **Known residuals - accepted risk pending Dipesh.**
