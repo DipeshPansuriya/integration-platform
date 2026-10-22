@@ -139,7 +139,9 @@ public final class DbTargetCall implements TargetCall {
                     outcome = OutcomeClass.PERMANENT;
                     breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
                     throw new TargetFaultException(outcome, "the target database of target endpoint "
-                            + send.targetEndpointId() + " refused the send (" + state + ")");
+                            + send.targetEndpointId() + " refused the send (" + state + ")"
+                            + ("42501".equals(state) ? ": the restricted account lacks a privilege - it needs INSERT and "
+                                    + "SELECT on the target table (the delivery-id pre-state check reads it)" : ""));
                 }
                 if ("08006".equals(state)) {
                     breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, refused);

@@ -106,6 +106,7 @@ class DbPrivilegeProbeContainerTest {
             sql.execute("CREATE TABLE shadowed.orders_in (id bigserial PRIMARY KEY, awb text NOT NULL)");
             sql.execute("ALTER ROLE shadowed SET search_path = shadowed, public");
             sql.execute("GRANT SELECT, INSERT ON orders_in TO shadowed");
+            sql.execute("GRANT USAGE ON SEQUENCE orders_in_id_seq TO shadowed"); // the bigserial default calls nextval()
         }
     }
 

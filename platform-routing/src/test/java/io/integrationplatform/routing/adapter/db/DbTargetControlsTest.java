@@ -173,6 +173,21 @@ class DbTargetControlsTest {
     }
 
     @Test
+    void anInsertOnlyAccountWithoutSelectIsPermanentWithTheNamedPrivilegeReason() throws Exception {
+        // the pre-state check SELECTs the delivery id before the INSERT: an account granted INSERT only gets 42501
+        DbSender insertOnly = mock(DbSender.class);
+        org.mockito.Mockito.doThrow(new SQLException("permission denied for table orders_in", "42501"))
+                .when(insertOnly).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
+
+        assertThatThrownBy(() -> call(targets(STORED_SETTINGS, "db-pass".toCharArray()), insertOnly).call(send))
+                .isInstanceOf(TargetFaultException.class)
+                .satisfies(f -> {
+                    assertThat(((TargetFaultException) f).outcomeClass()).isEqualTo(OutcomeClass.PERMANENT);
+                    assertThat(f.getMessage()).contains("42501").contains("INSERT and SELECT");
+                });
+    }
+
+    @Test
     void aChannelDropAfterTheStatementMayHaveBeenSentIsAmbiguous() throws Exception {
         DbSender dropped = mock(DbSender.class);
         org.mockito.Mockito.doThrow(new SQLException("connection closed", "08006"))

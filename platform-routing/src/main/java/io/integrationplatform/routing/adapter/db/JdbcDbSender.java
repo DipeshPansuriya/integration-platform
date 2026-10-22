@@ -27,6 +27,11 @@ import java.util.stream.Collectors;
  * dials the guard-pinned address through {@link PinnedSocketFactory} (the host is never re-resolved) while the
  * original host name stays the TLS server name. TLS is always requested ({@code sslmode} {@code require} by default,
  * or the target's stronger choice); an operator may relax the default only through the constructor.
+ *
+ * <p>Operator note (target database): the restricted account needs INSERT <b>and SELECT</b> on the target table - the
+ * pre-state check reads {@code delivery_id} before the insert - and nothing more (the test-connection answer flags a
+ * WIDE account). Without SELECT the send is refused PERMANENT with SQL state 42501. Both the send and the privilege
+ * probe pin {@code currentSchema=public}: the table must live in {@code public}.
  */
 public final class JdbcDbSender implements DbSender {
 
