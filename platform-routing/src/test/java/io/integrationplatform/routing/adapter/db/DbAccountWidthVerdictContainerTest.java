@@ -136,7 +136,13 @@ class DbAccountWidthVerdictContainerTest {
                 "pg_signal_backend", "pg_write_all_data", "pg_read_all_data")) {
             String user = "m_" + role.substring(3);
             account(db, user, "GRANT " + role + " TO " + user);
-            assertRefusedFor(user, role.toUpperCase());
+            if (role.equals("pg_write_all_data")) {
+                // the role also implies INSERT/UPDATE/DELETE on every table, so its tokens are more than the role's own
+                assertThat(tokens(db, user)).as(user).contains("PG_WRITE_ALL_DATA", "UPDATE", "DELETE");
+                assertRefusedFor(db, user, "PG_WRITE_ALL_DATA");
+            } else {
+                assertRefusedFor(user, role.toUpperCase());
+            }
         }
     }
 
