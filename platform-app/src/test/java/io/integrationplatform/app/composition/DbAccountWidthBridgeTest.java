@@ -52,7 +52,12 @@ class DbAccountWidthBridgeTest {
     }
 
     @Test
-    void withoutRoutingsDbSliceNoCheckIsComposedSoConfigsFailClosedDefaultApplies() {
-        assertThat(new CompositionConfiguration().dbAccountWidthCheck(providing(null))).isNull();
+    void withoutRoutingsDbSliceTheCheckStillRefusesEveryApproval() {
+        // B30 nit: a real (refusing) bean, not a null bean - same fail-closed behaviour as config's own default
+        DbAccountWidthCheck check = new CompositionConfiguration().dbAccountWidthCheck(providing(null));
+
+        assertThat(check).isNotNull();
+        assertThat(check.refusalFor(SYSTEM, "{}")).hasValueSatisfying(refusal -> assertThat(refusal)
+                .startsWith("DB_ACCOUNT_UNVERIFIED"));
     }
 }
