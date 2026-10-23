@@ -6,16 +6,17 @@
 // no owner SQL. Each mapping also needs a passing sample run of its pinned content before publish (T-037).
 
 const SCHEMA = 'https://json-schema.org/draft/2020-12/schema';
-const objectOf = (fields) => ({
+// `limits` adds JSON-Schema keywords per field (the SOURCE contract: a blank orderNo and a negative qty are refused, SC-02).
+const objectOf = (fields, limits = {}) => ({
   $schema: SCHEMA,
   type: 'object',
   required: Object.keys(fields),
-  properties: Object.fromEntries(Object.entries(fields).map(([name, type]) => [name, { type }]))
+  properties: Object.fromEntries(Object.entries(fields).map(([name, type]) => [name, { type, ...limits[name] }]))
 });
 
 export const REF = Object.freeze({
   flowCode: 'REF-ORDER',
-  source: Object.freeze({ system: 'ref-source', name: 'Reference source', versionLabel: '1.0', document: objectOf({ orderNo: 'string', customer: 'string', qty: 'number' }) }),
+  source: Object.freeze({ system: 'ref-source', name: 'Reference source', versionLabel: '1.0', document: objectOf({ orderNo: 'string', customer: 'string', qty: 'number' }, { orderNo: { minLength: 1 }, qty: { minimum: 0 } }) }),
   targetA: Object.freeze({ system: 'ref-target-a', name: 'Reference target A (API)', versionLabel: '1.0', document: objectOf({ orderNo: 'string', customer: 'string', qty: 'number', contractVersion: 'string' }),
     // the body carries the contract version it was rendered under (SC-01 reads it back from the WireMock journal)
     expression: "{'orderNo': orderNo, 'customer': customer, 'qty': qty, 'contractVersion': '1.0'}",
