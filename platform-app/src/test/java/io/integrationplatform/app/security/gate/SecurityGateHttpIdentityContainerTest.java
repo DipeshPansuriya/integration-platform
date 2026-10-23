@@ -115,6 +115,13 @@ class SecurityGateHttpIdentityContainerTest {
     private static final java.util.Set<String> INTAKE_ROUTES = java.util.Set.of(
             "/api/v1/interfaces/{interfaceCode}/messages", "/api/v1/interfaces/{interfaceCode}/messages:bulk");
 
+    /** The realm's issuer URL asked for under the other loopback name, so Keycloak signs a different "iss". */
+    private static String alternateHostIssuerBase() {
+        java.net.URI issuer = java.net.URI.create(KEYCLOAK.issuerUri());
+        String other = "127.0.0.1".equals(issuer.getHost()) ? "localhost" : "127.0.0.1";
+        return issuer.getScheme() + "://" + other + ":" + issuer.getPort() + "/realms/" + KeycloakRealmContainer.REALM;
+    }
+
     private String intakePath() {
         return "/api/v1/interfaces/" + DipeshExampleSeed.INTERFACE_CODE + "/messages";
     }
@@ -262,10 +269,23 @@ class SecurityGateHttpIdentityContainerTest {
             HttpResponse<String> response = intake(variant.getValue(), "T171-CUST-A");
             assertThat(response.statusCode()).as("%s -> %s", variant.getKey(), response.body()).isEqualTo(401);
         }
-        // a wrong issuer with otherwise valid claims (signed by a key the issuer never published)
+        // a wrong issuer on a token the realm really signed (T201 / T171-2): Keycloak (start-dev, no fixed hostname)
+        // writes the host the token was asked for into "iss", so asking for the token via 127.0.0.1 instead of
+        // localhost gives a genuine signature (same realm key, same kid) over an issuer the backend does not trust.
+        // Only the issuer check can refuse it; the forged-key case below it stays as the signature-only twin.
+        String wrongIssuerToken = KEYCLOAK.clientCredentialsTokenVia(alternateHostIssuerBase(), sourceA.clientId(),
+                sourceA.secret());
+        assertThat(claimsOf(wrongIssuerToken).path("iss").asString()).as("the minted token carries a foreign issuer")
+                .isNotEmpty().isNotEqualTo(KEYCLOAK.issuerUri());
+        assertThat(JSON.readTree(Base64.getUrlDecoder().decode(wrongIssuerToken.split("\\.")[0])).path("kid").asString())
+                .as("signed with the realm's own published key, so the signature check passes")
+                .isEqualTo(JSON.readTree(Base64.getUrlDecoder().decode(parts[0])).path("kid").asString());
+        assertThat(intake(wrongIssuerToken, "T171-CUST-A").statusCode()).as("validly signed, wrong issuer")
+                .isEqualTo(401);
+        // and a wrong issuer under a key the issuer never published (dies on the signature, kept as a twin)
         String wrongIssuer = claimsJson.replaceFirst("\"iss\":\"[^\"]*\"", "\"iss\":\"https://attacker.invalid/realms/platform\"");
         assertThat(intake(rs256WithOwnKey("attacker", wrongIssuer), "T171-CUST-A").statusCode())
-                .as("wrong issuer").isEqualTo(401);
+                .as("wrong issuer and foreign key").isEqualTo(401);
         // token in the query string or a non-Bearer scheme is not a credential
         assertThat(call("POST", intakePath() + "?access_token=" + valid, null, "{}",
                 Map.of("Content-Type", "application/json")).statusCode()).as("token in query string").isEqualTo(401);

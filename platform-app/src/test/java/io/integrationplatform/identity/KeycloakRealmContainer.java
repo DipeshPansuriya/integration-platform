@@ -197,9 +197,17 @@ public final class KeycloakRealmContainer extends GenericContainer<KeycloakRealm
 
     /** The access token of a client-credentials grant at the realm's token endpoint. */
     public String clientCredentialsToken(String clientId, String secret) {
-        HttpResponse<String> response = tokenRequest(issuerUri() + "/protocol/openid-connect/token",
+        return clientCredentialsTokenVia(issuerUri(), clientId, secret);
+    }
+
+    /**
+     * The same grant asked for at another base URL of the same realm (for example the other loopback name):
+     * Keycloak signs with the realm key but writes the host asked for into {@code iss}. For issuer-check tests.
+     */
+    public String clientCredentialsTokenVia(String realmBaseUrl, String clientId, String secret) {
+        HttpResponse<String> response = tokenRequest(realmBaseUrl + "/protocol/openid-connect/token",
                 Map.of("grant_type", "client_credentials", "client_id", clientId, "client_secret", secret));
-        expect(response, 200, "client credentials token for " + clientId);
+        expect(response, 200, "client credentials token for " + clientId + " via " + realmBaseUrl);
         return read(response.body()).get("access_token").asString();
     }
 
