@@ -6,7 +6,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_1"];
+        get: operations["list_3"];
         put?: never;
         post?: never;
         delete?: never;
@@ -150,7 +150,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list"];
+        get: operations["list_1"];
         put?: never;
         post: operations["create_1"];
         delete?: never;
@@ -184,7 +184,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["approve"];
+        post: operations["approve_1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -265,6 +265,102 @@ export interface paths {
         get?: never;
         put: operations["editVersion"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/jobs/summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["summaries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/jobs/{jobType}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["inspect"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/jobs/{jobType}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pause"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/jobs/{jobType}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/jobs/{jobType}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["runNow"];
         delete?: never;
         options?: never;
         head?: never;
@@ -511,6 +607,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/systems/{systemId}/approved-tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post: operations["request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/systems/{systemId}/approved-tables/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/systems/{systemId}/approved-tables/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/systems/{systemId}/source-credentials": {
         parameters: {
             query?: never;
@@ -575,6 +719,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/interfaces/{interfaceCode}/messages:bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submitBulk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -592,6 +752,22 @@ export interface paths {
         trace?: never;
     };
     "/api/v1/reports/delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["report_1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/facade/{trackingId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -619,6 +795,7 @@ export interface components {
             before?: string;
             id?: string;
             targetIds?: string[];
+            traceId?: string;
         };
         ActivityPage: {
             hasMore?: boolean;
@@ -627,6 +804,25 @@ export interface components {
             page?: number;
             /** Format: int32 */
             size?: number;
+        };
+        BulkIntakeRejection: {
+            code: string;
+            message: string;
+            results: components["schemas"]["BulkIntakeResult"][];
+        };
+        BulkIntakeResponse: {
+            results: components["schemas"]["BulkIntakeResult"][];
+        };
+        BulkIntakeResult: {
+            code?: string;
+            /** Format: int32 */
+            index: number;
+            message?: string;
+            /** @enum {string} */
+            status: "ACCEPTED" | "REJECTED";
+            /** Format: uuid */
+            trackingId?: string;
+            violations?: components["schemas"]["Violation"][];
         };
         /** @description A config admin refusal: exactly one of error or refusal is present. */
         ConfigErrorBody: {
@@ -700,6 +896,26 @@ export interface components {
             status?: "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "RETIRED";
             versionLabel?: string;
         };
+        DailyCounts: {
+            /** Format: int64 */
+            failuresAmbiguous?: number;
+            /** Format: int64 */
+            failuresPermanent?: number;
+            /** Format: int64 */
+            failuresTransient?: number;
+            /** Format: uuid */
+            interfaceId?: string;
+            /** Format: int64 */
+            retriedThenSucceeded?: number;
+            /** Format: int64 */
+            retriesMade?: number;
+            /** Format: int64 */
+            stillStuck?: number;
+            /** Format: int64 */
+            successes?: number;
+            /** Format: uuid */
+            targetId?: string;
+        };
         DeliveryConflict: {
             error: string;
             /** @enum {string} */
@@ -724,6 +940,41 @@ export interface components {
             origin?: string;
             targetId?: string;
             trackingId?: string;
+        };
+        IntakeErrorBody: {
+            code: string;
+            message: string;
+            /** @description Every violation of a record that broke its contract or rules; never a submitted value or a submitted property name */
+            violations?: components["schemas"]["Violation"][];
+        };
+        JobDefinitionRow: {
+            enabled?: boolean;
+            jobType?: string;
+            /** Format: int32 */
+            lateThresholdSeconds?: number;
+            /** Format: int32 */
+            maxRunSeconds?: number;
+            parameters?: string;
+            paused?: boolean;
+            /** Format: date-time */
+            pausedAt?: string;
+            schedule?: string;
+            scheduleKind?: string;
+            /** Format: date-time */
+            stateChangedAt?: string;
+        };
+        JobSummary: {
+            jobId?: string;
+            jobType?: string;
+            /** Format: date-time */
+            lastRunAt?: string;
+            /** Format: date-time */
+            nextRunAt?: string;
+            /** Format: date-time */
+            pausedAt?: string;
+            state?: string;
+            /** Format: date-time */
+            stateChangedAt?: string;
         };
         JsonNode: {
             array?: boolean;
@@ -775,6 +1026,13 @@ export interface components {
             wildcardSubtype?: boolean;
             wildcardType?: boolean;
         };
+        Report: {
+            failures?: components["schemas"]["Failure"][];
+            stageTimings?: components["schemas"]["StageTime"][];
+            timeline?: components["schemas"]["Timeline"];
+            /** Format: uuid */
+            trackingId?: string;
+        };
         Result: {
             /** Format: uuid */
             contractVersionId?: string;
@@ -822,24 +1080,15 @@ export interface components {
             totalMs?: number;
             trackingId?: string;
         };
-    };
-    DailyCounts: {
-        interfaceId: string;
-        targetId: string;
-        /** Format: int64 */
-        successes: number;
-        /** Format: int64 */
-        failuresTransient: number;
-        /** Format: int64 */
-        failuresAmbiguous: number;
-        /** Format: int64 */
-        failuresPermanent: number;
-        /** Format: int64 */
-        retriesMade: number;
-        /** Format: int64 */
-        retriedThenSucceeded: number;
-        /** Format: int64 */
-        stillStuck: number;
+        Violation: {
+            /** @description SCHEMA_<KEYWORD> for a schema violation, the rule row's code for a rule violation */
+            code: string;
+            /** @description Dotted path with [index] for array items, $ for the root; an undeclared property is reported as its parent */
+            field: string;
+            message: string;
+            /** @enum {string} */
+            source: "SCHEMA" | "RULE";
+        };
     };
     responses: never;
     parameters: never;
@@ -849,7 +1098,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    list_1: {
+    list_3: {
         parameters: {
             query?: {
                 action?: string;
@@ -1250,7 +1499,7 @@ export interface operations {
             };
         };
     };
-    list: {
+    list_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -1440,7 +1689,7 @@ export interface operations {
             };
         };
     };
-    approve: {
+    approve_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -1794,6 +2043,132 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ConfigErrorBody"];
                 };
+            };
+        };
+    };
+    list_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["JobDefinitionRow"][];
+                };
+            };
+        };
+    };
+    summaries: {
+        parameters: {
+            query?: {
+                since?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["JobSummary"][];
+                };
+            };
+        };
+    };
+    inspect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobType: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    pause: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobType: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobType: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    runNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobType: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -2731,6 +3106,108 @@ export interface operations {
             };
         };
     };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                systemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+        };
+    };
+    request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                systemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonNode"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                systemId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                systemId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
     listSourceCredentials: {
         parameters: {
             query?: never;
@@ -3049,18 +3526,118 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Accepted: the message is recorded; the body carries the tracking id */
+            /** @description SYNC interface answered within 10 s: the body is the target's answer mapped to the source's response contract */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+            /** @description Accepted: the message is recorded; the body carries the tracking id (SYNC past 10 s: status PENDING) */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: unknown;
-                    };
+                    "*/*": Record<string, never>;
                 };
             };
             /** @description A required header is missing or the JSON body is malformed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+            /** @description Forbidden: intake is source-only - a human or non-source caller is refused */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+            /** @description The interface is unknown or unpublished */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+            /** @description The payload exceeds the 1 MB cap */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+            /** @description The Content-Type is missing or not application/json */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+            /** @description The source contract version is off-pin, a business key is unresolved, the record breaks the source contract or its validation rules (PAYLOAD_VALIDATION_FAILED, every violation listed), or the Idempotency-Key was reused with another body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeErrorBody"];
+                };
+            };
+            /** @description The intake transaction could not commit (Retry-After when an ordering key is busy); no tracking id */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+        };
+    };
+    submitBulk: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Content-Type"?: components["schemas"]["MediaType"];
+                "X-Source-Contract-Version"?: string;
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                interfaceCode: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string;
+            };
+        };
+        responses: {
+            /** @description Accepted: one ordered result per record (ACCEPTED with a tracking id, or REJECTED with a code) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkIntakeResponse"];
+                };
+            };
+            /** @description A required header is missing, the body is malformed JSON, or not a non-empty array */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3093,7 +3670,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The payload exceeds the 1 MB cap */
+            /** @description The batch exceeds the record-count or byte cap (named in the body) */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -3115,18 +3692,16 @@ export interface operations {
                     };
                 };
             };
-            /** @description The source contract version is off-pin or a business key is unresolved */
+            /** @description Every record was rejected (ALL_RECORDS_REJECTED, one result per record with its violations), the version is off-pin, or the Idempotency-Key was reused with another body */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BulkIntakeRejection"];
                 };
             };
-            /** @description The intake transaction could not commit; no tracking id */
+            /** @description The intake transaction could not commit (Retry-After when an ordering key is busy) */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -3159,11 +3734,10 @@ export interface operations {
             };
         };
     };
-    report: {
+    report_1: {
         parameters: {
-            query?: {
-                /** Format: date */
-                day?: string;
+            query: {
+                day: string;
             };
             header?: never;
             path?: never;
@@ -3177,7 +3751,32 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DailyCounts"][];
+                    "*/*": components["schemas"]["DailyCounts"][];
+                };
+            };
+        };
+    };
+    report: {
+        parameters: {
+            query?: {
+                flowId?: string;
+                day?: string;
+            };
+            header?: never;
+            path: {
+                trackingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Report"];
                 };
             };
         };
