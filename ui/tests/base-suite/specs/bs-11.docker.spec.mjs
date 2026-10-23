@@ -160,8 +160,8 @@ test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in 
   expect(bodyProblems(await timelineOf(page, ids.failure)), 'detail (timeline) API').toEqual([]);
 });
 
-// Needs a product change (T206 finding): on main intake never reads the contract's field types - PayloadValidationService has no caller -
-// so amount:'not-a-number' is ACCEPTED 202 (measured, run 07:26Z). Gated, not weakened: BS-11.3b below covers the refusal that exists today.
+// B37: intake now validates the record against the published contract (T206 found it accepted amount:'not-a-number' with 202).
+// The flag INTAKE_CONTRACT_VALIDATION is true; the assertion is unchanged.
 test('BS-11.3: intake refusal - a record the contract rejects (400/422 naming amount); control accepted; 0 probe hits in the answer and the log', async ({ page }) => {
   waitFor('T108', 'INTAKE_CONTRACT_VALIDATION');
   const { answer, logFrom } = await postProbe(page, probeRecord(13, { amount: 'not-a-number' }));
@@ -176,13 +176,16 @@ test('BS-11.3: intake refusal - a record the contract rejects (400/422 naming am
   await expectLogClean(control.logFrom, 'intake refusal control');
 });
 
-test('BS-11.3b: intake refusal that exists on main - business key unresolved 422; control accepted; 0 probe hits in the answer and the log', async ({ page }) => {
+test('BS-11.3b: intake refusal - a record without its business key orderId (the contract requires it): 422 naming orderId; control accepted; 0 probe hits in the answer and the log', async ({ page }) => {
   waitFor('T108');
   const { orderId: _dropped, ...withoutKey } = probeRecord(14);
   const { answer, logFrom } = await postProbe(page, withoutKey);
   expect(contractRefusalProblems(answer, 'orderId'), `intake refuses a record without its business key: ${answer.status} ${JSON.stringify(answer.data)}`).toEqual([]);
   expect(answer.status, 'the intake refusal status').toBe(422);
-  expect(answer.data.code, 'the refusal reason').toBe('BUSINESS_KEY_UNRESOLVED');
+  // B37: validation runs BEFORE business-key extraction (ADR-011 Decision 4), and this contract requires orderId, so the missing key is
+  // reported by the contract with every other violation (was BUSINESS_KEY_UNRESOLVED when intake never read the contract)
+  expect(answer.data.code, 'the refusal reason').toBe('PAYLOAD_VALIDATION_FAILED');
+  expect(answer.data.violations.map((v) => `${v.field}:${v.code}`), 'the violation names the missing key').toContain('orderId:SCHEMA_REQUIRED');
   expect(bodyProblems(answer.data), 'the refusal body').toEqual([]);
   await expectLogClean(logFrom, 'business-key refusal');
   // green control: the same record WITH its business key is accepted - so the refusal above is about the key, nothing else
