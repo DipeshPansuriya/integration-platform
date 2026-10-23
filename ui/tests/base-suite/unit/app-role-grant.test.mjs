@@ -36,3 +36,26 @@ test('the scheduler startup failure the harness used to hide is found in the app
   assert.equal(schedulerStartupFailure(['{"message":"Started Application"}']), null);
   assert.equal(schedulerStartupFailure([]), null);
 });
+
+// T198-3 (row 372 L2): the late-grant pattern must not return in any harness. The app jar is started in exactly one
+// script (boot-backend.mjs); every other harness (trial-up.mjs, the base suite, the release-1 gate) boots through it.
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const uiRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const sourcesUnder = (dir) => readdirSync(dir).flatMap((name) => {
+  if (name === 'node_modules' || name === 'dist') return [];
+  const full = join(dir, name);
+  return statSync(full).isDirectory() ? sourcesUnder(full) : /\.(mjs|js|ts)$/.test(name) ? [full] : [];
+});
+
+test('only boot-backend.mjs launches the app jar, and it grants the role before that launch', () => {
+  const launchers = [...sourcesUnder(join(uiRoot, 'scripts')), ...sourcesUnder(join(uiRoot, 'tests'))]
+    .filter((file) => /['"]-jar['"]/.test(readFileSync(file, 'utf8')) && !file.endsWith('app-role-grant.test.mjs'))
+    .map((file) => file.slice(uiRoot.length + 1).replaceAll('\', '/'));
+  assert.deepEqual(launchers, ['scripts/boot-backend.mjs']);
+  const boot = readFileSync(join(uiRoot, 'scripts', 'boot-backend.mjs'), 'utf8');
+  assert.ok(boot.indexOf('appRoleBootSql(loginName)') < boot.indexOf("'-jar'"), 'the grant runs before the jar is started');
+  assert.match(readFileSync(join(uiRoot, 'scripts', 'trial-up.mjs'), 'utf8'), /from '\.\/boot-backend\.mjs'/);
+});
