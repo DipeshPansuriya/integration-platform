@@ -163,6 +163,9 @@ public class FlowAdminService {
     @Transactional(readOnly = true)
     public void refuseVersionEdit(String flowId, String versionId) {
         requireInterface(flowId);
+        if (!isCanonicalUuid(versionId)) {
+            throw ConfigApiException.notFound();
+        }
         Optional<VersionInfo> version = flows.findVersionOfInterface(flowId, versionId);
         if (version.isEmpty()) {
             throw ConfigApiException.notFound();
@@ -299,7 +302,23 @@ public class FlowAdminService {
                         ConfigAuditActions.target("interface_version", versionId)), before, after));
     }
 
+    private static final java.util.regex.Pattern CANONICAL_UUID = java.util.regex.Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+    /**
+     * T197 R3: a path id that is not a canonical UUID names no row. The repository casts the text with
+     * {@code ::uuid}; unguarded, a non-UUID was a PostgreSQL 22P02 and the catch-all 500. The shape is checked, not
+     * parsed: {@code UUID.fromString} also accepts forms such as {@code 1-1-1-1-1} that the cast rejects.
+     */
+    static boolean isCanonicalUuid(String id) {
+        return id != null && CANONICAL_UUID.matcher(id).matches();
+    }
+
+    /** The one guard in front of every flow path id: every public method starts here, before any SQL. */
     private InterfaceRow requireInterface(String flowId) {
+        if (!isCanonicalUuid(flowId)) {
+            throw ConfigApiException.notFound();
+        }
         return flows.findInterface(flowId).orElseThrow(ConfigApiException::notFound);
     }
 

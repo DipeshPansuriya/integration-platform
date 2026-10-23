@@ -18,6 +18,12 @@ final class CanonicalSessionCookieSerializer implements CookieSerializer {
     private static final Pattern CANONICAL_UUID =
             Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
+    /**
+     * T197 R1 (karan): the session store tries every value returned, one indexed lookup each; a header can carry
+     * 100+ canonical-shaped values. A browser sends one, a stale duplicate at most - so only the first few are read.
+     */
+    static final int MAX_SESSION_IDS = 3;
+
     private final CookieSerializer delegate;
 
     CanonicalSessionCookieSerializer(CookieSerializer delegate) {
@@ -33,6 +39,7 @@ final class CanonicalSessionCookieSerializer implements CookieSerializer {
     public List<String> readCookieValues(HttpServletRequest request) {
         return delegate.readCookieValues(request).stream()
                 .filter(id -> id != null && CANONICAL_UUID.matcher(id).matches())
+                .limit(MAX_SESSION_IDS)
                 .toList();
     }
 }

@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -77,30 +78,39 @@ public class ConfigApiExceptionHandler {
         return ResponseEntity.status(400).body(ConfigApiException.body("error", answerable(refused.reason())));
     }
 
-    /** T171 S5-A1: a body that is not JSON (truncated, too deep) is the caller's error, a 400 - never the 500 catch-all. */
+    /**
+     * T171 S5-A1: a body that is not JSON (truncated, too deep) is the caller's error, a 400 - never the 500
+     * catch-all. T196 N4: only the exception class is logged - Jackson's message quotes the offending token, which
+     * in a credential body is the secret.
+     */
     @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
     public ResponseEntity<Map<String, Object>> unreadableBody(
             org.springframework.http.converter.HttpMessageNotReadableException unreadable) {
-        LOG.debug("the request body could not be read", unreadable);
+        LOG.debug("the request body could not be read ({})", unreadable.getClass().getSimpleName());
         return ResponseEntity.status(400).body(ConfigApiException.body("error", "the request body could not be read"));
     }
 
     /**
-     * T171 S5-A1 (review C2): a request the framework refuses before the handler runs - wrong content type (415), a
-     * missing required parameter (400), a value of the wrong type (400) - keeps the framework's own status with a
-     * static body, never the catch-all 500.
+     * T171 S5-A1 (review C2), T196: a request the framework refuses before the handler runs - wrong content type
+     * (415), wrong method (405), unacceptable Accept (406), a missing parameter, header, path variable or multipart
+     * part, an upload over the size limit (413), a value of the wrong type (400) - keeps the framework's own status
+     * with a static body, never the catch-all 500's "write failed". Reached for every {@link ErrorResponse} through
+     * {@link #unexpected}; a {@code TypeMismatchException} is not one and is mapped here directly.
      */
-    @ExceptionHandler({org.springframework.web.HttpMediaTypeNotSupportedException.class,
-        org.springframework.web.HttpMediaTypeNotAcceptableException.class,
-        org.springframework.web.HttpRequestMethodNotSupportedException.class,
-        org.springframework.web.bind.MissingServletRequestParameterException.class,
-        org.springframework.beans.TypeMismatchException.class})
+    @ExceptionHandler(org.springframework.beans.TypeMismatchException.class)
     public ResponseEntity<Map<String, Object>> requestNotAccepted(Exception refused) {
-        LOG.debug("the request was refused before the handler ran", refused);
-        org.springframework.web.ErrorResponse shaped = refused instanceof org.springframework.web.ErrorResponse er
-                ? er : null;
-        return ResponseEntity.status(shaped == null ? 400 : shaped.getStatusCode().value())
+        ErrorResponse shaped = refused instanceof ErrorResponse er ? er : null;
+        int status = shaped == null ? 400 : shaped.getStatusCode().value();
+        if (status >= 500) { // a framework-reported server fault (a missing path variable) is not a client error
+            LOG.error("the framework refused the request with {}", status, refused);
+        } else {
+            // class only: the message can quote the client's value (a credential in a query string or a header)
+            LOG.debug("the request was refused before the handler ran ({})", refused.getClass().getSimpleName());
+        }
+        // JSON is set explicitly: a client that sent Accept: text/plain (406) must still get this answer
+        return ResponseEntity.status(status)
                 .headers(shaped == null ? org.springframework.http.HttpHeaders.EMPTY : shaped.getHeaders())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(ConfigApiException.body("error", "the request was not accepted"));
     }
 
@@ -117,6 +127,9 @@ public class ConfigApiExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> unexpected(Exception failure) {
+        if (failure instanceof ErrorResponse) {
+            return requestNotAccepted(failure);
+        }
         for (Throwable cause = failure.getCause(); cause != null && cause != failure; cause = cause.getCause()) {
             if (cause instanceof InterfacePublishRefused refused) {
                 return publishRefused(refused);

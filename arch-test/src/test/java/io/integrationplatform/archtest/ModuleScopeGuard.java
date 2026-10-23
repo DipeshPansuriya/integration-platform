@@ -41,12 +41,12 @@ final class ModuleScopeGuard {
     private static final List<String> OTHER_PRODUCTION_ROOTS =
             List.of("ui", "compose", "build-checks");
 
-    /** The root whose installed/built output is never walked (B31): the console only. Under a module's src/main,
-     *  compose or build-checks a folder named dist or node_modules is production source and IS read (T189). */
+    /** The root whose installed packages are never walked (B31): the console only. Under a module's src/main,
+     *  compose or build-checks a folder named node_modules is production source and IS read (T189). */
     private static final String GENERATED_OUTPUT_ROOT = "ui";
 
-    /** Folder names never walked under {@link #GENERATED_OUTPUT_ROOT}: the console's installed and built output (B31). */
-    private static final Set<String> GENERATED_FOLDERS = Set.of("node_modules", "dist");
+    /** Folder names never walked under {@link #GENERATED_OUTPUT_ROOT}: the console's installed packages (B31). The built bundle ui/dist is NOT skipped (B31-1): it is what ships. */
+    private static final Set<String> GENERATED_FOLDERS = Set.of("node_modules");
 
     private ModuleScopeGuard() {
     }

@@ -127,6 +127,37 @@ class MappingAdminServiceValidationTest {
     }
 
     @Test
+    void aLenientRouteIdIsCanonicalisedOnceAndUsedForTheWriteAndTheAuditTarget() {
+        // UUID.fromString accepts "1-1-1-1-1"; Postgres ::uuid does not. The one canonical key must reach every use.
+        String lenient = "1-1-1-1-1";
+        String canonical = UUID.fromString(lenient).toString();
+        when(mappings.findMappingOfRoute(canonical)).thenReturn(Optional.of(
+                new LiveMapping(MAPPING, "[]", "$", null, null, null)));
+        java.util.List<Object> published = new java.util.ArrayList<>();
+        MappingAdminService capturing = new MappingAdminService(mappings, published::add,
+                () -> Optional.of(UUID.randomUUID()));
+
+        java.util.Map<String, Object> answer = capturing.save(lenient, JSON.readTree("{\"compiledExpression\":\"$\"}"), ACTOR);
+
+        verify(mappings).updateMappingOfRoute(org.mockito.ArgumentMatchers.eq(canonical), any(), any(), any(), any());
+        verify(mappings, never()).updateMappingOfRoute(org.mockito.ArgumentMatchers.eq(lenient), any(), any(), any(), any());
+        assertThat(published).singleElement().satisfies(event -> assertThat(
+                ((io.integrationplatform.domain.audit.AuditEvent) event).targetIds())
+                .anySatisfy(target -> assertThat(target).contains(canonical).doesNotContain(lenient)));
+        assertThat(answer.get("routeId")).isEqualTo(canonical);
+    }
+
+    @Test
+    void literalBackslashU0000TextIsNotANullCharacterButARealOneInAKeyIsRefused() {
+        // the six characters backslash-u0000 (six characters) in a link are text; only an actual NUL (in a value or a field name) is refused
+        assertThatThrownBy(() -> service.save(ROUTE, JSON.readTree(
+                "{\"compiledExpression\":\"$\",\"fieldMappings\":[{\"source\":\"a\\\\u0000b\"}]}"), ACTOR))
+                .isInstanceOfSatisfying(ConfigApiException.class,
+                        e -> assertThat(String.valueOf(e.body().get("error"))).doesNotContain("null character"));
+        refused("{\"compiledExpression\":\"$\",\"fieldMappings\":[{\"a\\u0000b\":\"c\"}]}", "null character");
+    }
+
+    @Test
     void oneBoundVersionWithoutTheOtherIsRefused() {
         refused("{\"compiledExpression\":\"$\",\"sourceContractVersionId\":\"" + GOOD_ID + "\"}", "together");
     }

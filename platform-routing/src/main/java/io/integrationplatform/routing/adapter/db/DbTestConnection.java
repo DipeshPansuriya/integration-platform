@@ -113,6 +113,16 @@ public class DbTestConnection {
      * T178a: the approve-time verdict. Empty only when the credentialed probe ran and the account holds nothing beyond
      * INSERT and SELECT on the table; every doubt (no probe, no table, a refused or unreachable probe) is a refusal -
      * fail closed. The text starts {@code DB_ACCOUNT_TOO_WIDE} or {@code DB_ACCOUNT_UNVERIFIED}.
+     *
+     * <p>T203 (T189-S1) - the real scope of the claim "the account is narrow". REFUSED (DB_ACCOUNT_TOO_WIDE): any
+     * privilege beyond INSERT/SELECT on the approved table (column-level included); SUPERUSER, BYPASSRLS, CREATEROLE,
+     * CREATEDB, REPLICATION; membership, direct or inherited, of pg_execute_server_program, pg_write_server_files,
+     * pg_read_server_files, pg_signal_backend, pg_database_owner, pg_write_all_data or pg_read_all_data; CREATE on the
+     * database; CREATE on the approved schema or on any schema the account can use; DELETE, TRUNCATE, TRIGGER, UPDATE
+     * or REFERENCES on any other relation of the approved schema. NOT refused, so NOT claimed: INSERT/SELECT on other
+     * tables of the schema, anything on tables of other schemas, function EXECUTE, sequence and large-object rights,
+     * TEMP, pg_* roles outside the list above, and any grant made after approval (checked at approval and
+     * test-connection, never at send). The query and its cost are on {@code JdbcDbPrivilegeProbe#PRIVILEGES_SQL}.
      */
     public java.util.Optional<String> accountWidthRefusal(java.util.UUID systemId, String settingsJson) {
         DbSettings settings;
@@ -132,8 +142,10 @@ public class DbTestConnection {
                     .filter(p -> !p.equals("INSERT") && !p.equals("SELECT")).toList();
             return extra.isEmpty() ? java.util.Optional.empty()
                     : java.util.Optional.of("DB_ACCOUNT_TOO_WIDE: the account '" + settings.user() + "' holds more than"
-                            + " INSERT and SELECT on '" + settings.table() + "' (" + String.join(", ", extra)
-                            + "); grant the restricted account only what the send needs");
+                            + " INSERT and SELECT on '" + settings.table() + "' or holds account-level or other-table"
+                            + " rights (" + String.join(", ", extra) + "); grant the restricted account only INSERT and"
+                            + " SELECT on that table - no predefined role, CREATEROLE/CREATEDB/REPLICATION, CREATE"
+                            + " right or privilege on another table");
         } catch (DbPrivilegeProbe.ProbeRefused e) {
             return unverified("the probe was refused (" + e.reason + ")");
         } catch (IOException e) {

@@ -2,7 +2,7 @@
 // (plan release-suite-base-20261022.md section 2).
 //
 // Both tenants own the same flow shape: source "Customer A" contract v1.0 {customerId, orderId,
-// amount}, target "Target B" contract v2.0 {clientId, referenceNo, invoiceValue}, flow "orders" with
+// amount, cardNumber}, target "Target B" contract v2.0 {clientId, referenceNo, invoiceValue, cardRef}, flow "orders" with
 // one route - the T94 trial seed shape (ui/scripts/trial-up.mjs:17-21, :46-56). A tenant marker sits in
 // every text value (A-CUST-0001 / B-CUST-0001, A-ORD-... / B-ORD-...), so a leak search is plain text.
 //
@@ -25,7 +25,9 @@ export const SOURCE_CONTRACT = Object.freeze({
   name: 'Customer A',
   role: 'SOURCE_REQUEST',
   versionLabel: '1.0',
-  document: objectOf({ customerId: 'string', orderId: 'string', amount: 'number' })
+  // cardNumber (T206): the field BS-11 declares MASKED. It is not an identity field: customerId is the one the platform
+  // checks against the credential (SourceCustomerFilter.java:49-56), so a probe value there is refused 403 before intake.
+  document: objectOf({ customerId: 'string', orderId: 'string', amount: 'number', cardNumber: 'string' })
 });
 
 export const TARGET_CONTRACT = Object.freeze({
@@ -33,7 +35,7 @@ export const TARGET_CONTRACT = Object.freeze({
   name: 'Target B',
   role: 'TARGET_REQUEST',
   versionLabel: '2.0',
-  document: objectOf({ clientId: 'string', referenceNo: 'string', invoiceValue: 'number' })
+  document: objectOf({ clientId: 'string', referenceNo: 'string', invoiceValue: 'number', cardRef: 'string' })
 });
 
 export const FLOW = Object.freeze({ code: 'orders', name: 'orders', businessKeyRule: 'orderId' });
@@ -42,7 +44,8 @@ export const FLOW = Object.freeze({ code: 'orders', name: 'orders', businessKeyR
 export const LINKS = Object.freeze([
   Object.freeze(['customerId', 'clientId']),
   Object.freeze(['orderId', 'referenceNo']),
-  Object.freeze(['amount', 'invoiceValue'])
+  Object.freeze(['amount', 'invoiceValue']),
+  Object.freeze(['cardNumber', 'cardRef'])
 ]);
 
 /** BS-07's negative leg: a target on the UNNAMED loopback literal, on its own path - it must stay refused. */
@@ -62,21 +65,26 @@ export const TENANT_B_PLAN = Object.freeze({
 /** Record n of a tenant: its own customer, a marked order id, a distinct amount. */
 export function orderRecord(tenant, n) {
   if (!Number.isInteger(n) || n < 1 || n > 9999) throw new Error(`orderRecord: n ${n} is outside 1..9999`);
-  return { customerId: tenant.customerId, orderId: `${tenant.marker}-ORD-${String(n).padStart(4, '0')}`, amount: Number((100 + n + 0.25).toFixed(2)) };
+  return { customerId: tenant.customerId, orderId: `${tenant.marker}-ORD-${String(n).padStart(4, '0')}`, amount: Number((100 + n + 0.25).toFixed(2)), cardNumber: cardNumberOf(tenant, n) };
+}
+
+/** A tenant-marked card number for record n (never a real card shape). */
+export function cardNumberOf(tenant, n) {
+  return `${tenant.marker}-CARD-${String(n).padStart(4, '0')}`;
 }
 
 /** The contract translation the target must receive for a record (Customer A v1.0 -> Target B v2.0). */
 export function expectedTargetBody(record) {
-  return { clientId: record.customerId, referenceNo: record.orderId, invoiceValue: record.amount };
+  return { clientId: record.customerId, referenceNo: record.orderId, invoiceValue: record.amount, cardRef: record.cardNumber };
 }
 
 /** Tenant B's source posting its own order under tenant A's customer (backlog.md:3057-3062). */
 export function forgedRecord(n) {
   if (!Number.isInteger(n) || n < 1 || n > 999) throw new Error(`forgedRecord: n ${n} is outside 1..999`);
-  return { customerId: TENANTS.A.customerId, orderId: `B-ORD-F${String(n).padStart(3, '0')}`, amount: Number((900 + n + 0.75).toFixed(2)) };
+  return { customerId: TENANTS.A.customerId, orderId: `B-ORD-F${String(n).padStart(3, '0')}`, amount: Number((900 + n + 0.75).toFixed(2)), cardNumber: `B-CARD-F${String(n).padStart(3, '0')}` };
 }
 
-const MARKER = /\b([AB])-(?:CUST|ORD)-[A-Z0-9]+\b/g;
+const MARKER = /\b([AB])-(?:CUST|ORD|CARD)-[A-Z0-9]+\b/g;
 
 /** The OTHER tenant's markers found in `text` - a leak search is a plain text search. */
 export function leakHits(text, tenant) {

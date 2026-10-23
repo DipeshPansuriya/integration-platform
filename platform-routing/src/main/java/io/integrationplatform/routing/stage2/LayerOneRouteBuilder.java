@@ -112,8 +112,9 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
             attempts.record(send.deliveryId(), 1, OutcomeClass.SUCCESS, started, clock.get(),
                     "layer-1 try " + tryNumber + ": success");
             log.info("stage 2: delivery {} - layer-1 try {}: SUCCESS", send.deliveryId(), tryNumber);
-            // B32: Camel leaves the earlier try's exception on the exchange after a redelivery; the dispatch reads that
-            // property as "layer 1 failed", so a success after TRANSIENT tries must clear it or the delivery stays SENDING
+            // B32: Camel leaves the earlier try's exception on the exchange after a redelivery. Since T188 the dispatch
+            // decides on LAYER_ONE_SUCCEEDED (RouteInstanceSendDispatch), not on this property; the removal stays only so
+            // the exchange does not keep reporting a caught exception for a try that succeeded
             exchange.removeProperty(Exchange.EXCEPTION_CAUGHT);
             // T188: say it explicitly - the dispatch decides on this flag, not on the absence of the caught exception
             exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.TRUE);
