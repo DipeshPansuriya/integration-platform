@@ -85,8 +85,12 @@ export async function api(page, method, apiPath, { body, csrf = 'valid', token }
       if (body !== undefined) headers['content-type'] = 'application/json';
       const sent = csrf === 'valid' ? real : csrf === 'forged' ? token : null;
       if (sent) headers['X-XSRF-TOKEN'] = sent;
-      const response = await fetch(apiPath, { method, headers, credentials: 'include', body: body === undefined ? undefined : JSON.stringify(body) });
-      return { status: response.status, text: await response.text() };
+      try {
+        const response = await fetch(apiPath, { method, headers, credentials: 'include', body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+        return { status: response.status, text: await response.text() };
+      } catch (e) {
+        return { status: 0, text: `no answer: ${e.name}` }; // a request that hangs is a finding, not a stalled test
+      }
     },
     { method, apiPath, body, csrf, token }
   );

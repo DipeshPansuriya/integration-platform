@@ -10,9 +10,8 @@ import crypto from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import {
   api, assertScannerSees, atConsole, consoleCookies, consoleHost, consoleUrl, expectNoTokenInTraffic, freshLogin, otherUser,
-  psql, recordTraffic, sessionCookie, sessionCookieFor, sessionIdOf, tokenFindings, JWT_PATTERN, consoleLoginEntry
+  psql, recordTraffic, sessionCookie, sessionCookieFor, sessionIdOf, tokenFindings, JWT_PATTERN, consoleLoginEntry, appLog, signIn
 } from './lib.mjs';
-import { browserLogin } from '../screens/keycloak-login.mjs';
 
 const NO_SESSION = { storageState: { cookies: [], origins: [] } };
 const RUN = crypto.randomBytes(3).toString('hex');
@@ -27,7 +26,7 @@ async function systemExists(page, code) {
   return listed.text.includes(`"${code}"`);
 }
 
-async function sessionRow(id) {
+function sessionRow(id) {
   return psql(`select count(*) from console_session.spring_session where session_id = '${id}'`);
 }
 
@@ -46,7 +45,7 @@ test.describe('S3 BFF session (browser)', () => {
     const context = await browser.newContext(NO_SESSION);
     const page = await context.newPage();
     const traffic = recordTraffic(page);
-    await browserLogin(page, consoleUrl(), { username: process.env.CONSOLE_LOGIN_USER, password: process.env.CONSOLE_LOGIN_PASSWORD });
+    await signIn(page);
     await expect(page.locator('[data-session-tenant]')).toBeVisible();
     await page.goto(`${consoleUrl()}/#/systems`);
     await traffic.settle();
@@ -55,7 +54,7 @@ test.describe('S3 BFF session (browser)', () => {
     const setCookies = [];
     for (const response of traffic.responses) {
       if (new URL(response.url).hostname !== consoleHost()) continue;
-      for (const line of (response.headers['set-cookie'] ?? '').split('\n')) if (line.startsWith('SESSION=')) setCookies.push(line);
+      for (const line of response.setCookies) if (line.startsWith('SESSION=')) setCookies.push(line);
     }
     expect(setCookies.length, 'the login set a SESSION cookie').toBeGreaterThan(0);
     for (const line of setCookies) {
@@ -108,19 +107,24 @@ test.describe('S3 BFF session (browser)', () => {
     // session cookie back, so the API sees no session (401). Control: the same form from a same-site page carries the
     // cookie and meets the CSRF check (403) - proving the 401 is the cookie rule, not a broken fixture.
     const target = `${consoleUrl()}/api/v1/admin/systems`;
-    const attacker = http.createServer((request, response) => {
+    const attacker = http.createServer((_request, response) => {
       response.writeHead(200, { 'content-type': 'text/html' });
       response.end(`<form id="f" method="POST" action="${target}"><input name="code" value="csrf-cross-${RUN}"></form><script>document.getElementById('f').submit()</script>`);
     });
     await new Promise((resolve) => attacker.listen(0, '127.0.0.1', resolve));
     const port = attacker.address().port;
     async function submitFrom(host) {
-      const probe = await context.newPage();
-      const answered = probe.waitForResponse((r) => r.url() === target && r.request().method() === 'POST');
+      const probe = page; // the signed-in page itself: a second page in this headless shell is not creatable once contexts churn
+      const answered = probe.waitForEvent('response', { predicate: (r) => r.url() === target && r.request().method() === 'POST', timeout: 20000 });
       probe.goto(`http://${host}:${port}/`).catch(() => {});
-      const status = (await answered).status();
-      await probe.close();
-      return status;
+      try {
+        return (await answered).status();
+      } catch {
+        throw new Error(`the form post from ${host} got no answer; page is at ${probe.url()}`);
+      } finally {
+        await probe.waitForLoadState('load').catch(() => {});
+        await atConsole(probe);
+      }
     }
     try {
       expect(await submitFrom('127.0.0.1'), 'control: a same-site form carries the session cookie and is stopped by CSRF').toBe(403);
@@ -136,7 +140,7 @@ test.describe('S3 BFF session (browser)', () => {
     const { context, page } = await freshLogin(browser);
     const value = (await sessionCookie(context)).value;
     const id = sessionIdOf(value);
-    expect(await sessionRow(id), 'control: the session is a row in PostgreSQL').toBe('1');
+    expect(sessionRow(id), 'control: the session is a row in PostgreSQL').toBe('1');
     const beforeLogout = await contextWith(browser, value);
     expect((await api(beforeLogout.page, 'GET', '/api/v1/me')).status, 'control: replaying the cookie in another browser works while the session lives').toBe(200);
     await beforeLogout.context.close();
@@ -146,8 +150,8 @@ test.describe('S3 BFF session (browser)', () => {
     await page.waitForURL((url) => url.toString().startsWith(consoleUrl()) && url.hash === '#/login');
     await expect(page.locator('[data-action="sso"]')).toBeVisible();
 
-    expect(await sessionRow(id), 'the Spring Session row is invalidated').toBe('0');
-    expect(await psql(`select count(*) from console_session.spring_session_attributes a where not exists (select 1 from console_session.spring_session s where s.primary_id = a.session_primary_id)`), 'no orphaned attribute rows').toBe('0');
+    expect(sessionRow(id), 'the Spring Session row is invalidated').toBe('0');
+    expect(psql(`select count(*) from console_session.spring_session_attributes a where not exists (select 1 from console_session.spring_session s where s.primary_id = a.session_primary_id)`), 'no orphaned attribute rows').toBe('0');
     const replay = await contextWith(browser, value);
     expect((await api(replay.page, 'GET', '/api/v1/me')).status, 'the old cookie after logout').toBe(401);
     const write = await api(replay.page, 'POST', '/api/v1/admin/systems', { body: systemBody(`after-logout-${RUN}`), csrf: 'forged', token: crypto.randomUUID() });
@@ -176,26 +180,40 @@ test.describe('S3 BFF session (browser)', () => {
       'quote and comment characters': "x'--",
       'oversized value': 'A'.repeat(4000)
     };
+    const poolErrorsBefore = await appLog('Could not open JDBC Connection');
+    let unresponsive = null;
     for (const [label, value] of Object.entries(tampered)) {
       const probe = await contextWith(browser, value);
-      expect((await api(probe.page, 'GET', '/api/v1/me')).status, `${label}: refused`).toBe(401);
-      expect((await api(probe.page, 'GET', '/api/v1/admin/flows')).status, `${label}: no data`).toBe(401);
+      const me = await api(probe.page, 'GET', '/api/v1/me');
+      expect.soft(me.status, `${label}: refused with 401 (answer: ${me.text.slice(0, 60).replace(/\s+/g, ' ')})`).toBe(401);
+      expect.soft(me.text, `${label}: no tenant data in the answer`).not.toContain(process.env.CONSOLE_TENANT_CODE);
       await probe.context.close();
+      if (me.status === 0) {
+        unresponsive = label;
+        break; // the application no longer answers: no point hammering it
+      }
     }
+    // Defect evidence (see the report): a tampered cookie makes the session lookup fail with a 500 and the failed lookups
+    // leave the database pool unable to serve the next request. Restart so the cases that follow are not collateral.
+    const exhausted = unresponsive !== null || (await appLog('Could not open JDBC Connection')).length > poolErrorsBefore.length;
+    expect.soft(exhausted, 'the application keeps serving after tampered cookies (pool not exhausted)').toBe(false);
+    await fetch(`${process.env.SEC_CONTROL}/restart`, { method: 'POST', headers: { 'x-control-token': process.env.SEC_CONTROL_TOKEN }, signal: AbortSignal.timeout(170000) });
+
+    console.log(`S3-A5 application log after the tampered cookies:\n${(await appLog('Exception|HTTP Status|session')).split('\n').map((line) => line.slice(0, 400)).join('\n')}`);
 
     // replay: a copied cookie resolves exactly its own tenant, whoever holds it
     const replayA = await contextWith(browser, valueA);
     const meA = await api(replayA.page, 'GET', '/api/v1/me');
     expect(meA.status, 'control: the genuine cookie replayed').toBe(200);
     expect(meA.text).toContain(process.env.CONSOLE_TENANT_CODE);
-    expect(meA.text, 'tenant A\'s cookie never shows tenant B').not.toContain(process.env.SEC_OTHER_TENANT_CODE);
+    expect(meA.data.tenantCode, 'tenant A cookie resolves tenant A and no other').toBe(process.env.CONSOLE_TENANT_CODE);
     expect((await api(replayA.page, 'GET', '/api/v1/admin/flows')).text).not.toContain(process.env.CONSOLE_OTHER_TENANT_FLOW);
     await replayA.context.close();
     const replayB = await contextWith(browser, valueB);
     const meB = await api(replayB.page, 'GET', '/api/v1/me');
     expect(meB.status).toBe(200);
     expect(meB.text).toContain(process.env.SEC_OTHER_TENANT_CODE);
-    expect(meB.text, 'tenant B\'s cookie never shows tenant A').not.toContain(process.env.CONSOLE_TENANT_CODE);
+    expect(meB.data.tenantCode, 'tenant B cookie resolves tenant B and no other').toBe(process.env.SEC_OTHER_TENANT_CODE);
     await replayB.context.close();
 
     // fixation: an attacker's pre-login session id, planted in the victim's browser, is not the session after login
@@ -207,7 +225,7 @@ test.describe('S3 BFF session (browser)', () => {
     const victim = await browser.newContext(NO_SESSION);
     if (planted) await victim.addCookies([sessionCookieFor(planted.value)]);
     const victimPage = await victim.newPage();
-    await browserLogin(victimPage, consoleUrl(), { username: process.env.CONSOLE_LOGIN_USER, password: process.env.CONSOLE_LOGIN_PASSWORD });
+    await signIn(victimPage);
     await expect(victimPage.locator('[data-session-tenant]')).toBeVisible();
     const after = await sessionCookie(victim);
     expect(planted, 'control: the login entry opened a pre-login session whose id the attacker holds').toBeTruthy();
@@ -224,7 +242,7 @@ test.describe('S3 BFF session (browser)', () => {
     const context = await browser.newContext(NO_SESSION);
     const page = await context.newPage();
     const traffic = recordTraffic(page);
-    await browserLogin(page, consoleUrl(), { username: process.env.CONSOLE_LOGIN_USER, password: process.env.CONSOLE_LOGIN_PASSWORD });
+    await signIn(page);
     await expect(page.locator('[data-session-tenant]')).toBeVisible();
     for (const screen of ['versions', 'flows', 'systems', 'contracts', 'failures']) {
       await page.goto(`${consoleUrl()}/#/${screen}`);
@@ -241,7 +259,7 @@ test.describe('S3 BFF session (browser)', () => {
     // the code arrives at the backend (callback on the backend, not at a browser script) and the browser never calls the token endpoint
     const tokenCalls = traffic.requests.filter((request) => request.url.includes('/protocol/openid-connect/token'));
     expect(tokenCalls, 'the browser never calls the realm\'s token endpoint').toEqual([]);
-    const callbacks = traffic.requests.filter((request) => request.url.includes('/login/oauth2/code/keycloak'));
+    const callbacks = traffic.requests.filter((request) => new URL(request.url).pathname === '/login/oauth2/code/keycloak'); // by path: the authorization URL repeats the text in redirect_uri
     expect(callbacks.length, 'control: the code callback was seen').toBeGreaterThan(0);
     for (const callback of callbacks) {
       const query = new URL(callback.url).searchParams;
@@ -249,7 +267,7 @@ test.describe('S3 BFF session (browser)', () => {
       expect([...query.keys()].some((name) => /token/i.test(name))).toBe(false);
       expect(new URL(callback.url).hash).toBe('');
     }
-    const loginDocuments = traffic.responses.filter((response) => response.url.includes('/login/oauth2/code/keycloak'));
+    const loginDocuments = traffic.responses.filter((response) => new URL(response.url).pathname === '/login/oauth2/code/keycloak');
     for (const response of loginDocuments) expect(response.status, 'the callback answers with a redirect, not a page that holds data').toBe(302);
     await context.close();
   });
@@ -261,10 +279,10 @@ test.describe('S3 BFF session (browser)', () => {
     const id = sessionIdOf(value);
     expect(id, 'the cookie is the base64 of a session id').toMatch(/^[0-9a-f-]{36}$/);
 
-    expect(await sessionRow(id), 'one row for the session').toBe('1');
-    const attributes = Number(await psql(`select count(*) from console_session.spring_session_attributes a join console_session.spring_session s on s.primary_id = a.session_primary_id where s.session_id = '${id}'`));
+    expect(sessionRow(id), 'one row for the session').toBe('1');
+    const attributes = Number(psql(`select count(*) from console_session.spring_session_attributes a join console_session.spring_session s on s.primary_id = a.session_primary_id where s.session_id = '${id}'`));
     expect(attributes, 'the login\'s security context is stored with it').toBeGreaterThan(0);
-    const rowsBefore = Number(await psql('select count(*) from console_session.spring_session'));
+    const rowsBefore = Number(psql('select count(*) from console_session.spring_session'));
     const xsrfBefore = (await consoleCookies(context)).find((cookie) => cookie.name === 'XSRF-TOKEN').value;
     await atConsole(page);
     const meBefore = await api(page, 'GET', '/api/v1/me');
@@ -278,8 +296,8 @@ test.describe('S3 BFF session (browser)', () => {
     expect(meAfter.status, 'the same cookie is still a session on the new instance').toBe(200);
     expect(meAfter.text).toBe(meBefore.text);
     expect((await sessionCookie(context)).value, 'no new session id was issued').toBe(value);
-    expect(await sessionRow(id), 'still exactly one row for it').toBe('1');
-    expect(Number(await psql('select count(*) from console_session.spring_session')), 'the restart created no extra sessions').toBe(rowsBefore);
+    expect(sessionRow(id), 'still exactly one row for it').toBe('1');
+    expect(Number(psql('select count(*) from console_session.spring_session')), 'the restart created no extra sessions').toBe(rowsBefore);
     const write = await api(page, 'POST', '/api/v1/admin/systems', { body: systemBody(`survives-${RUN}`) });
     expect(write.status, 'and a state-changing call still passes CSRF on the new instance').toBe(201);
     expect((await consoleCookies(context)).find((cookie) => cookie.name === 'XSRF-TOKEN').value, 'the CSRF token cookie is unchanged').toBe(xsrfBefore);
