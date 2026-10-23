@@ -1,7 +1,7 @@
 // BS-13f (plan section 3) - one failing target cannot harm the other tenant: tenant A's target answers 403 and
 // A's delivery dead-letters; tenant B's delivery, posted right after, is DELIVERED with exactly one body on
 // B's own path. Needs a delivery that really reaches the one WireMock, i.e. the delivery base-URL seam
-// (ON_MAIN.DELIVERY_BASE_URL in lib/pending-names.mjs: the system insert still writes the placeholder endpoint).
+// (ON_MAIN.DELIVERY_BASE_URL in lib/pending-names.mjs: on main since 73257d41 the system create/save writes settings.baseUrl into the endpoint).
 // Never run against production; never a psql-seeded row (unit/direct-sql.test.mjs scans this file).
 
 import { expect, test } from '@playwright/test';

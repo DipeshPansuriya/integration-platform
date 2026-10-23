@@ -104,7 +104,7 @@ test('BS-11.1: success path - delivered with the real value, 0 probe hits in log
   test.setTimeout(3 * 60 * 1000);
   const record = probeRecord(11);
   const { answer, logFrom } = await postProbe(page, record);
-  expect(answer.status, `intake: ${answer.status}`).toBe(202);
+  expect(answer.status, `intake: ${answer.status} ${JSON.stringify(answer.data)}`).toBe(202);
   expect(probeHits(JSON.stringify(answer.data)), 'the 202 body').toEqual([]);
   ids.success = answer.data.trackingId;
   addTracking('A', [ids.success]);
@@ -128,7 +128,7 @@ test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in 
   stubChanged = true;
   const record = probeRecord(12);
   const { answer, logFrom } = await postProbe(page, record);
-  expect(answer.status, `intake: ${answer.status}`).toBe(202);
+  expect(answer.status, `intake: ${answer.status} ${JSON.stringify(answer.data)}`).toBe(202);
   ids.failure = answer.data.trackingId;
   addTracking('A', [ids.failure]);
   const delivery = await eventually(() => (deliveryOf(ids.failure)?.state === 'DEAD_LETTERED' ? deliveryOf(ids.failure) : null),
