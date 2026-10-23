@@ -129,7 +129,7 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
       </header>
       {/* One persistent live region: loading, not found, refused and error are announced from it. */}
       <p
-        role="status"
+        role={load === 'refused' || load === 'error' ? 'alert' : 'status'}
         className={load === 'refused' || load === 'error' ? 'op-alert op-alert-danger' : load === 'not-found' ? 'op-empty' : 'op-status'}
         data-status="message-detail"
         data-empty={load === 'not-found' ? 'message-not-found' : undefined}

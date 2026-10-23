@@ -53,6 +53,20 @@ test('F3 Failures: a refused or failed load is announced as an alert, a quiet on
   assert.equal(await roleFor({ ok: true, data: [] }), 'status');
 });
 
+test('T194 MessageDetail: a refused or failed load is an alert like Failures; not-found and ready stay a status', async () => {
+  const id = '3f2b8a52-6c1d-4e0f-9a7b-1c2d3e4f5a6b';
+  const roleFor = async (answer) => {
+    const screen = await mount('pages/MessageDetail.tsx', 'MessageDetail', { trackingId: id, failedHint: null }, {
+      messageTimeline: async () => answer
+    }, ['../api/messages', '../api/operator']);
+    await screen.settle();
+    return findAll(screen.tree(), (n) => n.props?.['data-status'] === 'message-detail')[0].props.role;
+  };
+  assert.equal(await roleFor({ ok: false, status: 403, error: 'x' }), 'alert', 'refused');
+  assert.equal(await roleFor({ ok: false, status: 500, error: 'x' }), 'alert', 'error');
+  assert.equal(await roleFor({ ok: false, status: 404, error: 'x' }), 'status', 'not found is an empty state, not an alert');
+});
+
 test('F4 Systems and Contracts list banners carry a Retry that re-reads the list', () => {
   const systems = read('pages/Systems.tsx');
   const contracts = read('pages/ContractVersions.tsx');
