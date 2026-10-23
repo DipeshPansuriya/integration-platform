@@ -36,12 +36,10 @@ export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {})
   // F1: WireMock is published on the exception port (boot-options.mjs)
   const targetBase = targetBaseUrl ?? targetUrl(settings, settings.port, tenant.stubPath);
 
-  // PRODUCT GAP (measured run 10, 2026-10-22; owner arjun): the delivery sends to target_endpoint.base_url, a row the
-  // system create writes with the placeholder 'https://endpoint.invalid/' (JdbcSystemRepository.java:83-88, read by
-  // JdbcTargetEndpointViews.java:22-27/37). The system's settings.baseUrl set here is only the save-time destination
-  // check and test-connection - no public admin call and no main code updates target_endpoint.base_url. The E18 API
-  // leg reaches its stub by inserting that row with SQL as the owner (E18Seed.java:69); this suite never seeds by SQL.
-  // So BS-07.1 / BS-09 / BS-12 tenant B stay red until the product writes the system's baseUrl into its endpoint.
+  // The delivery sends to target_endpoint.base_url. Main 73257d41 writes the system's settings.baseUrl into that row
+  // (SystemAdminService.java:93 on create, :185-189 on save; JdbcSystemRepository.java:87 keeps the placeholder
+  // 'https://endpoint.invalid/' only as the null fallback). So the baseUrl set here IS the delivery target, and a tenant's
+  // target must be a host the destination guard allows (the exception host, targetUrl above). This suite never seeds by SQL.
   const source = await as('POST', '/api/v1/admin/systems', {
     code: SOURCE_CONTRACT.system, name: SOURCE_CONTRACT.name, direction: 'INBOUND', type: 'API',
     settings: { baseUrl: `${new URL(targetBase).origin}/${SOURCE_CONTRACT.system}/` } // the guard checks every API system's host: the source rides the one allow-listed host too
