@@ -282,9 +282,17 @@ class SecurityGateAdminApiContainerTest {
         if (badRoute.status() != 404) {
             failures.add("route id not-a-uuid -> " + badRoute.status());
         }
-        // a wrong content type is a 415, not the catch-all 500 (review C2)
-        ConsoleBrowser.Exchange wrongType = admin.api("PUT", path, "hello", true);
-        assertThat(wrongType.status()).as("text body: %s", wrongType.body()).isEqualTo(415);
+        // a wrong content type is a 415, not the catch-all 500 (review C2). The body must really carry another media
+        // type: ConsoleBrowser.api labels every body application/json, so "hello" through it is unreadable JSON, a
+        // 400 (B42: the case sent that and asserted 415).
+        for (String mediaType : new String[] {"text/plain", "application/x-www-form-urlencoded", "application/xml"}) {
+            ConsoleBrowser.Exchange wrongType = admin.apiAs("PUT", path, mediaType, "hello");
+            assertThat(wrongType.status()).as("%s body: %s", mediaType, wrongType.body()).isEqualTo(415);
+            assertThat(wrongType.body()).as("%s refusal body", mediaType).contains("\"error\"").doesNotContain("\tat ");
+        }
+        // the same bytes under the JSON label are a malformed body: 400, never a 415 or a 5xx
+        ConsoleBrowser.Exchange jsonLabelled = admin.api("PUT", path, "hello", true);
+        assertThat(jsonLabelled.status()).as("JSON-labelled text body: %s", jsonLabelled.body()).isEqualTo(400);
         assertThat(failures).as("attempts that were not a clean 400 (server-side size/depth/validation limits)").isEmpty();
         assertThat(mappingState(f.mappingId())).as("no mapping row change / mapping_version row on a failed save")
                 .isEqualTo(before);
