@@ -5,7 +5,7 @@
 
 import { expect, test } from '@playwright/test';
 import {
-  api, assertScannerSees, atConsole, authorizationRedirect, callbackUri, captureCallback, consoleCookies, consoleLoginEntry,
+  api, assertScannerSees, atConsole, authorizationRedirect, callbackUri, captureCallback, carry, consoleCookies, consoleLoginEntry, newActor,
   consoleUrl, freshLogin, issuer, JWT_PATTERN, pkcePair, randomState, tokenFindings
 } from './lib.mjs';
 
@@ -48,8 +48,8 @@ async function atAuthorizationEndpoint(url) {
   return { status: answer.status, location: answer.headers.get('location'), form: body.includes('id="kc-form-login"'), body };
 }
 
-async function codeFor(page, { verifier, challenge }) {
-  const callback = await captureCallback(page, authorizationUrl({ challenge }).toString());
+async function codeFor(actor, { verifier, challenge }) {
+  const callback = await captureCallback(actor, authorizationUrl({ challenge }).toString());
   const code = new URL(callback).searchParams.get('code');
   expect(code, 'the authorization endpoint issued a code').toBeTruthy();
   return { code, verifier };
@@ -119,51 +119,65 @@ test.describe('S1 identity (browser)', () => {
       expect(refused, `${label}: refused (status ${answer.status})`).toBe(true);
     }
 
-    // 3. the backend's code callback: state is required and bound to the browser session; the code is single use
-    const context = await browser.newContext(NO_SESSION);
-    const page = await context.newPage();
+    // 3. the backend's code callback: state is required and bound to the browser session; the code is single use.
+    // Each round: a fresh authorization request (its own state, held in the actor's backend session), the callback URL taken
+    // WITHOUT being called, then called by a browser that carries that session - once altered, or once untouched.
+    const actor = newActor();
     const entry = consoleLoginEntry();
+    async function browserCarrying() {
+      const context = await browser.newContext(NO_SESSION);
+      await carry(context, actor);
+      return { context, page: await context.newPage() };
+    }
 
-    const noState = new URL(await captureCallback(page, entry));
-    noState.searchParams.delete('state');
-    await page.goto(noState.toString()).catch(() => {});
-    expect(await meStatus(page), 'callback without state: no session').toBe(401);
+    for (const [label, alter] of [
+      ['without state', (url) => url.searchParams.delete('state')],
+      ['with an empty state', (url) => url.searchParams.set('state', '')],
+      ['with a foreign state', (url) => url.searchParams.set('state', randomState())]
+    ]) {
+      const url = new URL(await captureCallback(actor, entry));
+      alter(url);
+      const attempt = await browserCarrying();
+      await attempt.page.goto(url.toString()).catch(() => {});
+      expect(await meStatus(attempt.page), `callback ${label}: no session`).toBe(401);
+      await attempt.context.close();
+    }
 
-    const wrongState = new URL(await captureCallback(page, entry));
-    wrongState.searchParams.set('state', randomState());
-    await page.goto(wrongState.toString()).catch(() => {});
-    expect(await meStatus(page), 'callback with a foreign state: no session').toBe(401);
-
-    const genuine = await captureCallback(page, entry);
-    await page.goto(genuine);
-    expect(await meStatus(page), 'control: the untouched callback signs in').toBe(200);
+    const genuine = await captureCallback(actor, entry);
+    const signedIn = await browserCarrying();
+    await signedIn.page.goto(genuine);
+    expect(await meStatus(signedIn.page), 'control: the untouched callback signs in').toBe(200);
 
     const other = await browser.newContext(NO_SESSION);
     const otherPage = await other.newPage();
     await otherPage.goto(genuine).catch(() => {});
     expect(await meStatus(otherPage), 'the same code and state replayed from another browser: no session').toBe(401);
     await other.close();
-    await page.goto(genuine).catch(() => {});
-    expect(await meStatus(page), 'the replay in the same browser does not break the session it already has').toBe(200);
+    await signedIn.page.goto(genuine).catch(() => {});
+    expect(await meStatus(signedIn.page), 'the replay in the same browser does not break the session it already has').toBe(200);
+    const stolenSession = await browserCarrying(); // the pre-login session id the actor started with, now spent
+    await stolenSession.page.goto(genuine).catch(() => {});
+    expect(await meStatus(stolenSession.page), 'the spent pre-login session cannot redeem the same code again').toBe(401);
+    await stolenSession.context.close();
 
     // 4. the token endpoint: PKCE verifier mismatch / missing and code reuse are invalid_grant (control: the right verifier works)
-    const wrong = await codeFor(page, pkcePair());
+    const wrong = await codeFor(actor, pkcePair());
     const mismatch = await exchange({ code: wrong.code, verifier: pkcePair().verifier });
     expect([mismatch.status, mismatch.error, mismatch.gotToken], 'wrong code_verifier').toEqual([400, 'invalid_grant', false]);
 
-    const absent = await codeFor(page, pkcePair());
+    const absent = await codeFor(actor, pkcePair());
     const missing = await exchange({ code: absent.code });
     expect([missing.status, missing.error, missing.gotToken], 'code_verifier missing').toEqual([400, 'invalid_grant', false]);
 
-    const good = await codeFor(page, { challenge, verifier });
+    const good = await codeFor(actor, { challenge, verifier });
     const accepted = await exchange(good);
     expect([accepted.status, accepted.gotToken], 'control: the matching verifier is accepted').toEqual([200, true]);
     const reused = await exchange(good);
     expect([reused.status, reused.error, reused.gotToken], 'the same code a second time').toEqual([400, 'invalid_grant', false]);
-    await context.close();
+    await signedIn.context.close();
   });
 
-  test('S1-A3 redirect_uri exact match: every variation is refused at the authorization endpoint', async () => {
+  test('S1-A3 redirect_uri exact match: every variation is refused at the authorization endpoint (or normalised to the registered address)', async () => {
     const registered = new URL(callbackUri());
     const origin = registered.origin;
     const { challenge } = pkcePair();
@@ -191,16 +205,30 @@ test.describe('S1 identity (browser)', () => {
       'attacker host after userinfo': `http://${registered.host}@evil.example/login/oauth2/code/keycloak`,
       'registered host as a prefix of an attacker host': `http://127.0.0.1.evil.example:${registered.port}/login/oauth2/code/keycloak`,
       'null byte': `${callbackUri()}%00`,
+      'null byte then an attacker suffix': `${callbackUri()}%00.evil.example`,
       'javascript scheme': 'javascript:alert(1)',
       'data scheme': 'data:text/html,x'
     };
     const accepted = [];
+    const normalised = [];
+    const actor = newActor();
     for (const [label, redirectUri] of Object.entries(variations)) {
       const answer = await atAuthorizationEndpoint(authorizationUrl({ redirectUri, challenge }));
       const refused = answer.status >= 400 && !answer.form && !answer.location;
-      if (!refused) accepted.push(`${label} -> ${answer.status}${answer.form ? ' (login form)' : ''}${answer.location ? ' (redirect)' : ''}`);
+      if (refused) continue;
+      if (answer.form) {
+        // Not refused: the code must still be delivered to the registered address and nowhere else (the provider
+        // normalised the value). Anything else is an accepted variation.
+        const delivered = new URL(await captureCallback(actor, authorizationUrl({ redirectUri, challenge }).toString()));
+        if (delivered.origin + delivered.pathname === callbackUri() && delivered.search.startsWith('?state=')) {
+          normalised.push(label);
+          continue;
+        }
+      }
+      accepted.push(`${label} -> ${answer.status}${answer.form ? ' (login form)' : ''}${answer.location ? ' (redirect)' : ''}`);
     }
-    expect(accepted, 'variations that were NOT refused').toEqual([]);
+    test.info().annotations.push({ type: 'normalised to the registered address (not refused, never delivered elsewhere)', description: normalised.join('; ') || 'none' });
+    expect(accepted, 'variations that were NOT refused and were delivered somewhere else').toEqual([]);
 
     // the sign-out redirect obeys the same rule: an unregistered post_logout_redirect_uri is never followed
     const logout = new URL(`${issuer()}/protocol/openid-connect/logout`);

@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { expect } from '@playwright/test';
 import { browserLogin } from '../screens/keycloak-login.mjs';
+import { cookieJar, send } from '../../scripts/keycloak-harness.mjs';
 import { consoleUrl, loginUser } from '../screens/boot-state.mjs';
 
 export { consoleUrl };
@@ -116,8 +117,10 @@ export function recordTraffic(page) {
   page.on('framenavigated', (frame) => traffic.navigations.push(frame.url()));
   page.on('response', (response) => {
     const headers = response.headers();
-    const entry = { url: response.url(), status: response.status(), headers, body: null };
+    const entry = { url: response.url(), status: response.status(), headers, setCookies: [], body: null };
     traffic.responses.push(entry);
+    // Playwright keeps Set-Cookie out of headers(); the raw header list has it
+    traffic.pending.push(response.headersArray().then((list) => { entry.setCookies = list.filter((h) => h.name.toLowerCase() === 'set-cookie').map((h) => h.value); }).catch(() => {}));
     const type = headers['content-type'] ?? '';
     // JS bundles and styles are the console's own code, not data it was handed; fonts and images carry no token.
     if (/json|html|text\/plain|x-www-form-urlencoded/.test(type) && !/javascript|css/.test(type)) {
@@ -166,31 +169,49 @@ export function callbackUri() {
   return `${process.env.SEC_BACKEND}/login/oauth2/code/keycloak`;
 }
 
+/** A browser-like client without the browser: its own cookie jar (the realm's SSO cookies and the backend's SESSION). */
+export function newActor() {
+  return { jar: cookieJar() };
+}
+
 /**
- * Drives one authorization round of the console client in `page` and returns the code callback's URL WITHOUT letting
- * the backend consume it (the request is aborted in the browser). Goes through the realm's login form when the
- * page has no Keycloak session yet; with one, Keycloak answers the authorization request by itself.
+ * Walks the console's login (or any authorization request) over plain HTTP the way a browser would, through the realm's
+ * login form when this actor has no Keycloak session yet, and STOPS at the code callback: it returns that URL without
+ * calling it, so the code is still unused and the actor's SESSION holds the pending authorization request. (A
+ * Playwright route cannot hold a redirect back: measured, the callback reached the backend anyway.)
  */
-export async function captureCallback(page, startUrl, user = loginUser()) {
-  const pattern = /\/login\/oauth2\/code\/keycloak/;
-  const handler = (route) => route.abort();
-  await page.route(pattern, handler);
-  try {
-    const requested = page.waitForRequest(pattern, { timeout: 45000 });
-    requested.catch(() => {});
-    page.goto(startUrl).catch(() => {});
-    const form = page.locator('#kc-form-login');
-    const formShown = form.waitFor({ state: 'visible', timeout: 45000 }).then(() => 'form').catch(() => 'none');
-    const first = await Promise.race([requested.then(() => 'callback'), formShown]);
-    if (first === 'form') {
-      await page.fill('#username', user.username);
-      await page.fill('#password', user.password);
-      page.click('#kc-login').catch(() => {});
+export async function captureCallback(actor, startUrl, user = loginUser()) {
+  let url = String(startUrl);
+  let init = {};
+  let posted = false;
+  for (let hop = 0; hop < 15; hop++) {
+    const response = await send(actor.jar, url, init);
+    init = {};
+    if (response.status >= 300 && response.status < 400) {
+      const next = new URL(response.headers.get('location'), url);
+      if (next.pathname === '/login/oauth2/code/keycloak') return next.toString();
+      url = next.toString();
+      continue;
     }
-    return (await requested).url();
-  } finally {
-    await page.unroute(pattern, handler);
+    const page = await response.text();
+    const form = /<form[^>]*\sid="kc-form-login"[^>]*>/.exec(page);
+    const action = form && /\saction="([^"]+)"/.exec(form[0]);
+    if (!action || posted) throw new Error(`no code callback: ended at ${new URL(url).pathname} with status ${response.status}`);
+    posted = true;
+    url = new URL(action[1].replaceAll('&amp;', '&'), url).toString();
+    init = {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ username: user.username, password: user.password, credentialId: '' })
+    };
   }
+  throw new Error('no code callback within 15 hops');
+}
+
+/** Hands the actor's current backend session cookie (the pending authorization request lives in it) to a browser context. */
+export async function carry(context, actor) {
+  const value = actor.jar.value(process.env.SEC_BACKEND, 'SESSION');
+  if (value) await context.addCookies([sessionCookieFor(value)]);
 }
 
 /** The console's own login entry (the backend answers with the redirect to the realm's authorization endpoint). */
@@ -203,4 +224,20 @@ export async function authorizationRedirect() {
   const answer = await fetch(consoleLoginEntry(), { redirect: 'manual' });
   expect(answer.status, 'the login entry redirects to the identity provider').toBe(302);
   return new URL(answer.headers.get('location'));
+}
+
+/** The application's own log lines matching `grep` (last 80) - for explaining an unexpected answer. */
+export async function appLog(grep = 'ERROR|Exception') {
+  const answer = await fetch(`${process.env.SEC_CONTROL}/log?grep=${encodeURIComponent(grep)}`, { headers: { 'x-control-token': process.env.SEC_CONTROL_TOKEN } });
+  return answer.text();
+}
+
+/** browserLogin with the page's whereabouts in the failure, so a login that stalls is explained. */
+export async function signIn(page, user = loginUser()) {
+  try {
+    await browserLogin(page, consoleUrl(), user);
+  } catch (e) {
+    const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 300).replace(/\s+/g, ' ');
+    throw new Error(`sign-in stalled at ${page.url()} :: ${body} :: ${e.message.split('\n')[0]}`);
+  }
 }

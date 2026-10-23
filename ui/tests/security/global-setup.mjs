@@ -36,6 +36,12 @@ export default async function globalSetup() {
 
   const token = crypto.randomBytes(16).toString('hex');
   const server = http.createServer(async (req, res) => {
+    if (req.method === 'GET' && req.url.startsWith('/log') && req.headers['x-control-token'] === token) {
+      // diagnostics for an unexpected answer: the application's own log lines that match ?grep= (last 80)
+      const grep = new RegExp(new URL(req.url, 'http://x').searchParams.get('grep') ?? 'ERROR|Exception');
+      res.writeHead(200, { 'content-type': 'text/plain' }).end(backend.logDump().split(/\r?\n/).filter((line) => grep.test(line)).slice(-80).join(String.fromCharCode(10)));
+      return;
+    }
     if (req.method !== 'POST' || req.url !== '/restart' || req.headers['x-control-token'] !== token) {
       res.writeHead(404).end();
       return;
