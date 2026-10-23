@@ -2,7 +2,6 @@ package io.integrationplatform.app.security.gate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.Assertions.fail;
 
 import io.integrationplatform.config.credential.api.CredentialUnreadableException;
 import io.integrationplatform.config.credential.api.KeyEncryptionKeys;
@@ -18,7 +17,6 @@ import java.util.Set;
 import java.util.UUID;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -99,26 +97,6 @@ class SecurityGateS8CredentialsContainerTest {
                 .isInstanceOf(CredentialUnreadableException.class)
                 .satisfies(e -> assertThat(String.valueOf(e.getMessage()) + e.getCause()).as(what)
                         .doesNotContain(plaintext)));
-    }
-
-    /**
-     * S8-A2: Write-only secret API (rule 8).
-     * Expected: Response shows masked/absent secret values only - never the value, ciphertext or wrapped key, in API responses, exports or audit rows
-     */
-    @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T142 is on main but the case needs the admin API over HTTP with a real tenant B (platform-e2e TenantBSeed/AdminApi, unreachable from platform-app) - move to platform-e2e or write against a SpringBootTest; body not yet written (T141 gate case S8-A2)")
-    void s8_a2_write_only_secret_api() {
-        fail("S8-A2 body lands with T142");
-    }
-
-    /**
-     * S8-A3: Snapshot holds ids only (rule 9).
-     * Expected: Only credential **ids**; 0 occurrences of target_credential value/ciphertext/wrapped-key fields (pinned test target)
-     */
-    @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T142 is on main but the case needs the admin API over HTTP with a real tenant B (platform-e2e TenantBSeed/AdminApi, unreachable from platform-app) - move to platform-e2e or write against a SpringBootTest; body not yet written (T141 gate case S8-A3)")
-    void s8_a3_snapshot_holds_ids_only() {
-        fail("S8-A3 body lands with T142");
     }
 
     /**

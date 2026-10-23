@@ -218,6 +218,12 @@ class SecurityGateAdminApiContainerTest {
 
     private static final String ROUTES = "/api/v1/admin/routes/";
 
+    private static long auditCount(UUID tenant) throws Exception {
+        return Long.parseLong(db("select (select count(*) from public.audit_event where action = 'LOOKUP_ENTRY_CHANGED'"
+                + " and tenant_id = '" + tenant + "') + (select count(*) from public.audit_outbox where action ="
+                + " 'LOOKUP_ENTRY_CHANGED' and tenant_id = '" + tenant + "')"));
+    }
+
     // ------------------------------------------------------------------ S5-A1
 
     /**
@@ -247,16 +253,36 @@ class SecurityGateAdminApiContainerTest {
         hostile.put("field_mappings is not an array", saveBody("{\"a\":1}", quote("$"), f));
         hostile.put("link target outside the target schema", saveBody(
                 "[{\"source\":\"$.a\",\"target\":\"not_a_field_of_the_contract\"}]", quote("$"), f));
+        // contract-version ids that are not UUIDs (T171 review B1): the SQL casts them, so they were a database error
+        String good = "\"" + f.source() + "\"";
+        for (String badId : new String[] {"\"abc\"", "\"\"", "\" \"", "\"5555\"", "\"$\\u0000x\"",
+                "\"'; drop table mapping; --\"", "123", "{\"a\":1}"}) {
+            hostile.put("source id " + badId, "{\"fieldMappings\":[],\"compiledExpression\":\"$\","
+                    + "\"sourceContractVersionId\":" + badId + ",\"targetContractVersionId\":\"" + f.target() + "\"}");
+            hostile.put("target id " + badId, "{\"fieldMappings\":[],\"compiledExpression\":\"$\","
+                    + "\"sourceContractVersionId\":" + good + ",\"targetContractVersionId\":" + badId + "}");
+        }
         List<String> failures = new ArrayList<>();
         for (var attempt : hostile.entrySet()) {
             ConsoleBrowser.Exchange r = admin.api("PUT", path, attempt.getValue(), true);
-            if (r.status() < 400 || r.status() > 499) {
+            if (r.status() != 400) { // review C4: the specific refusal, not any 4xx (a 401/403/404 would hide a broken call)
                 failures.add(attempt.getKey() + " -> " + r.status() + " (body " + r.body().length() + " chars)");
-            } else if (r.body().length() > 20_000 || r.body().contains("\tat ") || r.body().contains("org.postgresql")) {
+            } else if (r.body().length() > 20_000 || r.body().contains("\tat ") || r.body().contains("org.postgresql")
+                    || !r.body().contains("\"error\"")) {
                 failures.add(attempt.getKey() + " -> refusal body not clean (" + r.body().length() + " chars)");
             }
         }
-        assertThat(failures).as("attempts that were not a clean 4xx (server-side size/depth/validation limits)").isEmpty();
+        // a route id that is not a UUID: not found (or a 400), never a database error
+        ConsoleBrowser.Exchange badRoute = admin.api("PUT", ROUTES + "not-a-uuid/mapping",
+                saveBody("[]", quote("$"), f), true);
+        if (badRoute.status() != 404 && badRoute.status() != 400) {
+            failures.add("route id not-a-uuid -> " + badRoute.status());
+        }
+        // a wrong content type is a 415, not the catch-all 500 (review C2)
+        ConsoleBrowser.Exchange wrongType = admin.api("PUT", path, "hello", true);
+        System.out.println("S5-A1 default content type for a text body -> " + wrongType.status());
+        assertThat(wrongType.status()).as("text body").isLessThan(500);
+        assertThat(failures).as("attempts that were not a clean 400 (server-side size/depth/validation limits)").isEmpty();
         assertThat(mappingState(f.mappingId())).as("no mapping row change / mapping_version row on a failed save")
                 .isEqualTo(before);
         // duplicate JSON keys: either refused, or accepted with exactly one new version (no half state, no 5xx)
@@ -470,6 +496,15 @@ class SecurityGateAdminApiContainerTest {
         ConsoleBrowser.Exchange control = admin.api("PUT", entry, "{\"key\":\"NL\",\"value\":\"Kingdom of the Netherlands\"}", true);
         assertThat(control.status()).as("positive control: %s", control.body()).isEqualTo(200);
         String contentB = db("select content::text from public.rule_set where id = '" + lookupB + "'");
+        long auditBase = 0; // the control edit is audited; wait for it, then take the baseline (review C6)
+        for (int i = 0; i < 30 && auditBase < 1; i++) {
+            auditBase = auditCount(tenantA.id());
+            if (auditBase < 1) {
+                Thread.sleep(1000);
+            }
+        }
+        Thread.sleep(2000);
+        auditBase = auditCount(tenantA.id());
 
         Map<String, String> keys = new LinkedHashMap<>();
         keys.put("JSONata fragment", "$exec(\"id\")");
@@ -510,17 +545,14 @@ class SecurityGateAdminApiContainerTest {
         assertThat(db("select content::text from public.rule_set where id = '" + lookupB + "'"))
                 .as("tenant B's lookup unchanged").isEqualTo(contentB);
         // audited: the successful edits left LOOKUP_ENTRY_CHANGED events (outbox, then the event table)
-        Instant until = Instant.now().plusSeconds(30);
-        long audited = 0;
-        while (Instant.now().isBefore(until) && audited < 1) {
-            audited = Long.parseLong(db("select (select count(*) from public.audit_event where action = 'LOOKUP_ENTRY_CHANGED'"
-                    + " and tenant_id = '" + tenantA.id() + "') + (select count(*) from public.audit_outbox where action ="
-                    + " 'LOOKUP_ENTRY_CHANGED' and tenant_id = '" + tenantA.id() + "')"));
-            if (audited < 1) {
-                Thread.sleep(1000);
-            }
+        Instant until = Instant.now().plusSeconds(40);
+        long audited = auditCount(tenantA.id());
+        while (Instant.now().isBefore(until) && audited < auditBase + accepted) {
+            Thread.sleep(1000);
+            audited = auditCount(tenantA.id());
         }
-        assertThat(audited).as("audit events for the lookup edits").isGreaterThanOrEqualTo(1);
+        assertThat(audited).as("every accepted hostile-key edit (%s) added an audit event over the baseline %s", accepted,
+                auditBase).isGreaterThanOrEqualTo(auditBase + accepted);
         System.out.println("S5-A6 hostile keys accepted as data: " + accepted + " of " + keys.size());
     }
 
