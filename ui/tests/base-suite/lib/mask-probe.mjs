@@ -166,7 +166,7 @@ export function echoStubMapping(path) {
     response: {
       status: 403,
       headers: { 'Content-Type': 'application/json' },
-      body: `{"stub":${JSON.stringify(path)},"status":403,"echo":{{{request.body}}}}`,
+      body: `{"stub":${JSON.stringify(path)},"status":403,"echo":{{{request.body}}} }`,
       transformers: ['response-template']
     }
   };
