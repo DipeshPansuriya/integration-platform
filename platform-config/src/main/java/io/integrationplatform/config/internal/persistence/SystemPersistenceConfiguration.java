@@ -65,6 +65,12 @@ class SystemPersistenceConfiguration {
     /** T-184: the platform's own hosts (exact names or IP literals) - never a destination, whatever is allowed. */
     static final String PLATFORM_HOSTS = "platform.config.destinations.platform-hosts";
     static final String SHOWCASE_PROFILE = "showcase";
+    /**
+     * T161 R1: the showcase port list is global to the exception (every listed host on every listed port), so it must
+     * never name a port the platform itself serves or depends on: PostgreSQL and Kafka by default, plus the app's own
+     * {@code server.port} (default 8080) and {@code management.server.port}. Naming one refuses to start.
+     */
+    static final Set<Integer> PLATFORM_STORE_PORTS = Set.of(5432, 9092);
     /** The only profiles the local-host exception may run next to; any other active profile refuses to start. */
     static final Set<String> SHOWCASE_COMPANIONS = Set.of(SHOWCASE_PROFILE, "local", "dev", "test");
 
@@ -110,6 +116,18 @@ class SystemPersistenceConfiguration {
         if (showcasePorts.isEmpty()) {
             throw new IllegalStateException(SHOWCASE_LOCAL_PORTS + " must list the exact port(s) of the local test"
                     + " destination while " + SHOWCASE_LOCAL_HOSTS + " is set - refusing to start");
+        }
+        Set<Integer> ownPorts = new java.util.TreeSet<>(PLATFORM_STORE_PORTS);
+        ownPorts.add(environment.getProperty("server.port", Integer.class, 8080));
+        Integer management = environment.getProperty("management.server.port", Integer.class);
+        if (management != null) {
+            ownPorts.add(management);
+        }
+        List<Integer> clash = showcasePorts.stream().filter(ownPorts::contains).toList();
+        if (!clash.isEmpty()) {
+            throw new IllegalStateException(SHOWCASE_LOCAL_PORTS + " names the app's own port " + clash
+                    + " (platform stores " + PLATFORM_STORE_PORTS + ", server.port, management.server.port) -"
+                    + " refusing to start: the local-host exception must never reach the platform's own services");
         }
         DestinationGuard guard = new DestinationGuard(AllowList.of(allowed), resolver, showcaseLocal, showcasePorts,
                 platformHosts);
