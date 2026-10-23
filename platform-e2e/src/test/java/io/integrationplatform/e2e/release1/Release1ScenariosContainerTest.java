@@ -2,10 +2,13 @@ package io.integrationplatform.e2e.release1;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jayway.jsonpath.JsonPath;
 import io.integrationplatform.e2e.harness.E2eContainers;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -209,8 +212,10 @@ class Release1ScenariosContainerTest {
         Release1Client client = client();
         StringBuilder bulk = new StringBuilder("[");
         for (int i = 1; i <= 10; i++) {
+            // 3 invalid: no customer, blank orderNo AND negative qty (the seed's source contract enforces all three);
+            // each carries a distinctive qty so an echoed submitted value would show in the answer
             bulk.append(i > 1 ? "," : "").append(i <= 7 ? ORDER_JSON.formatted("B" + i, i)
-                    : "{\"orderNo\":\"\",\"qty\":-1}"); // 3 invalid: blank key AND negative qty
+                    : "{\"orderNo\":\"\",\"qty\":-" + (987650 + i) + "}");
         }
         HttpResponse<String> answer = client.bulk(E2eNames.interfaceCode(), "1.0", bulk.append(']').toString(),
                 Release1Client.bearer("CUSTOMER_A"));
@@ -220,8 +225,35 @@ class Release1ScenariosContainerTest {
         assertThat(Release1Client.occurrences(body, "\"index\"")).as("ten results, one per record: %s", body).isEqualTo(10);
         assertThat(Release1Client.occurrences(body, "\"trackingId\"")).as("7 accepted, each its own id: %s", body).isEqualTo(7);
         assertThat(Release1Client.occurrences(body, "\"REJECTED\"")).as("3 rejected: %s", body).isEqualTo(3);
-        assertThat(Release1Client.occurrences(body, "\"code\"")).as("each rejected record names its refusal code: %s", body)
-                .isEqualTo(3);
+
+        // B37: each rejected record carries its own refusal code AND a violations[] list whose entries have a code too,
+        // so the code is read per result (parsed), never counted as a substring of the whole body.
+        List<Map<String, Object>> results = JsonPath.read(body, "$.results");
+        assertThat(results).as("ten results: %s", body).hasSize(10);
+        for (Map<String, Object> result : results) {
+            int index = ((Number) result.get("index")).intValue();
+            if ("REJECTED".equals(result.get("status"))) {
+                assertThat(index).as("rejected records are the last three: %s", body).isGreaterThanOrEqualTo(7);
+                assertThat(result.get("code")).as("record %d refusal code: %s", index, body).isEqualTo("PAYLOAD_VALIDATION_FAILED");
+                assertThat(result).as("record %d has no tracking id: %s", index, body).doesNotContainKey("trackingId");
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> violations = (List<Map<String, Object>>) result.get("violations");
+                assertThat(violations).as("record %d lists its violations: %s", index, body).isNotNull().isNotEmpty();
+                // E6-F2-S1: every violation in one rejection - the three the seed contract enforces, not the first only
+                assertThat(violations).as("record %d lists every violation: %s", index, body)
+                        .extracting(v -> v.get("field") + ":" + v.get("code"))
+                        .containsExactlyInAnyOrder("customer:SCHEMA_REQUIRED", "orderNo:SCHEMA_MIN_LENGTH", "qty:SCHEMA_MINIMUM");
+            } else {
+                assertThat(result.get("status")).as("record %d: %s", index, body).isEqualTo("ACCEPTED");
+                assertThat(index).as("accepted records are the first seven: %s", body).isLessThan(7);
+                assertThat(result.get("trackingId")).as("record %d tracking id: %s", index, body).isNotNull();
+                assertThat(result).as("record %d accepted, no violations: %s", index, body).doesNotContainKey("violations");
+            }
+        }
+
+        // no submitted value is echoed back (not the rejected qty values, nor the accepted records' orderNo / customer)
+        assertThat(body).as("no submitted value echoed: %s", body)
+                .doesNotContain("-987658", "-987659", "-987660", "R1-B", "CUST-A");
     }
 
     @Test

@@ -88,6 +88,15 @@ test('seed: the CSV contract has the Java journey columns and header/CRLF layout
   assert.equal(contract.header, true);
 });
 
+test('seed: the source contract refuses a blank orderNo and a negative qty (SC-02 lists every violation); targets stay type-only', () => {
+  const { properties, required } = REF.source.document;
+  assert.deepEqual(required, ['orderNo', 'customer', 'qty']);
+  assert.equal(properties.orderNo.minLength, 1);
+  assert.equal(properties.qty.minimum, 0);
+  assert.deepEqual(properties.customer, { type: 'string' });
+  assert.deepEqual(REF.targetA.document.properties.qty, { type: 'number' });
+});
+
 test('seed: two targets (API 1.0, MQ 2.0), four-eyes on every contract and the flow, mapping bound to the right route', async () => {
   const calls = [];
   const call = async (login, method, p, body) => {
