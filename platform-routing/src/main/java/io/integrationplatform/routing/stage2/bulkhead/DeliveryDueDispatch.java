@@ -166,9 +166,13 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
 
     /**
      * F3: a HELD or duplicate claim produced no send, so nothing would re-drive the next deferred delivery and the
-     * tail would fall to the 60 s job. Hand the turn on, at most {@link #HELD_CHAIN_CAP} in a row per target.
+     * tail would fall to the 60 s job. Hand the turn on, at most {@link #HELD_CHAIN_CAP} in a row per target;
+     * only a claim that would actually re-drive (a local deferral waits) counts toward the cap.
      */
     private void chainAfterHeld(UUID targetEndpointId) {
+        if (!deferredHere.contains(targetEndpointId)) {
+            return; // T190-1: nothing deferred here means no re-drive would run; a no-op must not spend the cap
+        }
         // sticky (ADR-010): once the cap is reached the chain stays off until a real send resets the count; the
         // counter is clamped so it cannot grow without bound while the target stays HELD
         int run = heldInARow.merge(targetEndpointId, 1, (count, one) -> Math.min(count + one, HELD_CHAIN_CAP + 1));

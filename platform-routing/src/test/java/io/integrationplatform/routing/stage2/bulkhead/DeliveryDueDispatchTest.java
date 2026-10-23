@@ -660,6 +660,35 @@ class DeliveryDueDispatchTest {
     }
 
     @Test
+    @DisplayName("T190-1: HELD claims with nothing deferred here are no-ops and do not spend the sticky cap -"
+            + " a later real deferral still chains")
+    void noOpHeldClaimsDoNotSpendTheStickyCap() throws Exception {
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            for (int i = 0; i < 10; i++) {
+                claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+            }
+            for (int i = 0; i < 10; i++) {
+                dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+            }
+            assertThat(redrive.calls).as("nothing was deferred here: no re-drive, no scan").isEmpty();
+
+            deferOnce(dispatch, registry, target);
+            claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+            dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+
+            assertThat(redrive.calls).as("the first HELD after a real deferral chains (was: the cap was spent)")
+                    .hasSize(1);
+            assertThat(redrive.calls.get(0).cause()).isEqualTo(BulkheadRedrive.Cause.HELD_CHAIN);
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("F3: a duplicate claim with nothing deferred locally re-drives nothing")
     void duplicateWithNoLocalDeferralNoRedrive() {
         UUID target = UUID.randomUUID();
