@@ -37,4 +37,18 @@ class FileNamePatternSettingTest {
                     .as("pattern '%s'", bad).singleElement().asString().contains("{deliveryId}");
         }
     }
+
+    /** T178c-1: a STORED FILE row saved before the rule is flagged (never rewritten); only a present pattern can be. */
+    @Test
+    void aStoredFilePatternWithoutDeliveryIdIsFlaggedButAbsentBlankAndOtherTypesAreNot() {
+        assertThat(SystemSettings.storedFilePatternLacksDeliveryId("FILE", "{\"fileNamePattern\":\"orders.csv\"}")).isTrue();
+        assertThat(SystemSettings.storedFilePatternLacksDeliveryId("file", "{\"fileNamePattern\":\"x-{ext}\"}")).isTrue();
+        assertThat(SystemSettings.storedFilePatternLacksDeliveryId("FILE", "{\"fileNamePattern\":\"o-{deliveryId}.{ext}\"}")).isFalse();
+        for (String safe : new String[] {null, "", "not json", "{\"rootPath\":\"/o\"}", "{\"fileNamePattern\":\"  \"}",
+                "{\"fileNamePattern\":7}"}) {
+            assertThat(SystemSettings.storedFilePatternLacksDeliveryId("FILE", safe)).as("settings '%s'", safe).isFalse();
+        }
+        assertThat(SystemSettings.storedFilePatternLacksDeliveryId("API", "{\"fileNamePattern\":\"orders.csv\"}")).isFalse();
+        assertThat(SystemSettings.storedFilePatternLacksDeliveryId(null, "{\"fileNamePattern\":\"orders.csv\"}")).isFalse();
+    }
 }

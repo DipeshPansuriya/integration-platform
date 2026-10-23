@@ -218,6 +218,21 @@ public class SystemAdminService {
         });
     }
 
+    /**
+     * T178c-1: how many of these destination codes are stored FILE systems whose pattern lacks {@code {deliveryId}}.
+     * A count only - no code, name or pattern leaves this method.
+     */
+    @Transactional(readOnly = true)
+    public long countFileDestinationsWithoutDeliveryId(java.util.Collection<String> codes) {
+        return codes.stream()
+                .map(systems::findSystemByCode)
+                .flatMap(Optional::stream)
+                .map(row -> systems.findSystem(row.id()))
+                .flatMap(Optional::stream)
+                .filter(detail -> SystemSettings.storedFilePatternLacksDeliveryId(detail.type(), detail.settings()))
+                .count();
+    }
+
     @Transactional(readOnly = true)
     public boolean systemExists(String code) {
         return systems.findSystemByCode(code).isPresent();
