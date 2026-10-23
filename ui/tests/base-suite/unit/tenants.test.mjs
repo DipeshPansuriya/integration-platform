@@ -52,12 +52,12 @@ test('the contracts are Customer A v1.0 and Target B v2.0 and the drawing links 
   assert.equal(SOURCE_CONTRACT.system, 'customer-a');
   assert.equal(SOURCE_CONTRACT.role, 'SOURCE_REQUEST');
   assert.equal(SOURCE_CONTRACT.versionLabel, '1.0');
-  assert.deepEqual(SOURCE_CONTRACT.document.required, ['customerId', 'orderId', 'amount']);
+  assert.deepEqual(SOURCE_CONTRACT.document.required, ['customerId', 'orderId', 'amount', 'cardNumber']);
   assert.equal(TARGET_CONTRACT.system, 'target-b');
   assert.equal(TARGET_CONTRACT.role, 'TARGET_REQUEST');
   assert.equal(TARGET_CONTRACT.versionLabel, '2.0');
-  assert.deepEqual(TARGET_CONTRACT.document.required, ['clientId', 'referenceNo', 'invoiceValue']);
-  assert.deepEqual(LINKS.map((link) => [...link]), [['customerId', 'clientId'], ['orderId', 'referenceNo'], ['amount', 'invoiceValue']]);
+  assert.deepEqual(TARGET_CONTRACT.document.required, ['clientId', 'referenceNo', 'invoiceValue', 'cardRef']);
+  assert.deepEqual(LINKS.map((link) => [...link]), [['customerId', 'clientId'], ['orderId', 'referenceNo'], ['amount', 'invoiceValue'], ['cardNumber', 'cardRef']]);
 });
 
 test('orderRecord carries the tenant marker in every text value', () => {
@@ -65,6 +65,8 @@ test('orderRecord carries the tenant marker in every text value', () => {
   assert.equal(record.customerId, 'B-CUST-0001');
   assert.equal(record.orderId, 'B-ORD-0007');
   assert.equal(typeof record.amount, 'number');
+  assert.equal(record.cardNumber, 'B-CARD-0007', 'T206: the field BS-11 masks carries a marked, non-identity value');
+  assert.notEqual(record.cardNumber, record.customerId);
   assert.deepEqual(leakHits(JSON.stringify(record), TENANTS.B), []);
   assert.notDeepEqual(orderRecord(TENANTS.A, 1), orderRecord(TENANTS.A, 2), 'each record is its own');
   assert.throws(() => orderRecord(TENANTS.A, 0), /1\.\.9999/);
@@ -72,19 +74,21 @@ test('orderRecord carries the tenant marker in every text value', () => {
 
 test('expectedTargetBody is exactly the contract translation of the record', () => {
   const record = orderRecord(TENANTS.A, 12);
-  assert.deepEqual(expectedTargetBody(record), { clientId: 'A-CUST-0001', referenceNo: 'A-ORD-0012', invoiceValue: record.amount });
+  assert.deepEqual(expectedTargetBody(record), { clientId: 'A-CUST-0001', referenceNo: 'A-ORD-0012', invoiceValue: record.amount, cardRef: 'A-CARD-0012' });
 });
 
 test("forgedRecord is tenant B's own order naming tenant A's customer", () => {
   const forged = forgedRecord(1);
   assert.equal(forged.customerId, TENANTS.A.customerId);
   assert.match(forged.orderId, /^B-ORD-F\d{3}$/);
+  assert.match(forged.cardNumber, /^B-CARD-F\d{3}$/);
 });
 
 test("leakHits finds only the other tenant's markers", () => {
   assert.deepEqual(leakHits('{"clientId":"A-CUST-0001","referenceNo":"A-ORD-0003"}', TENANTS.B), ['A-CUST-0001', 'A-ORD-0003']);
   assert.deepEqual(leakHits('B-CUST-0001 B-ORD-0001', TENANTS.B), []);
   assert.deepEqual(leakHits('B-CUST-0001', TENANTS.A), ['B-CUST-0001']);
+  assert.deepEqual(leakHits('{"cardRef":"A-CARD-0003"}', TENANTS.B), ['A-CARD-0003'], 'a card number is a tenant marker too');
 });
 
 test('the unnamed-loopback leg names the 127.0.0.1 literal on its own path, apart from both tenants', () => {

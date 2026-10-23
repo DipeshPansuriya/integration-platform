@@ -1,5 +1,5 @@
 // T133 (row 323, F21 BS-11, karan-security): the masked-field probe - T-066 (backlog.md:3236-3252,
-// E12-F1-S2). Tenant A declares the source field customerId MASKED; a record carries the probe value
+// E12-F1-S2). Tenant A declares the source field cardNumber MASKED (T206; was customerId, B36); a record carries the probe value
 // MASK-PROBE-7Q3Z in it; the probe must then be found 0 times in the app log, the detail (timeline) and
 // failures API bodies and the screens, on the success path, the failure path and an intake refusal.
 //
@@ -10,13 +10,20 @@
 // delivery must carry the real value; the platform's own payload store. Masking is about what the
 // platform SHOWS (logs, API, screens), not what it delivers.
 
+import { TENANTS } from './tenants.mjs';
 import { stubMapping } from './wiremock.mjs';
 
 /** The probe: unique, upper-case, no tenant marker (lib/tenants.mjs MARKER never matches it). */
 export const PROBE = 'MASK-PROBE-7Q3Z';
 
-/** The field declared masked on tenant A's source contract (Customer A v1.0, lib/tenants.mjs:23-29). */
-export const MASKED_FIELD = 'customerId';
+/**
+ * The field declared masked on tenant A's source contract (Customer A v1.0, lib/tenants.mjs SOURCE_CONTRACT). T206 (B36):
+ * it is NOT customerId. The platform checks a body customerId against the source credential's customer and answers a bare
+ * 403 BODY_CUSTOMER before any controller runs (SourceCustomerFilter.java:49-56, T-098/ADR-007), so a probe value in
+ * customerId never reached intake and every BS-11 leak scan ran on nothing. cardNumber is mapped to the target's cardRef,
+ * so the delivery carries the real value (positive control) and the 403 echo stub can echo it back.
+ */
+export const MASKED_FIELD = 'cardNumber';
 
 export const MASK_NAMES = Object.freeze({
   // T108 is on main (ON_MAIN.T108, probe in pending-names.mjs). A field is declared masked by the flow's draft-save
@@ -55,10 +62,13 @@ export function waitsFor(...keys) {
   return [...items].sort();
 }
 
-/** Tenant A's record n carrying the probe in the masked field; the other fields as orderRecord shapes them. */
+/**
+ * Tenant A's record n carrying the probe in the masked field; every other field as orderRecord shapes it - customerId
+ * stays the credential's own customer, so the platform's body-customer check lets the record through.
+ */
 export function probeRecord(n, { amount } = {}) {
   if (!Number.isInteger(n) || n < 1 || n > 9999) throw new Error(`probeRecord: n ${n} is outside 1..9999`);
-  return { [MASKED_FIELD]: PROBE, orderId: `A-ORD-${String(n).padStart(4, '0')}`, amount: amount ?? Number((100 + n + 0.25).toFixed(2)) };
+  return { customerId: TENANTS.A.customerId, [MASKED_FIELD]: PROBE, orderId: `A-ORD-${String(n).padStart(4, '0')}`, amount: amount ?? Number((100 + n + 0.25).toFixed(2)) };
 }
 
 const b64 = (bytes) => Buffer.from(bytes).toString('base64');
@@ -127,7 +137,7 @@ export function bodyProblems(body, { marker } = {}) {
 }
 
 /**
- * T108's declare call: [method, path, body] - the flow's draft-save with customerId in maskedFields. `current` is the
+ * T108's declare call: [method, path, body] - the flow's draft-save with the masked field in maskedFields. `current` is the
  * flow read (GET /api/v1/admin/flows/{flowId}); the save needs its own source, destinations and key rule back.
  */
 export function declareCall(flowId, current) {
@@ -156,8 +166,45 @@ export function echoStubMapping(path) {
     response: {
       status: 403,
       headers: { 'Content-Type': 'application/json' },
-      body: `{"stub":${JSON.stringify(path)},"status":403,"echo":{{{request.body}}}}`,
+      body: `{"stub":${JSON.stringify(path)},"status":403,"echo":{{{request.body}}} }`,
       transformers: ['response-template']
     }
   };
+}
+
+const bodyText = (answer) => (typeof answer?.data === 'string' ? answer.data : JSON.stringify(answer?.data ?? null));
+
+/**
+ * What is wrong with an intake answer that must be an ACCEPTANCE: 202 and a tracking id. A 403 (or any refusal) is a
+ * problem, so a probe the platform never took can never look like a pass or a vacuous run (B36). Redacted: no probe.
+ */
+export function acceptanceProblems(answer) {
+  const problems = [];
+  if (answer?.status !== 202) problems.push(`intake answered ${answer?.status}, not 202: ${redact(bodyText(answer)).slice(0, 200)}`);
+  if (typeof answer?.data?.trackingId !== 'string' || answer.data.trackingId === '') problems.push('the answer carries no trackingId');
+  return problems;
+}
+
+/** The body codes that are NOT a contract refusal: the credential/identity gate answers before the contract is read. */
+export const NOT_A_CONTRACT_REFUSAL = Object.freeze(['BODY_CUSTOMER']);
+
+/**
+ * What is wrong with an answer that must be a CONTRACT refusal of field `field`: a 400 or 422 (never a 403 from the
+ * identity gate, never a 5xx), a body that names a reason (a code or message), that reason is not an identity-gate code,
+ * and the body points at the offending field. Redacted: no probe.
+ */
+export function contractRefusalProblems(answer, field) {
+  const problems = [];
+  const text = bodyText(answer);
+  if (![400, 422].includes(answer?.status)) problems.push(`status ${answer?.status} is not a contract refusal (400 or 422): ${redact(text).slice(0, 200)}`);
+  const code = answer?.data?.code;
+  if (NOT_A_CONTRACT_REFUSAL.includes(code)) problems.push(`code ${code} is the identity gate, not the contract`);
+  if (typeof code !== 'string' && typeof answer?.data?.message !== 'string') problems.push('the refusal names no reason (no code, no message)');
+  if (!text.includes(field)) problems.push(`the refusal body does not name the offending field ${JSON.stringify(field)}: ${redact(text).slice(0, 200)}`);
+  return problems;
+}
+
+/** The API answers ({ url, text }) that carry the probe in any form: the screens' network leg (BS-11.4). */
+export function leakingAnswers(answers) {
+  return (answers ?? []).filter((a) => probeHits(a?.text).length > 0).map((a) => a.url);
 }
