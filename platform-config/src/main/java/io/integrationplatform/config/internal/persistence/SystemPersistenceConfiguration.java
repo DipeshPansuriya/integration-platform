@@ -204,11 +204,17 @@ class SystemPersistenceConfiguration {
             ObjectProvider<io.integrationplatform.config.system.application.DbAccountWidthCheck> width,
             org.springframework.transaction.PlatformTransactionManager transactionManager) {
         // T178a: no width check composed (no routing slice) = every approval is refused (fail closed)
+        org.springframework.transaction.support.TransactionTemplate decisions =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        // L19/F2: the refusal event commits in a transaction of its own whatever the caller has open
+        org.springframework.transaction.support.TransactionTemplate audit =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        audit.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return new ApprovedTableService(tables, systems, events,
                 () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId(),
                 width.getIfAvailable(() -> (systemId, settings) -> Optional.of("DB_ACCOUNT_UNVERIFIED: no privilege"
                         + " probe is composed; an approval is refused when the account's privileges cannot be read")),
-                new org.springframework.transaction.support.TransactionTemplate(transactionManager));
+                decisions, java.time.Clock.systemUTC(), audit);
     }
 
     @Bean

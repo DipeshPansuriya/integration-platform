@@ -63,6 +63,7 @@ public class ApprovedTableService {
     private static final Pattern RIGHTS_LIST = Pattern.compile("rights \\(([^)]*)\\)");
 
     private final Clock clock;
+    private final TransactionOperations auditTransactions;
     private final ConcurrentHashMap<String, Instant> refusalsWritten = new ConcurrentHashMap<>();
 
     public ApprovedTableService(JdbcApprovedTableRepository tables, JdbcSystemRepository systems,
@@ -74,6 +75,14 @@ public class ApprovedTableService {
     public ApprovedTableService(JdbcApprovedTableRepository tables, JdbcSystemRepository systems,
             ApplicationEventPublisher events, Supplier<Optional<UUID>> tenant, DbAccountWidthCheck width,
             TransactionOperations transactions, Clock clock) {
+        this(tables, systems, events, tenant, width, transactions, clock, transactions);
+    }
+
+    /** {@code auditTransactions} must open a NEW transaction (PROPAGATION_REQUIRES_NEW): the refusal event is durable. */
+    public ApprovedTableService(JdbcApprovedTableRepository tables, JdbcSystemRepository systems,
+            ApplicationEventPublisher events, Supplier<Optional<UUID>> tenant, DbAccountWidthCheck width,
+            TransactionOperations transactions, Clock clock, TransactionOperations auditTransactions) {
+        this.auditTransactions = Objects.requireNonNull(auditTransactions, "auditTransactions");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.width = Objects.requireNonNull(width, "width");
@@ -165,7 +174,9 @@ public class ApprovedTableService {
      */
     private void auditRefusal(UUID actorId, String systemId, String rowId, String table, String code,
             List<String> tokens) {
-        if (!admitRefusal(rowId + "|" + code)) {
+        String key = rowId + "|" + code;
+        Instant admittedAt = admitRefusal(key);
+        if (admittedAt == null) {
             return;
         }
         try {
@@ -178,21 +189,24 @@ public class ApprovedTableService {
                     List.of(ConfigAuditActions.target("system", systemId),
                             ConfigAuditActions.target("db_table_approval", rowId)),
                     ConfigAuditActions.state("status", "PENDING_APPROVAL"), after);
-            transactions.executeWithoutResult(status -> events.publishEvent(event));
+            auditTransactions.executeWithoutResult(status -> events.publishEvent(event));
         } catch (RuntimeException failed) {
+            // F1: the slot is spent only by a write that succeeded - a failed write must not silence the next refusal
+            refusalsWritten.remove(key, admittedAt);
             LOG.warn("event=db.table.refusal_audit_failed code={} cause={}", code, failed.getClass().getSimpleName());
         }
     }
 
-    private boolean admitRefusal(String key) {
+    /** The slot's stamp when this refusal is admitted (the caller releases it if the write fails), else null. */
+    private Instant admitRefusal(String key) {
         Instant now = clock.instant();
         if (refusalsWritten.size() > THROTTLE_SWEEP_AT) {
             refusalsWritten.values().removeIf(at -> at.plus(REFUSAL_WINDOW).isBefore(now));
         }
-        boolean[] admitted = {false};
+        Instant[] admitted = {null};
         refusalsWritten.compute(key, (k, last) -> {
             if (last == null || !now.isBefore(last.plus(REFUSAL_WINDOW))) {
-                admitted[0] = true;
+                admitted[0] = now;
                 return now;
             }
             return last;
