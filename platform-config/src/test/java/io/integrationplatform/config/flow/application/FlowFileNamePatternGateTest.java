@@ -31,8 +31,13 @@ class FlowFileNamePatternGateTest {
     private static final String FLOW = "11111111-1111-1111-1111-111111111111";
     private static final String V3 = "22222222-2222-2222-2222-222222222223";
     private static final UUID APPROVER = UUID.fromString("77777777-7777-7777-7777-777777777777");
+    private static final String E1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+    private static final String E2 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
     private static final String SNAPSHOT = "{\"interface\":{\"code\":\"F\",\"name\":\"F\",\"ordering\":\"PER_KEY\","
-            + "\"businessKeyRule\":\"$.id\"},\"routes\":[],\"mappings\":[]}";
+            + "\"businessKeyRule\":\"$.id\"},\"routes\":["
+            + "{\"id\":\"r1\",\"sequence\":1,\"isPrimary\":true,\"status\":\"ACTIVE\",\"targetEndpointId\":\"" + E1 + "\"},"
+            + "{\"id\":\"r2\",\"sequence\":2,\"isPrimary\":false,\"status\":\"INACTIVE\",\"targetEndpointId\":\"" + E2 + "\"}],"
+            + "\"mappings\":[]}";
 
     private final JdbcFlowRepository flows = mock(JdbcFlowRepository.class);
     private final SystemAdminService systems = mock(SystemAdminService.class);
@@ -41,7 +46,8 @@ class FlowFileNamePatternGateTest {
 
     private void aFlowWithFileDestination(long withoutDeliveryId) {
         when(flows.findInterface(FLOW)).thenReturn(Optional.of(new InterfaceRow(FLOW, "F", "F", "PER_KEY", "DRAFT")));
-        when(flows.findDestinations(FLOW)).thenReturn(List.of(new DestinationRow(1, "files")));
+        // V6: the destinations are those of the SNAPSHOT (active routes only), not the interface's current rows
+        when(flows.findDestinationsOfEndpoints(List.of(E1))).thenReturn(List.of(new DestinationRow(0, "files")));
         when(systems.countFileDestinationsWithoutDeliveryId(List.of("files"))).thenReturn(withoutDeliveryId);
         VersionInfo version = new VersionInfo(V3, 3, "PENDING_APPROVAL", "$.id", SNAPSHOT, null, "SRC");
         when(flows.findLatestVersionByStatus(FLOW, "PENDING_APPROVAL")).thenReturn(Optional.of(version));
@@ -76,5 +82,26 @@ class FlowFileNamePatternGateTest {
         aFlowWithFileDestination(0);
 
         assertThat(service.approve(FLOW, APPROVER).httpStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void theCheckReadsTheSnapshotNotTheCurrentRows() {
+        aFlowWithFileDestination(0);
+        // the live rows now point at a legacy FILE system, but the version being approved does not send there
+        when(flows.findDestinations(FLOW)).thenReturn(List.of(new DestinationRow(1, "legacy")));
+        when(systems.countFileDestinationsWithoutDeliveryId(List.of("legacy"))).thenReturn(1L);
+
+        assertThat(service.approve(FLOW, APPROVER).httpStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void anInactiveRouteOfTheSnapshotIsNotACheckedDestination() {
+        aFlowWithFileDestination(1);
+        when(flows.findDestinationsOfEndpoints(List.of(E2))).thenReturn(List.of(new DestinationRow(0, "legacy")));
+        when(systems.countFileDestinationsWithoutDeliveryId(List.of("legacy"))).thenReturn(1L);
+
+        service.approve(FLOW, APPROVER);
+
+        verify(flows, never()).findDestinationsOfEndpoints(List.of(E2));
     }
 }
