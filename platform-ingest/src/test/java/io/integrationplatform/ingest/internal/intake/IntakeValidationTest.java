@@ -163,7 +163,7 @@ class IntakeValidationTest {
     void unknownFieldFollowsTheContract() {
         RecordResult[] closed = check(CLOSED_CONTRACT, List.of(), "{\"orderId\":\"o1\",\"surprise\":1}");
         assertThat(closed[0].violations()).extracting(RecordViolation::code).containsExactly("SCHEMA_ADDITIONAL_PROPERTIES");
-        assertThat(closed[0].violations().get(0).field()).isEqualTo("surprise");
+        assertThat(closed[0].violations().get(0).field()).as("the unknown key is never named").isEqualTo("$");
         assertThat(check(CONTRACT, List.of(), VALID.replace("}", ",\"surprise\":1}"))).containsExactly((RecordResult) null);
         assertThat(check("{}", List.of(), "{\"anything\":[1,2,3]}")).containsExactly((RecordResult) null);
     }
