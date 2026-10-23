@@ -40,7 +40,8 @@ test('BS-09 stage proof: ONE read-only SELECT of one message\'s T105 timing rows
   assert.ok(isReadOnlySelect(sql), sql);
   assert.ok(sql.includes(`'${CODE}'`) && sql.includes(`'${MESSAGE}'`), sql);
   assert.match(sql, /^select s\.stage, to_char\(s\.started_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS\.MS"Z"'\), coalesce\(to_char\(s\.finished_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS\.MS"Z"'\), ''\) from public\.message_stage_timing s /);
-  assert.match(sql, /order by s\.started_at, s\.stage$/);
+  // a tie on started_at (a zero-length TRANSFORM, a coarse clock) keeps the PIPELINE order, never the alphabet (DELIVER < TRANSFORM)
+  assert.match(sql, /order by s\.started_at, array_position\(array\['INTAKE','ROUTE','TRANSFORM','DELIVER'\], s\.stage\)$/);
   for (const bad of ["x' or '1'='1", 'not-a-uuid', '', null]) assert.throws(() => stageTimingsOfMessageSql(CODE, bad), /uuid|id/i, String(bad));
   assert.throws(() => stageTimingsOfMessageSql("x' or '1'='1", MESSAGE), /tenant code/);
 });
