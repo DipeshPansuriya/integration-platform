@@ -156,7 +156,16 @@ test('BS-10: a 403 dead letter on the failures screen, replayed after the target
     stubAt403 = false;
     await page.goto(`${bsEnv('consoleUrl')}/${nameOf('failuresRoute')}`);
     await expect(page.locator(nameOf('failuresPage'))).toHaveAttribute('data-failures-loaded', 'true');
-    await page.locator(`${fill(nameOf('failureRow'), { trackingId: messageId })} ${replayAction}`).click();
+    // B28 (81ebf085): Replay on the failures screen asks first - the first press only arms "Confirm replay" and sends nothing; the next press sends
+    const replayButton = page.locator(`${fill(nameOf('failureRow'), { trackingId: messageId })} ${replayAction}`);
+    await replayButton.click();
+    await expect(replayButton, 'the first press arms the confirm step').toHaveAttribute('data-state', 'confirm');
+    await expect(replayButton).toHaveText('Confirm replay');
+    expect(deliveryOf(messageId)?.state, 'arming the confirm step sends nothing: still dead-lettered').toBe('DEAD_LETTERED');
+    expect(eventsOf(delivery.id).slice(eventsBefore.length), 'no event before the confirmed press').toEqual([]);
+    await replayButton.click();
+    await expect(page.locator(`[data-action-answer="${delivery.id}"]`), 'the screen words the accepted replay').toContainText('Replay queued');
+
 
     await eventually(() => eventsOf(delivery.id).slice(eventsBefore.length).includes('REPLAY'), 'the REPLAY event', { timeoutMs: 15000 });
     const samples = [];
