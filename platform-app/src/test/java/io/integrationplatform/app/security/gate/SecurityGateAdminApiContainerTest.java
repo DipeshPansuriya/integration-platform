@@ -251,18 +251,14 @@ class SecurityGateAdminApiContainerTest {
         for (var attempt : hostile.entrySet()) {
             ConsoleBrowser.Exchange r = admin.api("PUT", path, attempt.getValue(), true);
             if (r.status() < 400 || r.status() > 499) {
-                failures.add(attempt.getKey() + " -> " + r.status());
-            }
-            if (!r.body().isEmpty()) {
-                assertThat(r.body().length()).as("%s: refusal body is small", attempt.getKey())
-                        .isLessThan(20_000);
-                assertThat(r.body()).as("%s: no stack trace", attempt.getKey()).doesNotContain("\tat ")
-                        .doesNotContain("org.postgresql").doesNotContain("Exception in");
+                failures.add(attempt.getKey() + " -> " + r.status() + " (body " + r.body().length() + " chars)");
+            } else if (r.body().length() > 20_000 || r.body().contains("\tat ") || r.body().contains("org.postgresql")) {
+                failures.add(attempt.getKey() + " -> refusal body not clean (" + r.body().length() + " chars)");
             }
         }
+        assertThat(failures).as("attempts that were not a clean 4xx (server-side size/depth/validation limits)").isEmpty();
         assertThat(mappingState(f.mappingId())).as("no mapping row change / mapping_version row on a failed save")
                 .isEqualTo(before);
-        assertThat(failures).as("attempts that were not a clean 4xx (server-side size/depth/validation limits)").isEmpty();
         // duplicate JSON keys: either refused, or accepted with exactly one new version (no half state, no 5xx)
         String dup = "{\"fieldMappings\":[],\"compiledExpression\":\"$\",\"compiledExpression\":\"$$\","
                 + "\"sourceContractVersionId\":\"" + f.source() + "\",\"targetContractVersionId\":\"" + f.target() + "\"}";

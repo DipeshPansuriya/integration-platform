@@ -77,6 +77,14 @@ public class ConfigApiExceptionHandler {
         return ResponseEntity.status(400).body(ConfigApiException.body("error", answerable(refused.reason())));
     }
 
+    /** T171 S5-A1: a body that is not JSON (truncated, too deep) is the caller's error, a 400 - never the 500 catch-all. */
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> unreadableBody(
+            org.springframework.http.converter.HttpMessageNotReadableException unreadable) {
+        LOG.debug("the request body could not be read", unreadable);
+        return ResponseEntity.status(400).body(ConfigApiException.body("error", "the request body is not valid JSON"));
+    }
+
     @ExceptionHandler(DuplicateKeyException.class)
     public ResponseEntity<Map<String, Object>> duplicate(DuplicateKeyException clash) {
         LOG.debug("a unique-value clash refused the configuration write", clash);

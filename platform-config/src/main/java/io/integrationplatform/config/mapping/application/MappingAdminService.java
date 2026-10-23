@@ -19,6 +19,10 @@ import tools.jackson.databind.JsonNode;
  */
 public class MappingAdminService {
 
+    /** T171 S5-A1: server-side size limits of a mapping save (values to be confirmed by the owner; generous by design). */
+    static final int MAX_EXPRESSION_CHARS = 100_000;
+    static final int MAX_FIELD_MAPPINGS_CHARS = 1_000_000;
+
     private final JdbcMappingRepository mappings;
     private final ApplicationEventPublisher events;
     private final TenantContext tenants;
@@ -55,6 +59,18 @@ public class MappingAdminService {
                 mappings.findMappingOfRoute(routeId).orElseThrow(ConfigApiException::notFound);
 
         JsonNode linksNode = body.path("fieldMappings");
+        // T171 S5-A1 server-side limits: links are an array of bounded size, text without a null character
+        if (!linksNode.isMissingNode() && !linksNode.isArray()) {
+            throw ConfigApiException.validation("fieldMappings must be an array of links");
+        }
+        String linksText = linksNode.toString();
+        if (linksText.length() > MAX_FIELD_MAPPINGS_CHARS) {
+            throw ConfigApiException.validation("fieldMappings is longer than " + MAX_FIELD_MAPPINGS_CHARS
+                    + " characters");
+        }
+        if (linksText.contains("\\u0000")) {
+            throw ConfigApiException.validation("fieldMappings must not contain a null character");
+        }
         String fieldMappingsJson = MappingContent.canonicalFieldMappings(
                 linksNode.isMissingNode() ? "[]" : linksNode.toString());
         String compiledExpression = requiredText(body, "compiledExpression");
@@ -145,6 +161,12 @@ public class MappingAdminService {
         String text = textOrNull(body.path(field));
         if (text == null || text.isBlank()) {
             throw ConfigApiException.validation("the mandatory " + field + " is missing");
+        }
+        if (text.length() > MAX_EXPRESSION_CHARS) {
+            throw ConfigApiException.validation(field + " is longer than " + MAX_EXPRESSION_CHARS + " characters");
+        }
+        if (text.indexOf((char) 0) >= 0) {
+            throw ConfigApiException.validation(field + " must not contain a null character");
         }
         return text;
     }
