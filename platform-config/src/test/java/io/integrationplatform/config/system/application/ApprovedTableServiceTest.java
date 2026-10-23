@@ -223,7 +223,7 @@ class ApprovedTableServiceTest {
                     assertThat(e.httpStatus()).isEqualTo(409);
                     assertThat(e.body()).containsEntry("refusal", "TARGET_CHANGED");
                 });
-        assertThat(events).isEmpty();
+        assertThat(audits()).extracting(AuditEvent::action).containsExactly(ConfigAuditActions.DB_TABLE_APPROVAL_REFUSED); // L19: refusal event only
     }
 
     @Test
@@ -280,7 +280,7 @@ class ApprovedTableServiceTest {
                     assertThat(e.body().toString()).contains("DB_ACCOUNT_TOO_WIDE").contains("SUPERUSER");
                 });
         verify(tables, never()).decide(anyString(), anyString(), anyString());
-        assertThat(events).isEmpty();
+        assertThat(audits()).extracting(AuditEvent::action).containsExactly(ConfigAuditActions.DB_TABLE_APPROVAL_REFUSED); // L19: refusal event only, never an approval
     }
 
     @Test
@@ -378,6 +378,7 @@ class ApprovedTableServiceTest {
         assertThatThrownBy(() -> transactional.decide(SYSTEM, ROW, "APPROVE", APPROVER))
                 .isInstanceOfSatisfying(ConfigApiException.class, e -> assertThat(e.httpStatus()).isEqualTo(409));
         verify(tables, never()).decide(anyString(), anyString(), anyString());
-        assertThat(events).isEmpty();
+        // L19: the only thing written is the durable refusal event (own transaction); nothing is decided or approved
+        assertThat(audits()).extracting(AuditEvent::action).containsExactly(ConfigAuditActions.DB_TABLE_APPROVAL_REFUSED);
     }
 }
