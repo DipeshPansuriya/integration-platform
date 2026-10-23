@@ -62,7 +62,8 @@ class SystemPersistenceWidthCheckWiringTest {
             @SuppressWarnings("unchecked")
             ObjectProvider<io.integrationplatform.tenancy.TenantContext> tenants = mock(ObjectProvider.class);
             ApprovedTableService service = new SystemPersistenceConfiguration().approvedTableService(tables, systems,
-                    event -> { }, tenants, provider);
+                    event -> { }, tenants, provider,
+                    mock(org.springframework.transaction.PlatformTransactionManager.class));
 
             assertThatThrownBy(() -> service.decide(SYSTEM, ROW, "APPROVE", approver))
                     .isInstanceOfSatisfying(ConfigApiException.class,
