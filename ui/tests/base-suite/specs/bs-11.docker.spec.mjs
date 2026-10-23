@@ -145,7 +145,7 @@ test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in 
   // positive control: the target's 403 answer really ECHOED the probe (WireMock's journal keeps what it answered)
   const served = ((await journal()).requests ?? []).find((r) => header(r.request.headers, 'Idempotency-Key') === delivery.id);
   expect(served?.response?.status, 'the echo stub answered 403').toBe(403);
-  expect(probeHits(served?.response?.body ?? ''), 'the target's error text carried the probe - the scans below are not vacuous').not.toEqual([]);
+  expect(probeHits(served?.response?.body ?? ''), 'the error text of the target carried the probe - the scans below are not vacuous').not.toEqual([]);
   await setStub(A.stubPath, 200);
   stubChanged = false;
 
