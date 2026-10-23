@@ -24,10 +24,10 @@
 
 import { expect, test } from '@playwright/test';
 import { deliveryOfMessageSql, deliveryRowsSql } from '../lib/direct-sql.mjs';
-import { MASKED_FIELD, PROBE, acceptanceProblems, bodyProblems, contractRefusalProblems, declareCall, echoStubMapping, leakingAnswers, leakingLines, maskName, probeHits, probeRecord } from '../lib/mask-probe.mjs';
+import { MASKED_FIELD, PROBE, acceptanceProblems, bodyProblems, contractRefusalProblems, declareCall, echoStubMapping, leakingAnswers, leakingLines, probeHits, probeRecord } from '../lib/mask-probe.mjs';
 import { fill, nameOf, waitsOn } from '../lib/pending-names.mjs';
 import { FLOW, SOURCE_CONTRACT, TENANTS, expectedTargetBody } from '../lib/tenants.mjs';
-import { deliveriesTo } from '../lib/wiremock.mjs';
+import { deliveriesTo, header } from '../lib/wiremock.mjs';
 import { appLogFrom, appLogSize, eventually, inBrowser, journal, must, postRecord, setStub, sourceToken } from '../support/api.mjs';
 import { bsEnv } from '../support/boot-state.mjs';
 import { readRows } from '../support/db.mjs';
@@ -129,7 +129,6 @@ test('BS-11.1: success path - delivered with the real value, 0 probe hits in log
 test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in log, failures and detail API', async ({ page }) => {
   waitFor('T108', 'T110', 'DELIVERY_BASE_URL');
   test.setTimeout(3 * 60 * 1000);
-  const marker = maskName('maskApiMarker');
   await putEchoStub();
   stubChanged = true;
   const record = probeRecord(12);
@@ -142,14 +141,22 @@ test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in 
   // the probe really was in the target's error text - otherwise the scan below proves nothing
   const sends = deliveriesTo(await journal(), A.stubPath).filter((d) => d.deliveryId === delivery.id);
   expect(sends, 'one send reached the echo stub').toHaveLength(1);
-  expect(sends[0].body.cardRef, 'the send carried the real probe, so the echo 403 carried it back').toBe(PROBE);
+  expect(sends[0].body.cardRef, 'the send carried the real probe').toBe(PROBE);
+  // positive control: the target's 403 answer really ECHOED the probe (WireMock's journal keeps what it answered)
+  const served = ((await journal()).requests ?? []).find((r) => header(r.request.headers, 'Idempotency-Key') === delivery.id);
+  expect(served?.response?.status, 'the echo stub answered 403').toBe(403);
+  expect(probeHits(served?.response?.body ?? ''), 'the target's error text carried the probe - the scans below are not vacuous').not.toEqual([]);
   await setStub(A.stubPath, 200);
   stubChanged = false;
 
   await expectLogClean(logFrom, 'failure path');
   const failures = await failuresOf(page, ids.failure);
   expect(failures.some((f) => f.trackingId === ids.failure), 'the dead letter is listed').toBe(true);
-  expect(bodyProblems(failures, { marker }), 'failures API (last error): the echoed probe is replaced by the mask marker').toEqual([]);
+  // measured (T206 run): the platform keeps only "the target answered HTTP 403 ... class PERMANENT" as the last error - it does
+  // not store the target's answer text - so there is no mask marker to expect; the guard is 0 probe in any form
+  const mine = failures.find((f) => f.trackingId === ids.failure);
+  expect(mine.lastError, 'the last error records the target refusal').toMatch(/HTTP 403/);
+  expect(bodyProblems(failures), 'failures API (last error): no probe in any form').toEqual([]);
   expect(bodyProblems(await timelineOf(page, ids.failure)), 'detail (timeline) API').toEqual([]);
 });
 
