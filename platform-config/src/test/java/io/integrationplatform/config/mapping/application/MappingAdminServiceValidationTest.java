@@ -112,7 +112,7 @@ class MappingAdminServiceValidationTest {
     @ParameterizedTest
     @ValueSource(strings = {"{\"a\":1}", "[1]", "true", "123"})
     void aContractVersionIdThatIsNotTextIsRefused(String json) {
-        refused("{\"compiledExpression\":\"\",\"sourceContractVersionId\":" + json + ",\"targetContractVersionId\":\"" + GOOD_ID
+        refused("{\"compiledExpression\":\"x\",\"sourceContractVersionId\":" + json + ",\"targetContractVersionId\":\"" + GOOD_ID
                 + "\"}", "UUID");
     }
 

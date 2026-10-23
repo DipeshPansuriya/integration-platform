@@ -182,15 +182,14 @@ public class MappingAdminService {
 
     /** T171 S5-A1: a contract-version id is a canonical UUID or a 400 - the SQL casts it with {@code ::uuid}. */
     private static String uuidOrNull(String field, JsonNode node) {
-        String text = textOrNull(node);
-        if (text == null) {
+        if (node.isMissingNode() || node.isNull()) {
             return null;
         }
-        if (!node.isString()) {
+        if (!node.isString()) { // an object, array, number or boolean is not an id
             throw ConfigApiException.validation(field + " must be a UUID");
         }
         try {
-            return java.util.UUID.fromString(text).toString();
+            return java.util.UUID.fromString(node.stringValue()).toString();
         } catch (IllegalArgumentException notAUuid) {
             throw ConfigApiException.validation(field + " must be a UUID");
         }
