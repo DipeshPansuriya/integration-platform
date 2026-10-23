@@ -22,7 +22,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
 /**
  * T189 (B30): when routing's DB slice is absent the composition root's {@code dbAccountWidthCheck} bean method returns
@@ -34,8 +33,13 @@ class SystemPersistenceWidthCheckWiringTest {
     private static final String SYSTEM = "88888888-8888-8888-8888-888888888888";
     private static final String ROW = "55555555-5555-5555-5555-555555555555";
 
-    /** The shape of platform-app CompositionConfiguration.dbAccountWidthCheck with no DbAccountWidth bean. */
-    @Configuration(proxyBeanMethods = false)
+    /**
+     * The shape of platform-app CompositionConfiguration.dbAccountWidthCheck with no DbAccountWidth bean. Deliberately
+     * NOT a {@code @Configuration} (B41): the E3/E5/parity suite apps component-scan {@code io.integrationplatform.config}
+     * and a stereotype here leaked a second DbAccountWidthCheck into them. A lite class with {@code @Bean} methods is
+     * never picked up by a scan, yet registers fine through {@code new AnnotationConfigApplicationContext(...)} below
+     * (the E5SystemSuiteApp pattern; ConfigTestScanLeakGuardTest holds the line).
+     */
     static class AbsentRoutingSlice {
         @Bean
         DbAccountWidthCheck dbAccountWidthCheck() {
