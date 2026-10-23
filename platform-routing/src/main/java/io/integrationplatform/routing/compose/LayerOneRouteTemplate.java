@@ -17,6 +17,7 @@ import org.apache.camel.ProducerTemplate;
  * instances removed. Layer 1 runs on its own exchange; a failure it handled (and handed to the outcome path) is copied
  * back as {@code Exchange.EXCEPTION_CAUGHT}; layer 1's explicit outcome flag ({@code LAYER_ONE_SUCCEEDED}) is copied back too, and that
  * flag - not the absence of the caught exception - is how the dispatching stage tells success from a recorded failure.
+ * A breaker-open deferral (T191) is copied back the same way: {@code CIRCUIT_DEFERRED} and {@code CIRCUIT_RETRY_AFTER} (T195).
  */
 public class LayerOneRouteTemplate implements RouteTemplate {
 
@@ -48,6 +49,15 @@ public class LayerOneRouteTemplate implements RouteTemplate {
             Boolean succeeded = layerOne.getProperty(LayerOneRouteBuilder.LAYER_ONE_SUCCEEDED, Boolean.class);
             if (succeeded != null) {
                 exchange.setProperty(LayerOneRouteBuilder.LAYER_ONE_SUCCEEDED, succeeded);
+            }
+            // T195 (T191-1): layer 1's explicit circuit-defer signal and the wait it handed over - the dispatch reads the flag
+            Boolean deferred = layerOne.getProperty(LayerOneRouteBuilder.CIRCUIT_DEFERRED, Boolean.class);
+            if (deferred != null) {
+                exchange.setProperty(LayerOneRouteBuilder.CIRCUIT_DEFERRED, deferred);
+            }
+            Object retryAfter = layerOne.getProperty(LayerOneRouteBuilder.CIRCUIT_RETRY_AFTER);
+            if (retryAfter != null) {
+                exchange.setProperty(LayerOneRouteBuilder.CIRCUIT_RETRY_AFTER, retryAfter);
             }
             if (layerOne.getException() != null) {
                 exchange.setException(layerOne.getException());
