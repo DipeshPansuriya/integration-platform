@@ -1,8 +1,6 @@
 // T130 (row 323, F21 BS-B): the base suite's seed project (runs before every scenario project).
 // Both tenants get the same flow shape through the real API and the real designer (support/seed.mjs).
-// Expected RED until row 278 lands: global-setup fails closed first - "dev-only exception not configured -
-// waits for row 278" / "still TBD(row278)" - so nothing here runs; with the exception configured on a
-// candidate that lacks it, the target system on the exception host is refused at configuration.
+// Status lives in the gate (waitsOn / lib/pending-names.mjs) and the run report _reports/2026-10-22-base-suite-run.md, not in this header.
 
 import { expect, test as setup } from '@playwright/test';
 import { exceptionSettings } from '../lib/settings.mjs';

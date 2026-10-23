@@ -52,18 +52,27 @@ test('bodyProblems: a leak and a missing mask marker are both problems', () => {
   assert.deepEqual(bodyProblems([]), [], 'an empty list carries no leak');
 });
 
-test('every T108 / T112 name fails closed and names its item', () => {
-  for (const [key, value] of Object.entries(MASK_NAMES)) {
-    assert.ok(isPendingName(value), `${key} is still pending today`);
-    assert.throws(() => maskName(key), new RegExp(`${key} is still TBD`));
+test('the T108 names are measured on main; the screen leg is dropped (Dipesh, option 1): no screen mask names', () => {
+  assert.equal(maskName('maskApiMarker'), '[MASKED]', 'MaskedFields.java:33');
+  assert.equal(maskName('maskDeclareApi'), 'PUT /api/v1/admin/flows/{flowId}', 'FlowAdminController.java:112');
+  for (const key of ['maskScreenField', 'maskScreenMarker']) {
+    assert.equal(Object.hasOwn(MASK_NAMES, key), false, `${key} is gone: the T112 screens carry no payload field`);
+    assert.throws(() => maskName(key), /unknown name/);
   }
   assert.throws(() => maskName('nope'), /unknown name/);
-  assert.throws(() => declareCall(), /maskDeclareApi is still TBD\(T108\)/);
-  assert.deepEqual(waitsFor('maskDeclareApi', 'maskApiMarker'), ['T108']);
-  assert.deepEqual(waitsFor('maskDeclareApi', 'maskScreenField', 'maskScreenMarker'), ['T108', 'T112']);
-  assert.ok(isPendingName('') && isPendingName(undefined) && !isPendingName('[data-masked]'));
+  assert.deepEqual(waitsFor(...Object.keys(MASK_NAMES)), [], 'no mask name is pending');
+  assert.ok(isPendingName('') && isPendingName(undefined) && isPendingName('TBD(T108)') && !isPendingName('[MASKED]'));
 });
 
+test('declareCall: the flow draft-save carrying maskedFields, built from what the flow read answered', () => {
+  const current = { code: 'flow-1', name: 'orders', sourceSystem: 'src', destinations: ['dst'], businessKeyRule: 'orderId', ordering: 'NONE', maskedFields: [], status: 'PUBLISHED', id: 'x' };
+  const [method, path, body] = declareCall('f/1', current);
+  assert.equal(method, 'PUT');
+  assert.equal(path, '/api/v1/admin/flows/f%2F1');
+  assert.deepEqual(body, { name: 'orders', sourceSystem: 'src', destinations: ['dst'], businessKeyRule: 'orderId', ordering: 'NONE', maskedFields: [MASKED_FIELD] });
+  assert.throws(() => declareCall('', current), /flowId/);
+  assert.throws(() => declareCall('f1', { name: 'orders' }), /sourceSystem/);
+});
 test('the echo stub reuses the fixed stub id so setStub(path, 200) restores it', () => {
   const echo = echoStubMapping('/tenant-a/orders');
   const plain = stubMapping('/tenant-a/orders', 403);

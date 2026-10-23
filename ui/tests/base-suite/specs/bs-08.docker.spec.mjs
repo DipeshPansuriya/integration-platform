@@ -6,12 +6,8 @@
 // name ROUTED / TRANSFORMED / DELIVERED / FAILED - if T105 lands those names, this FAILS naming them; the
 // judge (BS-G) scores T105 against its own criteria.
 //
-// Expected RED today, in this order:
-//   1. global-setup: "dev-only exception not configured - waits for row 278" (or "still TBD(row278)");
-//   2. with the exception: BS-07 leaves no DELIVERED message (T106), so the tracking id below is ACCEPTED
-//      only - the timeline read 404s / has INTAKE alone (T110 and T105 not on main);
-//   3. before T112: the #/messages/<id> route is not in App.tsx - the detail page never loads.
-// Green needs T105, T106, T110, T112 and row 278's exception after T137. Never a psql-seeded row.
+// Status lives in the gate (waitsOn / lib/pending-names.mjs) and the run report _reports/2026-10-22-base-suite-run.md, not in this header.
+// Never a psql-seeded row.
 
 import { expect, test } from '@playwright/test';
 import { fill, nameOf, waitsOn } from '../lib/pending-names.mjs';
