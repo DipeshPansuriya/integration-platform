@@ -26,8 +26,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /**
  * T204 (L4): V2_4_1370 adds a NOT VALID CHECK on the partitioned {@code delivery} table, which takes ACCESS EXCLUSIVE
  * and, queued behind a long transaction, would block every delivery for as long as that transaction runs. The
- * migration file cannot change (it is on origin/main, Flyway checksums), so {@link MigrationLockTimeoutCallback} sets
- * {@code lock_timeout} for each migration transaction. Real PostgreSQL, one database per test.
+ * migration file cannot change (it is on origin/main, Flyway checksums), so {@code spring.flyway.init-sqls}
+ * (config/flyway-lock-timeout.yml) sets {@code lock_timeout} on the migration connection, shaped here as {@link #initSql}. Real PostgreSQL, one database per test.
  */
 @Tag("container")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -62,7 +62,7 @@ class MigrationLockTimeoutContainerTest {
                 s.execute("LOCK TABLE public.delivery IN ACCESS SHARE MODE"); // a long reader/writer transaction
             }
             long started = System.nanoTime();
-            assertThatThrownBy(() -> flyway(url, new MigrationLockTimeoutCallback("1s")).load().migrate())
+            assertThatThrownBy(() -> flyway(url, initSql("1s")).load().migrate())
                     .satisfies(e -> assertThat(sqlState(e)).isEqualTo(LOCK_NOT_AVAILABLE));
             assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(60));
             assertThat(scalar(url, "SELECT count(*) FROM flyway_schema_history WHERE version = '2.4.1370'"))
@@ -72,7 +72,7 @@ class MigrationLockTimeoutContainerTest {
         }
 
         // quiet window: lock released, the same command now applies the whole remaining set
-        flyway(url, new MigrationLockTimeoutCallback("1s")).load().migrate();
+        flyway(url, initSql("1s")).load().migrate();
         assertThat(scalar(url, "SELECT bool_and(convalidated)::text FROM pg_constraint "
                 + "WHERE conname = 'delivery_contract_pin_check'")).isEqualTo("true");
     }
@@ -99,13 +99,13 @@ class MigrationLockTimeoutContainerTest {
     @DisplayName("with no conflicting lock the full migration set applies and every migration ran under the timeout")
     void fullSetAppliesAndEveryMigrationSawTheTimeout() throws Exception {
         String url = newDatabase();
-        flyway(url, new MigrationLockTimeoutCallback("7s"), "classpath:db/locktimeout-probe").load().migrate();
+        flyway(url, initSql("7s"), "classpath:db/locktimeout-probe").load().migrate();
 
         assertThat(scalar(url, "SELECT seen FROM public.lock_timeout_probe")).isEqualTo("7s");
         assertThat(scalar(url, "SELECT bool_and(convalidated)::text FROM pg_constraint "
                 + "WHERE conname = 'delivery_contract_pin_check'")).isEqualTo("true");
         assertThat(scalar(url, "SELECT count(*) FROM flyway_schema_history WHERE NOT success")).isEqualTo("0");
-        assertThat(scalar(url, "SHOW lock_timeout")).as("transaction-local: nothing leaks to other sessions")
+        assertThat(scalar(url, "SHOW lock_timeout")).as("session-scoped to the migration connection: nothing leaks to other sessions")
                 .isEqualTo("0");
     }
 
@@ -120,19 +120,24 @@ class MigrationLockTimeoutContainerTest {
             try (Statement s = writer.createStatement()) {
                 s.execute("LOCK TABLE public.delivery IN ROW EXCLUSIVE MODE"); // what an INSERT/UPDATE holds
             }
-            flyway(url, new MigrationLockTimeoutCallback("1s")).load().migrate();
+            flyway(url, initSql("1s")).load().migrate();
         }
         assertThat(scalar(url, "SELECT bool_and(convalidated)::text FROM pg_constraint "
                 + "WHERE conname = 'delivery_contract_pin_check'")).isEqualTo("true");
     }
 
-    private FluentConfiguration flyway(String url, MigrationLockTimeoutCallback callback, String... extraLocations) {
+    /** The same statement config/flyway-lock-timeout.yml gives Flyway as spring.flyway.init-sql. */
+    private static String initSql(String timeout) {
+        return "SET lock_timeout = '" + timeout + "'";
+    }
+
+    private FluentConfiguration flyway(String url, String initSql, String... extraLocations) {
         String[] locations = new String[1 + extraLocations.length];
         locations[0] = "classpath:db/migration";
         System.arraycopy(extraLocations, 0, locations, 1, extraLocations.length);
         FluentConfiguration configuration = Flyway.configure()
                 .dataSource(url, postgres.getUsername(), postgres.getPassword()).locations(locations);
-        return callback == null ? configuration : configuration.callbacks(callback);
+        return initSql == null ? configuration : configuration.initSql(initSql);
     }
 
     private String newDatabase() throws SQLException {
