@@ -111,6 +111,10 @@ class SecurityGateHttpIdentityContainerTest {
 
     // ------------------------------------------------------------------ helpers
 
+    /** The only routes a source credential may reach (IngestEndpointRoles); everything else under /api is swept. */
+    private static final java.util.Set<String> INTAKE_ROUTES = java.util.Set.of(
+            "/api/v1/interfaces/{interfaceCode}/messages", "/api/v1/interfaces/{interfaceCode}/messages:bulk");
+
     private String intakePath() {
         return "/api/v1/interfaces/" + DipeshExampleSeed.INTERFACE_CODE + "/messages";
     }
@@ -336,8 +340,8 @@ class SecurityGateHttpIdentityContainerTest {
             }
             for (var pattern : info.getPathPatternsCondition().getPatterns()) {
                 String raw = pattern.getPatternString();
-                if (!raw.startsWith("/api/") || raw.contains("/messages")) {
-                    continue; // the intake family a source legitimately reaches (S7-A3 covers it)
+                if (!raw.startsWith("/api/") || INTAKE_ROUTES.contains(raw)) {
+                    continue; // only the intake routes a source legitimately reaches (S7-A3 covers them)
                 }
                 String path = raw.replaceAll("\\{[^/}]+}", UUID.randomUUID().toString());
                 Iterable<org.springframework.web.bind.annotation.RequestMethod> methods =
@@ -359,6 +363,12 @@ class SecurityGateHttpIdentityContainerTest {
             }
         }
         assertThat(swept).as("endpoints swept (the application's /api surface minus the intake)").hasSizeGreaterThan(20);
+        // T201 (T171-1): the admin message family lives under /messages too; it must be in the sweep, not skipped
+        assertThat(swept).as("the admin message endpoints are swept with a source token")
+                .contains("GET /api/v1/admin/messages/{trackingId}/timeline", "GET /api/v1/admin/messages/failures",
+                        "POST /api/v1/admin/messages/deliveries/{deliveryId}/replay",
+                        "POST /api/v1/admin/messages/deliveries/{deliveryId}/retry")
+                .noneMatch(entry -> INTAKE_ROUTES.stream().anyMatch(entry::endsWith));
     }
 
     // ------------------------------------------------------------------ S2-A3
