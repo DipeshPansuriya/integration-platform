@@ -42,14 +42,14 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  */
 @WebMvcTest(properties = {
     "spring.config.import=optional:classpath:config/tenancy-security.yml",
-    "OIDC_ISSUER_URI=" + AppApiExceptionHandlerTest.ISSUER,
+    "OIDC_ISSUER_URI=" + AppApiExceptionHandlerTest.issuerUri,
     "OIDC_AUDIENCE=platform-api"
 })
 @Import({AppApiExceptionHandlerTest.TenancyChain.class, AppApiExceptionHandlerTest.Wiring.class,
     MessageTrackingController.class, AppApiExceptionHandler.class})
 class AppApiExceptionHandlerTest {
 
-    static final String ISSUER = "http://127.0.0.1:9/issuer";
+    static final String issuerUri = "http://issuer.invalid/realm";
     private static final String MESSAGES = "/api/v1/admin/messages";
     private static final UUID ID = UUID.fromString("00000000-0000-4000-8000-000000000001");
 
@@ -84,7 +84,7 @@ class AppApiExceptionHandlerTest {
     private ConfigActors actors;
 
     private static RequestPostProcessor signedIn() {
-        return jwt().jwt(b -> b.claim("iss", ISSUER).subject("alice").audience(List.of("platform-api")));
+        return jwt().jwt(b -> b.claim("iss", issuerUri).subject("alice").audience(List.of("platform-api")));
     }
 
     @Test
