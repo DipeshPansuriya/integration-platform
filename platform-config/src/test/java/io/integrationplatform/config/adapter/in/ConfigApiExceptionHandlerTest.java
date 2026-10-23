@@ -107,6 +107,82 @@ class ConfigApiExceptionHandlerTest {
     }
 
     @Test
+    void aWrongMethodAnswers405WithTheAllowHeaderAndTheStaticBody() throws Exception {
+        // the controller throws it: the advice is scoped by basePackages, so a 405 raised by the mapping lookup
+        // (no handler chosen yet) never reaches it - see the T196 hand-back
+        mvc.perform(post("/wrong-method"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Allow", org.hamcrest.Matchers.containsString("GET")))
+                .andExpect(jsonPath("$", aMapWithSize(1)))
+                .andExpect(jsonPath("$.error").value("the request was not accepted"));
+    }
+
+    @Test
+    void anUnacceptableAcceptHeaderAnswers406WithAJsonBodyTheClientDidNotAskFor() throws Exception {
+        // the handler must not fail while writing JSON to a client that sent Accept: text/plain
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/json")
+                        .accept("text/plain"))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith("application/json"))
+                .andExpect(jsonPath("$", aMapWithSize(1)))
+                .andExpect(jsonPath("$.error").value("the request was not accepted"));
+    }
+
+    @Test
+    void aValueOfTheWrongTypeAnswers400NotTheCatchAll500() throws Exception {
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/number")
+                        .param("n", "not-a-number"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$", aMapWithSize(1)))
+                .andExpect(jsonPath("$.error").value("the request was not accepted"));
+    }
+
+    @Test
+    void aMissingHeaderAnswers400NotTheCatchAll500() throws Exception {
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/header"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("the request was not accepted"));
+    }
+
+    @Test
+    void aMissingMultipartPartAnswers400NotTheCatchAll500() throws Exception {
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/part"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("the request was not accepted"));
+    }
+
+    @Test
+    void anUploadOverTheSizeLimitAnswers413NotTheCatchAll500() throws Exception {
+        mvc.perform(post("/too-big"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$", aMapWithSize(1)))
+                .andExpect(jsonPath("$.error").value("the request was not accepted"));
+    }
+
+    @Test
+    void aMissingPathVariableKeepsItsStatusWithTheStaticBody() throws Exception {
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/no-variable"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$", aMapWithSize(1)))
+                .andExpect(jsonPath("$.error").value("the request was not accepted"));
+    }
+
+    @Test
+    void anUnreadableBodyLogsNothingOfItsContent() throws Exception {
+        // N4: a credential-shaped body that is not JSON must not reach the log, even at DEBUG
+        handlerLog.setLevel(Level.DEBUG);
+        mvc.perform(post("/body").contentType("application/json").content("{\"password\": hunter2SECRET}"))
+                .andExpect(status().isBadRequest());
+        assertThat(logged.list).isNotEmpty().allSatisfy(event -> {
+            assertThat(event.getFormattedMessage()).doesNotContain("hunter2SECRET");
+            assertThat(event.getThrowableProxy() == null ? "" : ch.qos.logback.classic.spi.ThrowableProxyUtil
+                    .asString(event.getThrowableProxy())).doesNotContain("hunter2SECRET");
+        });
+    }
+
+    @Test
     void aRefusedPublishRecordsNoTenantDenialAndLogsNothingAboveDebug() throws Exception {
         mvc.perform(post("/publish/refused")).andExpect(status().isBadRequest());
 
@@ -199,6 +275,42 @@ class ConfigApiExceptionHandlerTest {
         @PostMapping("/body")
         String body(@org.springframework.web.bind.annotation.RequestBody tools.jackson.databind.JsonNode node) {
             return "ok";
+        }
+
+        @org.springframework.web.bind.annotation.GetMapping("/json")
+        java.util.Map<String, String> json() {
+            return java.util.Map.of("a", "b"); // only a JSON converter can write this: Accept text/plain gives 406
+        }
+
+        @PostMapping("/wrong-method")
+        String wrongMethod() throws org.springframework.web.HttpRequestMethodNotSupportedException {
+            throw new org.springframework.web.HttpRequestMethodNotSupportedException("POST", java.util.List.of("GET"));
+        }
+
+        @org.springframework.web.bind.annotation.GetMapping("/number")
+        String number(@org.springframework.web.bind.annotation.RequestParam int n) {
+            return String.valueOf(n);
+        }
+
+        @org.springframework.web.bind.annotation.GetMapping("/header")
+        String header(@org.springframework.web.bind.annotation.RequestHeader("X-Required") String required) {
+            return required;
+        }
+
+        @PostMapping("/part")
+        String part(@org.springframework.web.bind.annotation.RequestPart("file")
+                org.springframework.web.multipart.MultipartFile file) {
+            return "ok";
+        }
+
+        @PostMapping("/too-big")
+        String tooBig() {
+            throw new org.springframework.web.multipart.MaxUploadSizeExceededException(1);
+        }
+
+        @org.springframework.web.bind.annotation.GetMapping("/no-variable")
+        String noVariable(@org.springframework.web.bind.annotation.PathVariable String id) {
+            return id;
         }
 
         @org.springframework.web.bind.annotation.GetMapping("/param")
