@@ -20,7 +20,8 @@ import java.util.UUID;
 
 /**
  * Small controller adapter: exposes the aggregated report through a single endpoint, delegating all work to the facade.
- * No business logic lives here.
+ * Besides the 404 answer it records the one PATH_ID denial a tracking id the bound tenant cannot see earns; no other
+ * business logic lives here.
  */
 @RestController
 @RequestMapping("/api/v1/reports/facade")
@@ -33,7 +34,7 @@ public class ReportFacadeController {
 
     public ReportFacadeController(ReportFacade facade, ObjectProvider<TenantDenialRecorder> recorders,
             ObjectProvider<TenantContext> tenantContexts) {
-        this.facade = facade;
+        this.facade = Objects.requireNonNull(facade, "facade");
         this.recorders = Objects.requireNonNull(recorders, "recorders");
         this.tenantContexts = Objects.requireNonNull(tenantContexts, "tenantContexts");
     }
@@ -54,7 +55,7 @@ public class ReportFacadeController {
         return ResponseEntity.ok(report);
     }
 
-    /** The one denied-attempt record a path-named foreign row earns: bound tenant, method, path - never the id. */
+    /** The one denied-attempt record a path-named foreign row earns: bound tenant, method and the raw request path (which carries the id; the recorder neutralises it). */
     private void recordPathIdDenial(HttpServletRequest request) {
         TenantDenialRecorder recorder = recorders.getIfAvailable();
         if (recorder == null) {
