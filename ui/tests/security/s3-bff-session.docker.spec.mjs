@@ -160,10 +160,11 @@ test.describe('S3 BFF session (browser)', () => {
     await context.close();
   });
 
-  // EXPECTED RED until B33 is fixed (lane Q, branch fix/b33-tampered-session-cookie): a tampered SESSION cookie makes the
-  // session lookup answer 500 and exhausts the database pool (tenancy-console.yml: Spring Session JDBC). The assertions below are
-  // the gate's expected behaviour (401, application keeps serving) and stay as they are - no fixme, no softening.
-  test('S3-A5 [expected RED until B33 fix: lane Q, branch fix/b33-tampered-session-cookie] cookie tampering and replay: tampered cookies are refused, a replayed cookie stays in its own tenant, a login always issues a new session id', async ({ browser }) => {
+  // B33 (fixed on main, 03a055c1): a tampered SESSION cookie is refused with 401 before the session lookup, so it neither
+  // answers 500 nor leaks a database connection. The test asserts what the fix guarantees: every tampered variant is 401, the
+  // pool still serves a genuine login afterwards, and no pool error reached the application log. No restart in between - a
+  // restart would hide a leak.
+  test('S3-A5 cookie tampering and replay: tampered cookies are refused, a replayed cookie stays in its own tenant, a login always issues a new session id', async ({ browser }) => {
     const a = await freshLogin(browser);
     const valueA = (await sessionCookie(a.context)).value;
     const b = await freshLogin(browser, otherUser());
@@ -188,7 +189,7 @@ test.describe('S3 BFF session (browser)', () => {
     for (const [label, value] of Object.entries(tampered)) {
       const probe = await contextWith(browser, value);
       const me = await api(probe.page, 'GET', '/api/v1/me');
-      expect.soft(me.status, `${label}: refused with 401 (answer: ${me.text.slice(0, 60).replace(/\s+/g, ' ')})`).toBe(401);
+      expect.soft(me.status, `${label}: refused with 401 (not 500) (answer: ${me.text.slice(0, 60).replace(/\s+/g, ' ')})`).toBe(401);
       expect.soft(me.text, `${label}: no tenant data in the answer`).not.toContain(process.env.CONSOLE_TENANT_CODE);
       await probe.context.close();
       if (me.status === 0) {
@@ -196,11 +197,15 @@ test.describe('S3 BFF session (browser)', () => {
         break; // the application no longer answers: no point hammering it
       }
     }
-    // Defect evidence (see the report): a tampered cookie makes the session lookup fail with a 500 and the failed lookups
-    // leave the database pool unable to serve the next request. Restart so the cases that follow are not collateral.
-    const exhausted = unresponsive !== null || (await appLog('Could not open JDBC Connection')).length > poolErrorsBefore.length;
-    expect.soft(exhausted, 'the application keeps serving after tampered cookies (pool not exhausted)').toBe(false);
-    await fetch(`${process.env.SEC_CONTROL}/restart`, { method: 'POST', headers: { 'x-control-token': process.env.SEC_CONTROL_TOKEN }, signal: AbortSignal.timeout(170000) });
+    // B33 guarantee: all 10 variants were refused with 401 (never 500) and the pool is not exhausted.
+    expect(unresponsive, 'the application kept answering during the tampered requests').toBeNull();
+    expect((await appLog('Could not open JDBC Connection')).length, 'no pool exhaustion errors in the application log').toBe(poolErrorsBefore.length);
+    // pool check: a genuine login and GET /api/v1/me still work afterwards (no leaked connections), on the same JVM
+    const pool = await freshLogin(browser);
+    const poolMe = await api(pool.page, 'GET', '/api/v1/me');
+    expect(poolMe.status, 'pool check: a genuine login then GET /api/v1/me returns 200 after the tampered cookies').toBe(200);
+    expect(poolMe.data.tenantCode).toBe(process.env.CONSOLE_TENANT_CODE);
+    await pool.context.close();
 
     console.log(`S3-A5 application log after the tampered cookies:\n${(await appLog('Exception|HTTP Status|session')).split('\n').map((line) => line.slice(0, 400)).join('\n')}`);
 
