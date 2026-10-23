@@ -1,12 +1,16 @@
 // T133 (row 323, F21 BS-11, karan-security): a masked field never leaks - T-066 (backlog.md:3236-3252).
 //
-//   tenant A declares customerId MASKED (T108) -> records carry MASK-PROBE-7Q3Z in customerId
+//   tenant A declares cardNumber MASKED (T108; T206: not customerId - the platform refuses a body customerId that is
+//   not the credential's customer with a bare 403 BODY_CUSTOMER before intake, so a probe there never arrived, B36)
+//   -> records carry MASK-PROBE-7Q3Z in cardNumber (customerId stays the credential's own customer; cardNumber is
+//      mapped to the target's cardRef) and every probe POST must be ACCEPTED 202 - a refusal is a failure, never a pass
 //   -> success path (record 11, stub 200): DELIVERED; the target got the real value (positive control);
 //      0 probe hits in the app log slice, the detail (timeline) API body, the failures API body
 //   -> failure path (record 12, stub 403 that ECHOES the request body): DEAD_LETTERED; 0 hits in the log
 //      slice, the failures API body (last error) and the detail API body - "including error and
 //      diagnosis text"
-//   -> intake refusal (record 13, amount not a number): 4xx; 0 hits in the log slice
+//   -> intake refusal (record 13, amount not a number): a CONTRACT refusal 400/422 naming amount (never the 403 identity
+//      gate), a green control (same body, valid amount: 202); 0 hits in the answer and the log slice
 //   -> screens (T112): detail + failures for 11 and 12 - 0 hits in the DOM and in every /api/ response
 //      the screens loaded. The mask itself is checked at API level only (Dipesh, option 1): the T112 screens
 //      carry no payload field, so there is no "screen shows the mask" leg.
@@ -20,7 +24,7 @@
 
 import { expect, test } from '@playwright/test';
 import { deliveryOfMessageSql, deliveryRowsSql } from '../lib/direct-sql.mjs';
-import { MASKED_FIELD, bodyProblems, declareCall, echoStubMapping, leakingLines, maskName, probeHits, probeRecord } from '../lib/mask-probe.mjs';
+import { MASKED_FIELD, PROBE, acceptanceProblems, bodyProblems, contractRefusalProblems, declareCall, echoStubMapping, leakingAnswers, leakingLines, maskName, probeHits, probeRecord } from '../lib/mask-probe.mjs';
 import { fill, nameOf, waitsOn } from '../lib/pending-names.mjs';
 import { FLOW, SOURCE_CONTRACT, TENANTS, expectedTargetBody } from '../lib/tenants.mjs';
 import { deliveriesTo } from '../lib/wiremock.mjs';
@@ -85,18 +89,18 @@ const failuresOf = async (page, messageId) =>
 
 const ids = {};
 
-test('BS-11.0: tenant A declares customerId masked on the orders flow - draft-save, submit, approve, publish', async ({ page }) => {
+test('BS-11.0: tenant A declares cardNumber masked on the orders flow - draft-save, submit, approve, publish', async ({ page }) => {
   waitFor('T108');
   const { flowId } = readRun().seed.A;
   await page.goto(`${bsEnv('consoleUrl')}/`);
   const current = must(await inBrowser(page, 'GET', `/api/v1/admin/flows/${encodeURIComponent(flowId)}`, undefined, A.admin), 'read orders flow');
   const [method, path, body] = declareCall(flowId, current);
   must(await inBrowser(page, method, path, body, A.admin), 'mask declaration (draft-save)');
-  must(await inBrowser(page, 'POST', `/api/v1/admin/flows/${flowId}/submit`, { changeNote: 'BS-11: customerId masked' }, A.admin), 'submit');
+  must(await inBrowser(page, 'POST', `/api/v1/admin/flows/${flowId}/submit`, { changeNote: `BS-11: ${MASKED_FIELD} masked` }, A.admin), 'submit');
   must(await inBrowser(page, 'POST', `/api/v1/admin/flows/${flowId}/approve`, undefined, A.approver), 'approve by the approver, never the author');
   must(await inBrowser(page, 'POST', `/api/v1/admin/flows/${flowId}/publish`, undefined, A.admin), 'publish');
   const published = must(await inBrowser(page, 'GET', `/api/v1/admin/flows/${encodeURIComponent(flowId)}`, undefined, A.admin), 'read published orders flow');
-  expect(published.maskedFields, 'the published flow lists customerId as masked').toContain(MASKED_FIELD);
+  expect(published.maskedFields, `the published flow lists ${MASKED_FIELD} as masked`).toContain(MASKED_FIELD);
 });
 
 test('BS-11.1: success path - delivered with the real value, 0 probe hits in log, detail and failures API', async ({ page }) => {
@@ -104,7 +108,8 @@ test('BS-11.1: success path - delivered with the real value, 0 probe hits in log
   test.setTimeout(3 * 60 * 1000);
   const record = probeRecord(11);
   const { answer, logFrom } = await postProbe(page, record);
-  expect(answer.status, `intake: ${answer.status} ${JSON.stringify(answer.data)}`).toBe(202);
+  // B36: the probe must be ACCEPTED - a 403 (or any refusal) is a failure here, never a vacuous pass
+  expect(acceptanceProblems(answer), 'the probe record was accepted by intake (202 + tracking id)').toEqual([]);
   expect(probeHits(JSON.stringify(answer.data)), 'the 202 body').toEqual([]);
   ids.success = answer.data.trackingId;
   addTracking('A', [ids.success]);
@@ -114,6 +119,7 @@ test('BS-11.1: success path - delivered with the real value, 0 probe hits in log
   const sends = deliveriesTo(await journal(), A.stubPath).filter((d) => d.deliveryId === delivery.id);
   expect(sends, 'one send').toHaveLength(1);
   expect(sends[0].body, 'positive control: masking must not change what the target receives').toEqual(expectedTargetBody(record));
+  expect(sends[0].body.cardRef, 'the target got the real probe value in the masked field').toBe(PROBE);
 
   await expectLogClean(logFrom, 'success path');
   expect(bodyProblems(await timelineOf(page, ids.success)), 'detail (timeline) API').toEqual([]);
@@ -128,7 +134,7 @@ test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in 
   stubChanged = true;
   const record = probeRecord(12);
   const { answer, logFrom } = await postProbe(page, record);
-  expect(answer.status, `intake: ${answer.status} ${JSON.stringify(answer.data)}`).toBe(202);
+  expect(acceptanceProblems(answer), 'the probe record was accepted by intake (202 + tracking id)').toEqual([]);
   ids.failure = answer.data.trackingId;
   addTracking('A', [ids.failure]);
   const delivery = await eventually(() => (deliveryOf(ids.failure)?.state === 'DEAD_LETTERED' ? deliveryOf(ids.failure) : null),
@@ -136,6 +142,7 @@ test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in 
   // the probe really was in the target's error text - otherwise the scan below proves nothing
   const sends = deliveriesTo(await journal(), A.stubPath).filter((d) => d.deliveryId === delivery.id);
   expect(sends, 'one send reached the echo stub').toHaveLength(1);
+  expect(sends[0].body.cardRef, 'the send carried the real probe, so the echo 403 carried it back').toBe(PROBE);
   await setStub(A.stubPath, 200);
   stubChanged = false;
 
@@ -146,13 +153,18 @@ test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in 
   expect(bodyProblems(await timelineOf(page, ids.failure)), 'detail (timeline) API').toEqual([]);
 });
 
-test('BS-11.3: intake refusal - a record the contract rejects; 0 probe hits in the answer and the log', async ({ page }) => {
+test('BS-11.3: intake refusal - a record the contract rejects (400/422 naming amount); control accepted; 0 probe hits in the answer and the log', async ({ page }) => {
   waitFor('T108');
   const { answer, logFrom } = await postProbe(page, probeRecord(13, { amount: 'not-a-number' }));
-  expect(answer.status, 'the contract refuses the record').toBeGreaterThanOrEqual(400);
-  expect(answer.status).toBeLessThan(500);
+  // B36: the refusal must come from the CONTRACT (400/422 + a reason naming amount), not from the 403 identity gate
+  expect(contractRefusalProblems(answer, 'amount'), `the contract refuses the record: ${answer.status} ${JSON.stringify(answer.data)}`).toEqual([]);
   expect(bodyProblems(answer.data), 'the refusal body').toEqual([]);
   await expectLogClean(logFrom, 'intake refusal');
+  // green control: the same body with a valid amount is accepted - so the refusal above is about amount, nothing else
+  const control = await postProbe(page, probeRecord(13));
+  expect(acceptanceProblems(control.answer), 'control: the same record with a valid amount is accepted').toEqual([]);
+  addTracking('A', [control.answer.data.trackingId]);
+  await expectLogClean(control.logFrom, 'intake refusal control');
 });
 
 test('BS-11.4: screens - 0 probe hits in the DOM of detail and failures and in every API answer they load', async ({ page }) => {
@@ -175,5 +187,5 @@ test('BS-11.4: screens - 0 probe hits in the DOM of detail and failures and in e
   expect(probeHits(await page.content()), 'failures screen').toEqual([]);
 
   expect(answers.length, 'the screens loaded their data through the API').toBeGreaterThan(0);
-  expect(answers.filter((a) => probeHits(a.text).length > 0).map((a) => a.url), 'API answers carrying the probe').toEqual([]);
+  expect(leakingAnswers(answers), 'API answers carrying the probe').toEqual([]);
 });
