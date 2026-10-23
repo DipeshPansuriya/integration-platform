@@ -1,6 +1,12 @@
 spring:
   application:
     name: integration-platform
+  # Karan M1 (row 372): the admin API is JSON-only; Boot's FormContentFilter would read a form-encoded PUT/PATCH/DELETE
+  # body in full BEFORE authentication and before AdminRequestSizeFilter (AdminFormPutNotBufferedTest).
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
   # E1 seam: each lane's settings live in its own file in platform-tenancy (no two lanes edit one file).
   # tenancy-security.yml - lane B (OIDC resource server); tenancy-database.yml - lane C (Flyway owner, app role);
   # tenancy-console.yml - E4 lane D (console login as a backend for frontend, sessions in PostgreSQL).
