@@ -225,7 +225,7 @@ test("@negative @tenant the other tenant's reader lists none of tenant A's failu
   await openFailures(page);
   await page.getByLabel(/Day \(UTC/).fill('');
   await expect(page.locator(`${PAGE}[data-load="ready"]`)).toBeVisible();
-  await expect(page.locator('[role="status"][data-refusal]')).toHaveCount(0);
+  await expect(page.locator('[data-refusal]')).toHaveCount(0);
   await expect(page.locator(`[data-failure-row="${msg}"]`)).toHaveCount(0);
   await expect(page.locator('[role="status"][data-empty="failures-none"]')).toHaveText('No failed messages.');
 });
@@ -237,6 +237,6 @@ test("@negative @role the other tenant's configurator is refused and lists none 
   const msg = seedMessage(tenantIdOf(), flow.id, 'ROUTE_FAILED', `${DAY} 00:01:00+00`);
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
   await openFailures(page);
-  await expect(page.locator('[role="status"][data-refusal="failures-refused"]')).toBeVisible();
+  await expect(page.locator('[role="alert"][data-refusal="failures-refused"]')).toBeVisible();
   await expect(page.locator(`[data-failure-row="${msg}"]`)).toHaveCount(0);
 });
