@@ -37,13 +37,18 @@ class BulkheadOneDrainContainerTest extends E18Base {
                     "{\"baseUrl\":\"" + url + "\"}", url, true);
         }
         PARTNER.up();
-        PARTNER.delayAnswers(600);
+        PARTNER.holdAnswers(); // L14: held until the deferral is observed - no 600 ms overlap guess
         try {
             String token = KEYCLOAK.clientCredentialsToken(source.clientId(), source.secret());
             CompletableFuture<Void> first = CompletableFuture.runAsync(() -> post(token, 1));
             CompletableFuture<Void> second = CompletableFuture.runAsync(() -> post(token, 2));
             CompletableFuture.allOf(first, second).get(30, java.util.concurrent.TimeUnit.SECONDS);
+            // the first send holds the only slot, so the second delivery must defer - wait for that fact, then free the slot
+            await("the second delivery defers on the full bulkhead", Duration.ofSeconds(40),
+                    () -> ownerLong("select count(*) from public.delivery_event where tenant_id = ?::uuid and"
+                            + " type = 'BULKHEAD_FULL'", tenant.id()) > 0);
             long start = System.nanoTime();
+            PARTNER.releaseAnswers();
             await("both deliveries settle", Duration.ofSeconds(40),
                     () -> ownerLong("select count(*) from public.delivery where tenant_id = ?::uuid and state ="
                             + " 'DELIVERED'", tenant.id()) == 2);
@@ -60,6 +65,7 @@ class BulkheadOneDrainContainerTest extends E18Base {
             assertThat(drainMillis).as("far below the 60 s retry job period").isLessThan(15_000);
             assertThat(PARTNER.acceptedKeysOn(path)).hasSize(2).doesNotHaveDuplicates();
         } finally {
+            PARTNER.releaseAnswers();
             PARTNER.delayAnswers(0);
         }
     }

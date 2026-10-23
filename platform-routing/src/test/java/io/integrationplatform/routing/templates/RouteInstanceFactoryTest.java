@@ -131,6 +131,60 @@ class RouteInstanceFactoryTest {
     }
 
     @Test
+    void aFailedStopKeepsTheInstanceSoTheNextSweepRetriesAndNoOrphanRouteClashes() throws Exception {
+        java.util.concurrent.atomic.AtomicBoolean failing = new java.util.concurrent.atomic.AtomicBoolean(true);
+        DefaultCamelContext spy = new DefaultCamelContext() {
+            @Override
+            public void removeRoute(org.apache.camel.Route route) {
+                if (failing.get()) {
+                    throw new IllegalStateException("stop failed");
+                }
+                super.removeRoute(route);
+            }
+        };
+        spy.start();
+        try {
+            RouteInstanceFactory evicting = new RouteInstanceFactory(reader, spy, List.of(template),
+                    Set.of("https"), Duration.ofMinutes(30), () -> Instant.parse("2026-10-12T12:00:00Z"));
+            reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
+                    null, MAPPING_M3));
+            RouteInstance first = evicting.ensure(reader.current(ENDPOINT_A));
+            evicting.touch(ENDPOINT_A, Instant.parse("2026-10-12T12:00:00Z"));
+
+            evicting.evictIdle(Instant.parse("2026-10-12T12:31:00Z"));
+
+            assertThat(evicting.instanceOf(ENDPOINT_A))
+                    .as("T161 L2: the route could not be stopped, so the instance stays held (was: map entry gone,"
+                            + " route orphaned, every later ensure dead-lettered PERMANENT)").isPresent();
+            assertThat(evicting.ensure(reader.current(ENDPOINT_A)).routeId()).isEqualTo(first.routeId());
+
+            failing.set(false);
+            evicting.evictIdle(Instant.parse("2026-10-12T12:32:00Z"));
+
+            assertThat(evicting.instanceOf(ENDPOINT_A)).as("the next sweep removes it").isEmpty();
+            assertThat(spy.getRoute(first.camelRouteId())).isNull();
+            assertThat(evicting.ensure(reader.current(ENDPOINT_A)).routeId())
+                    .as("and the lazy rebuild works, no clash").isEqualTo(first.routeId());
+        } finally {
+            spy.stop();
+        }
+    }
+
+    @Test
+    void aRouteIdAlreadyInTheContextWithoutAHeldInstanceIsRefusedAsAClash() {
+        reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
+                null, MAPPING_M3));
+        factory.ensure(reader.current(ENDPOINT_A));
+        RouteInstanceFactory other = new RouteInstanceFactory(reader, context, List.of(template),
+                Set.of("https"), Duration.ofMinutes(30), () -> Instant.parse("2026-10-12T12:00:00Z"));
+
+        assertThatThrownBy(() -> other.ensure(reader.current(ENDPOINT_A)))
+                .isInstanceOfSatisfying(RouteBuildRefusedException.class, refused -> assertThat(refused.getMessage())
+                        .as("T161 N-2: the clash is a RouteBuildRefusedException (stage 2 dead-letters it PERMANENT)")
+                        .contains("already in the Camel context"));
+    }
+
+    @Test
     void publishIsIdempotentAndNeverRebuildsARouteThatIsAlreadyInstantiated() {
         reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
                 null, MAPPING_M3));
