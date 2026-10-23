@@ -122,21 +122,11 @@ class SecurityGateS2TenantIsolationContainerTest {
     }
 
     /**
-     * S2-A1: Horizontal sweep, every admin endpoint family.
-     * Expected: 403 or 404 per the API's own convention, 0 rows of B returned; response bodies and error messages name no B data (IDOR pack: monitor information leaks)
-     */
-    @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T157 is on main (TenantBSeed) but lives in platform-e2e, unreachable from platform-app; HTTP sweep needs a body in platform-e2e or ForgedTenantDenialSuiteTest reuse (T141 gate case S2-A1)")
-    void s2_a1_horizontal_sweep_every_admin_endpoint_family() {
-        fail("S2-A1 body lands with T157");
-    }
-
-    /**
      * S2-A2: Vertical sweep across roles.
      * Expected: All 403 (matches S1-A7; re-run as the S2 harness because the pack's vertical step uses substituted ids, not only role mismatch)
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T157 is on main (TenantBSeed) but lives in platform-e2e, unreachable from platform-app; HTTP sweep needs a body in platform-e2e or ForgedTenantDenialSuiteTest reuse (T141 gate case S2-A2)")
+    @Disabled("OPEN (T201): only the machine leg runs (SecurityGateHttpIdentityContainerTest.s1_a7_s2_a2_machine_leg...); the human vertical role sweep has no body (T141 gate case S2-A2)")
     void s2_a2_vertical_sweep_across_roles() {
         fail("S2-A2 body lands with T157");
     }

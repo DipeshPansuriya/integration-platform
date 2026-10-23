@@ -616,6 +616,14 @@ class SecurityGateAdminApiContainerTest {
         String getBody = admin.api("GET", url, null, false).body();
         String systems = admin.api("GET", "/api/v1/admin/systems", null, false).body();
         String flows = admin.api("GET", "/api/v1/admin/flows", null, false).body();
+        // T201 (T171-3): the first save's ciphertext and wrapped key are replaced by the second save, so capture
+        // them as needles NOW; the first PUT and GET responses are then scanned for them too
+        List<String> firstNeedles;
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
+            firstNeedles = leakNeedles(secret, owner);
+        }
+        assertThat(firstNeedles).as("secret, KEK and the first row's ciphertext and wrapped key in 3 encodings each")
+                .hasSizeGreaterThanOrEqualTo(2 + 6);
         // a second update mints a fresh data key (S8-A6 through the API)
         String wrapped1 = db("select encode(wrapped_key, 'hex') from public.target_credential where tenant_id = '"
                 + tenantA.id() + "' limit 1");
@@ -626,7 +634,7 @@ class SecurityGateAdminApiContainerTest {
         assertThat(wrapped2).as("a new wrapped data key on update").isNotEqualTo(wrapped1);
         assertThat(JSON.readTree(getBody).path("fields").get(0).path("value").asString()).as("masked").isEqualTo("********");
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            List<String> needles = leakNeedles(secret, owner);
+            List<String> needles = new ArrayList<>(firstNeedles);
             needles.addAll(leakNeedles(secret2, owner));
             String evidence = storedEvidenceText(owner);
             String logText = output.getAll().substring(logFrom);
