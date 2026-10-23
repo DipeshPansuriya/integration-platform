@@ -40,6 +40,17 @@ test('B3 clearing the date keeps the control, shows a worded prompt and does not
   assert.equal(calls.length, 1, 'no request for an empty day');
 });
 
+test('T194 the report day input carries min/max, so a day the API refuses (400) cannot be picked', async () => {
+  const screen = await mount('pages/DeliveryReport.tsx', 'default', {}, {
+    deliveryReport: async () => ({ ok: true, data: [] })
+  }, ['../api/reports']);
+  await screen.settle();
+  const [input] = findAll(screen.tree(), byData('data-day-filter'));
+  const day = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+  assert.equal(input.props.max, day(0), 'newest pickable day is today (UTC)');
+  assert.equal(input.props.min, day(-31), 'oldest pickable day is 31 days back (the API default window)');
+});
+
 test('B3 a rejected request leaves the error state (no unhandled rejection) and a stale answer is ignored', async () => {
   let first;
   let n = 0;

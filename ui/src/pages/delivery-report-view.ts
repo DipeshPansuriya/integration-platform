@@ -54,6 +54,19 @@ export function todayUtc(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
+/**
+ * The API refuses (400) a day after today or older than platform.delivery.report.max-age-days UTC days. The UI does not
+ * receive that setting, so this mirrors its default (31, DeliveryReportController.DEFAULT_MAX_AGE_DAYS); if an
+ * operator changes it, the picker may offer a day the API still accepts-or-refuses and the refused state explains it.
+ */
+export const REPORT_MAX_AGE_DAYS = 31;
+
+/** min/max for the day input: the oldest and newest day the report API accepts, both UTC. */
+export function reportDayBounds(now: Date): { min: string; max: string } {
+  const oldest = new Date(now.getTime() - REPORT_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
+  return { min: todayUtc(oldest), max: todayUtc(now) };
+}
+
 export type ReportLoad = 'loading' | 'ready' | 'refused' | 'error';
 export type ReportStatus = 'prompt' | 'loading' | 'refused' | 'error' | 'empty' | 'ready';
 
