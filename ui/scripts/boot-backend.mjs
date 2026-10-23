@@ -609,7 +609,7 @@ export default async function bootBackend({
 
     psql(pgName, `CREATE ROLE ${loginName} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${loginPassword}'`);
 
-    app = spawn(
+    const spawnApp = () => spawn(
       jdk.java,
       ['-XX:+UseSerialGC', '-Xmx256m', `-Dserver.port=${appPort}`, '-jar', jar],
       {
@@ -639,8 +639,12 @@ export default async function bootBackend({
       }
     );
     const appLog = [];
-    app.stdout.on('data', (d) => appLog.push(String(d)));
-    app.stderr.on('data', (d) => appLog.push(String(d)));
+    const startApp = () => {
+      app = spawnApp();
+      app.stdout.on('data', (d) => appLog.push(String(d)));
+      app.stderr.on('data', (d) => appLog.push(String(d)));
+    };
+    startApp();
 
     let lastError = null;
     for (let i = 0; i < 240; i++) {
@@ -803,6 +807,20 @@ export default async function bootBackend({
       },
       /** T174b: a Keycloak service-account client (clientId, secret, subject) - memory only. */
       createServiceClient: (clientId) => keycloak.createServiceClient(clientId),
+      /** T171: stops the JVM and starts it again on the same port, env and database; resolves once healthy (a session-survives-restart check). */
+      async restartApp() {
+        const old = app;
+        const exited = new Promise((resolve) => old.once('exit', resolve));
+        old.kill();
+        await exited;
+        startApp();
+        for (let i = 0; i < 240; i++) {
+          if (app.exitCode !== null) throw new Error(`platform-app exited ${app.exitCode} after the restart`);
+          if ((await healthy(appPort)) === null) return;
+          await sleep(500);
+        }
+        throw new Error('platform-app never became healthy after the restart');
+      },
       /** The harness's server-side console sessions per login (cookie + CSRF token, never a token). */
       sessions,
       call,
