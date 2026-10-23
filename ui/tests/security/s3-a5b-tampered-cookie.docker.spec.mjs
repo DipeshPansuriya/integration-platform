@@ -1,5 +1,5 @@
 // T171 (row 372) S3-A5b: the conditions karan attached when he closed B33 (a tampered SESSION cookie, fixed on main 03a055c1).
-//   (a) a tampered cookie on /logout, /login/oauth2/code/keycloak and /oauth2/authorization/keycloak: 302 or 401, never 500
+//   (a) a tampered cookie on /logout (200 JSON, identical to no cookie), /login/oauth2/code/keycloak and /oauth2/authorization/keycloak (302 or 401), never 500
 //   (b) a tampered cookie plus a valid bearer token on the API: 200 (the bearer authenticates, the cookie is ignored)
 //   (c) two canonical-shaped SESSION cookies in one request: 401, no 500, the pool still healthy afterwards
 //   (d) an uppercase-hex canonical id: 401
@@ -50,7 +50,7 @@ async function bearerToken() {
 }
 
 test.describe('S3-A5b B33 conditions (tampered session cookie)', () => {
-  test('S3-A5b-a tampered cookie on /logout, the code callback and the login entry: 302 or 401, never 500', async ({ browser }) => {
+  test('S3-A5b-a tampered cookie on /logout (200 JSON, same as no cookie), the code callback and the login entry (302 or 401), never 500', async ({ browser }) => {
     const genuine = await freshLogin(browser);
     const value = (await sessionCookie(genuine.context)).value;
     const poolErrorsBefore = await appLog(POOL_ERROR);
@@ -61,16 +61,30 @@ test.describe('S3-A5b B33 conditions (tampered session cookie)', () => {
     ];
     // control: the same three requests with no cookie at all answer something other than 5xx, so a refusal below is the cookie's doing
     const codes = {};
+    const controls = {};
     for (const [label, send] of requests) {
       const control = await send('SESSION=');
+      controls[label] = control;
       codes[`${label} | no usable cookie (control)`] = control.status;
       expect.soft(control.status, `${label}: control without a usable cookie`).toBeLessThan(500);
     }
+    // POST /logout answers 200 with JSON on purpose (JsonOidcLogout, ConsoleSecurityConfiguration.java:354: a fetch cannot follow a
+    // cross-site redirect, so the body names where to go). With no live session that is {"redirect":"/"}. A tampered cookie must
+    // therefore be indistinguishable from no cookie at all: same status, same body, never 5xx. The other two paths are 302 or 401.
+    expect(controls['POST /logout'].status, 'control: /logout without a usable cookie answers 200').toBe(200);
+    expect(JSON.parse(controls['POST /logout'].text), 'control: /logout body without a usable cookie').toEqual({ redirect: '/' });
     for (const [variant, tampered] of Object.entries(tamperedVariants(value))) {
       for (const [label, send] of requests) {
         const answer = await send(`SESSION=${tampered}`);
         codes[`${label} | ${variant}`] = answer.status;
-        expect.soft([302, 401], `${label} with "${variant}": ${answer.status} ${answer.text.slice(0, 80).replace(/\s+/g, ' ')}`).toContain(answer.status);
+        const seen = `${label} with "${variant}": ${answer.status} ${answer.text.slice(0, 80).replace(/\s+/g, ' ')}`;
+        if (label === 'POST /logout') {
+          expect.soft(answer.status, seen).toBeLessThan(500);
+          expect.soft(answer.status, `${seen} (same status as the no-cookie control)`).toBe(controls[label].status);
+          expect.soft(answer.text, `${seen} (same body as the no-cookie control)`).toBe(controls[label].text);
+        } else {
+          expect.soft([302, 401], seen).toContain(answer.status);
+        }
       }
     }
     console.log(`S3-A5b-a raw status codes:\n${Object.entries(codes).map(([key, status]) => `  ${status}  ${key}`).join('\n')}`);
