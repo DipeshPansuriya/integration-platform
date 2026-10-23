@@ -105,9 +105,29 @@ class JdbcBulkheadRedriveContainerTest {
         assertThat(outbox.get(0).aggregateId()).isEqualTo(delivery);
         assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> repository.countEvents(delivery, DeliveryEventType.REDRIVE))).isEqualTo(1);
-        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
-                () -> repository.countEventsWithDetail(delivery, DeliveryEventType.REDRIVE,
-                        JdbcBulkheadRedrive.SLOT_FREE))).as("F5: the event log names the slot-free path").isEqualTo(1);
+        assertThat(redriveEventsWithDetail(delivery, JdbcBulkheadRedrive.SLOT_FREE))
+                .as("F5: the event log names the slot-free path").isEqualTo(1);
+    }
+
+    /** Test-only read (kept out of the production repository): REDRIVE events of the delivery with exactly this detail. */
+    private int redriveEventsWithDetail(UUID delivery, String detail) {
+        return tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> jdbc.sql(
+                "select count(*)::int from public.delivery_event where delivery_id = :id and type = 'REDRIVE'"
+                        + " and detail = :detail").param("id", delivery).param("detail", detail)
+                .query(Integer.class).single());
+    }
+
+    @Test
+    @DisplayName("T190: the HELD-chain re-drive writes REDRIVE detail 'held-chain', distinct from 'slot-free'")
+    void heldChainRedriveIsNamedHeldChain() {
+        UUID delivery = newDelivery("redrive-held-chain");
+        assertThat(deferrals().defer(delivery, Instant.now(), 0, 1.0)).isTrue();
+
+        assertThat(redrive().redriveOneDeferred(target, io.integrationplatform.delivery.port.BulkheadRedrive.Cause
+                .HELD_CHAIN)).isTrue();
+
+        assertThat(redriveEventsWithDetail(delivery, "held-chain")).isEqualTo(1);
+        assertThat(redriveEventsWithDetail(delivery, JdbcBulkheadRedrive.SLOT_FREE)).isZero();
     }
 
     @Test

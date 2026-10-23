@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.config.flow.application.FlowBundle;
 import io.integrationplatform.delivery.port.Stage1Delivery;
+import io.integrationplatform.routing.stage.UnroutableWorkException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -72,7 +73,7 @@ class Stage1FanOutPlanTest {
         FlowBundle.Parsed snapshot = new FlowBundle.Parsed(List.of(route(ROUTE_A, 1, null, "ACTIVE", ENDPOINT_A)),
                 List.of(mapping(ROUTE_A, VERSION_A, null)));
 
-        assertThatThrownBy(() -> Stage1FanOut.plan(message, snapshot)).isInstanceOf(IllegalStateException.class)
+        assertThatThrownBy(() -> Stage1FanOut.plan(message, snapshot)).isInstanceOf(UnroutableWorkException.class)
                 .hasMessageContaining(ROUTE_A).hasMessageContaining(VERSION_A)
                 .hasMessageContaining("target contract");
     }

@@ -45,4 +45,44 @@ class FilePoolIsolationTest {
         assertThat(pool.open()).isZero();
         assertThat(Files.readString(folder.resolve("a.csv"))).isEqualTo("x");
     }
+
+    private static FileTargetCall composed(org.springframework.transaction.PlatformTransactionManager pool,
+            FileOutbound reads) {
+        return FileAdapterConfiguration.compose(reads, root -> Optional.of(Path.of(root)), pool,
+                CircuitBreakerRegistry.ofDefaults(), new SimpleMeterRegistry(), ObservationRegistry.NOOP);
+    }
+
+    private static final Stage2Send SEND = new Stage2Send(UUID.randomUUID(), UUID.randomUUID(), null, UUID.randomUUID(),
+            false);
+
+    @Test
+    void aPoolTimeoutWhileBeginningTheResolveTransactionIsTransientNotAnInexpressibleFile() {
+        // T190 item 4
+        org.springframework.transaction.PlatformTransactionManager broken =
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class);
+        org.mockito.Mockito.when(broken.getTransaction(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new org.springframework.transaction.CannotCreateTransactionException("pool timeout"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> composed(broken, s -> Optional.empty()).call(SEND))
+                .isInstanceOf(io.integrationplatform.routing.stage2.TargetFaultException.class)
+                .extracting(f -> ((io.integrationplatform.routing.stage2.TargetFaultException) f).outcomeClass())
+                .isEqualTo(io.integrationplatform.domain.delivery.OutcomeClass.TRANSIENT);
+    }
+
+    @Test
+    void aTransientDataAccessErrorInResolveIsTransientButAFormatErrorStaysPermanent() {
+        CountingTransactionManager pool = new CountingTransactionManager();
+        org.assertj.core.api.Assertions
+                .assertThatThrownBy(() -> composed(pool, s -> {
+                    throw new org.springframework.dao.QueryTimeoutException("statement timeout");
+                }).call(SEND))
+                .extracting(f -> ((io.integrationplatform.routing.stage2.TargetFaultException) f).outcomeClass())
+                .isEqualTo(io.integrationplatform.domain.delivery.OutcomeClass.TRANSIENT);
+        org.assertj.core.api.Assertions
+                .assertThatThrownBy(() -> composed(pool, s -> {
+                    throw new IllegalArgumentException("bad name");
+                }).call(SEND))
+                .extracting(f -> ((io.integrationplatform.routing.stage2.TargetFaultException) f).outcomeClass())
+                .isEqualTo(io.integrationplatform.domain.delivery.OutcomeClass.PERMANENT);
+    }
 }

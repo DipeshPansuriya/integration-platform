@@ -88,6 +88,12 @@ public final class FileTargetCall implements TargetCall {
             try {
                 resolved = outbound.resolve(send);
             } catch (RuntimeException format) {
+                if (io.integrationplatform.routing.stage2.PlatformReadFaults.isTransient(format)) {
+                    // T190: the platform's own pool/database blip, not an inexpressible file: retry, never dead-letter
+                    breaker.releasePermission();
+                    throw new TargetFaultException.TransientFaultException("the platform database could not be read for"
+                            + " file target endpoint " + send.targetEndpointId() + "; the send is retried");
+                }
                 // a mapped file name or body the target cannot express is permanent: nothing is written
                 outcome = OutcomeClass.PERMANENT;
                 breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);

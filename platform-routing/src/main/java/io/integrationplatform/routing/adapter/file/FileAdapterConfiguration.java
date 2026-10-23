@@ -69,6 +69,12 @@ public class FileAdapterConfiguration {
     static FileTargetCall compose(FileOutbound outbound, FolderResolver folders,
             org.springframework.transaction.PlatformTransactionManager transactions,
             CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations) {
+        if (transactions == null) {
+            // T190: without a transaction manager the platform reads run untransacted and tenant-stamping/RLS reads
+            // can fail or see nothing - a wiring bug must be loud, not silent (kept non-fatal for slice contexts)
+            org.slf4j.LoggerFactory.getLogger(FileAdapterConfiguration.class).error("no PlatformTransactionManager: the"
+                    + " FILE target reads run WITHOUT a transaction - this is a wiring error outside a test slice");
+        }
         if (transactions != null) {
             org.springframework.transaction.support.TransactionTemplate tx =
                     new org.springframework.transaction.support.TransactionTemplate(transactions);
