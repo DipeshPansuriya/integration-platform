@@ -1,5 +1,7 @@
 package io.integrationplatform.delivery.web;
 
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -138,5 +140,23 @@ class DeliveryApiExceptionHandlerTest {
                 .andExpect(content().json("{\"error\":\"the request failed\"}", true))
                 .andReturn().getResponse().getContentAsString();
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("secret-sql-value-42");
+    }
+
+    @Test
+    void aThrownAccessDeniedIsSpringSecuritys403NotTheFixed500() throws Exception {
+        when(aggregates.aggregated(any())).thenThrow(new AccessDeniedException("denied-42"));
+        String body = mvc.perform(get(REPORT).param("day", LocalDate.now(ZoneOffset.UTC).toString()).with(signedIn()))
+                .andExpect(status().isForbidden())
+                .andReturn().getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("the request failed");
+    }
+
+    @Test
+    void aThrownAuthenticationExceptionIsSpringSecuritys401NotTheFixed500() throws Exception {
+        when(aggregates.aggregated(any())).thenThrow(new BadCredentialsException("bad-42"));
+        String body = mvc.perform(get(REPORT).param("day", LocalDate.now(ZoneOffset.UTC).toString()).with(signedIn()))
+                .andExpect(status().isUnauthorized())
+                .andReturn().getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("the request failed");
     }
 }

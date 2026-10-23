@@ -11,6 +11,8 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -49,6 +51,13 @@ public class AppApiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> answer(Exception failure) {
+        // F3 (Karan L-3): a security exception is Spring Security's to answer (403 / 401), never the fixed 500
+        if (failure instanceof AccessDeniedException denied) {
+            throw denied;
+        }
+        if (failure instanceof AuthenticationException unauthenticated) {
+            throw unauthenticated;
+        }
         HttpStatusCode status = HttpStatusCode.valueOf(400);
         HttpHeaders headers = HttpHeaders.EMPTY;
         if (failure instanceof ErrorResponse shaped) {

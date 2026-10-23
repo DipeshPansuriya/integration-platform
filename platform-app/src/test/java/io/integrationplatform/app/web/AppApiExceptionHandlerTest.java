@@ -1,5 +1,7 @@
 package io.integrationplatform.app.web;
 
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -120,5 +122,23 @@ class AppApiExceptionHandlerTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).doesNotContain("secret-row-value-42");
+    }
+
+    @Test
+    void aThrownAccessDeniedIsSpringSecuritys403NotTheFixed500() throws Exception {
+        when(service.timeline(any())).thenThrow(new AccessDeniedException("denied-42"));
+        String body = mvc.perform(get(MESSAGES + "/" + ID + "/timeline").with(signedIn()))
+                .andExpect(status().isForbidden())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("the request failed");
+    }
+
+    @Test
+    void aThrownAuthenticationExceptionIsSpringSecuritys401NotTheFixed500() throws Exception {
+        when(service.timeline(any())).thenThrow(new BadCredentialsException("bad-42"));
+        String body = mvc.perform(get(MESSAGES + "/" + ID + "/timeline").with(signedIn()))
+                .andExpect(status().isUnauthorized())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("the request failed");
     }
 }

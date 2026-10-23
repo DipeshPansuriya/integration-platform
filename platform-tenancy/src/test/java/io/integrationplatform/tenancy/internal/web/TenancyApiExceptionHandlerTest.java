@@ -54,6 +54,16 @@ class TenancyApiExceptionHandlerTest {
             throw new IllegalStateException("secret-value-42 jdbc:postgresql://db/internal");
         }
 
+        @GetMapping("/denied")
+        String denied() {
+            throw new org.springframework.security.access.AccessDeniedException("denied-42");
+        }
+
+        @GetMapping("/unauthenticated")
+        String unauthenticated() {
+            throw new org.springframework.security.authentication.BadCredentialsException("bad-42");
+        }
+
         @GetMapping("/typed/{n}")
         String typed(@org.springframework.web.bind.annotation.PathVariable("n") int n) {
             return "n" + n;
@@ -112,5 +122,23 @@ class TenancyApiExceptionHandlerTest {
         mvc.perform(post("/api/v1/me").with(signedIn()))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(header().exists("Allow"));
+    }
+
+    @Test
+    void aThrownAccessDeniedIsSpringSecuritys403NotTheFixed500() throws Exception {
+        
+        String body = mvc.perform(get("/api/test/boom/denied").with(signedIn()))
+                .andExpect(status().isForbidden())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("the request failed");
+    }
+
+    @Test
+    void aThrownAuthenticationExceptionIsSpringSecuritys401NotTheFixed500() throws Exception {
+        
+        String body = mvc.perform(get("/api/test/boom/unauthenticated").with(signedIn()))
+                .andExpect(status().isUnauthorized())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("the request failed");
     }
 }
