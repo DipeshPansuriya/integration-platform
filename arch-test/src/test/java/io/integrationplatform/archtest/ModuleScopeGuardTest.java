@@ -116,8 +116,9 @@ class ModuleScopeGuardTest {
     }
 
     @Test
-    void buildOutputFoldersAreNotWalkedButConsoleSourceIs(@TempDir Path root) throws IOException {
-        // B31: ui/node_modules and ui/dist are installed/generated, never our source - walking them took minutes.
+    void theInstalledPackagesAreNotWalkedButTheShippedBundleAndTheConsoleSourceAre(@TempDir Path root) throws IOException {
+        // B31/B31-1: ui/node_modules is installed, never our source (walking it took minutes); ui/dist is the shipped
+        // bundle - a marker that enters only at build time must still be seen there.
         for (String generated : List.of("ui/node_modules/dep/index.js", "ui/dist/main.js")) {
             Path file = root.resolve(generated);
             Files.createDirectories(file.getParent());
@@ -128,7 +129,7 @@ class ModuleScopeGuardTest {
         Files.writeString(source, "const seed = 'e2e-seed';");
 
         assertThat(ModuleScopeGuard.productionFilesNaming(root, List.of(), ModuleScopeGuard.SEED_MARKERS))
-                .containsExactly("ui/src/app.ts");
+                .containsExactly("ui/dist/main.js", "ui/src/app.ts");
     }
 
     @Test
