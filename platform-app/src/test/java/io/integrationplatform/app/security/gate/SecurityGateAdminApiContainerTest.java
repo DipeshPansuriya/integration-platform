@@ -269,7 +269,9 @@ class SecurityGateAdminApiContainerTest {
         List<String> failures = new ArrayList<>();
         for (var attempt : hostile.entrySet()) {
             ConsoleBrowser.Exchange r = admin.api("PUT", path, attempt.getValue(), true);
-            if (r.status() != 400) { // review C4: the specific refusal, not any 4xx (a 401/403/404 would hide a broken call)
+            // L15: a body over the admin API's 2 MB request limit is a 413, before the body is read
+            int expected = attempt.getKey().startsWith("10 MB") ? 413 : 400;
+            if (r.status() != expected) { // review C4: the specific refusal, not any 4xx (a 401/403/404 would hide a broken call)
                 failures.add(attempt.getKey() + " -> " + r.status() + " (body " + r.body().length() + " chars)");
             } else if (r.body().length() > 20_000 || r.body().contains("\tat ") || r.body().contains("org.postgresql")
                     || !r.body().contains("\"error\"")) {
