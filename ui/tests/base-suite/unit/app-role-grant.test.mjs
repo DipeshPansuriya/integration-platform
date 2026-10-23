@@ -53,7 +53,7 @@ const sourcesUnder = (dir) => readdirSync(dir).flatMap((name) => {
 test('only boot-backend.mjs launches the app jar, and it grants the role before that launch', () => {
   const launchers = [...sourcesUnder(join(uiRoot, 'scripts')), ...sourcesUnder(join(uiRoot, 'tests'))]
     .filter((file) => /['"]-jar['"]/.test(readFileSync(file, 'utf8')) && !file.endsWith('app-role-grant.test.mjs'))
-    .map((file) => file.slice(uiRoot.length + 1).replaceAll('\', '/'));
+    .map((file) => file.slice(uiRoot.length + 1).split(/[\\/]/).join('/'));
   assert.deepEqual(launchers, ['scripts/boot-backend.mjs']);
   const boot = readFileSync(join(uiRoot, 'scripts', 'boot-backend.mjs'), 'utf8');
   assert.ok(boot.indexOf('appRoleBootSql(loginName)') < boot.indexOf("'-jar'"), 'the grant runs before the jar is started');
