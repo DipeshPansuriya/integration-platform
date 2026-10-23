@@ -21,6 +21,7 @@ import { saveRefusal } from '../mapping/saveRefusal';
 import '../mapping/mapping.css';
 import type { FieldSchema, MappingGraph, SavedMappingAnswer } from '../mapping/graph';
 import type { CanvasSelected } from '../mapping/MappingCanvas';
+import { canSaveMapping, classifyMappingLoad, designerKey, loadFailureText, saveThrownText, VersionLoadError } from './mapping-load';
 
 const MappingCanvas = lazy(() => import('../mapping/MappingCanvas'));
 // T-039 (E7 wave 2 lane D2): the CodeMirror raw-expression editor, its own lazy chunk like the canvas.
@@ -59,14 +60,24 @@ const withEmitted = (next: MappingGraph): { graph: MappingGraph; refusal: string
 };
 
 const loadVersion = async (versionId: string) => {
-  const { data } = await api.GET('/api/v1/admin/contracts/versions/{versionId}', {
+  const { data, response } = await api.GET('/api/v1/admin/contracts/versions/{versionId}', {
     params: { path: { versionId } }
   });
+  // A5: a contract version that did not load must not read as "no fields" (Save would then skip its guard).
+  if (!response?.ok) throw new VersionLoadError(response?.status ?? 0);
   return data as { jsonSchema?: FieldSchema | null } | null;
 };
 
+/** A6: one designer per route - the key remounts it, so nothing of the previous route's state survives. */
 export function MappingDesigner({ routeId }: { routeId: string | null }) {
+  return <MappingDesignerRoute key={designerKey(routeId)} routeId={routeId} />;
+}
+
+function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
   const [loaded, setLoaded] = useState(false);
+  // A5: a failed load (anything but 404) is an error with Retry; Save stays off.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [missing, setMissing] = useState(false);
   const [graph, setGraph] = useState<MappingGraph>(emptyGraph());
   const [targetSchema, setTargetSchema] = useState<FieldSchema | null>(null);
@@ -85,18 +96,25 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
       return;
     }
     setLoaded(false);
+    setLoadError(null);
     setDirty(false);
     Promise.all([
       api.GET('/api/v1/admin/routes/{routeId}/mapping', { params: { path: { routeId } } }),
       api.GET('/api/v1/admin/contracts')
     ]).then(async ([mapping, contracts]) => {
       if (cancelled) return;
-      if (mapping.response?.status === 404) {
+      const outcome = classifyMappingLoad(mapping);
+      if (outcome.kind === 'missing') {
         setMissing(true); // another tenant's route (ADR-011 Decision 4) or an unknown id
         setLoaded(true);
         return;
       }
-      const savedAnswer = (mapping.data ?? {}) as SavedMappingAnswer;
+      if (outcome.kind === 'failed' || !contracts.response?.ok) {
+        setLoadError(outcome.kind === 'failed' ? outcome.text : loadFailureText('contracts', contracts.response?.status ?? 0));
+        setLoaded(true);
+        return;
+      }
+      const savedAnswer = outcome.saved;
       setMappingId(savedAnswer.mappingId ?? null);
       setGraph(parseSavedMapping(savedAnswer));
       // Re-render exactly as left: the two trees come from exactly the bound contract versions.
@@ -129,11 +147,15 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
       }
       setVersions(options);
       setLoaded(true);
+    }).catch((e: unknown) => {
+      if (cancelled) return;
+      setLoadError(loadFailureText(e instanceof VersionLoadError ? 'contract-version' : 'mapping', e instanceof VersionLoadError ? e.status : 0));
+      setLoaded(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [routeId]);
+  }, [routeId, attempt]);
 
   /** The schema trees exactly of the bound contract versions: fetching one side never drops the
    * other side's tree, and already drawn links stay (the save guard refuses stale ones). */
@@ -230,21 +252,25 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
       return;
     }
     setRefusal(null);
-    const { data, error } = await api.PUT('/api/v1/admin/routes/{routeId}/mapping', {
-      params: { path: { routeId } },
-      body: toSaveRequest(graph) as never
-    });
-    if (!error && data) {
-      setGraph({
-        ...parseSavedMapping(data as SavedMappingAnswer),
-        sourceFields: graph.sourceFields,
-        targetFields: graph.targetFields
+    try {
+      const { data, error } = await api.PUT('/api/v1/admin/routes/{routeId}/mapping', {
+        params: { path: { routeId } },
+        body: toSaveRequest(graph) as never
       });
-      setMappingId((data as SavedMappingAnswer).mappingId ?? mappingId);
-      setDirty(false);
-      setSaved(true); // stored for this pair only; re-renders exactly as it was left
-    } else {
-      setRefusal(refusalOf(error));
+      if (!error && data) {
+        setGraph({
+          ...parseSavedMapping(data as SavedMappingAnswer),
+          sourceFields: graph.sourceFields,
+          targetFields: graph.targetFields
+        });
+        setMappingId((data as SavedMappingAnswer).mappingId ?? mappingId);
+        setDirty(false);
+        setSaved(true); // stored for this pair only; re-renders exactly as it was left
+      } else {
+        setRefusal(refusalOf(error));
+      }
+    } catch {
+      setRefusal(saveThrownText()); // no answer at all: nothing was saved, and the user is told
     }
   }
 
@@ -263,11 +289,18 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
   return (
     <div data-page="mapping-designer" data-mapping-loaded={loaded ? 'true' : undefined} className="mapping-page">
       <div className="mapping-head">
-        <h2>Mapping designer</h2>
+        <h1>Mapping designer</h1>
         {routeId && <a href="#/mappings" data-action="all-mappings">All mappings</a>}
       </div>
       {routeId ? (
-        missing ? (
+        loadError !== null ? (
+          <div role="alert" className="mapping-card mapping-alert mapping-alert-danger" data-load-error="mapping">
+            <p>{loadError}</p>
+            <button type="button" className="btn" data-action="retry-load" onClick={() => setAttempt((n) => n + 1)}>
+              Retry
+            </button>
+          </div>
+        ) : missing ? (
           <section className="mapping-card mapping-canvas-card" aria-label="Mapping canvas" data-mapping-missing="true">
             {emptyState}
           </section>
@@ -334,7 +367,7 @@ export function MappingDesigner({ routeId }: { routeId: string | null }) {
                 >
                   Link selected fields
                 </button>
-                <button type="button" className="btn btn-primary" data-action="save" onClick={() => void save()} disabled={!routeId}>
+                <button type="button" className="btn btn-primary" data-action="save" onClick={() => void save()} disabled={!canSaveMapping({ routeId, loaded, loadError })}>
                   Save
                 </button>
                 <div className="mapping-actions-note">

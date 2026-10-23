@@ -4,6 +4,8 @@
 
 import '@gorules/jdm-editor/dist/style.css';
 import { DecisionTable, JdmConfigProvider, type DecisionTableType } from '@gorules/jdm-editor';
+import { useEffect, useState } from 'react';
+import { jdmThemeMode, type JdmMode } from './theme-mode';
 import type { ZenDecisionTable } from '../DecisionTableEditorAdapter';
 
 type Props = {
@@ -13,11 +15,27 @@ type Props = {
   onChange: (nodeId: string, table: unknown) => void;
 };
 
+/** Follows the app toggle (html[data-theme]) so jdm renders its dark algorithm with the app. */
+function useAppThemeMode(): JdmMode {
+  const root = typeof document === 'undefined' ? null : document.documentElement;
+  const [mode, setMode] = useState<JdmMode>(() => jdmThemeMode(root?.dataset.theme));
+  useEffect(() => {
+    if (!root) return;
+    const sync = () => setMode(jdmThemeMode(root.dataset.theme));
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, [root]);
+  return mode;
+}
+
 export function JdmDecisionTable({ nodeId, name, table, onChange }: Props) {
+  const mode = useAppThemeMode();
   return (
     <section data-decision-table={nodeId}>
       <h3>{name}</h3>
-      <JdmConfigProvider>
+      <JdmConfigProvider theme={{ mode }}>
         <DecisionTable
           id={nodeId}
           tableHeight={420}

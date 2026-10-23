@@ -363,7 +363,7 @@ test('B13 the leave dialog is modal, takes focus, closes on Escape and gives foc
   await expect(page.locator('[data-action="stay"]')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(confirmBox(page)).toBeHidden();
-  await expect(page.locator('[data-page="flow-definition"] h2'), 'focus returns to the editor heading').toBeFocused();
+  await expect(page.locator('[data-page="flow-definition"] h1'), 'focus returns to the editor heading').toBeFocused();
 });
 
 test('B13 a failing field is aria-invalid and described by a visible error text', async ({ page }) => {
