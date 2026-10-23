@@ -47,8 +47,8 @@ public record RouteConfigRow(UUID routeId, UUID targetEndpointId, String targetT
         }
     }
 
-    /** The cache key this row's route instance is held under (target endpoint, endpoint version). */
-    public RouteKey key() {
-        return new RouteKey(targetEndpointId, endpointVersion());
+    /** The cache key this row's route instance is held under for a tenant (tenant, target endpoint, endpoint version). */
+    public RouteKey key(UUID tenantId) {
+        return new RouteKey(tenantId, targetEndpointId, endpointVersion());
     }
 }

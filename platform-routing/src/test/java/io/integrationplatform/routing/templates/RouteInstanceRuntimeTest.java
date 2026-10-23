@@ -93,7 +93,7 @@ class RouteInstanceRuntimeTest {
         RouteConfigRow row = new RouteConfigRow(UUID.randomUUID(), UUID.randomUUID(), "API",
                 "https://target.example/v1", null, UUID.randomUUID());
 
-        RouteInstance instance = runtime.factory().ensure(row);
+        RouteInstance instance = runtime.factory().ensure(java.util.UUID.fromString("00000000-0000-4000-8000-0000000000aa"), row);
 
         assertThat(runtime.context().getRoute(instance.camelRouteId()))
                 .as("the route instance is live on the runtime's own started context").isNotNull();

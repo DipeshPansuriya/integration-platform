@@ -131,7 +131,7 @@ class RouteInstanceSendDispatchCredentialGateTest {
         RouteInstance instance = mock(RouteInstance.class);
         when(instance.consumerUri()).thenReturn("direct:gate");
         RouteInstanceFactory routes = mock(RouteInstanceFactory.class);
-        when(routes.ensure(row)).thenReturn(instance);
+        when(routes.ensure(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(row))).thenReturn(instance);
         return new RouteInstanceSendDispatch(TransactionOperations.withoutTransaction(), deliveries, tenants,
                 (t, i) -> List.of(row), routes, producer, outcomes, () -> NOW, credentialed);
     }

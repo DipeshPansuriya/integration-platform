@@ -357,6 +357,24 @@ public final class SystemSettings {
         }
     }
 
+    /**
+     * T178c-1: a STORED FILE row saved before the {@code {deliveryId}} rule (never rewritten). True only for a FILE
+     * system whose settings carry a non-blank text pattern without the placeholder; an absent or blank pattern uses
+     * the delivery-id default name, and unreadable settings are not flagged here (the send refuses those itself).
+     */
+    public static boolean storedFilePatternLacksDeliveryId(String type, String settingsJson) {
+        if (type == null || !type.equalsIgnoreCase("FILE") || settingsJson == null) {
+            return false;
+        }
+        try {
+            JsonNode field = new tools.jackson.databind.json.JsonMapper().readTree(settingsJson).get("fileNamePattern");
+            return field != null && field.isString() && !field.stringValue().isBlank()
+                    && !field.stringValue().contains("{deliveryId}");
+        } catch (tools.jackson.core.JacksonException unreadable) {
+            return false;
+        }
+    }
+
     private static String fileNamePatternProblem(JsonNode value) {
         String expected = "must be a plain file name (at most 128 characters, no folder separator) using only"
                 + " the {deliveryId} and {ext} placeholders";

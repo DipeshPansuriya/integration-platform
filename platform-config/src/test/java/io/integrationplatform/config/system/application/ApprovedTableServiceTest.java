@@ -40,7 +40,8 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * E16 F3 (design note 2026-10-22, option B; D1 tenant approver, D4 no self-approval): the approval service of a DB
  * target's tables. A request creates a PENDING row and one audit event; a decision goes through the database function
- * (the repository mock answers its codes); a refusal publishes no audit event (it rolls back; the controller logs it).
+ * (the repository mock answers its codes); a refusal of the decision publishes no audit event (it rolls back; the controller logs it), but a refused APPROVAL
+ * of a real DB target writes one DB_TABLE_APPROVAL_REFUSED event (L19) in its own REQUIRES_NEW transaction.
  */
 class ApprovedTableServiceTest {
 
@@ -223,7 +224,7 @@ class ApprovedTableServiceTest {
                     assertThat(e.httpStatus()).isEqualTo(409);
                     assertThat(e.body()).containsEntry("refusal", "TARGET_CHANGED");
                 });
-        assertThat(events).isEmpty();
+        assertThat(audits()).extracting(AuditEvent::action).containsExactly(ConfigAuditActions.DB_TABLE_APPROVAL_REFUSED); // L19: refusal event only
     }
 
     @Test
@@ -280,7 +281,7 @@ class ApprovedTableServiceTest {
                     assertThat(e.body().toString()).contains("DB_ACCOUNT_TOO_WIDE").contains("SUPERUSER");
                 });
         verify(tables, never()).decide(anyString(), anyString(), anyString());
-        assertThat(events).isEmpty();
+        assertThat(audits()).extracting(AuditEvent::action).containsExactly(ConfigAuditActions.DB_TABLE_APPROVAL_REFUSED); // L19: refusal event only, never an approval
     }
 
     @Test
@@ -367,7 +368,7 @@ class ApprovedTableServiceTest {
     @Test
     @Tag("negative")
     @Tag("security")
-    @DisplayName("T178a-1: a refusal still happens before any decision transaction; nothing is decided or audited")
+    @DisplayName("T178a-1: a refusal still happens before any decision transaction; nothing is decided, only the refusal event is written")
     void aRefusalOpensNoDecisionTransaction() {
         ApprovedTableService transactional = new ApprovedTableService(tables, systems, events::add,
                 () -> Optional.of(TENANT), width, new TransactionTemplate(new MarkerTransactionManager()));
@@ -378,6 +379,90 @@ class ApprovedTableServiceTest {
         assertThatThrownBy(() -> transactional.decide(SYSTEM, ROW, "APPROVE", APPROVER))
                 .isInstanceOfSatisfying(ConfigApiException.class, e -> assertThat(e.httpStatus()).isEqualTo(409));
         verify(tables, never()).decide(anyString(), anyString(), anyString());
-        assertThat(events).isEmpty();
+        // L19: the only thing written is the durable refusal event (own transaction); nothing is decided or approved
+        assertThat(audits()).extracting(AuditEvent::action).containsExactly(ConfigAuditActions.DB_TABLE_APPROVAL_REFUSED);
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("F1 (Karan L-1): a refusal whose audit write failed does not spend the hour's throttle slot; the next one writes")
+    void aFailedAuditWriteDoesNotSilenceTheEventForAnHour() {
+        List<Object> written = new ArrayList<>();
+        int[] calls = {0};
+        ApprovedTableService flaky = new ApprovedTableService(tables, systems, event -> {
+            if (calls[0]++ == 0) {
+                throw new IllegalStateException("outbox down");
+            }
+            written.add(event);
+        }, () -> Optional.of(TENANT), width, TransactionOperations.withoutTransaction());
+        when(systems.findSystem(SYSTEM)).thenReturn(Optional.of(system("DB")));
+        when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)));
+        when(width.refusalFor(any(), anyString())).thenReturn(Optional.of("DB_ACCOUNT_TOO_WIDE: SUPERUSER"));
+
+        for (int attempt = 0; attempt < 3; attempt++) {
+            assertThatThrownBy(() -> flaky.decide(SYSTEM, ROW, "APPROVE", APPROVER))
+                    .isInstanceOfSatisfying(ConfigApiException.class, e -> assertThat(e.httpStatus()).isEqualTo(409));
+        }
+        assertThat(calls[0]).as("attempt 1 failed, attempt 2 wrote, attempt 3 is throttled after the success").isEqualTo(2);
+        assertThat(written).hasSize(1);
+    }
+
+    /** A transaction manager that honours REQUIRES_NEW and keeps what each transaction published until it commits. */
+    private static final class BufferingTransactionManager extends AbstractPlatformTransactionManager {
+        private static final class Tx {
+            boolean begun;
+            final List<Object> buffer = new ArrayList<>();
+        }
+
+        private final ThreadLocal<Tx> current = new ThreadLocal<>();
+        final List<Object> committed = new ArrayList<>();
+
+        void publish(Object event) {
+            current.get().buffer.add(event);
+        }
+
+        @Override protected Object doGetTransaction() { return current.get() == null ? new Tx() : current.get(); }
+        @Override protected boolean isExistingTransaction(Object transaction) { return ((Tx) transaction).begun; }
+        @Override protected void doBegin(Object transaction, TransactionDefinition definition) {
+            ((Tx) transaction).begun = true;
+            current.set((Tx) transaction);
+        }
+        @Override protected Object doSuspend(Object transaction) {
+            Tx suspended = current.get();
+            current.remove();
+            return suspended;
+        }
+        @Override protected void doResume(Object transaction, Object suspended) { current.set((Tx) suspended); }
+        @Override protected void doCommit(DefaultTransactionStatus status) {
+            committed.addAll(((Tx) status.getTransaction()).buffer);
+        }
+        @Override protected void doRollback(DefaultTransactionStatus status) { }
+        @Override protected void doCleanupAfterCompletion(Object transaction) { current.remove(); }
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("F2 (Karan L-2): the refusal event commits in its own REQUIRES_NEW transaction even when the caller's transaction rolls back; the 409 is still thrown")
+    void theRefusalEventSurvivesAnOuterRollback() {
+        BufferingTransactionManager manager = new BufferingTransactionManager();
+        TransactionTemplate outer = new TransactionTemplate(manager);
+        TransactionTemplate own = new TransactionTemplate(manager);
+        own.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        ApprovedTableService nested = new ApprovedTableService(tables, systems, manager::publish,
+                () -> Optional.of(TENANT), width, outer, java.time.Clock.systemUTC(), own);
+        when(systems.findSystem(SYSTEM)).thenReturn(Optional.of(system("DB")));
+        when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)));
+        when(width.refusalFor(any(), anyString())).thenReturn(Optional.of("DB_ACCOUNT_TOO_WIDE: SUPERUSER"));
+
+        outer.executeWithoutResult(status -> {
+            assertThatThrownBy(() -> nested.decide(SYSTEM, ROW, "APPROVE", APPROVER))
+                    .isInstanceOfSatisfying(ConfigApiException.class, e -> assertThat(e.httpStatus()).isEqualTo(409));
+            status.setRollbackOnly();
+        });
+
+        assertThat(manager.committed).hasSize(1).first().isInstanceOfSatisfying(AuditEvent.class,
+                e -> assertThat(e.action()).isEqualTo(ConfigAuditActions.DB_TABLE_APPROVAL_REFUSED));
     }
 }

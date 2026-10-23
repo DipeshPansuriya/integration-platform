@@ -129,6 +129,54 @@ class SystemPersistenceShowcaseWiringTest {
         });
     }
 
+    @ParameterizedTest(name = "T161 R1: the exception on the app's own / platform-store port \"{0}\" refuses to start")
+    @ValueSource(strings = {"5432", "9092", "8080", "8089,5432", "9092,8089"})
+    void theExceptionOnAnAppOwnPortRefusesToStart(String ports) {
+        profiles(runner, "showcase").withPropertyValues(LOCAL_HOSTS + "=localhost", LOCAL_PORTS + "=" + ports)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining(LOCAL_PORTS)
+                            .hasMessageContaining("own port");
+                });
+    }
+
+    @ParameterizedTest(name = "T161 R1: the configured {0} port is the app's own and is refused too")
+    @ValueSource(strings = {"server.port", "management.server.port"})
+    void theConfiguredServerPortsAreTheAppsOwn(String property) {
+        profiles(runner, "showcase").withPropertyValues(LOCAL_HOSTS + "=localhost", LOCAL_PORTS + "=8089",
+                property + "=8089").run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("own port");
+                });
+    }
+
+    @ParameterizedTest(name = "T161 R2: the exception next to the case variant \"showcase,{0}\" refuses to start")
+    @ValueSource(strings = {"Prod", "PROD", "Production", "Live", "Dev", "LOCAL", "Test"})
+    void aCaseVariantProfileIsOutsideTheAllowListAndRefuses(String variant) {
+        profiles(runner, "showcase", variant).withPropertyValues(LOCAL_HOSTS + "=localhost", LOCAL_PORTS + "=8089")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining(variant);
+                });
+    }
+
+    @ParameterizedTest(name = "T161 R2: the exception under the case variant \"{0}\" alone is not the showcase profile")
+    @ValueSource(strings = {"Showcase", "SHOWCASE"})
+    void aCaseVariantOfTheShowcaseProfileDoesNotEnableTheException(String variant) {
+        profiles(runner, variant).withPropertyValues(LOCAL_HOSTS + "=localhost", LOCAL_PORTS + "=8089")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause().isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining(LOCAL_HOSTS);
+                });
+    }
+
     @ParameterizedTest(name = "B21 (F2): the exception under \"showcase,{0}\" refuses to start")
     @ValueSource(strings = {"prod", "production", "staging", "uat"})
     void theExceptionNextToAProductionLikeProfileRefusesToStart(String productionLike) {

@@ -203,6 +203,9 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
         if (!deferredHere.remove(targetEndpointId)) {
             return;
         }
+        if (cause == BulkheadRedrive.Cause.SLOT_FREE) {
+            heldInARow.remove(targetEndpointId); // T190: a freed slot re-drives a deferral - what was counted before it no longer binds
+        }
         boolean moreMayWait = true; // a failing scan keeps the flag
         try {
             moreMayWait = redrive.redriveOneDeferred(targetEndpointId, cause);
