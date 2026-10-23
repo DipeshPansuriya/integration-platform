@@ -1,0 +1,16 @@
+# T204 (L4): migrations may WAIT for a lock only briefly. V2_4_1370 adds a CHECK ... NOT VALID to the partitioned delivery
+# table (ACCESS EXCLUSIVE, catalog change only); queued behind a long transaction it would stand in the lock queue and
+# block every delivery behind it. With lock_timeout the migration instead fails fast with SQLSTATE 55P03, rolls back,
+# writes no history row, and is run again in a quiet window (runbook: 2026-10-22-runbook-f3-go-live.md, "Migration lock
+# timeout"). The migration files are not edited (their checksums are on origin/main), so the setting lives here.
+#
+# init-sqls (Boot's name for Flyway initSql) runs on the migration connection only (Flyway's own connections; the application pool is untouched), as the
+# schema owner. lock_timeout counts only time spent WAITING for a lock, never running time, so the long backfill and
+# validation scans are not shortened; V2_4_1400's VALIDATE CONSTRAINT takes SHARE UPDATE EXCLUSIVE and does not wait on
+# writers. Flyway's own schema-history lock is a polled pg_try_advisory_lock, so it is not affected either.
+#
+# IPAAS_FLYWAY_LOCK_TIMEOUT: a PostgreSQL duration (5s, 500ms, 1min); 0 switches the limit off (wait for ever). Not a
+# secret, so unlike the connection settings it carries a safe default.
+spring:
+  flyway:
+    init-sqls: SET lock_timeout = '${IPAAS_FLYWAY_LOCK_TIMEOUT:5s}'

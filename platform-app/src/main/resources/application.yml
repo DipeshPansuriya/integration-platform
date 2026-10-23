@@ -27,6 +27,8 @@ spring:
       # E14 seam (arjun-fullstack, F8): scheduler.yml arrives with lane B's T-056 (platform-app owns the runtime
       # wiring, ADR-012 section 2) - the db-scheduler task-table name (schema scheduler), enabled flag, poll interval.
       - optional:classpath:config/scheduler.yml
+      # T204 (L4): migrations fail fast on a lock wait (init-sql lock_timeout) instead of queueing behind a long transaction.
+      - optional:classpath:config/flyway-lock-timeout.yml
   # R07: connection settings come only from environment variable names; no value, no default.
   datasource:
     url: ${DB_URL}
