@@ -28,6 +28,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -50,7 +57,7 @@ class ApprovedTableServiceTest {
     private final List<Object> events = new ArrayList<>();
     private final DbAccountWidthCheck width = mock(DbAccountWidthCheck.class);
     private final ApprovedTableService service = new ApprovedTableService(tables, systems, events::add,
-            () -> Optional.of(TENANT), width);
+            () -> Optional.of(TENANT), width, TransactionOperations.withoutTransaction());
 
     @org.junit.jupiter.api.BeforeEach
     void narrowAccountByDefault() {
@@ -314,5 +321,63 @@ class ApprovedTableServiceTest {
         when(tables.decide(ROW, APPROVER.toString(), "REVOKE")).thenReturn("REVOKED");
         service.decide(SYSTEM, ROW, "REVOKE", APPROVER);
         verify(width, never()).refusalFor(any(), anyString());
+    }
+
+    /** A transaction manager that does nothing but make {@code isActualTransactionActive()} true inside its scope. */
+    private static final class MarkerTransactionManager extends AbstractPlatformTransactionManager {
+        @Override protected Object doGetTransaction() { return new Object(); }
+        @Override protected void doBegin(Object transaction, TransactionDefinition definition) { }
+        @Override protected void doCommit(DefaultTransactionStatus status) { }
+        @Override protected void doRollback(DefaultTransactionStatus status) { }
+    }
+
+    @Test
+    @Tag("security")
+    @DisplayName("T178a-1: the partner-database probe runs OUTSIDE any platform transaction; the reads and the decision run inside one")
+    void theProbeHoldsNoPlatformTransaction() {
+        ApprovedTableService transactional = new ApprovedTableService(tables, systems, events::add,
+                () -> Optional.of(TENANT), width, new TransactionTemplate(new MarkerTransactionManager()));
+        List<String> trail = new ArrayList<>();
+        when(systems.findSystem(SYSTEM)).thenAnswer(call -> {
+            trail.add("read tx=" + TransactionSynchronizationManager.isActualTransactionActive());
+            return Optional.of(system("DB"));
+        });
+        when(tables.find(ROW)).thenAnswer(call -> {
+            trail.add("find tx=" + TransactionSynchronizationManager.isActualTransactionActive());
+            return Optional.of(row(trail.stream().anyMatch(t -> t.startsWith("decide")) ? "APPROVED" : "PENDING_APPROVAL",
+                    SYSTEM));
+        });
+        when(width.refusalFor(any(), anyString())).thenAnswer(call -> {
+            trail.add("probe tx=" + TransactionSynchronizationManager.isActualTransactionActive());
+            return Optional.empty();
+        });
+        when(tables.decide(ROW, APPROVER.toString(), "APPROVE")).thenAnswer(call -> {
+            trail.add("decide tx=" + TransactionSynchronizationManager.isActualTransactionActive());
+            return "APPROVED";
+        });
+
+        transactional.decide(SYSTEM, ROW, "APPROVE", APPROVER);
+
+        assertThat(trail).as("order is unchanged: system and row, then the probe, then the decision")
+                .containsSubsequence("read tx=true", "find tx=true", "probe tx=false", "decide tx=true");
+        assertThat(trail).filteredOn(t -> t.startsWith("probe")).containsExactly("probe tx=false");
+        assertThat(audits()).hasSize(1);
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("T178a-1: a refusal still happens before any decision transaction; nothing is decided or audited")
+    void aRefusalOpensNoDecisionTransaction() {
+        ApprovedTableService transactional = new ApprovedTableService(tables, systems, events::add,
+                () -> Optional.of(TENANT), width, new TransactionTemplate(new MarkerTransactionManager()));
+        when(systems.findSystem(SYSTEM)).thenReturn(Optional.of(system("DB")));
+        when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)));
+        when(width.refusalFor(any(), anyString())).thenReturn(Optional.of("DB_ACCOUNT_TOO_WIDE: SUPERUSER"));
+
+        assertThatThrownBy(() -> transactional.decide(SYSTEM, ROW, "APPROVE", APPROVER))
+                .isInstanceOfSatisfying(ConfigApiException.class, e -> assertThat(e.httpStatus()).isEqualTo(409));
+        verify(tables, never()).decide(anyString(), anyString(), anyString());
+        assertThat(events).isEmpty();
     }
 }

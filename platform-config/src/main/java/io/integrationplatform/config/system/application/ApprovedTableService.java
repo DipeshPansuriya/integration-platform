@@ -16,6 +16,7 @@ import java.util.function.Supplier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -35,11 +36,14 @@ public class ApprovedTableService {
     private final ApplicationEventPublisher events;
     private final Supplier<Optional<UUID>> tenant;
     private final DbAccountWidthCheck width;
+    private final TransactionOperations transactions;
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     public ApprovedTableService(JdbcApprovedTableRepository tables, JdbcSystemRepository systems,
-            ApplicationEventPublisher events, Supplier<Optional<UUID>> tenant, DbAccountWidthCheck width) {
+            ApplicationEventPublisher events, Supplier<Optional<UUID>> tenant, DbAccountWidthCheck width,
+            TransactionOperations transactions) {
+        this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.width = Objects.requireNonNull(width, "width");
         this.tables = Objects.requireNonNull(tables, "tables");
         this.systems = Objects.requireNonNull(systems, "systems");
@@ -78,19 +82,56 @@ public class ApprovedTableService {
     /**
      * Approves ({@code APPROVE}) or revokes ({@code REVOKE}) a row of the system. 404 for a row of another system or
      * tenant, 403 REQUESTER_IS_APPROVER, 409 NOT_PENDING_APPROVAL / NOT_APPROVED.
+     *
+     * <p>T178a-1: three steps, in this order. (1) A short transaction reads the system and the row. (2) A real approval
+     * asks the partner database about the account's width with NO platform transaction open - the probe dials for up
+     * to 10 s and must not hold a pooled platform connection (the T-104 rule). (3) A second short transaction decides
+     * and audits. The decision function still checks the state and the 4-eyes rule itself, so a row that changed
+     * between (1) and (3) is refused there.
      */
-    @Transactional
     public Map<String, Object> decide(String systemId, String id, String decision, UUID actorId) {
+        Preflight pre = transactions.execute(status -> preflight(systemId, id, decision, actorId));
+        if (pre.probe() != null) {
+            requireNarrowAccount(pre.probe()); // T178a: a real approval only (state and 4-eyes checked first)
+        }
+        return transactions.execute(status -> applyDecision(id, decision, actorId, pre.beforeStatus()));
+    }
+
+    private record Probe(UUID systemId, String settings, RuntimeException failure) {
+    }
+
+    private record Preflight(String beforeStatus, Probe probe) {
+    }
+
+    private Preflight preflight(String systemId, String id, String decision, UUID actorId) {
         requireSystem(systemId, false);
         if (!SystemAdminService.isUuid(id)) {
             throw ConfigApiException.notFound();
         }
         ApprovedTableRow before = tables.find(id).filter(row -> row.systemId().equals(systemId))
                 .orElseThrow(ConfigApiException::notFound);
-        if (decision.equals("APPROVE") && before.status().equals("PENDING_APPROVAL")
-                && !before.requestedBy().equals(actorId.toString())) {
-            requireNarrowAccount(systemId, before.tableName()); // T178a: a real approval only (state and 4-eyes first)
+        boolean realApproval = decision.equals("APPROVE") && before.status().equals("PENDING_APPROVAL")
+                && !before.requestedBy().equals(actorId.toString());
+        return new Preflight(before.status(), realApproval ? probeInput(systemId, before.tableName()) : null);
+    }
+
+    /** The system's settings with the table set; a read failure is carried (not thrown) so it refuses fail-closed. */
+    private Probe probeInput(String systemId, String table) {
+        try {
+            SystemDetail system = systems.findSystem(systemId).orElseThrow(ConfigApiException::notFound);
+            JsonNode parsed = system.settings() == null ? null : JSON.readTree(system.settings());
+            ObjectNode settings = parsed != null && parsed.isObject() ? ((ObjectNode) parsed).deepCopy()
+                    : JSON.createObjectNode();
+            settings.put("table", table);
+            return new Probe(UUID.fromString(systemId), settings.toString(), null);
+        } catch (ConfigApiException notFound) {
+            throw notFound;
+        } catch (RuntimeException unknown) {
+            return new Probe(null, null, unknown);
         }
+    }
+
+    private Map<String, Object> applyDecision(String id, String decision, UUID actorId, String beforeStatus) {
         String result = tables.decide(id, actorId.toString(), decision);
         switch (result) {
             case "APPROVED", "REVOKED" -> {
@@ -105,22 +146,18 @@ public class ApprovedTableService {
         ApprovedTableRow after = tables.find(id)
                 .orElseThrow(() -> new IllegalStateException("the decided approved table vanished"));
         audit(result.equals("APPROVED") ? ConfigAuditActions.DB_TABLE_APPROVED : ConfigAuditActions.DB_TABLE_REVOKED,
-                actorId, after, before.status());
+                actorId, after, beforeStatus);
         return view(after);
     }
 
-    /** T178a: fail closed - a wide account, or any failure to learn the width, refuses the approval (409). */
-    private void requireNarrowAccount(String systemId, String table) {
+    /** T178a: fail closed - a wide account, or any failure to learn the width, refuses the approval (409). Runs outside any transaction. */
+    private void requireNarrowAccount(Probe probe) {
         Optional<String> refusal;
         try {
-            SystemDetail system = systems.findSystem(systemId).orElseThrow(ConfigApiException::notFound);
-            JsonNode parsed = system.settings() == null ? null : JSON.readTree(system.settings());
-            ObjectNode settings = parsed != null && parsed.isObject() ? ((ObjectNode) parsed).deepCopy()
-                    : JSON.createObjectNode();
-            settings.put("table", table);
-            refusal = width.refusalFor(UUID.fromString(systemId), settings.toString());
-        } catch (ConfigApiException notFound) {
-            throw notFound;
+            if (probe.failure() != null) {
+                throw probe.failure();
+            }
+            refusal = width.refusalFor(probe.systemId(), probe.settings());
         } catch (RuntimeException unknown) {
             refusal = Optional.of("DB_ACCOUNT_UNVERIFIED: the privilege probe could not run ("
                     + unknown.getClass().getSimpleName() + "); an approval is refused when the account cannot be checked");
