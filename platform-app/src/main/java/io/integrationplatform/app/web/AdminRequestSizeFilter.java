@@ -4,12 +4,17 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletInputStream;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponseWrapper;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
@@ -62,7 +67,7 @@ final class AdminRequestSizeFilter extends OncePerRequestFilter {
         }
         CountingRequest counted = new CountingRequest(request, limit);
         try {
-            chain.doFilter(counted, response);
+            chain.doFilter(counted, new MutedAfterExceeded(response, counted));
         } catch (ServletException | IOException | RuntimeException failure) {
             if (!counted.exceeded()) {
                 throw failure;
@@ -87,6 +92,110 @@ final class AdminRequestSizeFilter extends OncePerRequestFilter {
         response.setContentType("application/json");
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.getWriter().write(BODY);
+    }
+
+    /**
+     * L20: an exception advice (the app's, the config API's) answers an unreadable body with its own 400 and the message
+     * converter flushes it, which commits the response before this filter can replace it. Once the limit is crossed
+     * everything the chain still writes goes nowhere; the 413 is the only answer.
+     */
+    private static final class MutedAfterExceeded extends HttpServletResponseWrapper {
+        private final CountingRequest request;
+
+        MutedAfterExceeded(HttpServletResponse response, CountingRequest request) {
+            super(response);
+            this.request = request;
+        }
+
+        @Override
+        public void setStatus(int status) {
+            if (!request.exceeded()) {
+                super.setStatus(status);
+            }
+        }
+
+        @Override
+        public void sendError(int status) throws IOException {
+            if (!request.exceeded()) {
+                super.sendError(status);
+            }
+        }
+
+        @Override
+        public void sendError(int status, String message) throws IOException {
+            if (!request.exceeded()) {
+                super.sendError(status, message);
+            }
+        }
+
+        @Override
+        public void setHeader(String name, String value) {
+            if (!request.exceeded()) {
+                super.setHeader(name, value);
+            }
+        }
+
+        @Override
+        public void addHeader(String name, String value) {
+            if (!request.exceeded()) {
+                super.addHeader(name, value);
+            }
+        }
+
+        @Override
+        public void setContentType(String type) {
+            if (!request.exceeded()) {
+                super.setContentType(type);
+            }
+        }
+
+        @Override
+        public void setContentLength(int length) {
+            if (!request.exceeded()) {
+                super.setContentLength(length);
+            }
+        }
+
+        @Override
+        public void setContentLengthLong(long length) {
+            if (!request.exceeded()) {
+                super.setContentLengthLong(length);
+            }
+        }
+
+        @Override
+        public void flushBuffer() throws IOException {
+            if (!request.exceeded()) {
+                super.flushBuffer();
+            }
+        }
+
+        @Override
+        public ServletOutputStream getOutputStream() throws IOException {
+            return request.exceeded() ? new Discard() : super.getOutputStream();
+        }
+
+        @Override
+        public PrintWriter getWriter() throws IOException {
+            return request.exceeded() ? new PrintWriter(OutputStream.nullOutputStream()) : super.getWriter();
+        }
+    }
+
+    private static final class Discard extends ServletOutputStream {
+        @Override
+        public void write(int b) {
+            // dropped on purpose
+        }
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public void setWriteListener(WriteListener listener) {
+            // nothing is ever pending
+        }
     }
 
     /** Counts the bytes taken from the body; the read that would pass the limit fails and every later read fails too. */

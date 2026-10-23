@@ -63,13 +63,13 @@ class AdminRequestSizeFilterTest {
             try {
                 bytesRead.set(request.getInputStream().readAllBytes().length);
                 wrote.set(true);
-                ((MockHttpServletResponse) response).setStatus(200);
+                org.springframework.web.util.WebUtils.getNativeResponse(response, MockHttpServletResponse.class).setStatus(200);
             } catch (IOException unreadable) {
                 if (!mapFailureTo400) {
                     throw unreadable;
                 }
                 // what ConfigApiExceptionHandler does with an unreadable body: its own 400 with its own body
-                ((MockHttpServletResponse) response).setStatus(400);
+                org.springframework.web.util.WebUtils.getNativeResponse(response, MockHttpServletResponse.class).setStatus(400);
                 response.getWriter().write("{\"error\":\"the request body could not be read\"}");
             }
         }
@@ -185,7 +185,7 @@ class AdminRequestSizeFilterTest {
     void the_reader_is_counted_too() throws Exception {
         FilterChain readsText = (request, response) -> {
             request.getReader().transferTo(java.io.Writer.nullWriter());
-            ((MockHttpServletResponse) response).setStatus(200);
+            org.springframework.web.util.WebUtils.getNativeResponse(response, MockHttpServletResponse.class).setStatus(200);
         };
         MockHttpServletResponse response = new MockHttpServletResponse();
         filter.doFilter(put(body(LIMIT + 1), false), response, readsText);
