@@ -175,7 +175,7 @@ class DbPrivilegeProbeContainerTest {
         List<String> grants = probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("wide", "orders_in",
                 TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), pinnedAddress(), Duration.ofSeconds(5));
 
-        assertThat(grants).containsExactly("DELETE", "INSERT", "SCHEMA_CREATE", "SELECT", "UPDATE");
+        assertThat(grants).containsExactly("ANY_SCHEMA_CREATE", "DELETE", "INSERT", "SCHEMA_CREATE", "SELECT", "UPDATE");
     }
 
     @Test
