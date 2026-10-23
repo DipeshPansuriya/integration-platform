@@ -4,6 +4,8 @@ import io.integrationplatform.ingest.port.AcceptedMessage;
 import io.integrationplatform.ingest.port.IntakeRefusedException;
 import io.integrationplatform.ingest.port.IntakeTransaction;
 import io.integrationplatform.ingest.port.SyncAnswer;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.nio.charset.StandardCharsets;
@@ -110,7 +112,8 @@ public class IntakeController {
         @ApiResponse(responseCode = "404", description = "The interface is unknown or unpublished"),
         @ApiResponse(responseCode = "413", description = "The payload exceeds the 1 MB cap"),
         @ApiResponse(responseCode = "415", description = "The Content-Type is missing or not application/json"),
-        @ApiResponse(responseCode = "422", description = "The source contract version is off-pin, a business key is unresolved, the record breaks the source contract or its validation rules (PAYLOAD_VALIDATION_FAILED, every violation listed), or the Idempotency-Key was reused with another body"),
+        @ApiResponse(responseCode = "422", description = "The source contract version is off-pin, a business key is unresolved, the record breaks the source contract or its validation rules (PAYLOAD_VALIDATION_FAILED, every violation listed), or the Idempotency-Key was reused with another body",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = IntakeResponses.IntakeErrorBody.class))),
         @ApiResponse(responseCode = "503", description = "The intake transaction could not commit (Retry-After when an ordering key is busy); no tracking id")})
     @PostMapping(value = "/api/v1/interfaces/{interfaceCode}/messages")
     public ResponseEntity<?> submit(
@@ -169,13 +172,15 @@ public class IntakeController {
      * result; all invalid -> 422 and nothing written; over a cap -> 413 naming it. Idempotency-Key is required.
      */
     @ApiResponses({
-        @ApiResponse(responseCode = "202", description = "Accepted: one ordered result per record (ACCEPTED with a tracking id, or REJECTED with a code)"),
+        @ApiResponse(responseCode = "202", description = "Accepted: one ordered result per record (ACCEPTED with a tracking id, or REJECTED with a code)",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = IntakeResponses.BulkIntakeResponse.class))),
         @ApiResponse(responseCode = "400", description = "A required header is missing, the body is malformed JSON, or not a non-empty array"),
         @ApiResponse(responseCode = "403", description = "Forbidden: intake is source-only - a human or non-source caller is refused"),
         @ApiResponse(responseCode = "404", description = "The interface is unknown or unpublished"),
         @ApiResponse(responseCode = "413", description = "The batch exceeds the record-count or byte cap (named in the body)"),
         @ApiResponse(responseCode = "415", description = "The Content-Type is missing or not application/json"),
-        @ApiResponse(responseCode = "422", description = "Every record was rejected, the version is off-pin, or the Idempotency-Key was reused with another body"),
+        @ApiResponse(responseCode = "422", description = "Every record was rejected (ALL_RECORDS_REJECTED, one result per record with its violations), the version is off-pin, or the Idempotency-Key was reused with another body",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = IntakeResponses.BulkIntakeRejection.class))),
         @ApiResponse(responseCode = "503", description = "The intake transaction could not commit (Retry-After when an ordering key is busy)")})
     @PostMapping(value = "/api/v1/interfaces/{interfaceCode}/messages:bulk")
     public ResponseEntity<Map<String, Object>> submitBulk(
