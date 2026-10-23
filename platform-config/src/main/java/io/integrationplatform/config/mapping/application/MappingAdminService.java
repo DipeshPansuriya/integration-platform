@@ -74,8 +74,8 @@ public class MappingAdminService {
         String fieldMappingsJson = MappingContent.canonicalFieldMappings(
                 linksNode.isMissingNode() ? "[]" : linksNode.toString());
         String compiledExpression = requiredText(body, "compiledExpression");
-        String source = textOrNull(body.path("sourceContractVersionId"));
-        String target = textOrNull(body.path("targetContractVersionId"));
+        String source = uuidOrNull("sourceContractVersionId", body.path("sourceContractVersionId"));
+        String target = uuidOrNull("targetContractVersionId", body.path("targetContractVersionId"));
         boolean bound = source != null || target != null;
 
         if (bound && (source == null || target == null)) {
@@ -169,6 +169,19 @@ public class MappingAdminService {
             throw ConfigApiException.validation(field + " must not contain a null character");
         }
         return text;
+    }
+
+    /** T171 S5-A1: a contract-version id is a canonical UUID or a 400 - the SQL casts it with {@code ::uuid}. */
+    private static String uuidOrNull(String field, JsonNode node) {
+        String text = textOrNull(node);
+        if (text == null) {
+            return null;
+        }
+        try {
+            return java.util.UUID.fromString(text).toString();
+        } catch (IllegalArgumentException notAUuid) {
+            throw ConfigApiException.validation(field + " must be a UUID");
+        }
     }
 
     private static String textOrNull(JsonNode node) {
