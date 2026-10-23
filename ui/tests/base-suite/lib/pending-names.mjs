@@ -82,7 +82,7 @@ export const ON_MAIN = Object.freeze({
   T112: true, // detail + failures screens - ui/src/pages/MessageDetail.tsx, Failures.tsx (main aeddfdd9)
   T113: true, // dashboard - ui/src/pages/QueueDashboard.tsx (main aeddfdd9)
   T138: true, // dev-only destination exception - SystemPersistenceConfiguration.java:57
-  DELIVERY_BASE_URL: false // delivery takes the system's settings.baseUrl, not the placeholder endpoint (T106 seam; JdbcSystemRepository.java:87)
+  DELIVERY_BASE_URL: true // delivery takes the system's settings.baseUrl, not the placeholder endpoint - main 73257d41: SystemAdminService.java:93 (create) + :185-189 (save); the placeholder stays only as the null fallback (JdbcSystemRepository.java:87)
 });
 
 // One probe per T-item: every {file, needle} must hold in the working tree for the flag to be true (paths from the repo root).
@@ -103,8 +103,13 @@ export const ON_MAIN_PROBES = Object.freeze({
   ],
   T112: [probe('ui/src/pages/MessageDetail.tsx', 'data-page="message-detail"'), probe('ui/src/pages/Failures.tsx', 'data-page="failures"')],
   T113: [probe('ui/src/pages/QueueDashboard.tsx', 'data-page="queue-dashboard"')],
-  // landed = the placeholder endpoint is gone from the system insert (absent probe)
-  DELIVERY_BASE_URL: [probe('platform-config/src/main/java/io/integrationplatform/config/internal/persistence/JdbcSystemRepository.java', 'https://endpoint.invalid/', { absent: true })],
+  // landed = the service hands the system's settings.baseUrl to the endpoint on create (:93) and on save (:187).
+  // POSITIVE probes: the literal 'https://endpoint.invalid/' stays in JdbcSystemRepository.java:87 as the null fallback
+  // (coalesce(:base_url::text, ...)), so "the placeholder is absent" can never turn true.
+  DELIVERY_BASE_URL: [
+    probe('platform-config/src/main/java/io/integrationplatform/config/system/application/SystemAdminService.java', 'systems.insertDefaultEndpoint(id, code, name, baseUrl)'),
+    probe('platform-config/src/main/java/io/integrationplatform/config/system/application/SystemAdminService.java', 'systems.updateEndpointBaseUrl(current.id(), baseUrl)')
+  ],
   T138: [probe('platform-config/src/main/java/io/integrationplatform/config/internal/persistence/SystemPersistenceConfiguration.java', 'allowed-hosts')]
 });
 
