@@ -18,7 +18,8 @@ import { browserLogin } from './keycloak-login.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.resolve(HERE, '..', '..');
 
-export default async function globalSetup() {
+/** T171: the screens boot with an optional lock holder name (the security gate suite names itself in the lock note). */
+export async function bootScreens({ lockHolder } = {}) {
   const { default: bootBackend } = await import(new URL('../../scripts/boot-backend.mjs', import.meta.url).href);
   const { startConsole } = await import(new URL('./console-server.mjs', import.meta.url).href);
 
@@ -32,7 +33,7 @@ export default async function globalSetup() {
     throw new Error(`global-setup: the console build failed (an unbuilt console is the suite's own red):\n${build.stdout}\n${build.stderr}`);
   }
 
-  const backend = await bootBackend({ loginSeed: true, appEnv: screenAppEnv() });
+  const backend = await bootBackend({ loginSeed: true, appEnv: screenAppEnv(), lockHolder });
   let consoleServer;
   try {
     consoleServer = await startConsole(backend.baseUrl, backend.sessions);
@@ -61,4 +62,8 @@ export default async function globalSetup() {
   process.env.CONSOLE_OTHER_TENANT_FLOW = backend.otherTenantFlowId;
   process.env.CONSOLE_LOGIN_USER = backend.users.default.username;
   process.env.CONSOLE_LOGIN_PASSWORD = backend.users.default.password;
+}
+
+export default async function globalSetup() {
+  await bootScreens();
 }

@@ -198,7 +198,7 @@ export async function startKeycloak({ repo, audience, consoleRedirectUri, postLo
 // --- a server-side console login (the HTTP the browser would send) -----------------------------
 
 /** A cookie jar keyed by host name - cookies are not isolated by port, as in a browser. */
-function cookieJar() {
+export function cookieJar() {
   const jars = new Map();
   return {
     header(url) {
@@ -226,7 +226,7 @@ function cookieJar() {
   };
 }
 
-async function send(jar, url, init = {}) {
+export async function send(jar, url, init = {}) {
   const headers = { ...(init.headers ?? {}) };
   const cookie = jar.header(url);
   if (cookie) headers.cookie = cookie;

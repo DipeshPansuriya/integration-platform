@@ -21,6 +21,11 @@ export function setBooted(backend, consoleServerArg) {
   consoleServer = consoleServerArg;
 }
 
+/** T171: the booted backend handle, for a global setup that publishes more environment names to the workers. */
+export function bootedBackend() {
+  return boot;
+}
+
 export function consoleUrl() {
   return process.env.CONSOLE_URL;
 }
