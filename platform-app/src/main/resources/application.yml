@@ -53,6 +53,12 @@ spring:
   transaction:
     default-timeout: 30
 
+# L15 (security gate S5-A1): the admin API (/api/v1/admin/**) refuses a request body over this many bytes with a 413,
+# before it is read into memory. Default 2 MB; intake (/api/v1/interfaces/**) is not covered (own shape and bulk caps).
+platform:
+  admin-api:
+    max-request-body-bytes: ${ADMIN_API_MAX_REQUEST_BODY_BYTES:2097152}
+
 management:
   endpoints:
     web:
