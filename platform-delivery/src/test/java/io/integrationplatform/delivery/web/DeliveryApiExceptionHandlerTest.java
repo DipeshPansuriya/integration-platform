@@ -52,7 +52,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 class DeliveryApiExceptionHandlerTest {
 
     /** Never contacted: {@code jwt()} puts an already-validated token in the security context. */
-    static final String ISSUER = "http://127.0.0.1:9/realms/platform";
+    static final String ISSUER = "http://127.0.0.1:9/issuer";
     private static final String REPORT = "/api/v1/reports/delivery";
     private static final String CLIENT_BODY = "{\"error\":\"the request was not accepted\"}";
 
