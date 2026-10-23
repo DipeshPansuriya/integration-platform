@@ -45,7 +45,7 @@ async function bearerToken() {
     body: new URLSearchParams({ grant_type: 'client_credentials', client_id: process.env.SEC_BEARER_CLIENT, client_secret: process.env.SEC_BEARER_SECRET })
   });
   const json = await answer.json().catch(() => ({}));
-  expect(answer.status, 'control: the service client gets a token').toBe(200);
+  expect(answer.status, `control: the service client gets a token (answer: ${json.error ?? ''} ${json.error_description ?? ''})`).toBe(200);
   return json.access_token;
 }
 
