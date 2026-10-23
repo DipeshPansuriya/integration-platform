@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { startArtemis } from './release1/artemis.mjs';
 import { seedRefOrder } from './release1/seed-ref-order.mjs';
 import { SLOT_NAMES, acquireSlot } from './release1/slot.mjs';
+import { gateVerdict } from './release1/verdict.mjs';
 import { bearerEnv, bindSubjectSql, clientCredentialsToken } from './release1/tokens.mjs';
 import { baseSuiteBootOptions } from '../tests/base-suite/lib/boot-options.mjs';
 import { exceptionSettings } from '../tests/base-suite/lib/settings.mjs';
@@ -102,6 +103,10 @@ try {
   });
   log(`mvn exit ${code}`);
   console.log(`mvn exit ${code}`);
+  const verdict = gateVerdict(code); // a red Maven run must not exit 0 (the run of 2026-10-23 did)
+  log(verdict.line);
+  console.log(verdict.line);
+  process.exitCode = verdict.exitCode;
 } catch (e) {
   log(`RUNNER FAILED: ${e.message}`);
   console.error(e.message);
