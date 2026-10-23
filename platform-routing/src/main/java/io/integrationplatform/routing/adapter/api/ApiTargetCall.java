@@ -142,7 +142,7 @@ public class ApiTargetCall implements TargetCall {
 
     private void attempt(Stage2Send send, TargetEndpointView view, CheckedDestination destination,
             Map<String, String> headers, ApiTargetBody.ApiWireBody body) {
-        CircuitBreaker breaker = breakers.circuitBreaker(send.targetEndpointId().toString());
+        CircuitBreaker breaker = io.integrationplatform.routing.stage2.BreakerOpenWait.watch(breakers.circuitBreaker(send.targetEndpointId().toString()));
         if (!breaker.tryAcquirePermission()) {
             throw TargetFaultException.CircuitOpenException.of(breaker, send.targetEndpointId());
         }
