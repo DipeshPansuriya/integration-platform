@@ -20,6 +20,7 @@
 // as owner into the suite's own pinned postgres (fixtures only; never production).
 
 import { execFileSync } from 'node:child_process';
+import { suitePgContainer } from './suite-pg.mjs';
 import { randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { expect, test } from '@playwright/test';
@@ -61,9 +62,7 @@ async function twiceAtOnce(page, apiPath) {
 }
 
 function psql(sql) {
-  const names = execFileSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8' })
-    .split('\n').map((name) => name.trim()).filter((name) => name.startsWith('ipass-ui-t41-pg-'));
-  if (names.length !== 1) throw new Error(`exactly one booted suite postgres expected, saw: ${names.join(', ')}`);
+  const names = [suitePgContainer()]; // L22: this run's postgres (IPASS_UI_PG_CONTAINER), else the single running one
   return execFileSync('docker', ['exec', names[0], 'psql', '-U', 'owner', '-d', 'platform', '-t', '-A', '-c', sql],
     { encoding: 'utf8' }).trim();
 }

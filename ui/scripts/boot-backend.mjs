@@ -23,6 +23,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { CONSOLE_PORT_DEFAULT, CONSOLE_PORT_ENV, claimPort, lockCandidates } from './lib/isolation.mjs';
 import { sessionHeaders, sessionLogin, startKeycloak } from './keycloak-harness.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -31,7 +32,9 @@ export const REPO = path.resolve(UI, '..');
 export const PG_IMAGE = 'postgres:17.11-alpine'; // R05: the exact tag compose/compose.yaml + TestImages.java use
 const AUDIENCE = 'integration-platform-api';
 /** The console's origin in the screen and perf protocols (tests/screens/console-server.mjs). */
-export const CONSOLE_ORIGIN = 'http://127.0.0.1:4173';
+export const CONSOLE_ORIGIN = `http://127.0.0.1:${CONSOLE_PORT_DEFAULT}`;
+/** L22: this run's console origin - the default port unless an overlapping run holds it (bootBackend claims and publishes it). */
+export const consoleOrigin = () => `http://127.0.0.1:${Number(process.env[CONSOLE_PORT_ENV]) || CONSOLE_PORT_DEFAULT}`;
 // The PC-wide lock sits beside the MAIN checkout, also from a worktree - resolved exactly as
 // build-checks/check-container-exclusion.sh does (git's common dir), never beside the worktree.
 const LOCK_PATH = process.env.DOCKER_SUITE_LOCK ?? (() => {
@@ -69,30 +72,40 @@ export function writeLockNote(lockDir, holder) {
 `, { flag: 'w' });
 }
 
+/**
+ * L22: takes the first free docker-suite slot (.docker-suite.lock, then -1, -2, -3) - or only DOCKER_SUITE_LOCK when the
+ * caller set it - with the unchanged protocol per slot: mkdir = take, owner note = who, a note older than 60 minutes is
+ * stale, a live slot is never touched. Returns { path, release }; release removes only the slot this boot took.
+ */
 async function acquireSuiteLock(holder = `vijay-developer ui-harness ${new Date().toISOString()}`) {
   const start = Date.now();
+  const candidates = lockCandidates(process.env, LOCK_PATH);
   for (;;) {
-    try {
-      fs.mkdirSync(LOCK_PATH);
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      const ownerFile = path.join(LOCK_PATH, 'owner');
-      if (fs.existsSync(ownerFile)) {
-        const ageMs = Date.now() - fs.statSync(ownerFile).mtimeMs;
-        if (ageMs > 60 * 60 * 1000) {
-          console.error(`docker-suite lock is stale (${Math.round(ageMs / 60000)} min old): removing it`);
-          fs.rmSync(LOCK_PATH, { recursive: true, force: true });
-          continue;
+    for (const lockPath of candidates) {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          fs.mkdirSync(lockPath);
+        } catch (e) {
+          if (e.code !== 'EEXIST') throw e;
+          const ownerFile = path.join(lockPath, 'owner');
+          if (attempt === 0 && fs.existsSync(ownerFile)) {
+            const ageMs = Date.now() - fs.statSync(ownerFile).mtimeMs;
+            if (ageMs > 60 * 60 * 1000) {
+              console.error(`docker-suite lock ${lockPath} is stale (${Math.round(ageMs / 60000)} min old): removing it`);
+              fs.rmSync(lockPath, { recursive: true, force: true });
+              continue;
+            }
+          }
+          break;
         }
+        writeLockNote(lockPath, holder);
+        return { path: lockPath, release: () => fs.rmSync(lockPath, { recursive: true, force: true }) };
       }
-      if (Date.now() - start > 120 * 60 * 1000) {
-        throw new Error(`could not take the docker-suite lock at ${LOCK_PATH} within the wait window`);
-      }
-      await sleep(20000);
-      continue;
     }
-    writeLockNote(LOCK_PATH, holder);
-    return () => fs.rmSync(LOCK_PATH, { recursive: true, force: true });
+    if (Date.now() - start > 120 * 60 * 1000) {
+      throw new Error(`could not take a docker-suite lock (${candidates.join(', ')}) within the wait window`);
+    }
+    await sleep(20000);
   }
 }
 
@@ -585,12 +598,18 @@ export default async function bootBackend({
   const kafkaEnv = sidecars.find((sidecar) => sidecar.key === 'kafka')?.appEnv ?? {};
   mergeAppEnv(kafkaEnv, appEnv);
   if (typeof sourceCredentials !== 'boolean') throw new Error('boot-backend: sourceCredentials is true or false');
-  const releaseLock = await acquireSuiteLock(lockHolder);
+  const suiteLock = await acquireSuiteLock(lockHolder);
+  let consoleClaim; // L22: released with the lock, so a second boot in this process can reuse the port
+  const releaseLock = () => { consoleClaim?.release(); suiteLock.release(); };
   let container, app, keycloak;
   const sidecarNames = []; // T130: every started sidecar, removed before the lock is released
   try {
     // Inside the try (m-910e28): a boot that throws before the teardown path would leak the lock.
     const jdk = resolveJdk(); // resolves before any container starts - a missing JVM fails the boot immediately
+    // L22: the console's port is claimed here (default 4173 when free) and published for console-server.mjs and the specs
+    consoleClaim = await claimPort(Number(process.env[CONSOLE_PORT_ENV]) || CONSOLE_PORT_DEFAULT);
+    process.env[CONSOLE_PORT_ENV] = String(consoleClaim.port);
+    const origin = consoleOrigin();
     const pgName = `ipass-ui-t41-pg-${crypto.randomBytes(4).toString('hex')}`;
     const pgPassword = crypto.randomBytes(18).toString('base64url'); // memory-only (R07)
     const loginName = `console_login_${crypto.randomBytes(5).toString('hex')}`;
@@ -610,7 +629,7 @@ export default async function bootBackend({
       repo: REPO,
       audience: AUDIENCE,
       consoleRedirectUri: `${baseUrl}/login/oauth2/code/keycloak`,
-      postLogoutRedirectUri: `${CONSOLE_ORIGIN}/`
+      postLogoutRedirectUri: `${origin}/`
     });
     if (sourceCredentials && typeof keycloak.platformAdminClientSecret !== 'string') {
       throw new Error('boot-backend: sourceCredentials, but the realm handed no platform-admin client secret');
@@ -658,8 +677,8 @@ export default async function bootBackend({
           CONSOLE_OIDC_CLIENT_ID: keycloak.consoleClientId,
           CONSOLE_OIDC_CLIENT_SECRET: keycloak.consoleClientSecret,
           CONSOLE_OIDC_REDIRECT_URI: `${baseUrl}/login/oauth2/code/keycloak`,
-          CONSOLE_POST_LOGOUT_REDIRECT_URI: `${CONSOLE_ORIGIN}/`,
-          CONSOLE_URL: `${CONSOLE_ORIGIN}/`,
+          CONSOLE_POST_LOGOUT_REDIRECT_URI: `${origin}/`,
+          CONSOLE_URL: `${origin}/`,
           ...(sourceCredentials ? { PLATFORM_ADMIN_CLIENT_SECRET: keycloak.platformAdminClientSecret } : {}),
           ...kafkaEnv // T130: harness-owned - the app publishes to the broker this boot started
         }, appEnv),
@@ -832,9 +851,9 @@ export default async function bootBackend({
       /** T130: the app's process id - one process serves the whole run (BS-07's "0 deploys"). */
       appPid: app.pid,
       /** The docker-suite lock this boot holds; refreshLock() rewrites its owner note (mtime now). */
-      lockPath: LOCK_PATH,
+      lockPath: suiteLock.path,
       refreshLock() {
-        writeLockNote(LOCK_PATH, lockHolder ?? 'ui-harness');
+        writeLockNote(suiteLock.path, lockHolder ?? 'ui-harness');
       },
       /** T174b: a Keycloak service-account client (clientId, secret, subject) - memory only. */
       createServiceClient: (clientId) => keycloak.createServiceClient(clientId),

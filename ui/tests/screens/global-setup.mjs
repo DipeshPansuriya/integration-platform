@@ -57,6 +57,7 @@ export async function bootScreens({ lockHolder } = {}) {
 
   // Workers inherit these environment names (R07: names; the values live in this run's memory).
   process.env.CONSOLE_URL = consoleServer.url;
+  process.env.IPASS_UI_PG_CONTAINER = backend.pgName; // L22: the specs ask THIS run's postgres, not any ipass-ui-t41-pg-*
   process.env.CONSOLE_ISSUER = backend.issuer;
   process.env.CONSOLE_TENANT_CODE = backend.tenantCode;
   process.env.CONSOLE_OTHER_TENANT_FLOW = backend.otherTenantFlowId;
