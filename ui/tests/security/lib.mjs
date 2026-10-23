@@ -246,8 +246,21 @@ export async function signIn(page, user = loginUser()) {
   }
 }
 
-/** The ten tampered SESSION cookie values of S3-A5 / S3-A5b, derived from a genuine cookie value. */
+/**
+ * The three NUL-bearing variants of tamperedVariants (T202, karan T171-P1): the byte that triggered B33 is named, not left to
+ * the arithmetic of 'appended data'. A raw 0x00 byte cannot be carried by a Node client (fetch: "invalid header value";
+ * http.request: ERR_INVALID_CHAR), so the two base64 forms put the NUL in the DECODED id (what the server's session lookup
+ * sees) and the third sends it percent-encoded (the closest literal form a cookie header can carry).
+ */
+export const NUL_VARIANTS = Object.freeze({
+  appended: 'NUL byte appended to the genuine id (base64)',
+  inside: 'NUL byte inside the genuine id (base64)',
+  percent: 'percent-encoded NUL (%00) appended to the cookie value'
+});
+
+/** The thirteen tampered SESSION cookie values of S3-A5 / S3-A5b, derived from a genuine cookie value. */
 export function tamperedVariants(valueA) {
+  const id = sessionIdOf(valueA);
   const flip = (text, at) => text.slice(0, at) + (text[at] === 'A' ? 'B' : 'A') + text.slice(at + 1);
   return {
     'first character changed': flip(valueA, 0),
@@ -257,8 +270,20 @@ export function tamperedVariants(valueA) {
     'appended data': `${valueA}AAAA`,
     'doubled': `${valueA}${valueA}`,
     'unknown but well-formed id': Buffer.from(crypto.randomUUID()).toString('base64'),
-    'plain (not encoded) id': sessionIdOf(valueA),
+    'plain (not encoded) id': id,
+    [NUL_VARIANTS.appended]: Buffer.from(`${id} `).toString('base64'),
+    [NUL_VARIANTS.inside]: Buffer.from(`${id.slice(0, 18)} ${id.slice(18)}`).toString('base64'),
+    [NUL_VARIANTS.percent]: `${valueA}%00`,
     'quote and comment characters': "x'--",
     'oversized value': 'A'.repeat(4000)
   };
+}
+
+/** Guard for the specs: the NUL variants are present and the base64 ones really decode to a NUL byte in the id. */
+export function expectNulVariants(variants) {
+  expect(Object.keys(variants), 'the NUL-bearing cookie variants are part of the tampering set').toEqual(expect.arrayContaining(Object.values(NUL_VARIANTS)));
+  for (const label of [NUL_VARIANTS.appended, NUL_VARIANTS.inside]) {
+    expect(Buffer.from(variants[label], 'base64').includes(0), `${label}: the decoded id carries a NUL byte`).toBe(true);
+  }
+  expect(variants[NUL_VARIANTS.percent].endsWith('%00'), 'the percent form ends in %00').toBe(true);
 }
