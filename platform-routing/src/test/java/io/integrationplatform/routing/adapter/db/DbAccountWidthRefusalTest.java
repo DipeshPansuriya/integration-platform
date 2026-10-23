@@ -74,4 +74,19 @@ class DbAccountWidthRefusalTest {
         assertThat(connection(privileges).accountWidthRefusal(systemId, "{}")).get().asString()
                 .startsWith("DB_ACCOUNT_UNVERIFIED");
     }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("T203: each added token alone refuses the account as TOO_WIDE and names it")
+    void eachAccountLevelTokenAloneRefuses() throws Exception {
+        for (String token : List.of("PG_EXECUTE_SERVER_PROGRAM", "PG_WRITE_SERVER_FILES", "PG_READ_SERVER_FILES",
+                "PG_SIGNAL_BACKEND", "PG_DATABASE_OWNER", "PG_READ_ALL_DATA", "CREATEROLE", "CREATEDB", "REPLICATION",
+                "DATABASE_CREATE", "ANY_SCHEMA_CREATE", "OTHER_TABLE_PRIVILEGES")) {
+            when(privileges.probe(eq(systemId), any(DbSettings.class), any(), any(Duration.class)))
+                    .thenReturn(List.of("INSERT", token, "SELECT"));
+            assertThat(connection(privileges).accountWidthRefusal(systemId, SETTINGS)).as(token).get().asString()
+                    .startsWith("DB_ACCOUNT_TOO_WIDE").contains(token).doesNotContain("INSERT,");
+        }
+    }
 }
