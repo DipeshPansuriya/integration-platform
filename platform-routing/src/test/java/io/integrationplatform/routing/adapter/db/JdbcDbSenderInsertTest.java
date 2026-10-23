@@ -101,4 +101,13 @@ class JdbcDbSenderInsertTest {
         assertThat(sql.getAllValues().get(2)).as("the pre-state check comes after the lock").startsWith("SELECT");
         verify(stubs.lock).setString(1, DELIVERY.toString());
     }
+
+    @Test
+    void theLockWaitIsOneSecondUnderTheConfiguredTimeoutAndNeverBelow500ms() {
+        // T189: derived, not the former hard-coded 4000 ms
+        assertThat(new JdbcDbSender(Duration.ofSeconds(5)).lockTimeoutMillis()).isEqualTo(4000);
+        assertThat(new JdbcDbSender(Duration.ofSeconds(30)).lockTimeoutMillis()).isEqualTo(29000);
+        assertThat(new JdbcDbSender(Duration.ofSeconds(1)).lockTimeoutMillis()).isEqualTo(500);
+        assertThat(new JdbcDbSender(Duration.ofMillis(100)).lockTimeoutMillis()).isEqualTo(500);
+    }
 }

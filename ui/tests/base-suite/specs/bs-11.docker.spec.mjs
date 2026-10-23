@@ -8,20 +8,20 @@
 //      diagnosis text"
 //   -> intake refusal (record 13, amount not a number): 4xx; 0 hits in the log slice
 //   -> screens (T112): detail + failures for 11 and 12 - 0 hits in the DOM and in every /api/ response
-//      the screens loaded; the masked field shows the mask
+//      the screens loaded. The mask itself is checked at API level only (Dipesh, option 1): the T112 screens
+//      carry no payload field, so there is no "screen shows the mask" leg.
 //
-// Waits for: T108 (how a field is declared masked, the API mask text) and T112 (the screen element).
-// Each test is test.fixme NAMING those items while lib/mask-probe.mjs holds TBD(...) - never a silent
-// pass; the names are read before any side effect, so a TBD leaves no half-done state.
-// Also needs T106 (pipeline) and T110 (timeline / failures reads) like BS-10.
+// Gates (lib/pending-names.mjs ON_MAIN via waitsOn): BS-11.0 and 11.3 need T108; 11.1, 11.2 and 11.4 also need
+// T110 and DELIVERY_BASE_URL (a delivery that reaches the one WireMock). A missing item is test.fixme naming it,
+// never a silent pass; the names are read before any side effect.
 // NOT scanned on purpose: the WireMock journal (the target must get the real value) and the platform's
 // payload store (it keeps the record; masking governs what is SHOWN).
 // Never run against production; no psql-seeded row (unit/direct-sql.test.mjs scans this file).
 
 import { expect, test } from '@playwright/test';
 import { deliveryOfMessageSql, deliveryRowsSql } from '../lib/direct-sql.mjs';
-import { bodyProblems, declareCall, echoStubMapping, leakingLines, maskName, probeHits, probeRecord, waitsFor } from '../lib/mask-probe.mjs';
-import { fill, nameOf } from '../lib/pending-names.mjs';
+import { MASKED_FIELD, bodyProblems, declareCall, echoStubMapping, leakingLines, maskName, probeHits, probeRecord } from '../lib/mask-probe.mjs';
+import { fill, nameOf, waitsOn } from '../lib/pending-names.mjs';
 import { FLOW, SOURCE_CONTRACT, TENANTS, expectedTargetBody } from '../lib/tenants.mjs';
 import { deliveriesTo } from '../lib/wiremock.mjs';
 import { appLogFrom, appLogSize, eventually, inBrowser, journal, must, postRecord, setStub, sourceToken } from '../support/api.mjs';
@@ -34,14 +34,11 @@ test.describe.configure({ mode: 'serial' });
 
 const PIPELINE_MS = 90000;
 const A = TENANTS.A;
-const DECLARE = ['maskDeclareApi', 'maskDeclareBody'];
-const API_MASK = [...DECLARE, 'maskApiMarker'];
-const SCREEN_MASK = [...API_MASK, 'maskScreenField', 'maskScreenMarker'];
 
-/** test.fixme while any of `keys` is TBD - the reason names the T-items, so the report shows what blocks it. */
-function waitFor(keys) {
-  const items = waitsFor(...keys);
-  test.fixme(items.length > 0, `BS-11 waits for ${items.join(', ')}: lib/mask-probe.mjs still holds TBD(${items.join('|')})`);
+/** test.fixme while an item is not on main - the reason names it, so the report shows what blocks it. */
+function waitFor(...items) {
+  const reason = waitsOn(...items);
+  test.fixme(reason !== null, reason ?? '');
 }
 
 let stubChanged = false;
@@ -88,17 +85,23 @@ const failuresOf = async (page, messageId) =>
 
 const ids = {};
 
-test('BS-11.0: tenant A declares customerId masked on the orders interface', async ({ page }) => {
-  waitFor(DECLARE);
-  const [method, path, body] = declareCall();
+test('BS-11.0: tenant A declares customerId masked on the orders flow - draft-save, submit, approve, publish', async ({ page }) => {
+  waitFor('T108');
+  const { flowId } = readRun().seed.A;
   await page.goto(`${bsEnv('consoleUrl')}/`);
-  must(await inBrowser(page, method, path, body, A.admin), 'mask declaration');
+  const current = must(await inBrowser(page, 'GET', `/api/v1/admin/flows/${encodeURIComponent(flowId)}`, undefined, A.admin), 'read orders flow');
+  const [method, path, body] = declareCall(flowId, current);
+  must(await inBrowser(page, method, path, body, A.admin), 'mask declaration (draft-save)');
+  must(await inBrowser(page, 'POST', `/api/v1/admin/flows/${flowId}/submit`, { changeNote: 'BS-11: customerId masked' }, A.admin), 'submit');
+  must(await inBrowser(page, 'POST', `/api/v1/admin/flows/${flowId}/approve`, undefined, A.approver), 'approve by the approver, never the author');
+  must(await inBrowser(page, 'POST', `/api/v1/admin/flows/${flowId}/publish`, undefined, A.admin), 'publish');
+  const published = must(await inBrowser(page, 'GET', `/api/v1/admin/flows/${encodeURIComponent(flowId)}`, undefined, A.admin), 'read published orders flow');
+  expect(published.maskedFields, 'the published flow lists customerId as masked').toContain(MASKED_FIELD);
 });
 
 test('BS-11.1: success path - delivered with the real value, 0 probe hits in log, detail and failures API', async ({ page }) => {
-  waitFor(API_MASK);
+  waitFor('T108', 'T110', 'DELIVERY_BASE_URL');
   test.setTimeout(3 * 60 * 1000);
-  const marker = maskName('maskApiMarker');
   const record = probeRecord(11);
   const { answer, logFrom } = await postProbe(page, record);
   expect(answer.status, `intake: ${answer.status}`).toBe(202);
@@ -113,12 +116,12 @@ test('BS-11.1: success path - delivered with the real value, 0 probe hits in log
   expect(sends[0].body, 'positive control: masking must not change what the target receives').toEqual(expectedTargetBody(record));
 
   await expectLogClean(logFrom, 'success path');
-  expect(bodyProblems(await timelineOf(page, ids.success), { marker }), 'detail (timeline) API').toEqual([]);
+  expect(bodyProblems(await timelineOf(page, ids.success)), 'detail (timeline) API').toEqual([]);
   expect(bodyProblems(await failuresOf(page, ids.success)), 'failures API').toEqual([]);
 });
 
 test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in log, failures and detail API', async ({ page }) => {
-  waitFor(API_MASK);
+  waitFor('T108', 'T110', 'DELIVERY_BASE_URL');
   test.setTimeout(3 * 60 * 1000);
   const marker = maskName('maskApiMarker');
   await putEchoStub();
@@ -139,12 +142,12 @@ test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in 
   await expectLogClean(logFrom, 'failure path');
   const failures = await failuresOf(page, ids.failure);
   expect(failures.some((f) => f.trackingId === ids.failure), 'the dead letter is listed').toBe(true);
-  expect(bodyProblems(failures), 'failures API (last error)').toEqual([]);
-  expect(bodyProblems(await timelineOf(page, ids.failure), { marker }), 'detail (timeline) API').toEqual([]);
+  expect(bodyProblems(failures, { marker }), 'failures API (last error): the echoed probe is replaced by the mask marker').toEqual([]);
+  expect(bodyProblems(await timelineOf(page, ids.failure)), 'detail (timeline) API').toEqual([]);
 });
 
 test('BS-11.3: intake refusal - a record the contract rejects; 0 probe hits in the answer and the log', async ({ page }) => {
-  waitFor(DECLARE);
+  waitFor('T108');
   const { answer, logFrom } = await postProbe(page, probeRecord(13, { amount: 'not-a-number' }));
   expect(answer.status, 'the contract refuses the record').toBeGreaterThanOrEqual(400);
   expect(answer.status).toBeLessThan(500);
@@ -152,10 +155,8 @@ test('BS-11.3: intake refusal - a record the contract rejects; 0 probe hits in t
   await expectLogClean(logFrom, 'intake refusal');
 });
 
-test('BS-11.4: screens - detail and failures show the mask, 0 hits in the DOM and every API answer they load', async ({ page }) => {
-  waitFor(SCREEN_MASK);
-  const field = maskName('maskScreenField');
-  const screenMarker = maskName('maskScreenMarker');
+test('BS-11.4: screens - 0 probe hits in the DOM of detail and failures and in every API answer they load', async ({ page }) => {
+  waitFor('T108', 'T110', 'DELIVERY_BASE_URL');
   expect(ids.success && ids.failure, 'BS-11.1 and BS-11.2 ran').toBeTruthy();
   const answers = [];
   page.on('response', async (r) => {
@@ -166,7 +167,6 @@ test('BS-11.4: screens - detail and failures show the mask, 0 hits in the DOM an
     await page.goto(`${bsEnv('consoleUrl')}/${fill(nameOf('detailRoute'), { trackingId: messageId })}`);
     const detail = page.locator(nameOf('detailPage'));
     await expect(detail).toHaveAttribute('data-message-loaded', 'true');
-    await expect(detail.locator(field), `the masked ${messageId} customerId`).toHaveText(screenMarker);
     expect(probeHits(await page.content()), `detail screen of ${messageId}`).toEqual([]);
   }
   await page.goto(`${bsEnv('consoleUrl')}/${nameOf('failuresRoute')}`);

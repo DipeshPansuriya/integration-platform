@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { NAMES, ON_MAIN, absentReason, fill, isPending, nameOf, pendingNames, waitsOn, waitsOnFlags } from '../lib/pending-names.mjs';
 
-test('the screens and reads measured on lane t112 / T110 are provisional values, not placeholders', () => {
+test('the screens and reads measured on main (T112 / T110) are values, not placeholders', () => {
   assert.equal(nameOf('detailRoute'), '#/messages/{trackingId}');
   assert.equal(nameOf('failuresRoute'), '#/failures');
   assert.equal(nameOf('timelineApi'), '/api/v1/admin/messages/{trackingId}/timeline');
@@ -48,9 +48,9 @@ test('a name T107 does not have is null with a reason - never a made-up name, ne
   assert.throws(() => absentReason('nope'), /unknown name nope/);
 });
 
-test('ON_MAIN: one boolean per T-item, frozen, measured on main efa7d1d', () => {
+test('ON_MAIN: one boolean per T-item, frozen (the value of each is proven by on-main-probes.test.mjs)', () => {
   assert.equal(Object.isFrozen(ON_MAIN), true);
-  for (const item of ['T105', 'T106', 'T107', 'T109', 'T110', 'T138']) assert.equal(ON_MAIN[item], true, item);
+  for (const item of Object.keys(ON_MAIN)) assert.equal(typeof ON_MAIN[item], 'boolean', item);
   for (const item of ['T111', 'T112', 'T113']) assert.equal(ON_MAIN[item], true, `${item}: its screen / endpoint is on main aeddfdd9`);
 });
 
@@ -62,6 +62,7 @@ test('waitsOn: null when every item is on main, else one reason naming each miss
   const reason = waitsOnFlags({ T110: true, T111: false, T112: false }, 'T110', 'T112', 'T111');
   assert.match(reason, /waits on T112, T111/);
   assert.match(reason, /ON_MAIN.*pending-names\.mjs/);
+  assert.equal(waitsOnFlags({ T110: true }, 'T110'), null);
   assert.throws(() => waitsOn('T999'), /unknown item T999/, 'a typo never reads as landed');
   assert.throws(() => waitsOn(), /at least one item/);
 });
@@ -82,7 +83,7 @@ test('pendingNames lists every placeholder still open - the handoff list comes f
   assert.deepEqual(open, [], 'T111 landed: no placeholder is open any more (a new TBD(<item>) added later must be listed here)');
   for (const [key, value] of open) {
     assert.ok(isPending(value), key);
-    assert.match(value, /^TBD\(T\d{3}(\|T\d{3})*\)$/, `${key}: one item-named placeholder`);
+    assert.match(value, /^TBD\([^)]+\)$/, `${key}: one named placeholder`);
   }
   assert.ok(!open.some(([key]) => key === 'replayApi'), 'resolved');
   assert.ok(!open.some(([key]) => key === 'detailRoute'));

@@ -66,4 +66,15 @@ class MqCsvContractSettingsTest {
         assertThat(mq("\"csv\"")).singleElement().asString().isEqualTo("settings.contract must be a JSON object");
         assertThat(mq("{\"columns\":[]}")).anyMatch(e -> e.contains("settings.contract.columns"));
     }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("T189-6: two columns with the same name (case-insensitive) are refused with a clear error")
+    void duplicateColumnNamesAreRefused() {
+        assertThat(mq(GOOD.replace("\"qty\"", "\"id\"")))
+                .singleElement().asString().contains("settings.contract.columns[1].name")
+                .contains("duplicate").contains("columns[0]");
+        assertThat(mq(GOOD.replace("\"qty\"", "\"ID\"")))
+                .singleElement().asString().contains("settings.contract.columns[1].name").contains("duplicate");
+    }
 }

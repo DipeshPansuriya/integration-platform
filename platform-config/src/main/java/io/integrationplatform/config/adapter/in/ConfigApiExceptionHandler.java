@@ -77,6 +77,33 @@ public class ConfigApiExceptionHandler {
         return ResponseEntity.status(400).body(ConfigApiException.body("error", answerable(refused.reason())));
     }
 
+    /** T171 S5-A1: a body that is not JSON (truncated, too deep) is the caller's error, a 400 - never the 500 catch-all. */
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> unreadableBody(
+            org.springframework.http.converter.HttpMessageNotReadableException unreadable) {
+        LOG.debug("the request body could not be read", unreadable);
+        return ResponseEntity.status(400).body(ConfigApiException.body("error", "the request body could not be read"));
+    }
+
+    /**
+     * T171 S5-A1 (review C2): a request the framework refuses before the handler runs - wrong content type (415), a
+     * missing required parameter (400), a value of the wrong type (400) - keeps the framework's own status with a
+     * static body, never the catch-all 500.
+     */
+    @ExceptionHandler({org.springframework.web.HttpMediaTypeNotSupportedException.class,
+        org.springframework.web.HttpMediaTypeNotAcceptableException.class,
+        org.springframework.web.HttpRequestMethodNotSupportedException.class,
+        org.springframework.web.bind.MissingServletRequestParameterException.class,
+        org.springframework.beans.TypeMismatchException.class})
+    public ResponseEntity<Map<String, Object>> requestNotAccepted(Exception refused) {
+        LOG.debug("the request was refused before the handler ran", refused);
+        org.springframework.web.ErrorResponse shaped = refused instanceof org.springframework.web.ErrorResponse er
+                ? er : null;
+        return ResponseEntity.status(shaped == null ? 400 : shaped.getStatusCode().value())
+                .headers(shaped == null ? org.springframework.http.HttpHeaders.EMPTY : shaped.getHeaders())
+                .body(ConfigApiException.body("error", "the request was not accepted"));
+    }
+
     @ExceptionHandler(DuplicateKeyException.class)
     public ResponseEntity<Map<String, Object>> duplicate(DuplicateKeyException clash) {
         LOG.debug("a unique-value clash refused the configuration write", clash);
@@ -117,7 +144,7 @@ public class ConfigApiExceptionHandler {
                 && type != Character.LINE_SEPARATOR && type != Character.PARAGRAPH_SEPARATOR;
     }
 
-    /** The one denied-attempt record a path-named foreign row earns: bound tenant, method, path - never the id. */
+    /** The one denied-attempt record a path-named foreign row earns: bound tenant, method and the raw request path (which carries the id; the recorder neutralises it). */
     private void recordPathIdDenial(HttpServletRequest request) {
         TenantDenialRecorder recorder = recorders.getIfAvailable();
         if (recorder == null) {

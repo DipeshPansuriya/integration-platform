@@ -81,6 +81,32 @@ class ConfigApiExceptionHandlerTest {
     }
 
     @Test
+    void aBodyThatIsNotJsonAnswers400WithAStaticBodyAndNoDenial() throws Exception {
+        for (String bad : new String[] {"{\"a\":[{", "not json", "[".repeat(10_000) + "]".repeat(10_000)}) {
+            mvc.perform(post("/body").contentType("application/json").content(bad))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$", aMapWithSize(1)))
+                    .andExpect(jsonPath("$.error").value("the request body could not be read"));
+        }
+        assertThat(denials).isEmpty();
+    }
+
+    @Test
+    void aWrongContentTypeAnswers415NotTheCatchAll500() throws Exception {
+        mvc.perform(post("/body").contentType("text/plain").content("hello"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$", aMapWithSize(1)))
+                .andExpect(jsonPath("$.error").value("the request was not accepted"));
+    }
+
+    @Test
+    void aMissingRequiredParameterAnswers400NotTheCatchAll500() throws Exception {
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/param"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("the request was not accepted"));
+    }
+
+    @Test
     void aRefusedPublishRecordsNoTenantDenialAndLogsNothingAboveDebug() throws Exception {
         mvc.perform(post("/publish/refused")).andExpect(status().isBadRequest());
 
@@ -169,6 +195,16 @@ class ConfigApiExceptionHandlerTest {
     static class RefusedPublishController {
 
         String reason = REASON;
+
+        @PostMapping("/body")
+        String body(@org.springframework.web.bind.annotation.RequestBody tools.jackson.databind.JsonNode node) {
+            return "ok";
+        }
+
+        @org.springframework.web.bind.annotation.GetMapping("/param")
+        String param(@org.springframework.web.bind.annotation.RequestParam String required) {
+            return required;
+        }
 
         @PostMapping("/publish/refused")
         String publish() {

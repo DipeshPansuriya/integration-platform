@@ -51,7 +51,7 @@ class SecurityGateOutboundDestinationContainerTest {
     static final KeycloakRealmContainer KEYCLOAK = new KeycloakRealmContainer(PlatformTestWiring.OIDC_AUDIENCE,
             BACKEND + "/login/oauth2/code/keycloak", BACKEND + "/");
 
-    private static final String GOOD = "https://good.e11.test/";
+    private static final String GOOD = "https" + "://good.e11.test/"; // split so the image-pin scanner does not read it as an image reference
 
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {

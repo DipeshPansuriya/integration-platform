@@ -47,6 +47,7 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
 
     /** Exchange property: how long the open circuit refuses calls (set only by a breaker refusal). */
     public static final String CIRCUIT_RETRY_AFTER = "stage2.circuitRetryAfter";
+    public static final String CIRCUIT_DEFERRED = "stage2.circuitDeferred";
 
     private static final Logger log = LoggerFactory.getLogger(LayerOneRouteBuilder.class);
 
@@ -132,10 +133,18 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
 
     /** The breaker refused the call: the delivery waits until the breaker may let a trial call through. */
     private void deferCircuitOpen(Exchange exchange) {
+        deferCircuitOpenFor(exchange, outcomeHandoff, clock);
+    }
+
+    static void deferCircuitOpenFor(Exchange exchange, Stage2OutcomeHandoff handoff, Supplier<Instant> clock) {
         Stage2Send send = exchange.getIn().getBody(Stage2Send.class);
         exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.FALSE);
         java.time.Duration retryAfter = exchange.getProperty(CIRCUIT_RETRY_AFTER, java.time.Duration.class);
-        outcomeHandoff.deferCircuitOpen(send.deliveryId(), send.claimToken(), clock.get().plus(retryAfter));
+        if (retryAfter == null) { // T191: never fail the deferral for a missing wait - the floor of CircuitOpenException
+            retryAfter = java.time.Duration.ofSeconds(1);
+        }
+        handoff.deferCircuitOpen(send.deliveryId(), send.claimToken(), clock.get().plus(retryAfter));
+        exchange.setProperty(CIRCUIT_DEFERRED, Boolean.TRUE); // the explicit signal the dispatch reads
     }
 
     /** Layer 1 ended without success: the exchange goes to the outcome path, exactly once. */

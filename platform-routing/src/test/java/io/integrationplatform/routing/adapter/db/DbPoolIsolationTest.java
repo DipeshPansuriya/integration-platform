@@ -147,4 +147,45 @@ class DbPoolIsolationTest {
         assertThat(inserts.get()).isZero();
         assertThat(pool.open()).isZero();
     }
+
+    private static PlatformTransactionManager poolThatCannotBegin(RuntimeException failure) {
+        PlatformTransactionManager manager = org.mockito.Mockito.mock(PlatformTransactionManager.class);
+        org.mockito.Mockito.when(manager.getTransaction(org.mockito.ArgumentMatchers.any())).thenThrow(failure);
+        return manager;
+    }
+
+    @Test
+    void aPoolTimeoutWhileBeginningTheResolveTransactionIsTransientNotUnusableSettings() {
+        // T190 item 4: the tx begin is inside resolve; a pool timeout is the platform's fault, never "settings unusable"
+        AtomicInteger inserts = new AtomicInteger();
+        DbTargetCall call = compose(poolThatCannotBegin(new org.springframework.transaction.CannotCreateTransactionException(
+                "pool timeout")), s -> Optional.empty(), (endpoint, table) -> true,
+                (message, deliveryId, address) -> inserts.incrementAndGet());
+
+        assertThatThrownBy(() -> call.call(send)).isInstanceOf(TargetFaultException.class)
+                .extracting(f -> ((TargetFaultException) f).outcomeClass()).isEqualTo(OutcomeClass.TRANSIENT);
+        assertThat(inserts.get()).isZero();
+    }
+
+    @Test
+    void aTransientDataAccessErrorInResolveIsTransient() {
+        CountingTransactionManager pool = new CountingTransactionManager();
+        DbTargetCall call = compose(pool, s -> {
+            throw new org.springframework.dao.QueryTimeoutException("statement timeout");
+        }, (endpoint, table) -> true, (message, deliveryId, address) -> { });
+
+        assertThatThrownBy(() -> call.call(send)).isInstanceOf(TargetFaultException.class)
+                .extracting(f -> ((TargetFaultException) f).outcomeClass()).isEqualTo(OutcomeClass.TRANSIENT);
+    }
+
+    @Test
+    void aGenuinelyUnusableSettingsErrorStaysPermanent() {
+        CountingTransactionManager pool = new CountingTransactionManager();
+        DbTargetCall call = compose(pool, s -> {
+            throw new IllegalArgumentException("port is not a number");
+        }, (endpoint, table) -> true, (message, deliveryId, address) -> { });
+
+        assertThatThrownBy(() -> call.call(send)).isInstanceOf(TargetFaultException.class)
+                .extracting(f -> ((TargetFaultException) f).outcomeClass()).isEqualTo(OutcomeClass.PERMANENT);
+    }
 }

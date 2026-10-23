@@ -218,14 +218,6 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                 .findFirst().orElse(0);
     }
 
-    /** Events of the type with exactly this detail (a named cause, e.g. {@code slot-free}). */
-    public int countEventsWithDetail(UUID deliveryId, DeliveryEventType type, String detail) {
-        return query("select count(*)::int from public.delivery_event",
-                "delivery_id = :delivery_id::uuid and type = :type and detail = :detail",
-                params("delivery_id", deliveryId.toString(), "type", type.name(), "detail", detail),
-                (rs, n) -> rs.getInt(1)).stream().findFirst().orElse(0);
-    }
-
     /** {@code DEAD_LETTERED -> DUE}: an operator replay (audited where the operator acts). */
     public boolean replay(UUID id, Instant at) {
         return transition(

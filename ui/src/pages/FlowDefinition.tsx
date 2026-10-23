@@ -10,20 +10,16 @@
 // Back and a typed #/ address ask through the shell's guard (EditorGuard); the leave dialog is modal,
 // closes on Escape and returns focus; every failing field shows its error text and is aria-invalid.
 
-import { useEffect, useRef, useState, type FormEvent, type MutableRefObject, type MouseEvent as ReactMouseEvent } from 'react';
-import {
-  createFlow,
-  readFlow,
-  saveFlowDraft,
-  saveSourceSchema,
-  validationFieldOf,
-  type FlowDraftBody
-} from '../api/flows';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MutableRefObject, type MouseEvent as ReactMouseEvent } from 'react';
+import { createFlow, readFlow, saveFlowDraft, saveSourceSchema, validationFieldOf } from '../api/flows';
+import { loadFlowForm, saveFlowDefinition } from './flow-save';
 import {
   editorFlowId,
   fieldA11y,
   flowHash,
+  focusSelectorFor,
   isDirty,
+  trapTab,
   validationErrorId,
   validationText,
   type EditorGuardState,
@@ -61,10 +57,14 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
   const [validationServerText, setValidationServerText] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A1-A3: a worded failure of the open or the save; loadError blocks the form (no blank form to save).
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [leaveTo, setLeaveTo] = useState<string | null>(null);
   // B13: where focus goes back when the dialog closes - the link that opened it, else the heading.
   const opener = useRef<HTMLElement | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
   // B12: true once the user chose Leave - the shell then lets the address change through.
   const released = useRef(false);
 
@@ -77,25 +77,19 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
   };
 
   const hydrate = async (id: string) => {
-    const read = await readFlow(id);
-    if (!read.ok) {
-      // 404 is the tenant-isolation answer (ADR-011 Decision 4): never a hint of whose row it is.
-      if (read.status === 404) setRefusal('flow-not-found');
+    setLoadError(null);
+    const opened = await loadFlowForm(readFlow, id);
+    if (opened.kind === 'not-found') {
+      setRefusal('flow-not-found');
       return;
     }
-    const rows = [...read.data.destinations];
-    while (rows.length < MIN_DESTINATIONS) rows.push('');
-    const loaded: FlowForm = {
-      sourceSystem: read.data.sourceSystem,
-      destinations: rows,
-      interfaceName: read.data.name,
-      businessKeyRule: read.data.businessKeyRule,
-      ordering: read.data.ordering,
-      sourceSchema: ''
-    };
+    if (opened.kind === 'failed') {
+      setLoadError(opened.text); // A3: flowId stays null AND the form is hidden, so Save cannot create a duplicate
+      return;
+    }
     setFlowId(id);
-    setForm(loaded);
-    setBaseline(loaded);
+    setForm(opened.form);
+    setBaseline(opened.form);
   };
 
   useEffect(() => {
@@ -162,6 +156,22 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
     return () => document.removeEventListener('keydown', onKey);
   }, [leaveTo]);
 
+  // A8: a failing field takes focus (its error text is a live alert), so keyboard users land on the fix.
+  useEffect(() => {
+    const selector = focusSelectorFor(validationField);
+    if (selector) document.querySelector<HTMLElement>(selector)?.focus();
+  }, [validationField, validationServerText]);
+
+  // A8: Tab stays inside the leave dialog (Escape already means Stay).
+  const onDialogKey = (event: ReactKeyboardEvent) => {
+    if (event.key !== 'Tab') return;
+    const buttons = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button') ?? []);
+    const next = trapTab(buttons.indexOf(document.activeElement as HTMLElement), buttons.length, event.shiftKey);
+    if (next < 0) return;
+    event.preventDefault();
+    buttons[next].focus();
+  };
+
   const leave = () => {
     const to = leaveTo;
     setLeaveTo(null);
@@ -175,13 +185,6 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
   const addDestination = () => set({ destinations: [...form.destinations, ''] });
   const removeDestination = (index: number) => set({ destinations: form.destinations.filter((_, position) => position !== index) });
 
-  const body = (): FlowDraftBody => ({
-    sourceSystem: form.sourceSystem,
-    destinations: form.destinations.map((row) => row.trim()).filter((row) => row.length > 0),
-    businessKeyRule: form.businessKeyRule,
-    name: form.interfaceName.trim() // F-1: the interface name typed by the user rides on the create
-  });
-
   const onSaveDraft = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -189,43 +192,29 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
     setValidationField(null);
     setValidationServerText(null);
     setRefusal(null);
+    setSaveError(null);
     try {
-      const draft = body();
-      const result = flowId
-        ? await saveFlowDraft(flowId, { ...draft, ordering: form.ordering })
-        : await createFlow({ ...draft, ordering: form.ordering });
-      if (!result.ok) {
-        if (result.status === 400) {
-          setValidationField(validationFieldOf(result.error));
-          setValidationServerText(result.error ?? null);
-        }
-        else if (result.status === 404) setRefusal('flow-not-found');
-        return;
-      }
-      const id = flowId ?? (result.data as { id: string }).id;
-      if (!flowId) {
-        setFlowId(id);
+      const outcome = await saveFlowDefinition(
+        { createFlow, saveFlowDraft, saveSourceSchema, validationFieldOf },
+        flowId,
+        form
+      );
+      // The draft exists even when the schema step failed: remember its id so the next Save updates it.
+      const createdId = 'id' in outcome ? outcome.id : undefined;
+      if (createdId && !flowId) {
+        setFlowId(createdId);
         // The address names the flow now (a reload re-opens it) without a hashchange re-render.
-        window.history.replaceState(null, '', flowHash(id));
+        window.history.replaceState(null, '', flowHash(createdId));
       }
-
-      if (form.sourceSchema.trim().length > 0) {
-        let schema: unknown;
-        try {
-          schema = JSON.parse(form.sourceSchema);
-        } catch {
-          setValidationField('source-schema');
-          return;
-        }
-        const stored = await saveSourceSchema(form.sourceSystem, form.interfaceName || 'interface', schema);
-        if (!stored.ok && stored.status === 400) {
-          setValidationField(validationFieldOf(stored.error));
-          setValidationServerText(stored.error ?? null);
-          return;
-        }
+      if (outcome.kind === 'not-found') setRefusal('flow-not-found');
+      else if (outcome.kind === 'validation') {
+        setValidationField(outcome.field);
+        setValidationServerText(outcome.text);
+      } else if (outcome.kind === 'failed') setSaveError(outcome.text);
+      else {
+        setBaseline(form);
+        setSaved(true);
       }
-      setBaseline(form);
-      setSaved(true);
     } finally {
       setBusy(false);
     }
@@ -237,7 +226,7 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
   // required'); validationText's fixed sentence remains the fallback for a client-side refusal.
   const errorText = (field: string) =>
     validationField === field && (
-      <p className="flows-error" id={validationErrorId(field)} data-validation-error={field}>
+      <p className="flows-error" id={validationErrorId(field)} role="alert" data-validation-error={field}>
         {validationServerText ?? validationText(field, validationServerText)}
       </p>
     );
@@ -245,9 +234,9 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
   return (
     <div data-page="flow-definition" className="flows-page">
       <div className="flows-head">
-        <h2 ref={heading} tabIndex={-1}>
+        <h1 ref={heading} tabIndex={-1}>
           Flow definition
-        </h2>
+        </h1>
         <a href="#/flows" data-action="back-to-flows" onClick={onBack}>
           All flows
         </a>
@@ -255,6 +244,8 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
 
       {leaveTo !== null && (
         <div
+          ref={dialog}
+          onKeyDown={onDialogKey}
           role="alertdialog"
           aria-modal="true"
           aria-labelledby="flow-leave-title"
@@ -273,7 +264,15 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
         </div>
       )}
 
-      {refusal === 'flow-not-found' ? (
+      {loadError !== null ? (
+        <div role="alert" className="flows-card flows-alert-danger" data-load-error="flow">
+          <p>{loadError}</p>
+          <button type="button" className="btn" data-action="retry-load" onClick={() => void hydrate(editorFlowId(openFlowId) ?? '')}>
+            Retry
+          </button>{' '}
+          <a href="#/flows">Back to the flow list</a>
+        </div>
+      ) : refusal === 'flow-not-found' ? (
         <div role="alert" className="flows-card flows-alert-danger" data-refusal="flow-not-found">
           <p>This flow does not exist for your tenant.</p>
           <a href="#/flows">Back to the flow list</a>
@@ -285,6 +284,9 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
               {validationText('request', validationServerText)}
             </p>
           )}
+          <p className="flows-muted" data-required-note="true">
+            <span aria-hidden="true">*</span> required
+          </p>
           <div className="flow-form-grid">
             <div className="flow-form-col">
               <fieldset className="flows-card">
@@ -294,8 +296,9 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
                   <input data-field="interface-name" value={form.interfaceName} onChange={(e) => set({ interfaceName: e.target.value })} />
                 </label>
                 <label className="flows-field">
-                  Source system
+                  Source system<span aria-hidden="true"> *</span>
                   <input
+                    aria-required="true"
                     data-field="source-system"
                     value={form.sourceSystem}
                     {...a11y('source-system')}
@@ -310,7 +313,9 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
                   <div className="flow-destination" key={index}>
                     <label className="flows-field">
                       Destination {index + 1}
+                      {index === 0 && <span aria-hidden="true"> *</span>}
                       <input
+                        aria-required="true"
                         data-field={`destination-${index + 1}`}
                         value={row}
                         {...a11y('destinations')}
@@ -342,6 +347,7 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
                 <label className="flows-field">
                   Business-key rule (mandatory)
                   <input
+                    aria-required="true"
                     data-field="business-key-rule"
                     value={form.businessKeyRule}
                     {...a11y('business-key-rule')}
@@ -378,6 +384,11 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
           </div>
 
           <div className="flow-actions">
+            {saveError !== null && (
+              <p className="flows-alert flows-alert-danger" role="alert" data-save-error="true">
+                {saveError}
+              </p>
+            )}
             {saved && (
               <p className="flows-alert flows-alert-success" data-saved="true" role="status">
                 Draft saved. <a href="#/versions">Submit it for approval</a> when you are ready.

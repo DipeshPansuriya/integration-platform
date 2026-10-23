@@ -109,8 +109,8 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
         if (Boolean.TRUE.equals(done.getProperty(LayerOneRouteBuilder.LAYER_ONE_SUCCEEDED, Boolean.class))) {
             transactions.executeWithoutResult(status -> outcomes.markDelivered(send.deliveryId(), send.claimToken()));
         }
-        // layer 1 sets this property only when the target's breaker refused the call (CIRCUIT_DEFER)
-        return done.getProperty(LayerOneRouteBuilder.CIRCUIT_RETRY_AFTER) != null;
+        // T191: layer 1 states a CIRCUIT_DEFER explicitly (CIRCUIT_DEFERRED), once the deferral is handed over
+        return Boolean.TRUE.equals(done.getProperty(LayerOneRouteBuilder.CIRCUIT_DEFERRED, Boolean.class));
     }
 
     private void dropWithoutRoute(Stage2Send send, String reason) {

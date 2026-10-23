@@ -3,9 +3,8 @@
 // MASK-PROBE-7Q3Z in it; the probe must then be found 0 times in the app log, the detail (timeline) and
 // failures API bodies and the screens, on the success path, the failure path and an intake refusal.
 //
-// Pure functions only (unit/mask-probe.test.mjs). The names T108 / T112 have not landed live HERE, not
-// in lib/pending-names.mjs (that registry is T131's; this lane adds files only). Same fail-closed rule:
-// a TBD(<item>) value is never guessed - the scenario that needs it is test.fixme naming the item.
+// Pure functions only (unit/mask-probe.test.mjs). Same fail-closed rule as pending-names.mjs: a TBD(<item>) value
+// is never guessed - the scenario that needs it is test.fixme naming the item.
 //
 // Where the probe may legitimately appear (NOT scanned): the target's request (WireMock journal) - the
 // delivery must carry the real value; the platform's own payload store. Masking is about what the
@@ -20,14 +19,14 @@ export const PROBE = 'MASK-PROBE-7Q3Z';
 export const MASKED_FIELD = 'customerId';
 
 export const MASK_NAMES = Object.freeze({
-  // T108 (masking) - not on main 596eecb, no lane (git branch -a, git log --all --grep=T108: nothing).
-  // How a field is "declared masked on the interface configuration" (T108 done_when 1) is undefined.
-  maskDeclareApi: 'TBD(T108)', // "<METHOD> <path>" that marks one field masked on an interface / contract version
-  maskDeclareBody: 'TBD(T108)', // JSON template of that call's body; {field} is replaced by MASKED_FIELD
-  maskApiMarker: 'TBD(T108)', // the text the detail / failures API shows in place of a masked value
-  // T112 (screens) - lane seam-row327-t112 0f87c60, not on main; no masked-field element there yet
-  maskScreenField: 'TBD(T112)', // selector of the masked customerId on the message-detail screen
-  maskScreenMarker: 'TBD(T108|T112)' // the text that element shows
+  // T108 is on main (ON_MAIN.T108, probe in pending-names.mjs). A field is declared masked by the flow's draft-save
+  // carrying maskedFields (FlowAdminService.java:103/:111, FlowBundle.java:64-66), which takes effect once that
+  // draft is submitted, approved and published (the message pins the interface version snapshot,
+  // JdbcMessageTrackingStore.java:82). The T112 screens carry no payload field (MessageDetail.tsx:10,
+  // Failures.tsx:10), so there is no screen mask name: the mask is checked at API level only (Dipesh, option 1).
+  maskDeclareApi: 'PUT /api/v1/admin/flows/{flowId}', // FlowAdminController.java:112; then POST .../submit, .../approve (approver), .../publish (:143/:157/:171)
+  maskDeclareBody: '{"maskedFields":["{field}"]}', // merged into the flow's own read (declareCall)
+  maskApiMarker: '[MASKED]' // MaskedFields.java:33: what redact() puts in place of a masked value in an error text
 });
 
 /** True for a placeholder ("TBD(" in any case) or an empty value - the pending-names.mjs rule. */
@@ -127,12 +126,21 @@ export function bodyProblems(body, { marker } = {}) {
   return problems;
 }
 
-/** T108's declare call: [method, path, body] with {field} filled - fails closed while TBD. */
-export function declareCall() {
-  const [method, path] = maskName('maskDeclareApi').split(' ');
-  if (!method || !path) throw new Error('maskDeclareApi must be "<METHOD> <path>"');
-  const body = JSON.parse(maskName('maskDeclareBody').split('{field}').join(MASKED_FIELD));
-  return [method, path, body];
+/**
+ * T108's declare call: [method, path, body] - the flow's draft-save with customerId in maskedFields. `current` is the
+ * flow read (GET /api/v1/admin/flows/{flowId}); the save needs its own source, destinations and key rule back.
+ */
+export function declareCall(flowId, current) {
+  if (typeof flowId !== 'string' || flowId === '') throw new Error('declareCall: a flowId is required');
+  const [method, template] = maskName('maskDeclareApi').split(' ');
+  if (!method || !template) throw new Error('maskDeclareApi must be "<METHOD> <path>"');
+  for (const key of ['name', 'sourceSystem', 'destinations', 'businessKeyRule']) {
+    if (current?.[key] === undefined || current[key] === null) throw new Error(`declareCall: the flow read has no ${key}`);
+  }
+  const { name, sourceSystem, destinations, businessKeyRule, ordering } = current;
+  const declared = JSON.parse(maskName('maskDeclareBody').split('{field}').join(MASKED_FIELD));
+  const body = { name, sourceSystem, destinations, businessKeyRule, ...(ordering === undefined ? {} : { ordering }), ...declared };
+  return [method, template.replace('{flowId}', encodeURIComponent(flowId)), body];
 }
 
 /**

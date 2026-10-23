@@ -4,6 +4,9 @@ import io.integrationplatform.tenantdenial.EndpointMatrix.Entry;
 import io.integrationplatform.tenantdenial.EndpointMatrix.SeededTenant;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -22,7 +25,15 @@ final class T186ReportMatrix implements LaneMatrix {
 
     private static final String DELIVERY = "/api/v1/reports/delivery";
     private static final String FACADE = "/api/v1/reports/facade";
-    private static final String DAY = "2026-10-22";
+    private static final String DAY = dayFor(Clock.systemUTC());
+
+    /**
+     * Yesterday (UTC): inside DeliveryReportController's window (not after today, not older than
+     * platform.delivery.report.max-age-days) on any run date, and safe if midnight passes between seed and request.
+     */
+    static String dayFor(Clock clock) {
+        return LocalDate.now(clock.withZone(ZoneOffset.UTC)).minusDays(1).toString();
+    }
 
     @Override
     public List<Entry> entries() {

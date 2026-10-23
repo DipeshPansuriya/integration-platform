@@ -6,8 +6,9 @@ import java.util.UUID;
 
 /**
  * One request that tried to name a tenant other than the bound one, or named a tenant with no identity (E1-F1-S1:
- * "the forgery is recorded as a denied attempt"). The forged value itself is not carried: it is attacker-controlled
- * input and is never logged.
+ * "the forgery is recorded as a denied attempt"). The forged value is not a separate field: for a PATH_ID record it
+ * travels only inside {@code path} (the raw request URI, attacker-controlled), which the recorder neutralises before
+ * it is logged. Raw request text is never persisted to {@code audit_event} (security ruling 2026-10-23).
  *
  * @param boundTenantId the tenant bound from the principal, or {@code null} when the request had no identity
  * @param channel       where the forged tenant was carried

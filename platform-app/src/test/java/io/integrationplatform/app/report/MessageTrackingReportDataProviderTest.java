@@ -1,6 +1,7 @@
 package io.integrationplatform.app.report;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -46,5 +47,17 @@ class MessageTrackingReportDataProviderTest {
         assertThat(provider.loadTimeline(trackingId)).isEmpty();
         assertThat(provider.loadFailures(null, null)).isEmpty();
         assertThat(provider.loadStageTimings(trackingId)).isEmpty();
+    }
+
+    @Test
+    void aServiceFaultOnTheTimelineReadSurfacesInsteadOfLookingLikeNoTimeline() {
+        MessageTrackingService service = mock(MessageTrackingService.class);
+        UUID trackingId = UUID.randomUUID();
+        when(service.timeline(trackingId)).thenThrow(new IllegalStateException("db down"));
+
+        ReportDataProvider provider = new MessageTrackingReportDataProvider(service);
+
+        assertThatThrownBy(() -> provider.loadTimeline(trackingId)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> provider.loadStageTimings(trackingId)).isInstanceOf(IllegalStateException.class);
     }
 }

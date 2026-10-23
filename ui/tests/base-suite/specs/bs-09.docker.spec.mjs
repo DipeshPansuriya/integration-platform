@@ -11,12 +11,8 @@
 //          same trace id: platform.message.accepted by message id, platform.delivery.due by its delivery
 //          ids (keyed "delivery:<id>", JdbcDeliveryRepository.java:471-474)
 //
-// T105 + T107 are on main efa7d1d, so the file runs. Expected RED until green, in this order:
-//   1. global-setup: "dev-only exception not configured - waits for row 278" (or "still TBD(row278)");
-//   2. the message is never delivered - the DELIVERED wait times out;
-//   3. a log line that is plain text or lacks one of the three ids; 4. a missing T105 timing row;
-//   5. a Kafka record of the message without the one traceparent.
-// Green needs T105, T106, T107 and row 278's exception after T137. Read-only: logs, Kafka and SQL are only read.
+// Status lives in the gate (waitsOn / lib/pending-names.mjs) and the run report _reports/2026-10-22-base-suite-run.md, not in this header.
+// Read-only: logs, Kafka and SQL are only read.
 
 import { randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
@@ -86,8 +82,9 @@ test('BS-09: one correlation id at intake, route, transform and deliver - JSON l
   expect(problems, `every log line JSON; the message's lines carry tenant, message and correlation ids${noStage === null ? ' at all four stages' : ''}`).toEqual([]);
 
   // T105: the DELIVER row is written by the final move, in its transaction - so it is there once DELIVERED is
-  const timings = timelineOfRows(messageId, readRows(stageTimingsOfMessageSql(code, messageId)));
-  expect(timelineProblems(timings, messageId), 'one finished T105 timing row per stage, in pipeline order').toEqual([]);
+  const timingRows = readRows(stageTimingsOfMessageSql(code, messageId));
+  const timings = timelineOfRows(messageId, timingRows);
+  expect(timelineProblems(timings, messageId), `one finished T105 timing row per stage, in pipeline order; rows (stage|started|finished): ${JSON.stringify(timingRows)}`).toEqual([]);
 
   for (const topic of topics) {
     const ids = topic === ACCEPTED_TOPIC ? [messageId] : [messageId, ...deliveryIds]; // delivery.due names the delivery

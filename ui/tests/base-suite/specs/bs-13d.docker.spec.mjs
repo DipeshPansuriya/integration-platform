@@ -1,0 +1,65 @@
+// BS-13d (plan section 3, release-suite-base-20261022.md) - the replay leg: tenant B cannot replay or retry
+// tenant A's delivery. B's admin POSTs the replay and the retry of a REAL delivery of tenant A (a row the
+// pipeline wrote, never a seeded one): both answer 404 - the same answer as for an id that does not exist - and
+// nothing of A's delivery changes (state, attempts, events, audit events). The read legs of 13d are
+// specs-front/sc07.front.spec.mjs SC-07.2 (timeline 404) and SC-07.3 (failures + queue carry nothing of A).
+// The delivery needs only to exist and settle; it does not need to reach the target.
+// Never run against production; never a psql-seeded row (unit/direct-sql.test.mjs scans this file).
+
+import { expect, test } from '@playwright/test';
+import { attemptRowsSql, auditRowsSql, deliveryOfMessageSql, eventTypesSql } from '../lib/direct-sql.mjs';
+import { fill, nameOf, waitsOn } from '../lib/pending-names.mjs';
+import { changedKeys } from '../lib/replay.mjs';
+import { SOURCE_CONTRACT, TENANTS, orderRecord } from '../lib/tenants.mjs';
+import { eventually, inBrowser, postRecord, sourceToken } from '../support/api.mjs';
+import { bsEnv } from '../support/boot-state.mjs';
+import { readRows } from '../support/db.mjs';
+import { addTracking, readRun } from '../support/run-file.mjs';
+import { intakeCode, rotatedSecret } from '../support/seed.mjs';
+
+const WAITS = waitsOn('T106', 'T111');
+test.fixme(WAITS !== null, WAITS ?? '');
+
+const PIPELINE_MS = 90000;
+const A = TENANTS.A;
+const B = TENANTS.B;
+const code = () => bsEnv('tenantA');
+
+const deliveryOf = (messageId) => {
+  const rows = readRows(deliveryOfMessageSql(code(), messageId));
+  return rows.length === 1 ? { id: rows[0][0], state: rows[0][1] } : null; // single target: one delivery per message
+};
+const snapshot = (messageId, deliveryId) => ({
+  state: deliveryOf(messageId)?.state,
+  attempts: readRows(attemptRowsSql(code(), deliveryId)),
+  events: readRows(eventTypesSql(code(), deliveryId)).map(([type]) => type),
+  audits: readRows(auditRowsSql(code())).map(([id]) => id)
+});
+
+test("BS-13d: tenant B's admin replaying or retrying tenant A's delivery gets 404 and nothing of the delivery changes", async ({ page }) => {
+  test.setTimeout(4 * 60 * 1000);
+  const [method, replayPath] = nameOf('replayApi').split(' ');
+  const retryPath = replayPath.replace(/\/replay$/, '/retry'); // DeliveryOperatorEndpointRoles.java:21-22, the retry beside the replay
+  await page.goto(`${bsEnv('consoleUrl')}/`);
+  const { credentialId } = readRun().seed.A;
+  const { clientId, secretValue } = await rotatedSecret(page, A, credentialId);
+  const answer = await postRecord(await sourceToken(clientId, secretValue), intakeCode(A), SOURCE_CONTRACT.versionLabel, orderRecord(A, 13));
+  expect(answer.status, JSON.stringify(answer.data)).toBe(202);
+  const messageId = answer.data.trackingId;
+  addTracking('A', [messageId]);
+
+  // a delivery that has SETTLED, so a later difference can only come from tenant B's call
+  const delivery = await eventually(() => {
+    const d = deliveryOf(messageId);
+    return d && (d.state === 'DELIVERED' || d.state === 'DEAD_LETTERED') ? d : null;
+  }, `the delivery of ${messageId} settled`, { timeoutMs: PIPELINE_MS });
+
+  const before = snapshot(messageId, delivery.id);
+  for (const [what, path] of [['replay', replayPath], ['retry', retryPath]]) {
+    const forged = await inBrowser(page, method, fill(path, { deliveryId: delivery.id }), undefined, B.admin);
+    expect(forged.status, `B's ${what} of A's delivery: ${JSON.stringify(forged.data)}`).toBe(404);
+    const unknown = await inBrowser(page, method, fill(path, { deliveryId: '00000000-0000-4000-8000-000000000013' }), undefined, B.admin);
+    expect(forged.status, `${what}: A's delivery answers like an id that does not exist`).toBe(unknown.status);
+  }
+  expect(changedKeys(before, snapshot(messageId, delivery.id)), "state, attempts, events and audit events of A's delivery unchanged").toEqual([]);
+});

@@ -2,7 +2,7 @@
 // (re-resolved against main 596eecb and the seam branches, 18-Oct; T105 + T107 against main efa7d1d). One line per name, so the Tue 20 run
 // swaps one line each. ON_MAIN below is the ONE flag per T-item a spec's test.fixme reads (waitsOn).
 //
-//   provisional  measured on a lane, not on main - used as is; re-measure on the Tue 20 candidate sha
+//   measured     read from a file on main (path:line beside it); ON_MAIN_PROBES below re-proves each landed item
 //   TBD(<item>)  unknown until that item lands - nameOf() FAILS the step naming the item, never a guess
 //                (the same fail-closed pattern as T130's TBD(row278), settings.mjs PLACEHOLDER)
 //
@@ -11,18 +11,18 @@
 // "traceparent" and the topic platform.message.accepted (trace.mjs), the dashboard selectors (BS-12).
 
 export const NAMES = Object.freeze({
-  // provisional - seam-row327-t112 0f87c60 (latest edfa28c), NOT on main 596eecb; routes App.tsx:30
+  // measured on main b6106af2 (T112 landed ee3aee93; follow-ups 38942ebc): routes App.tsx:30-32 + nav :80
   detailRoute: '#/messages/{trackingId}',
   failuresRoute: '#/failures',
-  detailPage: '[data-page="message-detail"]', // + data-message-loaded (MessageDetail.tsx:93)
-  detailTrackingId: '[data-tracking-id]', // MessageDetail.tsx:113
-  detailFailingStage: '[data-failing-stage]', // MessageDetail.tsx:139 - the marked failing stage
-  detailStageRow: '[data-stage-row]', // + data-stage-status, data-duration-ms (MessageDetail.tsx:160-162)
-  failuresPage: '[data-page="failures"]', // Failures.tsx:116
-  failureRow: '[data-failure-row="{trackingId}"]', // + data-failing-stage, data-origin (Failures.tsx:35)
-  failureErrorClass: '[data-error-class]', // Failures.tsx:43
-  failureLastError: '[data-last-error]', // Failures.tsx:44
-  failureDetailLink: '[data-message-link="{trackingId}"]', // Failures.tsx:37 - carries ?failed=<STAGE>
+  detailPage: '[data-page="message-detail"]', // + data-message-loaded (MessageDetail.tsx:120)
+  detailTrackingId: '[data-tracking-id]', // MessageDetail.tsx:140
+  detailFailingStage: '[data-failing-stage]', // MessageDetail.tsx:175 - the marked failing stage
+  detailStageRow: '[data-stage-row]', // + data-stage-status, data-duration-ms (MessageDetail.tsx:196-198)
+  failuresPage: '[data-page="failures"]', // Failures.tsx:119
+  failureRow: '[data-failure-row="{trackingId}"]', // + data-failing-stage, data-origin (Failures.tsx:37)
+  failureErrorClass: '[data-error-class]', // Failures.tsx:45
+  failureLastError: '[data-last-error]', // Failures.tsx:46
+  failureDetailLink: '[data-message-link="{trackingId}"]', // Failures.tsx:39 - carries ?failed=<STAGE>
   // RESOLVED - T110 on main 596eecb: MessageEndpointRoles.java:17 + MessageTrackingController.java:40/:64/:79
   // (platform-app/src/main/java/io/integrationplatform/app/message/)
   timelineApi: '/api/v1/admin/messages/{trackingId}/timeline',
@@ -67,18 +67,45 @@ export const ABSENT = Object.freeze({
   logStageValues: NO_STAGE_FIELD
 });
 
-// One flag per T-item: is its feature on local main (measured efa7d1d, 18-Oct; T111/T112/T113 re-measured aeddfdd9, 22-Oct)? Flip ONE line when it lands;
-// every spec guarded by waitsOn(item) then runs. Never flip for a lane or seam branch.
+// One flag per T-item: is its feature on main (measured efa7d1d, 18-Oct; T111/T112/T113 re-measured aeddfdd9, 22-Oct)? Flip ONE line when it lands;
+// every spec guarded by waitsOn(item) then runs. Never flip for a lane or seam branch. ON_MAIN_PROBES (below) holds the
+// file + needle that proves each flag; tests/base-suite/unit/on-main-probes.test.mjs fails when a flag and its probe
+// disagree, in either direction.
 export const ON_MAIN = Object.freeze({
   T105: true, // stage timings - main efa7d1d (landed d609f17)
   T106: true, // composition - OutboxRelayRunnerConfiguration.java:41
   T107: true, // correlation + JSON logs - main efa7d1d (landed 78792e4)
   T109: true, // audit writer - JdbcAuditEventStore.java:42
+  T108: true, // masked fields - MaskedFields.java:33 + MessageTrackingService.java redact (merge 31e38382)
   T110: true, // tracking reads - MessageTrackingController.java:40
-  T111: true, // replay - DeliveryOperatorController.java:61 (operator replay + retry, main aeddfdd9)
+  T111: true, // replay - DeliveryOperatorController.java:61 (operator replay + retry, main aeddfdd9) + OperatorActionButton.tsx
   T112: true, // detail + failures screens - ui/src/pages/MessageDetail.tsx, Failures.tsx (main aeddfdd9)
   T113: true, // dashboard - ui/src/pages/QueueDashboard.tsx (main aeddfdd9)
-  T138: true // dev-only destination exception - SystemPersistenceConfiguration.java:57
+  T138: true, // dev-only destination exception - SystemPersistenceConfiguration.java:57
+  DELIVERY_BASE_URL: false // delivery takes the system's settings.baseUrl, not the placeholder endpoint (T106 seam; JdbcSystemRepository.java:87)
+});
+
+// One probe per T-item: every {file, needle} must hold in the working tree for the flag to be true (paths from the repo root).
+const probe = (file, needle, { absent = false } = {}) => Object.freeze({ file, needle, absent });
+export const ON_MAIN_PROBES = Object.freeze({
+  T105: [probe('platform-app/src/main/java/io/integrationplatform/app/message/MessageTrackingService.java', 'message_stage_timing')],
+  T106: [probe('platform-ingest/src/main/java/io/integrationplatform/ingest/internal/relay/OutboxRelayRunnerConfiguration.java', 'OutboxRelayRunner')],
+  T107: [probe('platform-ingest/src/main/java/io/integrationplatform/ingest/port/CorrelationContext.java', 'correlationId')],
+  T108: [
+    probe('platform-config/src/main/java/io/integrationplatform/config/flow/api/MaskedFields.java', 'public static final String MARKER = "[MASKED]"'),
+    probe('platform-app/src/main/java/io/integrationplatform/app/message/MessageTrackingService.java', 'MaskedFields.redact')
+  ],
+  T109: [probe('platform-app/src/main/java/io/integrationplatform/app/audit/JdbcAuditEventStore.java', 'audit_event')],
+  T110: [probe('platform-app/src/main/java/io/integrationplatform/app/message/MessageTrackingController.java', '/{trackingId}/timeline')],
+  T111: [
+    probe('platform-app/src/main/java/io/integrationplatform/app/message/DeliveryOperatorController.java', '/{deliveryId}/replay'),
+    probe('ui/src/pages/OperatorActionButton.tsx', 'data-action={action.kind}')
+  ],
+  T112: [probe('ui/src/pages/MessageDetail.tsx', 'data-page="message-detail"'), probe('ui/src/pages/Failures.tsx', 'data-page="failures"')],
+  T113: [probe('ui/src/pages/QueueDashboard.tsx', 'data-page="queue-dashboard"')],
+  // landed = the placeholder endpoint is gone from the system insert (absent probe)
+  DELIVERY_BASE_URL: [probe('platform-config/src/main/java/io/integrationplatform/config/internal/persistence/JdbcSystemRepository.java', 'https://endpoint.invalid/', { absent: true })],
+  T138: [probe('platform-config/src/main/java/io/integrationplatform/config/internal/persistence/SystemPersistenceConfiguration.java', 'allowed-hosts')]
 });
 
 /** null when every item is on main; else the test.fixme reason naming each missing item and the flag. */

@@ -378,7 +378,7 @@ test('element defaults: secondary button, submit as primary, bare tables, h1/h2 
   const th = ruleDecls(base, sel.th);
   assert.equal(th.get('color'), 'var(--color-ink-muted)');
   assert.equal(th.get('font-size'), '12.5px', 'table headers sit on the 12.5px floor');
-  assert.equal(th.get('border-bottom'), '1px solid var(--color-border-strong)');
+  assert.equal(th.get('border-bottom'), '2px solid var(--color-border-strong)');
   assert.equal(ruleDecls(base, sel.td).get('border-bottom'), '1px solid var(--color-border)');
   const heading = ruleDecls(base, sel.heading);
   assert.equal(heading.get('font-size'), '20px', 'page titles are 20px (01-§2.1)');

@@ -92,7 +92,7 @@ test('Flows list: Clear lines up with the filter input, and the header button wi
   const clear = await box(page.locator('[data-action="clear-filter"]'));
   expect(Math.abs(clear.middle - filter.middle), 'Clear centre vs filter input centre').toBeLessThanOrEqual(TOLERANCE);
 
-  const title = await box(page.locator('[data-page="flows-list"] .flows-head h2'));
+  const title = await box(page.locator('[data-page="flows-list"] .flows-head h1'));
   const define = await box(page.locator('[data-action="define-flow"]'));
   expect(Math.abs(define.middle - title.middle), 'header button centre vs title centre').toBeLessThanOrEqual(TOLERANCE);
 });
