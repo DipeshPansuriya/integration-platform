@@ -160,7 +160,10 @@ test.describe('S3 BFF session (browser)', () => {
     await context.close();
   });
 
-  test('S3-A5 cookie tampering and replay: tampered cookies are refused, a replayed cookie stays in its own tenant, a login always issues a new session id', async ({ browser }) => {
+  // EXPECTED RED until B33 is fixed (lane Q, branch fix/b33-tampered-session-cookie): a tampered SESSION cookie makes the
+  // session lookup answer 500 and exhausts the database pool (tenancy-console.yml: Spring Session JDBC). The assertions below are
+  // the gate's expected behaviour (401, application keeps serving) and stay as they are - no fixme, no softening.
+  test('S3-A5 [expected RED until B33 fix: lane Q, branch fix/b33-tampered-session-cookie] cookie tampering and replay: tampered cookies are refused, a replayed cookie stays in its own tenant, a login always issues a new session id', async ({ browser }) => {
     const a = await freshLogin(browser);
     const valueA = (await sessionCookie(a.context)).value;
     const b = await freshLogin(browser, otherUser());
