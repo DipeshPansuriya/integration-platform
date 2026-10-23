@@ -88,9 +88,9 @@ public final class RouteInstanceFactory {
      * (target endpoint, version) pair is first needed here; an existing instance is returned and its idle clock
      * reset. Unknown target type or refused scheme fail fast with a clear error.
      */
-    public RouteInstance ensure(RouteConfigRow row) {
+    public RouteInstance ensure(UUID tenantId, RouteConfigRow row) {
         RouteTemplate template = approvedTemplate(Objects.requireNonNull(row, "row"));
-        RouteKey key = row.key();
+        RouteKey key = row.key(Objects.requireNonNull(tenantId, "tenantId"));
         RouteInstance existing = instancesByKey.get(key);
         if (existing != null) {
             return existing; // lazy re-use: the pinned versions stayed, no rebuild from current configuration
@@ -107,7 +107,7 @@ public final class RouteInstanceFactory {
             }
             org.apache.camel.Processor send = template.build(row);
             registerRouteInstance(routeId, consumerOf(row), send);
-            RouteInstance built = new RouteInstance(row, clock.get());
+            RouteInstance built = new RouteInstance(tenantId, row, clock.get());
             instancesByKey.put(key, built);
             newestByEndpoint.put(row.targetEndpointId(), built);
             return built;
@@ -206,6 +206,7 @@ public final class RouteInstanceFactory {
     /** Stops and removes the route; true when it is no longer in the context. Best-effort: a failure is retried by the next sweep. */
     private boolean stopRoute(String routeId) {
         try {
+            // V-low: getRoute is inside the try, so one failing instance cannot abort the whole eviction sweep
             org.apache.camel.Route route = context.getRoute(routeId);
             if (route != null && context instanceof org.apache.camel.impl.DefaultCamelContext camel) {
                 camel.removeRoute(route); // a runtime-added route is not found by the by-id removal; drop the Route
@@ -215,6 +216,10 @@ public final class RouteInstanceFactory {
         } catch (Exception e) {
             // a route another thread is still using stays held for the next sweep
         }
-        return context.getRoute(routeId) == null;
+        try {
+            return context.getRoute(routeId) == null;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

@@ -63,7 +63,7 @@ class RouteInstanceSendDispatchClashTest {
         camel.start();
         try {
             new RouteInstanceFactory((t, i) -> List.of(row), camel, List.of(template), Set.of("https"),
-                    Duration.ofMinutes(30), () -> NOW).ensure(row); // the route is now in the context
+                    Duration.ofMinutes(30), () -> NOW).ensure(java.util.UUID.fromString("00000000-0000-4000-8000-0000000000aa"), row); // the route is now in the context
             RouteInstanceFactory clashing = new RouteInstanceFactory((t, i) -> List.of(row), camel,
                     List.of(template), Set.of("https"), Duration.ofMinutes(30), () -> NOW);
             JdbcDueDeliveries deliveries = mock(JdbcDueDeliveries.class);

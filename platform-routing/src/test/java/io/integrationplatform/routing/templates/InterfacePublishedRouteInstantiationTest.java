@@ -96,7 +96,7 @@ class InterfacePublishedRouteInstantiationTest {
         spring.publishEvent(new InterfacePublished(TENANT, INTERFACE_ID, 3));
 
         assertThat(camel.getRoutes()).as("AC-1: the publish validates the rows and builds nothing").isEmpty();
-        rows.rows.values().forEach(factory::ensure); // stage 2 builds each row's instance lazily on first use
+        rows.rows.values().forEach(row -> factory.ensure(java.util.UUID.fromString("00000000-0000-4000-8000-0000000000aa"), row)); // stage 2 builds each row's instance lazily on first use
         assertThat(camel.getRoutes()).as("one live route instance per active configuration row").hasSize(2);
         try (ProducerTemplate producer = camel.createProducerTemplate()) {
             producer.sendBody(factory.instanceOf(ENDPOINT_A).orElseThrow().consumerUri(), "m-1");
