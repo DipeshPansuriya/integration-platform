@@ -160,8 +160,10 @@ test('BS-11.2: failure path - the target echoes the probe in its 403; 0 hits in 
   expect(bodyProblems(await timelineOf(page, ids.failure)), 'detail (timeline) API').toEqual([]);
 });
 
+// Needs a product change (T206 finding): on main intake never reads the contract's field types - PayloadValidationService has no caller -
+// so amount:'not-a-number' is ACCEPTED 202 (measured, run 07:26Z). Gated, not weakened: BS-11.3b below covers the refusal that exists today.
 test('BS-11.3: intake refusal - a record the contract rejects (400/422 naming amount); control accepted; 0 probe hits in the answer and the log', async ({ page }) => {
-  waitFor('T108');
+  waitFor('T108', 'INTAKE_CONTRACT_VALIDATION');
   const { answer, logFrom } = await postProbe(page, probeRecord(13, { amount: 'not-a-number' }));
   // B36: the refusal must come from the CONTRACT (400/422 + a reason naming amount), not from the 403 identity gate
   expect(contractRefusalProblems(answer, 'amount'), `the contract refuses the record: ${answer.status} ${JSON.stringify(answer.data)}`).toEqual([]);
@@ -172,6 +174,22 @@ test('BS-11.3: intake refusal - a record the contract rejects (400/422 naming am
   expect(acceptanceProblems(control.answer), 'control: the same record with a valid amount is accepted').toEqual([]);
   addTracking('A', [control.answer.data.trackingId]);
   await expectLogClean(control.logFrom, 'intake refusal control');
+});
+
+test('BS-11.3b: intake refusal that exists on main - business key unresolved 422; control accepted; 0 probe hits in the answer and the log', async ({ page }) => {
+  waitFor('T108');
+  const { orderId: _dropped, ...withoutKey } = probeRecord(14);
+  const { answer, logFrom } = await postProbe(page, withoutKey);
+  expect(contractRefusalProblems(answer, 'orderId'), `intake refuses a record without its business key: ${answer.status} ${JSON.stringify(answer.data)}`).toEqual([]);
+  expect(answer.status, 'the intake refusal status').toBe(422);
+  expect(answer.data.code, 'the refusal reason').toBe('BUSINESS_KEY_UNRESOLVED');
+  expect(bodyProblems(answer.data), 'the refusal body').toEqual([]);
+  await expectLogClean(logFrom, 'business-key refusal');
+  // green control: the same record WITH its business key is accepted - so the refusal above is about the key, nothing else
+  const control = await postProbe(page, probeRecord(14));
+  expect(acceptanceProblems(control.answer), 'control: the same record with its business key is accepted').toEqual([]);
+  addTracking('A', [control.answer.data.trackingId]);
+  await expectLogClean(control.logFrom, 'business-key refusal control');
 });
 
 test('BS-11.4: screens - 0 probe hits in the DOM of detail and failures and in every API answer they load', async ({ page }) => {
