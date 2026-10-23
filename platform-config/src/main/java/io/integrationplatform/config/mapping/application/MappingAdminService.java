@@ -40,10 +40,11 @@ public class MappingAdminService {
 
     @Transactional(readOnly = true)
     public java.util.Map<String, Object> read(String routeId) {
+        String key = routeKey(routeId);
         JdbcMappingRepository.LiveMapping live =
-                mappings.findMappingOfRoute(routeKey(routeId)).orElseThrow(ConfigApiException::notFound);
+                mappings.findMappingOfRoute(key).orElseThrow(ConfigApiException::notFound);
         return ConfigApiException.body(
-                "routeId", routeId,
+                "routeId", key,
                 "mappingId", live.id(),
                 "fieldMappings", tools.jackson.databind.json.JsonMapper.builder().build()
                         .readTree(MappingContent.canonicalFieldMappings(live.fieldMappingsJson())),
@@ -55,8 +56,10 @@ public class MappingAdminService {
 
     @Transactional
     public java.util.Map<String, Object> save(String routeId, JsonNode body, java.util.UUID actorId) {
+        // T196: the one canonical key (UUID.fromString is lenient, Postgres ::uuid is not) serves every use below
+        String key = routeKey(routeId);
         JdbcMappingRepository.LiveMapping live =
-                mappings.findMappingOfRoute(routeKey(routeId)).orElseThrow(ConfigApiException::notFound);
+                mappings.findMappingOfRoute(key).orElseThrow(ConfigApiException::notFound);
 
         JsonNode linksNode = body.path("fieldMappings");
         // T171 S5-A1 server-side limits: links are an array of bounded size, text without a null character
@@ -68,7 +71,7 @@ public class MappingAdminService {
             throw ConfigApiException.validation("fieldMappings is longer than " + MAX_FIELD_MAPPINGS_CHARS
                     + " characters");
         }
-        if (linksText.contains("\\u0000")) {
+        if (containsNul(linksNode)) {
             throw ConfigApiException.validation("fieldMappings must not contain a null character");
         }
         String fieldMappingsJson = MappingContent.canonicalFieldMappings(
@@ -87,10 +90,10 @@ public class MappingAdminService {
                     "field links require the mapping's bound source and target contract versions");
         }
         if (target != null) {
-            validateBindings(routeId, fieldMappingsJson, source, target);
+            validateBindings(fieldMappingsJson, source, target);
         }
 
-        mappings.updateMappingOfRoute(routeId, fieldMappingsJson, compiledExpression, source, target);
+        mappings.updateMappingOfRoute(key, fieldMappingsJson, compiledExpression, source, target);
 
         String versionId = null;
         int version = 0;
@@ -113,12 +116,12 @@ public class MappingAdminService {
         }
         // E12-F2-S1: one audit event per completed save - the mapping version before and after, never the content
         events.publishEvent(ConfigAuditActions.event(ConfigAuditActions.MAPPING_SAVED, tenants.requireTenantId(),
-                actorId, java.util.List.of(ConfigAuditActions.target("route", routeId),
+                actorId, java.util.List.of(ConfigAuditActions.target("route", key),
                         ConfigAuditActions.target("mapping", live.id())),
                 ConfigAuditActions.state("mappingVersionId", live.mappingVersionId()),
                 ConfigAuditActions.state("mappingVersionId", versionId)));
         return ConfigApiException.body(
-                "routeId", routeId,
+                "routeId", key,
                 "mappingId", live.id(),
                 "fieldMappings", tools.jackson.databind.json.JsonMapper.builder().build()
                         .readTree(fieldMappingsJson),
@@ -129,7 +132,7 @@ public class MappingAdminService {
                 "mappingVersion", version == 0 ? null : version);
     }
 
-    private void validateBindings(String routeId, String fieldMappingsJson, String source, String target) {
+    private void validateBindings(String fieldMappingsJson, String source, String target) {
         JdbcMappingRepository.ContractVersionFacts sourceFacts =
                 mappings.findContractVersionFacts(source).orElseThrow(ConfigApiException::notFound);
         JdbcMappingRepository.ContractVersionFacts targetFacts =
@@ -155,6 +158,27 @@ public class MappingAdminService {
                         + " does not have field " + root);
             }
         }
+    }
+
+    /** T196 N1: a NUL in any string value or field name of the parsed tree (not a look at the serialized text). */
+    private static boolean containsNul(JsonNode node) {
+        if (node.isString()) {
+            return node.stringValue().indexOf((char) 0) >= 0;
+        }
+        if (node.isObject()) {
+            for (java.util.Map.Entry<String, JsonNode> field : node.properties()) {
+                if (field.getKey().indexOf((char) 0) >= 0 || containsNul(field.getValue())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        for (JsonNode child : node) {
+            if (containsNul(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String requiredText(JsonNode body, String field) {
