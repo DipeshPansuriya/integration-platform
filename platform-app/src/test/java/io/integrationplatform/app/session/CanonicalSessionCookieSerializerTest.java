@@ -75,4 +75,27 @@ class CanonicalSessionCookieSerializerTest {
         assertThat(serializer().readCookieValues(withCookie(b64("0b0f6a1e-3c1a-4a52-9d58-1a7a0a1b2c3d"))))
                 .containsExactly("0b0f6a1e-3c1a-4a52-9d58-1a7a0a1b2c3d");
     }
+
+    @Test
+    void manyCanonicalCookiesInOneRequestOnlyTheFirstThreeReachTheStore() {
+        // T197 R1: each canonical-shaped value costs the store one lookup; a header can carry 100+ of them
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        Cookie[] cookies = new Cookie[10];
+        for (int i = 0; i < cookies.length; i++) {
+            ids.add(UUID.randomUUID().toString());
+            cookies[i] = new Cookie("SESSION", b64(ids.get(i)));
+        }
+        request.setCookies(cookies);
+
+        assertThat(serializer().readCookieValues(request)).containsExactlyElementsOf(ids.subList(0, 3));
+    }
+
+    @Test
+    void malformedCookiesDoNotUseUpTheCap() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setCookies(new Cookie("SESSION", "junk"), new Cookie("SESSION", b64("x")),
+                new Cookie("SESSION", b64(ID)));
+        assertThat(serializer().readCookieValues(request)).containsExactly(ID);
+    }
 }

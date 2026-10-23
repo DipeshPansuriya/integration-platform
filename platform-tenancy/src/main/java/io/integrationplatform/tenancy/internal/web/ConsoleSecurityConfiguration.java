@@ -15,6 +15,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -23,6 +25,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.FormHttpMessageConverter;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -60,12 +63,14 @@ import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.context.DelegatingSecurityContextRepository;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.AndRequestMatcher;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -98,6 +103,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnProperty(prefix = ConsoleSettings.PREFIX, name = "client-id")
 class ConsoleSecurityConfiguration {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ConsoleSecurityConfiguration.class);
 
     static final String LOGIN_ENTRY =
             OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI + "/"
@@ -202,6 +209,7 @@ class ConsoleSecurityConfiguration {
                 .logout(logout -> logout
                         .logoutUrl("/logout")
                         .logoutSuccessHandler(new JsonOidcLogout(registrations, settings.postLogoutRedirectUri())))
+                .addFilterAfter(new SessionStoreUnavailableFilter(), SecurityContextHolderFilter.class)
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
                 .addFilterAfter(new ConsoleSessionTokenFilter(sessionTokens, decoder), ExceptionTranslationFilter.class)
                 .addFilterAfter(new PrincipalTenantResolver(loginBootstrap, tenantDenialRecorder),
@@ -297,23 +305,47 @@ class ConsoleSecurityConfiguration {
      */
     static final class EagerSessionContextRepository implements SecurityContextRepository {
 
-        private final SecurityContextRepository delegate = new DelegatingSecurityContextRepository(
-                new RequestAttributeSecurityContextRepository(), new HttpSessionSecurityContextRepository());
+        private final SecurityContextRepository delegate;
+
+        EagerSessionContextRepository() {
+            this(new DelegatingSecurityContextRepository(
+                    new RequestAttributeSecurityContextRepository(), new HttpSessionSecurityContextRepository()));
+        }
+
+        EagerSessionContextRepository(SecurityContextRepository delegate) {
+            this.delegate = delegate;
+        }
 
         @Override
         public DeferredSecurityContext loadDeferredContext(HttpServletRequest request) {
             DeferredSecurityContext deferred = delegate.loadDeferredContext(request);
-            SecurityContext loaded = deferred.get();
-            boolean generated = deferred.isGenerated();
+            SecurityContext loaded;
+            boolean generated;
+            try {
+                loaded = deferred.get();
+                generated = deferred.isGenerated();
+            } catch (DataAccessException | TransactionException storeDown) {
+                // T197 R2: the session store (PostgreSQL) is unreachable. Not "no session" (a 401 or login redirect for
+                // a user who may be signed in) and not an escaped exception (a 500 whose ERROR dispatch repeats the
+                // lookup). The request is marked, the next filter answers 503. The class only is logged: the message
+                // can carry the JDBC URL. The filters' dispatcher types stay as they are - dropping ERROR could
+                // expose the container's in-memory session.
+                LOG.warn("the session store is unavailable ({})", storeDown.getClass().getName());
+                request.setAttribute(SESSION_STORE_DOWN, Boolean.TRUE);
+                loaded = SecurityContextHolder.createEmptyContext();
+                generated = true;
+            }
+            SecurityContext loadedContext = loaded;
+            boolean generatedContext = generated;
             return new DeferredSecurityContext() {
                 @Override
                 public SecurityContext get() {
-                    return loaded;
+                    return loadedContext;
                 }
 
                 @Override
                 public boolean isGenerated() {
-                    return generated;
+                    return generatedContext;
                 }
             };
         }
@@ -333,6 +365,24 @@ class ConsoleSecurityConfiguration {
         @Override
         public boolean containsContext(HttpServletRequest request) {
             return delegate.containsContext(request);
+        }
+    }
+
+    /** Marks a request whose session could not be read because the session store is down (T197 R2). */
+    static final String SESSION_STORE_DOWN = ConsoleSecurityConfiguration.class.getName() + ".SESSION_STORE_DOWN";
+
+    /** Answers 503 for a request marked by {@link EagerSessionContextRepository}; the chain does not continue. */
+    static final class SessionStoreUnavailableFilter extends OncePerRequestFilter {
+
+        @Override
+        protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+                throws ServletException, IOException {
+            if (request.getAttribute(SESSION_STORE_DOWN) != null) {
+                json(response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, "{\"error\":\"session_store_unavailable\","
+                        + "\"message\":\"The service is temporarily unavailable. Please try again in a few minutes.\"}");
+                return;
+            }
+            chain.doFilter(request, response);
         }
     }
 
