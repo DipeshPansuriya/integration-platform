@@ -218,10 +218,14 @@ class SecurityGateAdminApiContainerTest {
 
     private static final String ROUTES = "/api/v1/admin/routes/";
 
+    /**
+     * T196: outbox rows only. Every audit event is exactly one outbox row, kept after the relay stamps relayed_at
+     * (V2_4_3 grants no DELETE), so this is exact and monotonic. Adding audit_event (the relay's copy of the same
+     * event) double-counted a row seen mid-relay and could hide one missing event.
+     */
     private static long auditCount(UUID tenant) throws Exception {
-        return Long.parseLong(db("select (select count(*) from public.audit_event where action = 'LOOKUP_ENTRY_CHANGED'"
-                + " and tenant_id = '" + tenant + "') + (select count(*) from public.audit_outbox where action ="
-                + " 'LOOKUP_ENTRY_CHANGED' and tenant_id = '" + tenant + "')"));
+        return Long.parseLong(db("select count(*) from public.audit_outbox where action = 'LOOKUP_ENTRY_CHANGED'"
+                + " and tenant_id = '" + tenant + "'"));
     }
 
     // ------------------------------------------------------------------ S5-A1
@@ -272,16 +276,15 @@ class SecurityGateAdminApiContainerTest {
                 failures.add(attempt.getKey() + " -> refusal body not clean (" + r.body().length() + " chars)");
             }
         }
-        // a route id that is not a UUID: not found (or a 400), never a database error
+        // a route id that is not a UUID: not found, never a database error
         ConsoleBrowser.Exchange badRoute = admin.api("PUT", ROUTES + "not-a-uuid/mapping",
                 saveBody("[]", quote("$"), f), true);
-        if (badRoute.status() != 404 && badRoute.status() != 400) {
+        if (badRoute.status() != 404) {
             failures.add("route id not-a-uuid -> " + badRoute.status());
         }
         // a wrong content type is a 415, not the catch-all 500 (review C2)
         ConsoleBrowser.Exchange wrongType = admin.api("PUT", path, "hello", true);
-        System.out.println("S5-A1 default content type for a text body -> " + wrongType.status());
-        assertThat(wrongType.status()).as("text body").isLessThan(500);
+        assertThat(wrongType.status()).as("text body: %s", wrongType.body()).isEqualTo(415);
         assertThat(failures).as("attempts that were not a clean 400 (server-side size/depth/validation limits)").isEmpty();
         assertThat(mappingState(f.mappingId())).as("no mapping row change / mapping_version row on a failed save")
                 .isEqualTo(before);
