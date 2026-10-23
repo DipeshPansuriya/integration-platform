@@ -162,10 +162,18 @@ public final class RouteInstanceFactory {
     public void evictIdle(Instant now) {
         for (Map.Entry<RouteKey, RouteInstance> entry : instancesByKey.entrySet()) {
             RouteInstance instance = entry.getValue();
-            if (Duration.between(instance.lastUsedAt(), now).compareTo(idleTimeout) > 0
-                    && instancesByKey.remove(entry.getKey(), instance)) {
-                newestByEndpoint.remove(instance.targetEndpointId(), instance); // only if no newer version took over
-                stopRouteSilently(instance.camelRouteId());
+            if (Duration.between(instance.lastUsedAt(), now).compareTo(idleTimeout) <= 0) {
+                continue;
+            }
+            // T161 L2: under the same lock as ensure(). The route is stopped FIRST and the map entry removed only once
+            // it is really gone, so a failed stop leaves the instance held (the next sweep retries) instead of an
+            // orphan route that makes every later ensure() dead-letter PERMANENT on the route-id clash.
+            synchronized (this) {
+                if (Duration.between(instance.lastUsedAt(), now).compareTo(idleTimeout) > 0
+                        && stopRoute(instance.camelRouteId())
+                        && instancesByKey.remove(entry.getKey(), instance)) {
+                    newestByEndpoint.remove(instance.targetEndpointId(), instance); // only if no newer version took over
+                }
             }
         }
     }
@@ -195,16 +203,18 @@ public final class RouteInstanceFactory {
         }
     }
 
-    private void stopRouteSilently(String routeId) {
+    /** Stops and removes the route; true when it is no longer in the context. Best-effort: a failure is retried by the next sweep. */
+    private boolean stopRoute(String routeId) {
         try {
             org.apache.camel.Route route = context.getRoute(routeId);
             if (route != null && context instanceof org.apache.camel.impl.DefaultCamelContext camel) {
                 camel.removeRoute(route); // a runtime-added route is not found by the by-id removal; drop the Route
-                return;
+            } else if (route != null) {
+                context.removeRoute(routeId); // stops, then removes; the next delivery rebuilds lazily
             }
-            context.removeRoute(routeId); // stops, then removes; the next delivery rebuilds lazily
         } catch (Exception e) {
-            // the sweep is best-effort: a route another thread is still using stays for the next sweep
+            // a route another thread is still using stays held for the next sweep
         }
+        return context.getRoute(routeId) == null;
     }
 }
