@@ -39,6 +39,8 @@ public class FlowAdminService {
 
     private static final List<String> ORDERINGS = List.of("PER_KEY", "NONE");
     private static final String DEFAULT_EXPRESSION = "$";
+    private static final String FILE_PATTERN_REFUSAL = "FILE_NAME_PATTERN_NEEDS_DELIVERY_ID";
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(FlowAdminService.class);
 
     private final JdbcFlowRepository flows;
     private final SystemAdminService systems;
@@ -204,6 +206,9 @@ public class FlowAdminService {
         InterfaceRow interfaceRow = requireInterface(flowId);
         VersionInfo pending = flows.findLatestVersionByStatus(flowId, "PENDING_APPROVAL")
                 .orElseThrow(() -> ConfigApiException.conflict("the flow has no version pending approval"));
+        if (fileDestinationsWithoutDeliveryId(interfaceRow.id()) > 0) {
+            return new ApprovalOutcome(409, ConfigApiException.refusal(409, FILE_PATTERN_REFUSAL).body());
+        }
         String result = flows.approveVersion(pending.id(), approverId.toString());
         return switch (result) {
             case "APPROVED" -> {
@@ -254,6 +259,9 @@ public class FlowAdminService {
         InterfaceRow interfaceRow = requireInterface(flowId);
         VersionInfo approved = flows.findLatestVersionByStatus(flowId, "APPROVED")
                 .orElseThrow(() -> ConfigApiException.conflict("the flow has no approved version to publish"));
+        if (fileDestinationsWithoutDeliveryId(interfaceRow.id()) > 0) {
+            throw ConfigApiException.refusal(409, FILE_PATTERN_REFUSAL);
+        }
         Parsed bundle = FlowBundle.parse(approved.snapshotJson());
 
         // T-190, ADR-013 Decision 5: the mapped pins of every route are verified against the contract
@@ -293,6 +301,20 @@ public class FlowAdminService {
     }
 
     // ------------------------------------------------------------------ shared steps
+
+    /**
+     * T178c-1: stored FILE destinations saved before the {@code {deliveryId}} rule are never rewritten; a flow that
+     * still sends to one is not approved or published until an operator edits the pattern. Logs the count only.
+     */
+    private long fileDestinationsWithoutDeliveryId(String interfaceId) {
+        long count = systems.countFileDestinationsWithoutDeliveryId(
+                flows.findDestinations(interfaceId).stream().map(DestinationRow::systemCode).toList());
+        if (count > 0) {
+            LOG.warn("flow approval or publish refused: {} FILE destination(s) without {deliveryId} in the file name pattern",
+                    count);
+        }
+        return count;
+    }
 
     /** E12-F2-S1: one audit event per completed lifecycle step, inside its transaction (the writer is AFTER_COMMIT). */
     private void audit(String action, UUID actorId, String interfaceId, String versionId, String before,
