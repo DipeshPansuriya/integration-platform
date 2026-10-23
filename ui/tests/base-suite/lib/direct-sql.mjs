@@ -85,10 +85,10 @@ export const auditRowsSql = (code) => "select a.id::text, a.tenant_id::text, a.a
 // timing rows, UTC ISO with millis so Date.parse reads them; a still-running stage's finish is ''.
 const ISO_MS = `'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'`;
 
-/** Rows: stage | started (UTC ISO) | finished (UTC ISO, or '' while running) - of one message, in start order. */
+/** Rows: stage | started (UTC ISO) | finished (UTC ISO, or '' while running) - of one message, in start order (a started_at tie keeps the pipeline order). */
 export const stageTimingsOfMessageSql = (code, messageId) => {
   const id = uuidOf(messageId);
   return `select s.stage, to_char(s.started_at at time zone 'UTC', ${ISO_MS}),`
     + ` coalesce(to_char(s.finished_at at time zone 'UTC', ${ISO_MS}), '') from public.message_stage_timing s`
-    + ` where s.tenant_id = ${tenantOf(code)} and s.message_id = ${id} order by s.started_at, s.stage`;
+    + ` where s.tenant_id = ${tenantOf(code)} and s.message_id = ${id} order by s.started_at, array_position(array['INTAKE','ROUTE','TRANSFORM','DELIVER'], s.stage)`;
 };

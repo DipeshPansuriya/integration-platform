@@ -82,8 +82,9 @@ test('BS-09: one correlation id at intake, route, transform and deliver - JSON l
   expect(problems, `every log line JSON; the message's lines carry tenant, message and correlation ids${noStage === null ? ' at all four stages' : ''}`).toEqual([]);
 
   // T105: the DELIVER row is written by the final move, in its transaction - so it is there once DELIVERED is
-  const timings = timelineOfRows(messageId, readRows(stageTimingsOfMessageSql(code, messageId)));
-  expect(timelineProblems(timings, messageId), 'one finished T105 timing row per stage, in pipeline order').toEqual([]);
+  const timingRows = readRows(stageTimingsOfMessageSql(code, messageId));
+  const timings = timelineOfRows(messageId, timingRows);
+  expect(timelineProblems(timings, messageId), `one finished T105 timing row per stage, in pipeline order; rows (stage|started|finished): ${JSON.stringify(timingRows)}`).toEqual([]);
 
   for (const topic of topics) {
     const ids = topic === ACCEPTED_TOPIC ? [messageId] : [messageId, ...deliveryIds]; // delivery.due names the delivery
