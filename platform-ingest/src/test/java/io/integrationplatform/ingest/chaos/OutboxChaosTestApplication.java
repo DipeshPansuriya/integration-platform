@@ -1,5 +1,6 @@
 package io.integrationplatform.ingest.chaos;
 
+import io.integrationplatform.config.rule.api.RuleEvaluationPort;
 import io.integrationplatform.ingest.internal.relay.ActiveTenantSource;
 import io.integrationplatform.ingest.internal.relay.RelayTenantContext;
 import io.integrationplatform.ingest.port.PublishPort;
@@ -50,6 +51,19 @@ class OutboxChaosTestApplication {
         // Pool of 4: the seeding transaction, one per-tenant relay transaction per cycle, and headroom for a
         // relay that opens its claim and its mark in separate short transactions.
         return OutboxChaosDatabase.get().appPool(4);
+    }
+
+    /**
+     * B43: the scan of {@code io.integrationplatform.ingest} also picks up the intake wiring, whose
+     * {@code PayloadValidationService} (B37) needs the configuration module's rule port. The chaos scenarios
+     * seed the outbox directly and never run an intake, so the port is never called; it fails loudly if a
+     * scenario ever starts to, instead of silently passing records as valid.
+     */
+    @Bean
+    RuleEvaluationPort chaosRuleEvaluationPort() {
+        return (ruleSetId, input) -> {
+            throw new UnsupportedOperationException("the chaos context runs no intake validation");
+        };
     }
 
     @Bean
