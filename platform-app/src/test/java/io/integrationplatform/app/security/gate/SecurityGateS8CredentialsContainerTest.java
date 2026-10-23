@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
  * {@link Release1Gate} and the case list is {@link Release1GateCatalogue}. Container tag: never runs by default.
  */
 @Tag("container")
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class SecurityGateS8CredentialsContainerTest {
 
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -125,9 +126,50 @@ class SecurityGateS8CredentialsContainerTest {
      * Expected: KEK read from the deployment secret store by env name; never in a file, table or log; value never printed by this review either (credential-storage rule)
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T142 is on main but the case needs the admin API over HTTP with a real tenant B (platform-e2e TenantBSeed/AdminApi, unreachable from platform-app) - move to platform-e2e or write against a SpringBootTest; body not yet written (T141 gate case S8-A4)")
-    void s8_a4_kek_handling() {
-        fail("S8-A4 body lands with T142");
+    void s8_a4_kek_handling(org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        // keys come from environment variables by NAME and live in memory only
+        byte[] raw = new byte[32];
+        RANDOM.nextBytes(raw);
+        String kekBase64 = java.util.Base64.getEncoder().encodeToString(raw);
+        String malformed = "not-a-kek-" + UUID.randomUUID();
+        var env = new org.springframework.mock.env.MockEnvironment()
+                .withProperty("PLATFORM_CREDENTIAL_KEK_K1", kekBase64)
+                .withProperty("PLATFORM_CREDENTIAL_KEK_BAD", malformed)
+                .withProperty("PLATFORM_CREDENTIAL_KEK_ACTIVE", "K1");
+        var keys = new io.integrationplatform.config.credential.crypto.EnvironmentKeyEncryptionKeys(env);
+        assertThat(keys.find("K1")).as("the key is read by env name").isPresent();
+        assertThat(keys.activeId()).contains("K1");
+        assertThat(keys.find("BAD")).as("a malformed value is ignored").isEmpty();
+        // the value is never printed: not by toString, not by the log (a malformed one is reported by NAME only)
+        assertThat(keys.toString()).doesNotContain(kekBase64).doesNotContain(malformed);
+        assertThat(output.getAll()).contains("PLATFORM_CREDENTIAL_KEK_BAD").doesNotContain(kekBase64)
+                .doesNotContain(malformed);
+        SealedCredential row = seal("v-" + UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "BASIC_PASSWORD", "K1", keys.find("K1").orElseThrow());
+        assertThat(java.util.Base64.getEncoder().encodeToString(row.wrappedKey())).doesNotContain(kekBase64);
+        assertThat(java.util.Base64.getEncoder().encodeToString(row.ciphertext())).doesNotContain(kekBase64);
+        // never in a file: no text file under the code root holds a literal KEK value for the variable
+        java.nio.file.Path root = java.nio.file.Files.exists(java.nio.file.Path.of("compose"))
+                ? java.nio.file.Path.of(".") : java.nio.file.Path.of("..");
+        java.util.regex.Pattern literal = java.util.regex.Pattern.compile(
+                "PLATFORM_CREDENTIAL_KEK_[A-Z0-9]+\\s*[:=]\\s*[\"']?(?!\\$\\{)[A-Za-z0-9+/]{43}=");
+        java.util.List<String> hits = new java.util.ArrayList<>();
+        try (var files = java.nio.file.Files.walk(root)) {
+            files.filter(java.nio.file.Files::isRegularFile).filter(f -> {
+                String n = f.toString().replace('\\', '/');
+                return !n.contains("/target/") && !n.contains("/node_modules/") && !n.contains("/.git/")
+                        && n.matches(".*\\.(java|yaml|yml|properties|sql|json|env|sh|md)$");
+            }).forEach(f -> {
+                try {
+                    if (literal.matcher(java.nio.file.Files.readString(f)).find()) {
+                        hits.add(f.toString());
+                    }
+                } catch (java.io.IOException | RuntimeException unreadable) {
+                    // binary or unreadable: not a text secret
+                }
+            });
+        }
+        assertThat(hits).as("files holding a literal KEK value").isEmpty();
     }
 
     /**
@@ -169,8 +211,37 @@ class SecurityGateS8CredentialsContainerTest {
      * Expected: Each update mints a **new data key** and nonce (a key encrypts exactly one value); no nonce reuse at any time (inspect two ciphertexts)
      */
     @Test
-    @Disabled("NOT RE-ENABLED 2026-10-22: dependency T142 is on main but the case needs the admin API over HTTP with a real tenant B (platform-e2e TenantBSeed/AdminApi, unreachable from platform-app) - move to platform-e2e or write against a SpringBootTest; body not yet written (T141 gate case S8-A6)")
     void s8_a6_data_key_hygiene() {
-        fail("S8-A6 body lands with T142");
+        SecretKey kek = newKek();
+        UUID tenant = UUID.randomUUID();
+        UUID credential = UUID.randomUUID();
+        UUID endpoint = UUID.randomUUID();
+        String value = "same-value-" + UUID.randomUUID();
+        java.util.HexFormat hex = java.util.HexFormat.of();
+        java.util.Set<String> wrapped = new java.util.HashSet<>();
+        java.util.Set<String> valueNonces = new java.util.HashSet<>();
+        java.util.Set<String> wrapNonces = new java.util.HashSet<>();
+        java.util.Set<String> ciphertexts = new java.util.HashSet<>();
+        int rounds = 200;
+        for (int i = 0; i < rounds; i++) { // sequential updates of one value: nothing repeats
+            EnvelopeSealer.Sealed sealed = EnvelopeSealer.seal(value.toCharArray(), tenant, credential, endpoint,
+                    "BASIC_PASSWORD", "k1", kek);
+            wrapped.add(hex.formatHex(sealed.wrappedKey()));
+            ciphertexts.add(hex.formatHex(sealed.ciphertext()));
+            wrapNonces.add(hex.formatHex(sealed.wrappedKey(), 0, 12));
+            valueNonces.add(hex.formatHex(sealed.ciphertext(), 0, 12));
+            assertThat(new String(sealed.ciphertext(), java.nio.charset.StandardCharsets.ISO_8859_1))
+                    .doesNotContain(value);
+        }
+        assertThat(wrapped).as("a fresh wrapped data key every update").hasSize(rounds);
+        assertThat(ciphertexts).as("two ciphertexts of one value differ").hasSize(rounds);
+        assertThat(valueNonces).as("no value nonce reused").hasSize(rounds);
+        assertThat(wrapNonces).as("no wrap nonce reused").hasSize(rounds);
+        SealedCredential first = seal(value, tenant, credential, endpoint, "BASIC_PASSWORD", "k1", kek);
+        SealedCredential second = seal(value, tenant, credential, endpoint, "BASIC_PASSWORD", "k1", kek);
+        assertThat(first.wrappedKey()).isNotEqualTo(second.wrappedKey());
+        KeyEncryptionKeys keys = keyring(Map.of("k1", kek));
+        assertThat(new String(EnvelopeOpener.open(first, keys))).isEqualTo(value);
+        assertThat(new String(EnvelopeOpener.open(second, keys))).isEqualTo(value);
     }
 }
