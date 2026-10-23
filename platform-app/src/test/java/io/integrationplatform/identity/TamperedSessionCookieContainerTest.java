@@ -125,6 +125,10 @@ class TamperedSessionCookieContainerTest {
         cookies.put("invalid utf-8 bytes", Base64.getEncoder().encodeToString(new byte[] {(byte) 0xff, (byte) 0xfe, 'a'}));
         cookies.put("uuid plus a NUL byte", b64("0b0f6a1e-3c1a-4a52-9d58-1a7a0a1b2c3d\0"));
         cookies.put("NUL in the middle", b64("0b0f6a1e-3c1a-4a52-\0-1a7a0a1b2c3d"));
+        String genuineShape = b64("0b0f6a1e-3c1a-4a52-9d58-1a7a0a1b2c3d");
+        cookies.put("S3-A5 appended data (id + AAAA)", genuineShape + "AAAA");
+        cookies.put("S3-A5 doubled", genuineShape + genuineShape);
+        cookies.put("S3-A5 truncated", genuineShape.substring(0, genuineShape.length() / 2));
         cookies.put("only NUL bytes (4000 x A)", "A".repeat(4000));
         cookies.put("oversized, 6000 bytes", b64("a".repeat(6000)));
         return cookies;
@@ -177,7 +181,9 @@ class TamperedSessionCookieContainerTest {
             int active = settledActiveConnections();
             System.out.println("B33 variant [" + variant.getKey() + "] -> " + status + ", active connections after: "
                     + active);
-            if (status != 401) {
+            // an over-long header is refused by Tomcat itself (400) before the application: no session lookup, no pool use
+            boolean containerRefusal = status == 400 && variant.getKey().startsWith("oversized");
+            if (status != 401 && !containerRefusal) {
                 refused.add(variant.getKey() + " -> " + status + " " + body.replaceAll("\s+", " ").substring(0,
                         Math.min(80, body.replaceAll("\s+", " ").length())));
             }

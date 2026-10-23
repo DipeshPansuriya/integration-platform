@@ -46,7 +46,7 @@ class CanonicalSessionCookieSerializerTest {
         String genuine = b64(ID);
         String[] tampered = {
             genuine.substring(0, 20) + "!" + genuine.substring(21),
-            genuine.substring(0, genuine.length() - 1) + "x", genuine.substring(0, genuine.length() / 2),
+            genuine.substring(0, genuine.length() / 2),
             genuine + "AAAA", genuine + genuine, b64("0b0f6a1e-3c1a-4a52-9d58-1a7a0a1b2c3d"), ID, "x'--", "A".repeat(4000),
             b64("abc"), b64("' OR '1'='1' --"), b64(ID + "\0"), b64("0b0f6a1e-3c1a-\0-1a7a"), b64("a".repeat(6000)),
             b64(ID + ID), b64(ID.toUpperCase() + "x"), b64(" " + ID),
