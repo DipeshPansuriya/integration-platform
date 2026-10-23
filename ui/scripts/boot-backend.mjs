@@ -448,6 +448,33 @@ async function healthy(appPort) {
   }
 }
 
+/**
+ * B35 (row 372): the SQL that runs BEFORE the app starts, as the owner. The app login reaches schema `scheduler`
+ * only as a member of ipaas_app (V2_2_1400 grants USAGE to that role alone), and db-scheduler registers the job
+ * register at the app's own startup - so the membership must exist first, exactly as a deployment grants it
+ * (GrantAppRoleFlywayCallback.java, E18Base.java GrantAppRole). Flyway's V1_3_1 accepts a pre-existing ipaas_app
+ * with these attributes, so the role is created here with exactly V1_3_1's attributes (idempotent).
+ */
+export function appRoleBootSql(loginName) {
+  if (typeof loginName !== 'string' || !/^[a-z_][a-z0-9_]*$/.test(loginName)) {
+    throw new Error(`appRoleBootSql: login name must be a plain lower-case identifier, got ${JSON.stringify(loginName)}`);
+  }
+  return [
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'ipaas_app') THEN "
+      + 'CREATE ROLE ipaas_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION; END IF; END $$',
+    `GRANT ipaas_app TO ${loginName}`
+  ];
+}
+
+/**
+ * B35: db-scheduler swallows a startup failure ("Unexpected error while executing OnStartup tasks. Continuing.")
+ * and the app still answers healthy with an empty job register. Returns the first such log line, or null.
+ */
+export function schedulerStartupFailure(logChunks) {
+  const text = Array.isArray(logChunks) ? logChunks.join('') : String(logChunks ?? '');
+  return text.split(/\r?\n/).find((line) => line.includes('Unexpected error while executing OnStartup tasks')) ?? null;
+}
+
 export function psql(container, sql) {
   // The initdb phase runs a temporary postgres that answers pg_isready and then shuts down
   // (measured 2026-10-05, lane D: FATAL "the database system is shutting down" after an early
@@ -608,6 +635,8 @@ export default async function bootBackend({
     }
 
     psql(pgName, `CREATE ROLE ${loginName} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '${loginPassword}'`);
+    // B35: the login joins ipaas_app BEFORE the app starts (a deployment does the same); see appRoleBootSql.
+    for (const statement of appRoleBootSql(loginName)) psql(pgName, statement);
 
     const spawnApp = () => spawn(
       jdk.java,
@@ -659,9 +688,11 @@ export default async function bootBackend({
       throw new Error(`platform-app never became healthy: ${lastError.message}`);
     }
 
-    // The app login is a member of ipaas_app once Flyway has created the role (ADR-009) - the
-    // same step PlatformTestWiring.grantApplicationRole does for the Java suite.
-    psql(pgName, `GRANT ${'ipaas_app'} TO ${loginName}`);
+    // B35: a scheduler that failed to register its jobs at startup is a failed boot, not a quiet log line.
+    const schedulerFailure = schedulerStartupFailure(appLog);
+    if (schedulerFailure !== null) {
+      throw new Error(`platform-app started but db-scheduler could not register its jobs: ${schedulerFailure.slice(0, 400)}`);
+    }
 
     // The harness's bindings: realm users, bound through the directory the migrations own (owner
     // psql; the app login only reads the directory through ipaas_login_bootstrap, ADR-009) to the
