@@ -245,3 +245,20 @@ export async function signIn(page, user = loginUser()) {
     throw new Error(`sign-in stalled at ${page.url()} :: ${body} :: ${e.message.split('\n')[0]}`);
   }
 }
+
+/** The ten tampered SESSION cookie values of S3-A5 / S3-A5b, derived from a genuine cookie value. */
+export function tamperedVariants(valueA) {
+  const flip = (text, at) => text.slice(0, at) + (text[at] === 'A' ? 'B' : 'A') + text.slice(at + 1);
+  return {
+    'first character changed': flip(valueA, 0),
+    'last character changed': flip(valueA, valueA.length - 1),
+    'middle character changed': flip(valueA, Math.floor(valueA.length / 2)),
+    truncated: valueA.slice(0, Math.floor(valueA.length / 2)),
+    'appended data': `${valueA}AAAA`,
+    'doubled': `${valueA}${valueA}`,
+    'unknown but well-formed id': Buffer.from(crypto.randomUUID()).toString('base64'),
+    'plain (not encoded) id': sessionIdOf(valueA),
+    'quote and comment characters': "x'--",
+    'oversized value': 'A'.repeat(4000)
+  };
+}

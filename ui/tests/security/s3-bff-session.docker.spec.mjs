@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import {
   api, assertScannerSees, atConsole, consoleCookies, consoleHost, consoleUrl, expectNoTokenInTraffic, freshLogin, otherUser,
-  psql, recordTraffic, sessionCookie, sessionCookieFor, sessionIdOf, tokenFindings, JWT_PATTERN, consoleLoginEntry, appLog, signIn
+  psql, recordTraffic, sessionCookie, sessionCookieFor, sessionIdOf, tamperedVariants, tokenFindings, JWT_PATTERN, consoleLoginEntry, appLog, signIn
 } from './lib.mjs';
 
 const NO_SESSION = { storageState: { cookies: [], origins: [] } };
@@ -171,19 +171,7 @@ test.describe('S3 BFF session (browser)', () => {
     const valueB = (await sessionCookie(b.context)).value;
 
     // tampered cookies: none authenticates, none mints a session that does
-    const flip = (text, at) => text.slice(0, at) + (text[at] === 'A' ? 'B' : 'A') + text.slice(at + 1);
-    const tampered = {
-      'first character changed': flip(valueA, 0),
-      'last character changed': flip(valueA, valueA.length - 1),
-      'middle character changed': flip(valueA, Math.floor(valueA.length / 2)),
-      truncated: valueA.slice(0, Math.floor(valueA.length / 2)),
-      'appended data': `${valueA}AAAA`,
-      'doubled': `${valueA}${valueA}`,
-      'unknown but well-formed id': Buffer.from(crypto.randomUUID()).toString('base64'),
-      'plain (not encoded) id': sessionIdOf(valueA),
-      'quote and comment characters': "x'--",
-      'oversized value': 'A'.repeat(4000)
-    };
+    const tampered = tamperedVariants(valueA);
     const poolErrorsBefore = await appLog('Could not open JDBC Connection');
     let unresponsive = null;
     for (const [label, value] of Object.entries(tampered)) {

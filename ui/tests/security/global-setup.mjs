@@ -11,6 +11,8 @@ import { execFileSync } from 'node:child_process';
 import { bootScreens } from '../screens/global-setup.mjs';
 import { bootedBackend } from '../screens/boot-state.mjs';
 import { setControl } from './control-state.mjs';
+import { psql } from '../../scripts/boot-backend.mjs';
+import { bindSubjectSql } from '../../scripts/release1/tokens.mjs';
 
 function consoleClientSecretOf(issuer) {
   const port = new URL(issuer).port;
@@ -33,6 +35,13 @@ export default async function globalSetup() {
   process.env.SEC_OTHER_USER = backend.users['other-tenant'].username;
   process.env.SEC_OTHER_PASSWORD = backend.users['other-tenant'].password;
   process.env.SEC_CONSOLE_CLIENT_SECRET = consoleClientSecretOf(backend.issuer);
+
+  // S3-A5b (B33 condition b): a service-account client bound to the console's tenant, so a case can send a valid bearer token
+  // together with a tampered cookie. Only the client's id and secret are published (memory of this run); the token is minted in the case.
+  const bearer = await backend.createServiceClient('sec-b33-bearer');
+  for (const sql of bindSubjectSql({ tenantCode: backend.tenantCode, issuer: backend.issuer, subject: bearer.subject, role: 'TENANT_ADMIN' })) psql(backend.pgName, sql);
+  process.env.SEC_BEARER_CLIENT = bearer.clientId;
+  process.env.SEC_BEARER_SECRET = bearer.secret;
 
   const token = crypto.randomBytes(16).toString('hex');
   const server = http.createServer(async (req, res) => {
