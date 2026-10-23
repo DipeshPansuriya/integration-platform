@@ -50,7 +50,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * before authentication and before {@link AdminRequestSizeFilter}. The admin API is JSON-only, so
  * {@code spring.mvc.formcontent.filter.enabled=false} (platform-app application.yml, loaded by this slice). The probe
  * is a counting wrapper installed in front of every filter: it measures the bytes any filter pulled out of the body.
- * Anonymous: 401 and zero bytes. Authenticated, 3 MB chunked body over the 2 MB limit: 413 and at most limit + 1 bytes.
+ * Anonymous: 401 and zero bytes. Authenticated, 3 MB chunked body over the 2 MB limit: 415 (media type refused unread) or 413, and at most limit + 1 bytes.
  * The JSON-only 415 and the 405 are unchanged.
  */
 @WebMvcTest(properties = {
@@ -188,11 +188,12 @@ class AdminFormPutNotBufferedTest {
     }
 
     @Test
-    void anAuthenticatedChunkedFormPutOverTheLimitIs413AndReadsAtMostTheLimit() throws Exception {
+    void anAuthenticatedChunkedFormPutOverTheLimitReadsAtMostTheLimit() throws Exception {
         MockHttpServletResponse response = chunkedFormPut(true, 3 * 1024 * 1024);
 
-        assertThat(response.getStatus()).isEqualTo(413);
-        assertThat(BYTES_READ.get()).as("the size filter, not FormContentFilter, is the first reader")
+        // 415: the JSON-only handler refuses the media type without reading; 413 if anything reads past the limit
+        assertThat(response.getStatus()).isIn(413, 415);
+        assertThat(BYTES_READ.get()).as("no filter (FormContentFilter) buffers the body in full")
                 .isLessThanOrEqualTo(LIMIT + 1);
     }
 
