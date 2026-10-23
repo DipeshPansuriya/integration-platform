@@ -32,6 +32,11 @@ export function reportRows(answer: readonly DailyCounts[]): ReportRow[] {
   });
 }
 
+/** A failed or still-stuck count above zero needs attention (danger badge); zero stays plain text. */
+export function countTone(count: number): 'danger' | 'plain' {
+  return count > 0 ? 'danger' : 'plain';
+}
+
 export function reportColumns(): string[] {
   return ['Interface', 'Target', 'Successes', 'Failures', 'Deliveries', 'Retries made', 'Retried then succeeded', 'Still stuck'];
 }
@@ -47,4 +52,20 @@ export function reportQuery(params: { day?: string }): { day: string } | undefin
 // The backend's days are UTC days.
 export function todayUtc(now: Date): string {
   return now.toISOString().slice(0, 10);
+}
+
+export type ReportLoad = 'loading' | 'ready' | 'refused' | 'error';
+export type ReportStatus = 'prompt' | 'loading' | 'refused' | 'error' | 'empty' | 'ready';
+
+export const NO_DAY_COPY = 'Choose a day to see its delivery report.';
+
+/** A missing or malformed day is a prompt, never the error state: the day control is the only filter and must stay. */
+export function reportStatus(day: string, load: ReportLoad, rowCount: number): ReportStatus {
+  if (reportQuery({ day }) === undefined) return 'prompt';
+  if (load === 'ready') return rowCount === 0 ? 'empty' : 'ready';
+  return load;
+}
+
+export function emptyReportText(day: string): string {
+  return `No deliveries on ${day} (UTC).`;
 }

@@ -25,23 +25,35 @@ public class JdbcDbPrivilegeProbe implements DbPrivilegeProbe {
 
     /**
      * S2: the account's EFFECTIVE privileges, asked of the server (roles, PUBLIC and inheritance included), not the
-     * grant text: table INSERT/SELECT/UPDATE/DELETE/TRUNCATE/TRIGGER, BYPASSRLS, CREATE on the schema, superuser, membership of
-     * pg_write_all_data. Every name is a statement parameter; a table that does not exist reads as no privilege
-     * (to_regclass is null) and a server without pg_write_all_data (before 14) as not a member.
+     * grant text: table INSERT/SELECT/UPDATE/REFERENCES/DELETE/TRUNCATE/TRIGGER, BYPASSRLS, CREATE on the schema,
+     * superuser, membership of pg_write_all_data. T189: INSERT, SELECT, UPDATE and REFERENCES are asked with
+     * {@code has_any_column_privilege}, which is true for a table-level grant AND for a grant on any single column
+     * ({@code GRANT UPDATE (col)}), which {@code has_table_privilege} ignores. Every name is a statement parameter.
+     * A table that does not resolve (to_regclass is null) yields the row TABLE_MISSING, which the probe turns into a
+     * {@code TABLE_NOT_FOUND} refusal - never an empty, "narrow"-looking list (T189); a server without
+     * pg_write_all_data (before 14) reads as not a member.
+     *
+     * <p>Design limit (T189): the width is read at approve time and at test-connection only. It is NOT re-checked at
+     * send time - a grant added to the account after approval is not seen until the next approval or test.
      */
     static final String PRIVILEGES_SQL = "select p from (values"
             + " ('DELETE', coalesce(has_table_privilege(current_user, to_regclass(?), 'DELETE'), false)),"
-            + " ('INSERT', coalesce(has_table_privilege(current_user, to_regclass(?), 'INSERT'), false)),"
-            + " ('SELECT', coalesce(has_table_privilege(current_user, to_regclass(?), 'SELECT'), false)),"
-            + " ('UPDATE', coalesce(has_table_privilege(current_user, to_regclass(?), 'UPDATE'), false)),"
+            + " ('INSERT', coalesce(has_any_column_privilege(current_user, to_regclass(?), 'INSERT'), false)),"
+            + " ('SELECT', coalesce(has_any_column_privilege(current_user, to_regclass(?), 'SELECT'), false)),"
+            + " ('UPDATE', coalesce(has_any_column_privilege(current_user, to_regclass(?), 'UPDATE'), false)),"
+            + " ('REFERENCES', coalesce(has_any_column_privilege(current_user, to_regclass(?), 'REFERENCES'), false)),"
             + " ('TRUNCATE', coalesce(has_table_privilege(current_user, to_regclass(?), 'TRUNCATE'), false)),"
             + " ('TRIGGER', coalesce(has_table_privilege(current_user, to_regclass(?), 'TRIGGER'), false)),"
+            + " ('TABLE_MISSING', to_regclass(?) is null),"
             + " ('BYPASSRLS', coalesce((select rolbypassrls from pg_roles where rolname = current_user), false)),"
             + " ('SCHEMA_CREATE', has_schema_privilege(current_user, ?, 'CREATE')),"
             + " ('SUPERUSER', coalesce((select rolsuper from pg_roles where rolname = current_user), false)),"
             + " ('PG_WRITE_ALL_DATA', coalesce((select pg_has_role(current_user, oid, 'member') from pg_roles"
             + " where rolname = 'pg_write_all_data'), false))"
             + ") v(p, held) where held order by p";
+
+    /** The number of leading statement parameters that name the table; the last one names the schema. */
+    private static final int TABLE_SLOTS = 8;
 
     static final String DEFAULT_SCHEMA = "public";
 
@@ -71,14 +83,20 @@ public class JdbcDbPrivilegeProbe implements DbPrivilegeProbe {
                 }
                 try (PreparedStatement statement = connection.prepareStatement(PRIVILEGES_SQL)) {
                     String qualified = DEFAULT_SCHEMA + "." + settings.table(); // a validated plain identifier
-                    for (int slot = 1; slot <= 6; slot++) {
+                    for (int slot = 1; slot <= TABLE_SLOTS; slot++) {
                         statement.setString(slot, qualified);
                     }
-                    statement.setString(7, DEFAULT_SCHEMA);
+                    statement.setString(TABLE_SLOTS + 1, DEFAULT_SCHEMA);
                     try (ResultSet rows = statement.executeQuery()) {
                         List<String> privileges = new ArrayList<>();
                         while (rows.next()) {
                             privileges.add(rows.getString(1));
+                        }
+                        if (privileges.contains("TABLE_MISSING")) {
+                            // T189: no privilege read of a table that does not resolve - the approval must not call it narrow
+                            throw new ProbeRefused("TABLE_NOT_FOUND",
+                                    "the table '" + settings.table() + "' does not exist in schema " + DEFAULT_SCHEMA
+                                    + " (or the account cannot see it)");
                         }
                         return List.copyOf(privileges);
                     }

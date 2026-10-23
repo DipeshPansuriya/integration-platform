@@ -1,6 +1,7 @@
 package io.integrationplatform.app.report;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -100,5 +101,33 @@ class ReportFacadeControllerTest {
                 new StaticListableBeanFactory().getBeanProvider(TenantContext.class));
 
         assertThat(bare.report(foreign, null, null, get(foreign)).getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    void aProviderFaultSurfacesAsAnErrorAndRecordsNoDenial() {
+        MessageTrackingService service = mock(MessageTrackingService.class);
+        UUID trackingId = UUID.randomUUID();
+        when(service.timeline(trackingId)).thenThrow(new IllegalStateException("db down"));
+        ReportFacadeController real = new ReportFacadeController(
+                new DefaultReportFacade(new MessageTrackingReportDataProvider(service)),
+                beanProvider(TenantDenialRecorder.class, recorder),
+                beanProvider(TenantContext.class, (TenantContext) () -> Optional.of(TENANT)));
+
+        assertThatThrownBy(() -> real.report(trackingId, null, null, get(trackingId)))
+                .isInstanceOf(IllegalStateException.class);
+        verify(recorder, never()).record(any());
+    }
+
+    @Test
+    void aNullFacadeIsRejectedAtConstruction() {
+        StaticListableBeanFactory beans = new StaticListableBeanFactory();
+        assertThatThrownBy(() -> new ReportFacadeController(null, beans.getBeanProvider(TenantDenialRecorder.class),
+                beans.getBeanProvider(TenantContext.class))).isInstanceOf(NullPointerException.class);
+    }
+
+    private static <T> org.springframework.beans.factory.ObjectProvider<T> beanProvider(Class<T> type, T bean) {
+        StaticListableBeanFactory beans = new StaticListableBeanFactory();
+        beans.addBean(type.getSimpleName(), bean);
+        return beans.getBeanProvider(type);
     }
 }

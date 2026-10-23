@@ -1,0 +1,40 @@
+/* B29 C4: CodeMirror 6 over the app tokens, both themes (they flip under data-theme, so no dark
+   block). Tokens only - no colour literal. The editor wrapper is [data-field="raw-expression"]. */
+.raw-expression .cm-editor {
+  border: 1px solid var(--color-border-control); /* >= 3:1 boundary, WCAG 1.4.11 */
+  border-radius: var(--r-1);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 13px;
+}
+.raw-expression .cm-editor .cm-content {
+  caret-color: var(--color-ink);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.raw-expression .cm-editor .cm-cursor,
+.raw-expression .cm-editor .cm-dropCursor {
+  border-left-color: var(--color-ink);
+}
+.raw-expression .cm-editor .cm-selectionBackground,
+.raw-expression .cm-editor.cm-focused .cm-selectionBackground,
+.raw-expression .cm-editor .cm-content ::selection {
+  background: var(--color-accent-faint);
+}
+.raw-expression .cm-editor .cm-gutters {
+  background: var(--color-canvas);
+  color: var(--color-ink-muted);
+  border-right: 1px solid var(--color-border);
+}
+.raw-expression .cm-editor .cm-activeLine,
+.raw-expression .cm-editor .cm-activeLineGutter {
+  background: var(--color-accent-faint);
+}
+/* WCAG 2.4.7: CodeMirror's own 1px dotted outline is invisible on dark; replace it with the app ring. */
+.raw-expression .cm-editor.cm-focused {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+.raw-expression:focus-within .cm-editor {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}

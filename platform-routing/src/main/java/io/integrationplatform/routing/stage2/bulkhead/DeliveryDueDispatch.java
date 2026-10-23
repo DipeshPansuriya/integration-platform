@@ -63,7 +63,7 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
     private final BulkheadRedrive redrive;
     /** F1: targets this instance deferred a delivery for since their last empty re-drive scan (cross-instance: the job). */
     private final java.util.Set<UUID> deferredHere = java.util.concurrent.ConcurrentHashMap.newKeySet();
-    /** F3: consecutive HELD/duplicate claims per target since the last real send or the cap. */
+    /** F3: consecutive HELD/duplicate claims per target since the last real send (sticky at the cap). */
     private final java.util.concurrent.ConcurrentHashMap<UUID, Integer> heldInARow =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final Stage2SendDispatch sends;
@@ -159,7 +159,7 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
             circuitDeferred = sends.dispatch(send);
         } finally {
             if (!circuitDeferred) { // F2: an open breaker is not a freed slot of a healthy target - the job stays the net
-                safeRedrive(targetEndpointId, "after a finished send");
+                safeRedrive(targetEndpointId, "after a finished send", BulkheadRedrive.Cause.SLOT_FREE);
             }
         }
     }
@@ -169,18 +169,19 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
      * tail would fall to the 60 s job. Hand the turn on, at most {@link #HELD_CHAIN_CAP} in a row per target.
      */
     private void chainAfterHeld(UUID targetEndpointId) {
-        int run = heldInARow.merge(targetEndpointId, 1, Integer::sum);
+        // sticky (ADR-010): once the cap is reached the chain stays off until a real send resets the count; the
+        // counter is clamped so it cannot grow without bound while the target stays HELD
+        int run = heldInARow.merge(targetEndpointId, 1, (count, one) -> Math.min(count + one, HELD_CHAIN_CAP + 1));
         if (run > HELD_CHAIN_CAP) {
-            heldInARow.remove(targetEndpointId); // cap reached: the retry job takes the rest
-            return;
+            return; // cap reached: the retry job takes the rest
         }
-        safeRedrive(targetEndpointId, "after a HELD/duplicate claim");
+        safeRedrive(targetEndpointId, "after a HELD/duplicate claim", BulkheadRedrive.Cause.HELD_CHAIN);
     }
 
     /** A failing re-drive never fails the caller: WARN without a stack trace, the stack at DEBUG. */
-    private void safeRedrive(UUID targetEndpointId, String when) {
+    private void safeRedrive(UUID targetEndpointId, String when, BulkheadRedrive.Cause cause) {
         try {
-            redriveIfDeferredHere(targetEndpointId);
+            redriveIfDeferredHere(targetEndpointId, cause);
         } catch (RuntimeException failed) {
             LOG.warn("slot-free re-drive {} for target {} failed ({}); the delivery retry job will pick up the"
                     + " deferred delivery", when, targetEndpointId, failed.toString());
@@ -194,13 +195,13 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
      * kept; a scan that moved a row (more may wait) or failed puts it back. A deferral made by another instance is the
      * retry job's to find (it stays the safety net).
      */
-    private void redriveIfDeferredHere(UUID targetEndpointId) {
+    private void redriveIfDeferredHere(UUID targetEndpointId, BulkheadRedrive.Cause cause) {
         if (!deferredHere.remove(targetEndpointId)) {
             return;
         }
         boolean moreMayWait = true; // a failing scan keeps the flag
         try {
-            moreMayWait = redrive.redriveOneDeferred(targetEndpointId);
+            moreMayWait = redrive.redriveOneDeferred(targetEndpointId, cause);
         } finally {
             if (moreMayWait) {
                 deferredHere.add(targetEndpointId);

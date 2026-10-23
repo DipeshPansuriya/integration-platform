@@ -28,7 +28,7 @@ import org.springframework.transaction.support.TransactionOperations;
 public final class JdbcBulkheadRedrive extends TenantScopedRepository implements BulkheadRedrive {
 
     /** The {@code REDRIVE} event detail: tells a slot-free re-drive from the retry job's (null detail) in the event log. */
-    public static final String SLOT_FREE = "slot-free";
+    public static final String SLOT_FREE = BulkheadRedrive.Cause.SLOT_FREE.detail();
 
     private final JdbcDeliveryRepository repository;
     private final TransactionOperations transactions;
@@ -43,8 +43,9 @@ public final class JdbcBulkheadRedrive extends TenantScopedRepository implements
     }
 
     @Override
-    public boolean redriveOneDeferred(UUID targetEndpointId) {
+    public boolean redriveOneDeferred(UUID targetEndpointId, Cause cause) {
         Objects.requireNonNull(targetEndpointId, "targetEndpointId");
+        Objects.requireNonNull(cause, "cause");
         return Boolean.TRUE.equals(transactions.execute(status -> {
             repository.stampTenant();
             UUID next = query(
@@ -54,7 +55,7 @@ public final class JdbcBulkheadRedrive extends TenantScopedRepository implements
                             + " order by d.next_attempt_at, d.id limit 1 for update of d skip locked) scoped",
                     null, Map.of("target", targetEndpointId.toString()),
                     (rs, n) -> UUID.fromString(rs.getString(1))).stream().findFirst().orElse(null);
-            if (next == null || !repository.redrive(next, Instant.now(), SLOT_FREE)) {
+            if (next == null || !repository.redrive(next, Instant.now(), cause.detail())) {
                 return false; // nothing waiting, or it moved meanwhile: no effect
             }
             outbox.append(new OutboxEntry(OutboxTopic.DELIVERY_DUE, next, "delivery:" + next, null, null));

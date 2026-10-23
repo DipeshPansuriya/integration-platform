@@ -284,6 +284,7 @@ public final class SystemSettings {
         if (absent(columns) || !columns.isArray() || columns.isEmpty() || columns.size() > MAX_CONTRACT_COLUMNS) {
             errors.add("settings.contract.columns must be a list of 1 to " + MAX_CONTRACT_COLUMNS + " columns");
         } else {
+            java.util.Map<String, Integer> firstSeen = new java.util.HashMap<>();
             for (int i = 0; i < columns.size(); i++) {
                 JsonNode column = columns.get(i);
                 String at = "settings.contract.columns[" + i + "]";
@@ -295,6 +296,13 @@ public final class SystemSettings {
                 }
                 if (absent(name) || !name.isString() || !IDENTIFIER.matcher(name.stringValue()).matches()) {
                     errors.add(at + ".name must be a plain identifier (letters, digits, underscore)");
+                } else {
+                    // T189 (T176): the CSV header and the column mapping are by name - a repeated name is ambiguous
+                    Integer first = firstSeen.putIfAbsent(name.stringValue().toLowerCase(Locale.ROOT), i);
+                    if (first != null) {
+                        errors.add(at + ".name is a duplicate of settings.contract.columns[" + first
+                                + "].name (column names must be unique, ignoring case)");
+                    }
                 }
                 if (absent(type) || !type.isString() || !List.of("TEXT", "NUMBER")
                         .contains(type.stringValue().toUpperCase(Locale.ROOT))) {
