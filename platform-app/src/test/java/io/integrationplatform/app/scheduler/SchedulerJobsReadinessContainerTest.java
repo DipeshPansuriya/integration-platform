@@ -65,7 +65,7 @@ class SchedulerJobsReadinessContainerTest {
         HttpResponse<String> response = awaitStatus(code -> code == 200);
 
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
-        assertThat(response.body()).isEqualTo("{\"status\":\"UP\"}");
+        assertThat(response.body()).matches(statusOnly("UP"));
     }
 
     @Test
@@ -78,7 +78,7 @@ class SchedulerJobsReadinessContainerTest {
             HttpResponse<String> response = awaitStatus(code -> code == 503);
 
             assertThat(response.statusCode()).as(response.body()).isEqualTo(503);
-            assertThat(response.body()).isEqualTo("{\"status\":\"OUT_OF_SERVICE\"}");
+            assertThat(response.body()).matches(statusOnly("OUT_OF_SERVICE"));
         } finally {
             owner("GRANT USAGE ON SCHEMA scheduler TO ipaas_app");
         }
@@ -113,5 +113,13 @@ class SchedulerJobsReadinessContainerTest {
         Callback grantAppRoleFlywayCallback() {
             return new GrantAppRoleFlywayCallback(POSTGRES, login);
         }
+    }
+
+    /**
+     * The anonymous body is the status only: Spring adds the names of the health groups to the root answer (no
+     * components, no details), so that one key is tolerated - anything else fails the match (L23).
+     */
+    private static String statusOnly(String status) {
+        return "\\{(\"groups\":\\[[^\\]]*],)?\"status\":\"" + status + "\"}";
     }
 }
