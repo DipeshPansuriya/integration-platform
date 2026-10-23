@@ -9,7 +9,7 @@
 
 import crypto from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { appLog, freshLogin, api, issuer, sessionCookie, sessionIdOf, tamperedVariants } from './lib.mjs';
+import { appLog, freshLogin, api, issuer, sessionCookie, sessionIdOf, tamperedVariants, expectNulVariants } from './lib.mjs';
 
 const POOL_ERROR = 'Could not open JDBC Connection';
 
@@ -73,7 +73,9 @@ test.describe('S3-A5b B33 conditions (tampered session cookie)', () => {
     // therefore be indistinguishable from no cookie at all: same status, same body, never 5xx. The other two paths are 302 or 401.
     expect(controls['POST /logout'].status, 'control: /logout without a usable cookie answers 200').toBe(200);
     expect(JSON.parse(controls['POST /logout'].text), 'control: /logout body without a usable cookie').toEqual({ redirect: '/' });
-    for (const [variant, tampered] of Object.entries(tamperedVariants(value))) {
+    const variants = tamperedVariants(value);
+    expectNulVariants(variants);
+    for (const [variant, tampered] of Object.entries(variants)) {
       for (const [label, send] of requests) {
         const answer = await send(`SESSION=${tampered}`);
         codes[`${label} | ${variant}`] = answer.status;
@@ -107,7 +109,9 @@ test.describe('S3-A5b B33 conditions (tampered session cookie)', () => {
     codes['tampered cookie alone (control)'] = cookieAlone.status;
     expect(cookieAlone.status, 'control: the tampered cookie alone is refused').toBe(401);
 
-    for (const [variant, tampered] of Object.entries(tamperedVariants(value))) {
+    const variants = tamperedVariants(value);
+    expectNulVariants(variants);
+    for (const [variant, tampered] of Object.entries(variants)) {
       const answer = await raw('GET', '/api/v1/me', { cookie: `SESSION=${tampered}`, headers: authorization });
       codes[variant] = answer.status;
       expect.soft(answer.status, `bearer + "${variant}": ${answer.text.slice(0, 80).replace(/\s+/g, ' ')}`).toBe(200);

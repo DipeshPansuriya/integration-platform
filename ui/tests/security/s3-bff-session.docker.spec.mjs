@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import {
   api, assertScannerSees, atConsole, consoleCookies, consoleHost, consoleUrl, expectNoTokenInTraffic, freshLogin, otherUser,
-  psql, recordTraffic, sessionCookie, sessionCookieFor, sessionIdOf, tamperedVariants, tokenFindings, JWT_PATTERN, consoleLoginEntry, appLog, signIn
+  psql, recordTraffic, sessionCookie, sessionCookieFor, sessionIdOf, tamperedVariants, expectNulVariants, tokenFindings, JWT_PATTERN, consoleLoginEntry, appLog, signIn
 } from './lib.mjs';
 
 const NO_SESSION = { storageState: { cookies: [], origins: [] } };
@@ -172,6 +172,7 @@ test.describe('S3 BFF session (browser)', () => {
 
     // tampered cookies: none authenticates, none mints a session that does
     const tampered = tamperedVariants(valueA);
+    expectNulVariants(tampered);
     const poolErrorsBefore = await appLog('Could not open JDBC Connection');
     let unresponsive = null;
     for (const [label, value] of Object.entries(tampered)) {
@@ -185,7 +186,7 @@ test.describe('S3 BFF session (browser)', () => {
         break; // the application no longer answers: no point hammering it
       }
     }
-    // B33 guarantee: all 10 variants were refused with 401 (never 500) and the pool is not exhausted.
+    // B33 guarantee: all 13 variants (incl. the three NUL-bearing ones, T202) were refused with 401 (never 500) and the pool is not exhausted.
     expect(unresponsive, 'the application kept answering during the tampered requests').toBeNull();
     expect((await appLog('Could not open JDBC Connection')).length, 'no pool exhaustion errors in the application log').toBe(poolErrorsBefore.length);
     // pool check: a genuine login and GET /api/v1/me still work afterwards (no leaked connections), on the same JVM
