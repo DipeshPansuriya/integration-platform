@@ -349,7 +349,9 @@ public final class SystemSettings {
 
     private static boolean charsetKnown(String name) {
         try {
-            return name.length() <= 40 && java.nio.charset.Charset.isSupported(name);
+            // T176-2: isSupported is true for decode-only charsets (ISO-2022-CN); the send needs an encoder
+            return name.length() <= 40 && java.nio.charset.Charset.isSupported(name)
+                    && java.nio.charset.Charset.forName(name).canEncode();
         } catch (java.nio.charset.IllegalCharsetNameException illegal) {
             return false;
         }
