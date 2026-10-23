@@ -41,7 +41,7 @@ public class MappingAdminService {
     @Transactional(readOnly = true)
     public java.util.Map<String, Object> read(String routeId) {
         JdbcMappingRepository.LiveMapping live =
-                mappings.findMappingOfRoute(routeId).orElseThrow(ConfigApiException::notFound);
+                mappings.findMappingOfRoute(routeKey(routeId)).orElseThrow(ConfigApiException::notFound);
         return ConfigApiException.body(
                 "routeId", routeId,
                 "mappingId", live.id(),
@@ -56,7 +56,7 @@ public class MappingAdminService {
     @Transactional
     public java.util.Map<String, Object> save(String routeId, JsonNode body, java.util.UUID actorId) {
         JdbcMappingRepository.LiveMapping live =
-                mappings.findMappingOfRoute(routeId).orElseThrow(ConfigApiException::notFound);
+                mappings.findMappingOfRoute(routeKey(routeId)).orElseThrow(ConfigApiException::notFound);
 
         JsonNode linksNode = body.path("fieldMappings");
         // T171 S5-A1 server-side limits: links are an array of bounded size, text without a null character
@@ -171,11 +171,23 @@ public class MappingAdminService {
         return text;
     }
 
+    /** T171 S5-A1: a route id that is not a UUID names no route (404), never a database cast error. */
+    private static String routeKey(String routeId) {
+        try {
+            return java.util.UUID.fromString(routeId).toString();
+        } catch (IllegalArgumentException | NullPointerException notAUuid) {
+            throw ConfigApiException.notFound();
+        }
+    }
+
     /** T171 S5-A1: a contract-version id is a canonical UUID or a 400 - the SQL casts it with {@code ::uuid}. */
     private static String uuidOrNull(String field, JsonNode node) {
         String text = textOrNull(node);
         if (text == null) {
             return null;
+        }
+        if (!node.isString()) {
+            throw ConfigApiException.validation(field + " must be a UUID");
         }
         try {
             return java.util.UUID.fromString(text).toString();

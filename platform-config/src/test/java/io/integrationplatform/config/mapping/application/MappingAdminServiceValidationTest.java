@@ -109,6 +109,23 @@ class MappingAdminServiceValidationTest {
                 + "\",\"targetContractVersionId\":" + quoted + "}", "UUID");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"a\":1}", "[1]", "true", "123"})
+    void aContractVersionIdThatIsNotTextIsRefused(String json) {
+        refused("{\"compiledExpression\":\"\",\"sourceContractVersionId\":" + json + ",\"targetContractVersionId\":\"" + GOOD_ID
+                + "\"}", "UUID");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"not-a-uuid", "", "1", "55555555-5555-5555-5555-55555555555g"})
+    void aRouteIdThatIsNotAUuidIsNotFoundBeforeAnyDatabaseCast(String routeId) {
+        assertThatThrownBy(() -> service.save(routeId, JSON.readTree("{\"compiledExpression\":\"\"}"), ACTOR))
+                .isInstanceOfSatisfying(ConfigApiException.class, e -> assertThat(e.httpStatus()).isEqualTo(404));
+        assertThatThrownBy(() -> service.read(routeId)).isInstanceOfSatisfying(ConfigApiException.class,
+                e -> assertThat(e.httpStatus()).isEqualTo(404));
+        verify(mappings, never()).findMappingOfRoute(routeId);
+    }
+
     @Test
     void oneBoundVersionWithoutTheOtherIsRefused() {
         refused("{\"compiledExpression\":\"$\",\"sourceContractVersionId\":\"" + GOOD_ID + "\"}", "together");
