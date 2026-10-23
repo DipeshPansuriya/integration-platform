@@ -30,6 +30,9 @@ class JdbcDbPrivilegeProbeTest {
     void theProbeAsksForEffectivePrivileges() {
         assertThat(JdbcDbPrivilegeProbe.PRIVILEGES_SQL)
                 .contains("has_table_privilege(current_user").contains("to_regclass(?)")
+                .contains("has_any_column_privilege(current_user, to_regclass(?), 'UPDATE')")
+                .contains("has_any_column_privilege(current_user, to_regclass(?), 'REFERENCES')")
+                .contains("TABLE_MISSING")
                 .contains("'INSERT'").contains("'SELECT'").contains("'UPDATE'").contains("'DELETE'")
                 .contains("'TRUNCATE'").contains("'TRIGGER'").contains("rolbypassrls").contains("rolsuper").contains("pg_roles")
                 .contains("has_schema_privilege(current_user, ?, 'CREATE')")
