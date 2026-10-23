@@ -4,17 +4,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  MASKED_FIELD, MASK_NAMES, PROBE, bodyProblems, declareCall, echoStubMapping, isPendingName, leakingLines,
+  MASKED_FIELD, MASK_NAMES, PROBE, acceptanceProblems, bodyProblems, contractRefusalProblems, leakingAnswers, declareCall, echoStubMapping, isPendingName, leakingLines,
   maskName, probeForms, probeHits, probeRecord, redact, waitsFor
 } from '../lib/mask-probe.mjs';
+import { LINKS, SOURCE_CONTRACT, TENANTS, expectedTargetBody } from '../lib/tenants.mjs';
 import { stubMapping } from '../lib/wiremock.mjs';
 
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
 
 test('the probe is the agreed value and sits in the masked field', () => {
   assert.equal(PROBE, 'MASK-PROBE-7Q3Z');
-  assert.equal(MASKED_FIELD, 'customerId');
-  assert.deepEqual(probeRecord(11), { customerId: PROBE, orderId: 'A-ORD-0011', amount: 111.25 });
+  assert.equal(MASKED_FIELD, 'cardNumber', 'T206: not customerId - the identity field the platform checks against the credential');
+  assert.deepEqual(probeRecord(11), { customerId: 'A-CUST-0001', cardNumber: PROBE, orderId: 'A-ORD-0011', amount: 111.25 });
+  assert.notEqual(probeRecord(11).customerId, PROBE, 'B36: the probe never sits in the identity field');
   assert.equal(probeRecord(13, { amount: 'not-a-number' }).amount, 'not-a-number');
   assert.throws(() => probeRecord(0), /outside/);
 });
@@ -83,4 +85,58 @@ test('the echo stub reuses the fixed stub id so setStub(path, 200) restores it',
   assert.deepEqual(echo.response.transformers, ['response-template']);
   assert.match(echo.response.body, /\{\{\{request\.body\}\}\}/);
   assert.equal(echo.response.jsonBody, undefined, 'body and jsonBody never both');
+});
+
+// ---- T206 (B36): the probe must reach intake, and every leak assertion must be able to fail ----
+
+test('B36: the masked field is a non-identity contract field that reaches the target; the probe never sits in customerId', () => {
+  assert.ok(Object.hasOwn(SOURCE_CONTRACT.document.properties, MASKED_FIELD), 'the masked field is in the seeded source contract');
+  assert.ok(!['customerId', 'clientId'].includes(MASKED_FIELD), 'not an identity field - the platform checks customerId against the credential');
+  const target = LINKS.find(([from]) => from === MASKED_FIELD)?.[1];
+  assert.ok(target, 'the masked field is linked, so the delivery carries the real value');
+  const record = probeRecord(11);
+  assert.equal(record.customerId, TENANTS.A.customerId, 'the credential\'s own customer, so SourceCustomerFilter lets it through');
+  assert.equal(expectedTargetBody(record)[target], PROBE, 'positive control: the target gets the real probe');
+  assert.equal(Object.values(record).filter((v) => v === PROBE).length, 1);
+});
+
+test('acceptanceProblems: only a 202 with a trackingId passes - a 403 can never look like a pass (B36)', () => {
+  assert.deepEqual(acceptanceProblems({ status: 202, data: { trackingId: 'abc' } }), []);
+  const refused = acceptanceProblems({ status: 403, data: { code: 'BODY_CUSTOMER' } });
+  assert.equal(refused.length, 2, 'the status and the missing tracking id');
+  assert.match(refused[0], /403, not 202/);
+  assert.equal(acceptanceProblems({ status: 202, data: {} }).length, 1);
+  assert.equal(acceptanceProblems(undefined).length, 2);
+  for (const problem of acceptanceProblems({ status: 422, data: { message: `bad ${PROBE}` } })) assert.deepEqual(probeHits(problem), [], 'a report never re-prints the probe');
+});
+
+test('contractRefusalProblems: 400/422 naming the field passes; the identity gate, a 202, a 5xx and a nameless body fail', () => {
+  const good = { status: 422, data: { code: 'CONTRACT_INVALID', message: 'amount: must be a number' } };
+  assert.deepEqual(contractRefusalProblems(good, 'amount'), []);
+  assert.deepEqual(contractRefusalProblems({ status: 400, data: { code: 'SCHEMA_TYPE', violations: [{ field: 'amount' }] } }, 'amount'), []);
+  assert.ok(contractRefusalProblems({ status: 403, data: { code: 'BODY_CUSTOMER' } }, 'amount').length >= 2, 'the B36 answer is not a contract refusal');
+  assert.match(contractRefusalProblems({ status: 403, data: { code: 'BODY_CUSTOMER' } }, 'amount').join('|'), /identity gate/);
+  assert.ok(contractRefusalProblems({ status: 202, data: { trackingId: 'x' } }, 'amount').length > 0, 'an accepted record is no refusal');
+  assert.ok(contractRefusalProblems({ status: 503, data: { code: 'INTAKE_UNAVAILABLE', message: 'amount' } }, 'amount').length > 0);
+  assert.ok(contractRefusalProblems({ status: 422, data: { code: 'X' } }, 'amount').some((p) => /does not name/.test(p)));
+  assert.ok(contractRefusalProblems({ status: 422, data: {} }, 'amount').some((p) => /no reason/.test(p)));
+});
+
+test('negative controls: the BS-11.2 / 11.4 leak assertions each FAIL on a planted probe and pass on a masked body', () => {
+  const marker = maskName('maskApiMarker');
+  // 11.2: failures API (last error) and detail API - the echoed probe must be replaced by the marker
+  const leaking = [{ trackingId: 't', lastError: `target 403 {"echo":{"cardNumber":"${PROBE}"}}` }];
+  const masked = [{ trackingId: 't', lastError: `target 403 {"echo":{"cardNumber":"${marker}"}}` }];
+  assert.ok(bodyProblems(leaking, { marker }).length >= 1, '11.2 fails on a leaked probe');
+  assert.deepEqual(bodyProblems(masked, { marker }), [], '11.2 passes on a masked error text');
+  assert.ok(bodyProblems([{ trackingId: 't', lastError: 'target 403' }], { marker }).length === 1, '11.2 also fails when the mask marker is absent (nothing was masked)');
+  assert.ok(bodyProblems({ timeline: [{ stage: 'DELIVER', detail: b64(`{"cardNumber":"${PROBE}"}`) }] }).length >= 1, '11.2 detail: a base64 probe fails too');
+  // 11.4: every API answer a screen loaded
+  const answers = [{ url: '/api/v1/admin/messages/failures', text: JSON.stringify(masked) }, { url: '/api/v1/admin/messages/1/timeline', text: `x ${PROBE.toLowerCase()} y` }];
+  assert.deepEqual(leakingAnswers(answers), ['/api/v1/admin/messages/1/timeline'], '11.4 names the leaking answer');
+  assert.deepEqual(leakingAnswers([answers[0]]), [], '11.4 passes when none leaks');
+  assert.deepEqual(leakingAnswers(undefined), []);
+  // the log slice leg shared by 11.1-11.3
+  assert.equal(leakingLines(`ok\nintake accepted ${PROBE}\n`).length, 1);
+  assert.deepEqual(leakingLines('ok\nintake accepted [MASKED]\n'), []);
 });
