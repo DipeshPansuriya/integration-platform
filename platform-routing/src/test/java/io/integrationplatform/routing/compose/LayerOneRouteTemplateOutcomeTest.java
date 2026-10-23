@@ -37,6 +37,8 @@ import org.apache.camel.support.DefaultExchange;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.transaction.support.TransactionOperations;
 
 /**
@@ -54,6 +56,7 @@ class LayerOneRouteTemplateOutcomeTest {
 
     private final List<String> attemptRows = new ArrayList<>();
     private final List<OutcomeClass> handoffs = new ArrayList<>();
+    private final List<Instant> deferrals = new ArrayList<>();
     private DefaultCamelContext camel;
 
     @AfterEach
@@ -163,10 +166,56 @@ class LayerOneRouteTemplateOutcomeTest {
         verify(outcomes2, never()).markDelivered(any(), any());
     }
 
+    /**
+     * T195 (from the T191 review, T191-1): the template copies layer 1's explicit circuit signals to the outer exchange, so
+     * the REAL dispatch sees a breaker-open deferral for every target type that shares the template (API, MQ, KAFKA, DB,
+     * FILE) - and the refused call burned no retry budget (one try, no attempt row, one deferral).
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"API", "MQ", "KAFKA", "DB", "FILE"})
+    void anOpenBreakerCopiesCircuitDeferredAndRetryAfterToTheOuterExchangeAndTheDispatchSeesIt(String type)
+            throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        Exchange outer = runThroughTemplate(type, send -> {
+            calls.incrementAndGet();
+            throw new TargetFaultException.CircuitOpenException("open", Duration.ofSeconds(30));
+        }, (d, layer, outcome, started, finished, detail) -> attemptRows.add(outcome.name()));
+
+        assertThat(calls).as("the open breaker is not retried - no retry budget burned").hasValue(1);
+        assertThat(attemptRows).isEmpty();
+        assertThat(handoffs).as("a deferral is not an outcome hand-off").isEmpty();
+        assertThat(deferrals).as("one deferral, due after the breaker's wait").hasSize(1);
+        assertThat(deferrals.get(0)).isAfter(Instant.now().plusSeconds(20));
+        assertThat(outer.getProperty(LayerOneRouteBuilder.CIRCUIT_DEFERRED, Boolean.class)).isTrue();
+        assertThat(outer.getProperty(LayerOneRouteBuilder.CIRCUIT_RETRY_AFTER, Duration.class))
+                .isEqualTo(Duration.ofSeconds(30));
+
+        SendOutcomes outcomes = mock(SendOutcomes.class);
+        boolean deferred = dispatchReturning(outer, outcomes)
+                .dispatch(new Stage2Send(DELIVERY, CLAIM, "key-1", ENDPOINT, false));
+        assertThat(deferred).as("the dispatch reports the breaker deferral").isTrue();
+        verify(outcomes, never()).markDelivered(any(), any());
+    }
+
+    @Test
+    void aSuccessLeavesNoCircuitSignalOnTheOuterExchange() throws Exception {
+        Exchange outer = runThroughTemplate("MQ", send -> { },
+                (d, layer, outcome, started, finished, detail) -> attemptRows.add(outcome.name()));
+
+        assertThat(outer.getProperty(LayerOneRouteBuilder.CIRCUIT_DEFERRED)).isNull();
+        assertThat(outer.getProperty(LayerOneRouteBuilder.CIRCUIT_RETRY_AFTER)).isNull();
+        assertThat(dispatchReturning(outer, mock(SendOutcomes.class))
+                .dispatch(new Stage2Send(DELIVERY, CLAIM, "key-1", ENDPOINT, false))).isFalse();
+    }
+
     // --- harness -----------------------------------------------------------------------------------------------
 
     /** Runs the real layer-1 route and the real template processor; returns the outer (dispatch-side) exchange. */
     private Exchange runThroughTemplate(TargetCall call, Stage2AttemptWriter writer) throws Exception {
+        return runThroughTemplate("API", call, writer);
+    }
+
+    private Exchange runThroughTemplate(String type, TargetCall call, Stage2AttemptWriter writer) throws Exception {
         Stage2OutcomeHandoff handoff = new Stage2OutcomeHandoff() {
             @Override
             public void handOffAfterLayerOne(UUID d, UUID c, int attemptsSoFar, OutcomeClass outcome,
@@ -176,6 +225,7 @@ class LayerOneRouteTemplateOutcomeTest {
 
             @Override
             public void deferCircuitOpen(UUID d, UUID c, Instant next) {
+                deferrals.add(next);
             }
         };
         camel = new DefaultCamelContext();
@@ -183,8 +233,8 @@ class LayerOneRouteTemplateOutcomeTest {
                 new LayerOneWaits(2, Duration.ofMillis(1), Duration.ofSeconds(1))));
         camel.start();
         ProducerTemplate producer = camel.createProducerTemplate();
-        Processor processor = new LayerOneRouteTemplate("API", producer)
-                .build(new RouteConfigRow(ROUTE, ENDPOINT, "API", "https://t.example/a", null, null));
+        Processor processor = new LayerOneRouteTemplate(type, producer)
+                .build(new RouteConfigRow(ROUTE, ENDPOINT, type, "https://t.example/a", null, null));
         Exchange outer = new DefaultExchange(camel);
         outer.getIn().setBody(new Stage2Send(DELIVERY, CLAIM, "key-1", ENDPOINT, false));
         processor.process(outer);
