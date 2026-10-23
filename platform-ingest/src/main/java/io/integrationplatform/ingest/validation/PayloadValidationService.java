@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -40,7 +41,19 @@ public class PayloadValidationService {
      * @param payload                the record to validate
      */
     public RejectionEnvelope validate(JsonNode contractSchema, List<UUID> validationRuleSetIds, JsonNode payload) {
-        SchemaCheck schema = schemaCheck.check(contractSchema, payload);
+        return rulesAfter(schemaCheck.check(contractSchema, payload), validationRuleSetIds, payload);
+    }
+
+    /**
+     * B37: the intake's form - the compiled contract schema is cached under {@code contractKey} (tenant + immutable
+     * contract version id), so a bulk of N records compiles it once and a repeat call not at all.
+     */
+    public RejectionEnvelope validate(Object contractKey, Supplier<JsonNode> contractSchema,
+            List<UUID> validationRuleSetIds, JsonNode payload) {
+        return rulesAfter(schemaCheck.check(contractKey, contractSchema, payload), validationRuleSetIds, payload);
+    }
+
+    private RejectionEnvelope rulesAfter(SchemaCheck schema, List<UUID> validationRuleSetIds, JsonNode payload) {
         List<Violation> violations = new ArrayList<>(schema.violations());
         if (!schema.contractShaped()) {
             return new RejectionEnvelope(violations, false);
