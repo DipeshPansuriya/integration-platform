@@ -20,6 +20,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -35,6 +36,11 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * mapping version the delivery already holds ({@code mapping_version.target_contract_version_id}). The database is
  * migrated to 2.4.1350, seeded with the legacy shapes, healed by running the new file as a NON-superuser table owner
  * (so FORCE row level security binds it exactly as in production), run again, then migrated on by Flyway.
+ *
+ * <p>B38: the dangling and the cross-tenant row can never be pinned, so they violate the CHECK that V2_4_1370/V2_4_1400
+ * (T190) add after this backfill. V2_4_1400 therefore ABORTS (SQLSTATE 23514) while they exist - intended, see that
+ * file. The setup records that abort, repairs the rows as an operator would (clear the mapping pin), migrates on, and
+ * the tests assert each step.
  */
 @Tag("container")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -64,6 +70,12 @@ class DeliveryContractPinBackfillContainerTest {
 
     private PostgreSQLContainer postgres;
     private String snapshotAfterFirstRun;
+    private UUID danglingAfterBackfill;
+    private UUID otherTenantAfterBackfill;
+    private FlywayException abortFailure;
+    private boolean validatedAfterAbort;
+    private boolean validatedAfterRepair;
+    private final java.util.Set<UUID> listedViolators = new java.util.HashSet<>();
 
     @BeforeAll
     void migrateSeedHealAndMigrateOn() throws Exception {
@@ -103,7 +115,32 @@ class DeliveryContractPinBackfillContainerTest {
         snapshotAfterFirstRun = snapshot();
         runAsMigrator(script);
 
+        danglingAfterBackfill = contract(danglingMappingVersion);
+        otherTenantAfterBackfill = contract(otherTenantsMappingVersion);
+
+        // B38: the two rows above are the "mapping pinned, contract not derivable" shape that V2_4_1370 (NOT VALID CHECK)
+        // and V2_4_1400 (VALIDATE, T190) exist to catch, so migrating on over them ABORTS V2_4_1400 by design.
+        flyway().target("2.4.1390").load().migrate(); // V2_4_1360 (this backfill) and V2_4_1370 apply; 1400 not yet
+        try {
+            flyway().load().migrate();
+        } catch (FlywayException e) {
+            abortFailure = e;
+        }
+        validatedAfterAbort = validated();
+        // the operator finds the rows with the query the migration message names
+        try (Connection c = connect(); Statement q = c.createStatement(); ResultSet rs = q.executeQuery(
+                "SELECT id FROM public.delivery WHERE mapping_version_id IS NOT NULL AND contract_version_id IS NULL")) {
+            while (rs.next()) {
+                listedViolators.add(rs.getObject(1, UUID.class));
+            }
+        }
+        // ... and repairs them (the second repair option of the message: clear the mapping pin)
+        try (Connection c = connect(); Statement q = c.createStatement()) {
+            q.execute("UPDATE public.delivery SET mapping_version_id = NULL WHERE mapping_version_id IS NOT NULL"
+                    + " AND contract_version_id IS NULL");
+        }
         flyway().load().migrate(); // the file is a valid, orderable Flyway migration and applies on top
+        validatedAfterRepair = validated();
     }
 
     @AfterAll
@@ -132,8 +169,31 @@ class DeliveryContractPinBackfillContainerTest {
     @DisplayName("a row without a derivable pin keeps NULL: no mapping version, a dangling one, or another tenant's")
     void rowsWithoutADerivablePinStayNull() throws Exception {
         assertThat(contract(noMappingVersion)).isNull();
-        assertThat(contract(danglingMappingVersion)).isNull();
-        assertThat(contract(otherTenantsMappingVersion)).as("never copied across tenants").isNull();
+        // read right after the backfill: the operator repair below clears the mapping pin of these two, not the contract
+        assertThat(danglingAfterBackfill).isNull();
+        assertThat(otherTenantAfterBackfill).as("never copied across tenants").isNull();
+    }
+
+    @Test
+    @DisplayName("B38: unpinnable rows left behind ABORT V2_4_1400 with SQLSTATE 23514 and a message that names the repair query")
+    void leftoverViolatorsAbortV1400With23514() {
+        assertThat(abortFailure).as("V2_4_1400 must refuse to finish over violators").isNotNull();
+        assertThat(sqlStates(abortFailure)).contains("23514");
+        assertThat(abortFailure).hasMessageContaining("delivery_contract_pin_check")
+                .hasMessageContaining("SELECT id, created_at FROM public.delivery WHERE mapping_version_id IS NOT NULL"
+                        + " AND contract_version_id IS NULL");
+        assertThat(validatedAfterAbort).as("nothing half-applied: the CHECK stays NOT VALID").isFalse();
+    }
+
+    @Test
+    @DisplayName("B38: the repair query finds exactly the unpinnable rows, and after the repair V2_4_1400 applies")
+    void theRepairQueryFindsTheRowsAndTheMigrationThenApplies() throws Exception {
+        assertThat(listedViolators).containsExactlyInAnyOrder(danglingMappingVersion, otherTenantsMappingVersion);
+        assertThat(validatedAfterRepair).isTrue();
+        assertThat(scalar("SELECT count(*) FROM public.delivery WHERE mapping_version_id IS NOT NULL"
+                + " AND contract_version_id IS NULL")).isEqualTo("0");
+        assertThat(scalar("SELECT success::text FROM flyway_schema_history WHERE version = '2.4.1400'"))
+                .isEqualTo("true");
     }
 
     @Test
@@ -194,6 +254,21 @@ class DeliveryContractPinBackfillContainerTest {
                     }
                 }, Clock.systemUTC()).replay(id,
                         "operator-pin-backfill");
+    }
+
+    private boolean validated() throws SQLException {
+        return Boolean.parseBoolean(scalar("SELECT convalidated::text FROM pg_constraint WHERE conname ="
+                + " 'delivery_contract_pin_check' AND conrelid = 'public.delivery'::regclass"));
+    }
+
+    private static java.util.List<String> sqlStates(Throwable failure) {
+        java.util.List<String> states = new java.util.ArrayList<>();
+        for (Throwable t = failure; t != null; t = t.getCause()) {
+            if (t instanceof SQLException sql) {
+                states.add(sql.getSQLState());
+            }
+        }
+        return states;
     }
 
     private String backfillScript() throws Exception {
