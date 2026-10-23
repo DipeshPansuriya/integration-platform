@@ -12,6 +12,7 @@ import {
   reportQuery,
   reportRows,
   reportStatus,
+  reportDayBounds,
   todayUtc,
   type ReportRow
 } from './delivery-report-view';
@@ -33,6 +34,8 @@ export default function DeliveryReport() {
   const [state, setState] = useState<Load>('loading');
   const [status, setStatus] = useState(0);
   const [day, setDay] = useState(() => todayUtc(new Date()));
+  // T194: the API answers 400 for a future day or one older than the max age; the picker offers only accepted days.
+  const bounds = reportDayBounds(new Date());
 
   useEffect(() => {
     const query = reportQuery({ day });
@@ -75,7 +78,7 @@ export default function DeliveryReport() {
       <div className="op-toolbar">
         <label htmlFor="report-day">
           Day (UTC)
-          <input id="report-day" type="date" value={day} onChange={(event) => setDay(event.target.value)} data-day-filter />
+          <input id="report-day" type="date" min={bounds.min} max={bounds.max} value={day} onChange={(event) => setDay(event.target.value)} data-day-filter />
         </label>
       </div>
       {view === 'prompt' && (

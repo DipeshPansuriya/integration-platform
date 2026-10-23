@@ -99,6 +99,7 @@ async function pickFlow(page, flowId) {
 }
 
 test('failed and dead-lettered messages show per flow and day with stage, class, last error, origin and a detail link', async ({ page }) => {
+  test.setTimeout(60_000); // T194: the first test of a cold run seeds + boots the screen and exceeded the 15 s default (9.8 s warm)
   const flow = await freshFlow(page, 'rows');
   const tenantId = tenantIdOf();
   const routeFailed = seedMessage(tenantId, flow.id, 'ROUTE_FAILED', `${DAY} 00:01:00+00`);
