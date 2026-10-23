@@ -7,6 +7,11 @@ import io.integrationplatform.PlatformTestWiring;
 import io.integrationplatform.PlatformTestWiring.RestrictedLogin;
 import io.integrationplatform.TestImages;
 import io.integrationplatform.config.rule.api.RuleEvaluationPort;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import io.integrationplatform.ingest.port.AcceptedMessage;
+import io.integrationplatform.ingest.port.IntakeRefusedException;
+import io.integrationplatform.ingest.port.IntakeTransaction;
 import io.integrationplatform.ingest.validation.ContractSchemaCheck;
 import io.integrationplatform.ingest.validation.PayloadValidationService;
 import io.integrationplatform.ingest.validation.RejectionEnvelope;
@@ -153,6 +158,7 @@ class IngestValidationContainerTest {
                             + " author_id) VALUES (?::uuid, ?::uuid, ?::uuid, 'VALIDATION', ?, ?::jsonb, ?, ?::uuid)",
                     RULE_SET.toString(), TENANT.toString(), INTERFACE.toString(), "order checks", table, table,
                     USER.toString());
+            seedPublishedInterface(owner, table);
         }
         PlatformTestWiring.grantApplicationRole(POSTGRES, login);
     }
@@ -191,6 +197,75 @@ class IngestValidationContainerTest {
         assertThat(rejection.rulesEvaluated()).isFalse();
         assertThat(rejection.violations()).isNotEmpty()
                 .allSatisfy(violation -> assertThat(violation.source()).isEqualTo(Source.SCHEMA));
+    }
+
+    // ---------------------------------------------------------------- B37: the wired intake, real rules port
+
+    private static final UUID PUBLISHED_INTERFACE = UUID.randomUUID();
+
+    /** A PUBLISHED interface with the contract above pinned as 1.0 and the same stored VALIDATION rule set. */
+    private static void seedPublishedInterface(Connection owner, String table) throws SQLException {
+        UUID system = UUID.randomUUID();
+        UUID contract = UUID.randomUUID();
+        UUID contractVersion = UUID.randomUUID();
+        UUID approver = UUID.randomUUID();
+        execute(owner, "INSERT INTO system (id, tenant_id, code, name, direction) VALUES (?::uuid, ?::uuid, 'src-b37',"
+                + " 'B37 source', 'SOURCE')", system.toString(), TENANT.toString());
+        execute(owner, "INSERT INTO contract (id, tenant_id, system_id, code, role, name) VALUES (?::uuid, ?::uuid,"
+                + " ?::uuid, 'b37-orders-v', 'SOURCE_REQUEST', 'B37 orders')", contract.toString(), TENANT.toString(),
+                system.toString());
+        execute(owner, "INSERT INTO contract_version (id, tenant_id, contract_id, version_label, status,"
+                + " json_schema_draft_2020_12, author_id) VALUES (?::uuid, ?::uuid, ?::uuid, '1.0', 'APPROVED',"
+                + " ?::jsonb, ?::uuid)", contractVersion.toString(), TENANT.toString(), contract.toString(), CONTRACT,
+                USER.toString());
+        execute(owner, "INSERT INTO interface (id, tenant_id, code, name, mode, ordering, current_version,"
+                + " published_version, status) VALUES (?::uuid, ?::uuid, 'b37-orders', 'B37 orders', 'ASYNC', 'NONE',"
+                + " 1, 1, 'PUBLISHED')", PUBLISHED_INTERFACE.toString(), TENANT.toString());
+        execute(owner, "INSERT INTO interface_version (id, tenant_id, interface_id, version, status, business_key_rule,"
+                + " snapshot, source_contract_version_id, author_id, approver_id) VALUES (?::uuid, ?::uuid, ?::uuid, 1,"
+                + " 'PUBLISHED', 'orderNo', '{}'::jsonb, ?::uuid, ?::uuid, ?::uuid)", UUID.randomUUID().toString(),
+                TENANT.toString(), PUBLISHED_INTERFACE.toString(), contractVersion.toString(), USER.toString(),
+                approver.toString());
+        execute(owner, "INSERT INTO rule_set (id, tenant_id, interface_id, kind, name, content, content_text, author_id)"
+                + " VALUES (?::uuid, ?::uuid, ?::uuid, 'VALIDATION', 'order checks', ?::jsonb, ?, ?::uuid)",
+                UUID.randomUUID().toString(), TENANT.toString(), PUBLISHED_INTERFACE.toString(), table, table,
+                USER.toString());
+    }
+
+    @Autowired
+    private IntakeTransaction intake;
+
+    @Test
+    @DisplayName("B37: the wired intake refuses a record with schema and stored-rule violations together, nothing stored")
+    void wiredIntakeRefusesWithEveryViolationAndStoresNothing() throws SQLException {
+        long before = messageRows();
+        assertThatThrownBy(() -> asTenant(() -> intake.accept(new IntakeTransaction.IntakeRequest("b37-orders", "1.0",
+                JSON.readTree("{\"amount\":150,\"currency\":\"XXX\",\"reference\":\"\",\"quantity\":\"two\"}"),
+                "idem-b37-1", "cred"))))
+                .isInstanceOfSatisfying(IntakeRefusedException.class, refused -> {
+                    assertThat(refused.reason()).isEqualTo(IntakeRefusedException.Reason.PAYLOAD_VALIDATION_FAILED);
+                    assertThat(refused.violations()).extracting(IntakeTransaction.RecordViolation::source)
+                            .containsExactly("SCHEMA", "SCHEMA", "RULE", "RULE", "RULE");
+                });
+        assertThat(messageRows()).as("message rows").isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("B37: the wired intake accepts a valid record with a tracking id")
+    void wiredIntakeAcceptsAValidRecord() {
+        AcceptedMessage accepted = asTenant(() -> intake.accept(new IntakeTransaction.IntakeRequest("b37-orders", "1.0",
+                JSON.readTree("{\"orderNo\":\"O-B37\",\"amount\":50,\"currency\":\"EUR\",\"reference\":\"r\"}"),
+                "idem-b37-2", "cred")));
+        assertThat(accepted.trackingId()).isNotNull();
+    }
+
+    private long messageRows() throws SQLException {
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES);
+                PreparedStatement count = owner.prepareStatement("SELECT count(*) FROM message");
+                java.sql.ResultSet rows = count.executeQuery()) {
+            rows.next();
+            return rows.getLong(1);
+        }
     }
 
     /** Bound the way a request binds a tenant, in one transaction of the context's tenant-stamping manager (R11). */

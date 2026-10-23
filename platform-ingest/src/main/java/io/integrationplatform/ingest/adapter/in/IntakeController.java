@@ -110,7 +110,7 @@ public class IntakeController {
         @ApiResponse(responseCode = "404", description = "The interface is unknown or unpublished"),
         @ApiResponse(responseCode = "413", description = "The payload exceeds the 1 MB cap"),
         @ApiResponse(responseCode = "415", description = "The Content-Type is missing or not application/json"),
-        @ApiResponse(responseCode = "422", description = "The source contract version is off-pin, a business key is unresolved, or the Idempotency-Key was reused with another body"),
+        @ApiResponse(responseCode = "422", description = "The source contract version is off-pin, a business key is unresolved, the record breaks the source contract or its validation rules (PAYLOAD_VALIDATION_FAILED, every violation listed), or the Idempotency-Key was reused with another body"),
         @ApiResponse(responseCode = "503", description = "The intake transaction could not commit (Retry-After when an ordering key is busy); no tracking id")})
     @PostMapping(value = "/api/v1/interfaces/{interfaceCode}/messages")
     public ResponseEntity<?> submit(
@@ -246,6 +246,9 @@ public class IntakeController {
         if (r.message() != null) {
             out.put("message", r.message());
         }
+        if (!r.violations().isEmpty()) {
+            out.put("violations", r.violations());
+        }
         return out;
     }
 
@@ -269,11 +272,16 @@ public class IntakeController {
             case BUSINESS_KEY_UNRESOLVED -> "BUSINESS_KEY_UNRESOLVED";
             case BUSINESS_KEY_TOO_LONG -> "BUSINESS_KEY_TOO_LONG";
             case IDEMPOTENCY_KEY_REUSED -> "IDEMPOTENCY_KEY_REUSED";
+            case PAYLOAD_VALIDATION_FAILED -> "PAYLOAD_VALIDATION_FAILED";
         };
         HttpStatus status = refusal.reason() == IntakeRefusedException.Reason.INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED
                 ? HttpStatus.NOT_FOUND
                 : HttpStatus.UNPROCESSABLE_ENTITY;
-        return error(status, code, refusal.detail());
+        Map<String, Object> body = errorBody(code, refusal.detail());
+        if (!refusal.violations().isEmpty()) {
+            body.put("violations", refusal.violations());
+        }
+        return ResponseEntity.status(status).body(body);
     }
 
     @ExceptionHandler(value = Exception.class)

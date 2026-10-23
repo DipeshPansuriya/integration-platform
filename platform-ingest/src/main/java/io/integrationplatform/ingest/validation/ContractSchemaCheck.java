@@ -10,7 +10,10 @@ import com.networknt.schema.path.NodePath;
 import io.integrationplatform.ingest.validation.Violation.Source;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -21,8 +24,10 @@ import tools.jackson.databind.JsonNode;
  * <p>Remote {@code $ref}s are never fetched: a stored contract stands alone (ADR-011 Decision 2), so validation makes
  * no outbound call.
  *
- * <p>ponytail: the schema is compiled per call; a cache keyed by contract version id comes when the intake's load test
- * asks for it.
+ * <p>B37: the intake compiles the contract once per contract version, not per record. A contract version is immutable
+ * once approved (T-018), so the compiled schema is cached under a caller-given key (tenant + contract version id) and
+ * the cache is bounded; the key's schema source is only asked on a miss. The uncached {@link #check(JsonNode, JsonNode)}
+ * stays for callers that hold a one-off schema.
  */
 public class ContractSchemaCheck {
 
@@ -39,6 +44,10 @@ public class ContractSchemaCheck {
     private final SchemaRegistry registry = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12,
             builder -> builder.schemaLoader(loader -> loader.fetchRemoteResources(false)));
     private final ExecutionConfig executionConfig;
+    private final Map<Object, Schema> compiled = new ConcurrentHashMap<>();
+
+    /** Upper bound of cached contract versions; past it the cache is dropped and refills (a rare, safe miss). */
+    static final int CACHE_LIMIT = 256;
 
     public ContractSchemaCheck() {
         this(COLLECT_ALL);
@@ -55,7 +64,31 @@ public class ContractSchemaCheck {
      * the rules (all violations from both steps come back together).
      */
     public SchemaCheck check(JsonNode contractSchema, JsonNode payload) {
-        Schema schema = registry.getSchema(contractSchema.toString(), InputFormat.JSON);
+        return check(compile(contractSchema), payload);
+    }
+
+    /**
+     * As {@link #check(JsonNode, JsonNode)}, with the compiled schema cached under {@code contractKey} (the caller's
+     * unique, immutable id of the contract version, including the tenant); {@code contractSchema} is read only when
+     * that key is not cached yet.
+     */
+    public SchemaCheck check(Object contractKey, Supplier<JsonNode> contractSchema, JsonNode payload) {
+        Schema schema = compiled.get(contractKey);
+        if (schema == null) {
+            schema = compile(contractSchema.get());
+            if (compiled.size() >= CACHE_LIMIT) {
+                compiled.clear();
+            }
+            compiled.put(contractKey, schema);
+        }
+        return check(schema, payload);
+    }
+
+    private Schema compile(JsonNode contractSchema) {
+        return registry.getSchema(contractSchema.toString(), InputFormat.JSON);
+    }
+
+    private SchemaCheck check(Schema schema, JsonNode payload) {
         // networknt reads Jackson 2 trees; the platform holds Jackson 3 trees, so the payload crosses as JSON text.
         List<Error> errors = schema.validate(payload.toString(), InputFormat.JSON,
                 context -> context.setExecutionConfig(executionConfig));

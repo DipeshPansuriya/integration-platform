@@ -82,7 +82,7 @@ export const ON_MAIN = Object.freeze({
   T112: true, // detail + failures screens - ui/src/pages/MessageDetail.tsx, Failures.tsx (main aeddfdd9)
   T113: true, // dashboard - ui/src/pages/QueueDashboard.tsx (main aeddfdd9)
   T138: true, // dev-only destination exception - SystemPersistenceConfiguration.java:57
-  INTAKE_CONTRACT_VALIDATION: false, // T206: intake checks the payload against the source contract (400/422) - PayloadValidationService has no caller in main 72abef32 (only its tests); a type-violating record is accepted 202
+  INTAKE_CONTRACT_VALIDATION: true, // B37: IntakeService.run validates every record (published contract, then VALIDATION rules) - 422 PAYLOAD_VALIDATION_FAILED, every violation listed
   DELIVERY_BASE_URL: true // delivery takes the system's settings.baseUrl, not the placeholder endpoint - main 73257d41: SystemAdminService.java:93 (create) + :185-189 (save); the placeholder stays only as the null fallback (JdbcSystemRepository.java:87)
 });
 
