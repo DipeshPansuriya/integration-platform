@@ -7,7 +7,8 @@ Source: ADR-H-IPASS-01 (hub: `_personal/_project_ipass/integration-platform/_doc
 | File | Purpose |
 |---|---|
 | `compose.yaml` | The production stack: `edge` (the only service on the shared `web` network), app, ui, keycloak, postgres, kafka (+ `kafka-init`), `pg-backup`, one-shot `pg-restore-test`. No test tooling |
-| `edge/edge.conf` | The edge proxy path allow-list (actuator, `/v3`, Keycloak `/admin` and the master realm answer 404) |
+| `edge/edge.conf` | The edge proxy path allow-list (actuator, `/v3`, Keycloak `/admin` and the master realm answer 404). Login and token paths are rate limited: about 10 requests/min per client, burst 5, 429 beyond that (the client is the last `X-Forwarded-For` entry, the one Traefik appends - a spoofed first entry is ignored). |
+| `test/edge-ratelimit.sh` | Behaviour proof of that rate limit in nginx (build PC, Docker lock) |
 | `demo/compose.demo.yaml` | Opt-in override: WireMock demo destination + the showcase profile. Never part of `compose.yaml` |
 | `keycloak/` | `compose.bootstrap-admin.yaml` (first start only), `retire-bootstrap-admin.sh`, `Dockerfile` |
 | `rotate-secret.sh` | Rotates one secret at a time (database roles, realm client secrets) |
@@ -20,6 +21,8 @@ Source: ADR-H-IPASS-01 (hub: `_personal/_project_ipass/integration-platform/_doc
 | `test/` | `test-scripts.sh` (offline), `smoke.sh` + `compose.smoke.yaml` (build-PC only) |
 
 Images (built elsewhere, see "Build"): `acsnewacr.azurecr.io/ipass/platform-app:<sc>`, `.../ui:<sc>`, `.../keycloak:26.8.0-<sc>`. `<sc>` = short commit of the merged `main`. Never `latest`.
+
+The compose `image:` names are overridable per service: `IPASS_APP_IMAGE`, `IPASS_UI_IMAGE`, `IPASS_KEYCLOAK_IMAGE` (full `repo:tag`). Each defaults to the prefix form, so the existing `IPASS_IMAGE_PREFIX=acsnewacr.azurecr.io/ipass` setup is unchanged. Docker Hub has one namespace level, so the same tag as the ACR cannot be built from one prefix - to serve the published Hub images set, e.g. `IPASS_APP_IMAGE=dipeshpansuriya/ipass-platform-app:3105c3d3`, `IPASS_UI_IMAGE=dipeshpansuriya/ipass-ui:3105c3d3`, `IPASS_KEYCLOAK_IMAGE=dipeshpansuriya/ipass-keycloak:26.8.0-3105c3d3`. Never `latest`.
 
 ## Build (build PC, Arjun - step 6 of the ADR, outward push needs Dipesh's approval)
 
@@ -77,4 +80,5 @@ The host's Traefik does read the socket (ADR Decision 5 point 8). A read-only mo
 ## Tests (build PC)
 
 - Offline: `bash deploy/hostinger/test/test-scripts.sh` (dry runs, secret hygiene, compose controls).
+- Rate limit proof: `NGINX_TEST_TAG=<tag of a local ipass/ui image> bash deploy/hostinger/test/edge-ratelimit.sh` (one stub upstream + the real `edge/edge.conf` in nginx; takes the Docker lock, exits 2 without starting if a live owner holds it).
 - Whole stack: `IMAGE_TAG=<sc> bash deploy/hostinger/test/smoke.sh` (also asserts the edge allow-list, the web-network membership, the K1 refusal C1, a live DB password rotation) with local images `ipass/<name>:<sc>` - takes the PC-wide docker-suite lock, uses dummy secrets in a temp file, deletes everything afterwards.
