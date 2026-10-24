@@ -52,7 +52,7 @@ dc up -d --wait --wait-timeout 600 2>&1 | tail -15
 dc ps -a --format '{{.Service}} {{.State}} {{.Health}}' | sort
 
 # --- assertions
-app_ready="$(dc exec -T platform-app wget -qO- http://127.0.0.1:8080/actuator/health/readiness 2>&1)"
+app_ready="$(dc exec -T platform-app bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /actuator/health/readiness HTTP/1.0\r\n\r\n" >&3 && cat <&3' 2>&1)"
 case "$app_ready" in *'"UP"'*) ok "app readiness UP (K1 guard, Flyway, scheduler, KEK checks included)";; *) bad "app readiness: $app_ready"; dc logs --tail 60 platform-app;; esac
 psqlx() { dc exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "$0"' "$1"; }
 roles="$(psqlx "SELECT rolname||':'||rolsuper::int||':'||rolbypassrls::int||':'||rolcanlogin::int FROM pg_roles WHERE rolname LIKE 'ipa%' OR rolname='ipass_migrator' ORDER BY 1")"
@@ -66,22 +66,24 @@ for t in platform.message.accepted platform.delivery.due platform.poison; do gre
 kc="$(dc ps keycloak --format '{{.Health}}')"; [ "$kc" = healthy ] && ok "keycloak healthy (start --optimized)" || bad "keycloak $kc"
 dc exec -T keycloak sh -c 'echo $KC_HTTP_ENABLED' >/dev/null 2>&1
 curl -fsS "http://127.0.0.1:18081/realms/platform/.well-known/openid-configuration" | grep -q '"issuer":"http://keycloak:8080/realms/platform"' && ok "realm platform imported, issuer as configured" || bad "realm issuer"
-dc exec -T platform-app wget -qO- http://wiremock:8089/__admin/health >/dev/null 2>&1 && ok "wiremock reachable from the app, internal only" || bad "wiremock"
+dc exec -T platform-app bash -c 'exec 3<>/dev/tcp/wiremock/8089 && printf "GET /__admin/health HTTP/1.0\r\n\r\n" >&3 && cat <&3' 2>&1 | grep -q ' 200' && ok "wiremock reachable from the app, internal only" || bad "wiremock"
 # nothing published except the two loopback overrides
 pub="$(docker ps --filter "label=com.docker.compose.project=$P" --format '{{.Names}} {{.Ports}}' | grep -E '0\.0\.0\.0|:::' )"
 [ -z "$pub" ] && ok "no port published beyond 127.0.0.1" || bad "published: $pub"
 # C1: the migrator login is refused by the K1 guard
 set +e
-c1="$(dc run --rm -T --no-deps -e DB_USERNAME=ipass_migrator -e "DB_PASSWORD=$(grep '^DB_MIGRATION_PASSWORD=' "$ENVF" | cut -d= -f2)" -e SERVER_PORT=8099 platform-app 2>&1 | tail -80)"
+c1="$(timeout 240 docker compose -p "$P" --env-file "$ENVF" -f "$HW/compose.yaml" -f "$HW/test/compose.smoke.yaml" --profile demo run --rm -T --no-deps -e DB_USERNAME=ipass_migrator -e "DB_PASSWORD=$(grep '^DB_MIGRATION_PASSWORD=' "$ENVF" | cut -d= -f2)" -e SERVER_PORT=8099 platform-app 2>&1 | tail -80)"
 set -e
 echo "$c1" | grep -q "must not own a tenant table" && ok "C1: app refuses to start as ipass_migrator" || { bad "C1 (no K1 refusal in the log)"; echo "$c1" | tail -8; }
 # restore test and backup, as run on the server
 dc exec -T pg-backup env RUN_ONCE=1 sh /scripts/backup.sh | tail -3
 dc exec -T pg-backup sh /scripts/restore-test.sh && ok "C4: restore test counts equal" || bad "restore test"
-# seed.sql with throw-away subjects, twice (idempotent)
+ok "flyway: $(psqlx "SELECT count(*) FROM flyway_schema_history WHERE success") successful history rows"
+dc logs platform-app 2>&1 | grep -qi 'showcase' && ok "showcase profile active in the app log" || bad "no showcase trace in app log"
+# seed-showcase.sh against the real Keycloak, twice (idempotent)
 for i in 1 2; do
-  dc exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v issuer=http://keycloak:8080/realms/platform -v sub_admin_a=00000000-0000-0000-0000-00000000000a -v sub_cfg_a=00000000-0000-0000-0000-00000000000b -v sub_appr_a=00000000-0000-0000-0000-00000000000c -v sub_admin_b=00000000-0000-0000-0000-00000000000d -f -' < "$HERE/seed/seed.sql" > /dev/null
+  COMPOSE="docker compose -p $P --env-file $ENVF -f $HW/compose.yaml -f $HW/test/compose.smoke.yaml --profile demo" ENV_FILE="$ENVF" bash "$HERE/seed/seed-showcase.sh" > "$TMP/seed.out" 2>&1 || { bad "seed-showcase.sh run $i"; tail -5 "$TMP/seed.out"; }
 done
-[ "$(psqlx "SELECT count(*) FROM public.app_user") $(psqlx "SELECT count(*) FROM public.role_grant")" = "4 4" ] && ok "seed.sql applies and is idempotent (4 users, 4 grants)" || bad "seed counts"
+[ "$(psqlx "SELECT count(*) FROM public.app_user") $(psqlx "SELECT count(*) FROM public.role_grant") $(psqlx "SELECT count(*) FROM public.tenant")" = "4 4 2" ] && ok "seed-showcase.sh with real Keycloak, idempotent (4 users, 4 grants, 2 tenants)" || bad "seed counts"
 echo; [ $fail -eq 0 ] && note "SMOKE PASSED" || note "SMOKE FAILED"
 exit $fail

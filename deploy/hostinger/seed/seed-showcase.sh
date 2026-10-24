@@ -7,14 +7,14 @@
 # Idempotent. Needs: docker compose, the server .env, the stack up.
 set -eu
 cd "$(dirname "$0")/.."
-ENV_FILE="${ENV_FILE:-.env}"
+ENV_FILE="${ENV_FILE:-./.env}"
 COMPOSE="${COMPOSE:-docker compose}"
 if [ "${DRY_RUN:-0}" = 1 ]; then
   echo "would read $ENV_FILE, create realm users showcase-admin-a showcase-configurator-a showcase-approver-a showcase-admin-b in realm platform,"
   echo "then run seed/seed.sql (tenants showcase-a, showcase-b) through: $COMPOSE exec -T postgres psql"
   exit 0
 fi
-set -a; . "./$ENV_FILE"; set +a
+set -a; . "$ENV_FILE"; set +a
 ISSUER="${OIDC_ISSUER_URI:-https://auth.${IPASS_DOMAIN}/realms/platform}"
 KCADM=/opt/keycloak/bin/kcadm.sh
 
