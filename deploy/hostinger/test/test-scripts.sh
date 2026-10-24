@@ -34,7 +34,7 @@ check "kafka-init topics equal SystemTopicRefusal.PLATFORM_TOPICS" '[ -n "$code_
 check "kafka-init is idempotent (--if-not-exists)" 'DRY_RUN=1 sh "$HERE/kafka/create-topics.sh" | grep -c -- --if-not-exists | grep -q 3'
 
 # --- backup / restore
-BACKUP_SOURCE_ONLY=1 . "$HERE/backup/backup.sh"
+BACKUP_SOURCE_ONLY=1 . "$HERE/backup/backup.sh"; set +e   # backup.sh sets -e for itself
 check "backup waits 3600s at 01:00 UTC" '[ "$(seconds_until_run 3600)" -eq 3600 ]'
 check "backup waits a full day at 02:00:00" '[ "$(seconds_until_run 7200)" -eq 86400 ]'
 check "backup waits 82800s at 03:00 UTC" '[ "$(seconds_until_run 10800)" -eq 82800 ]'
@@ -63,8 +63,13 @@ OPERATOR_AGENT_CLIENT_SECRET=x
 PLATFORM_CREDENTIAL_KEK_K1=x
 EOF
 if command -v docker >/dev/null 2>&1; then
-  cfg="$(docker compose --env-file "$TMP/c.env" -f "$HERE/compose.yaml" --profile demo config 2>"$TMP/cfg.err")"
-  check "docker compose config validates (demo profile)" '[ -n "$cfg" ]'
+  cfg="$(docker compose --env-file "$TMP/c.env" -f "$HERE/compose.yaml" -f "$HERE/demo/compose.demo.yaml" config 2>"$TMP/cfg.err")"
+  check "docker compose config validates (with the demo override)" '[ -n "$cfg" ]'
+  basecfg="$(docker compose --env-file "$TMP/c.env" -f "$HERE/compose.yaml" config 2>/dev/null)"
+  check "production config (no override) holds no wiremock" '[ -n "$basecfg" ] && ! grep -qi wiremock <<<"$basecfg"'
+  check "demo override adds wiremock and the showcase exception" 'grep -qi "image: wiremock" <<<"$cfg" && grep -q SHOWCASELOCALHOSTS <<<"$cfg"'
+  check "no service mounts the Docker socket (base or demo)" '! grep -qi "docker.sock" <<<"$cfg"'
+  check "no service is privileged or host-networked" '! grep -qE "privileged: true|network_mode: host|pid: host" <<<"$cfg"'
   check "docker compose config validates (no profile)" 'docker compose --env-file "$TMP/c.env" -f "$HERE/compose.yaml" config -q'
   check "no image tag is latest and none is untagged" '! grep -E "^\s+image:" <<<"$cfg" | grep -E ":latest|image: [^:@]+$"'
   check "no service publishes a port" '! grep -qE "^\s+ports:" <<<"$cfg"'
@@ -72,7 +77,13 @@ if command -v docker >/dev/null 2>&1; then
 fi
 check "postgres and kafka are never on the web network" 'awk "/^  postgres:/,/^  kafka:/" "$HERE/compose.yaml" | grep -q "networks: \[ipass-data\]" && awk "/^  kafka:/,/^  kafka-init:/" "$HERE/compose.yaml" | grep -q "networks: \[ipass-work\]"'
 check "internal-only networks for data and work" 'grep -A1 "^  ipass-data:" "$HERE/compose.yaml" | grep -q "internal: true" && grep -A1 "^  ipass-work:" "$HERE/compose.yaml" | grep -q "internal: true"'
-check "wiremock is demo-profile only and has no Traefik label" 'awk "/^  wiremock:/,/^networks:/" "$HERE/compose.yaml" | grep -q "profiles: \[\"demo\"\]" && ! awk "/^  wiremock:/,/^networks:/" "$HERE/compose.yaml" | grep -q traefik'
+check "wiremock lives only in the demo override, internal network, no Traefik label, no port" '! grep -qi wiremock "$HERE/compose.yaml" && ! grep -q SHOWCASELOCAL "$HERE/compose.yaml" && grep -q "networks: \[ipass-work\]" "$HERE/demo/compose.demo.yaml" && ! grep -qE "traefik|ports:" "$HERE/demo/compose.demo.yaml"'
+check "only the edge proxy joins the shared web network" '[ "$(awk "/^  [a-z-]+:\$/{svc=\$1} /networks: \[.*web/{print svc}" "$HERE/compose.yaml")" = "edge:" ]'
+check "only the app has outbound reach (ipass-egress)" '[ "$(awk "/^  [a-z-]+:\$/{svc=\$1} /networks: \[.*ipass-egress/{print svc}" "$HERE/compose.yaml")" = "platform-app:" ] && ! grep -A2 "^  ipass-egress:" "$HERE/compose.yaml" | grep -q "internal: true"'
+check "the front network (edge to app/ui/keycloak) is internal" 'grep -A1 "^  ipass-front:" "$HERE/compose.yaml" | grep -q "internal: true"'
+check "edge refuses actuator, openapi, keycloak admin and the master realm" 'for p in actuator v3 admin realms/master; do grep -q "$p" "$HERE/edge/edge.conf" || exit 1; done; grep -c "return 404" "$HERE/edge/edge.conf" | grep -qE "^[3-9]"'
+check "edge forwards only the paths the old Traefik rules routed to the app" 'for p in /api /oauth2 /login "= /logout"; do grep -q "location .*$p" "$HERE/edge/edge.conf" || exit 1; done'
+check "stateless services drop all capabilities and no-new-privileges" '[ "$(grep -c "<<: \*hardened" "$HERE/compose.yaml")" -ge 7 ] && grep -q "cap_drop: \[ALL\]" "$HERE/compose.yaml" && grep -q "no-new-privileges:true" "$HERE/compose.yaml"'
 check "no public route for /v3, /actuator, Keycloak admin" '! grep -E "traefik.*rule=" "$HERE/compose.yaml" | grep -E "PathPrefix\(\`/(v3|actuator)\`" ; grep -E "ipass-auth.rule" "$HERE/compose.yaml" | grep -q "!PathPrefix(\`/admin\`)"'
 check "every service has a restart policy or is one-shot" 'test "$(grep -c "restart:" "$HERE/compose.yaml")" -ge 7'
 check "memory limit on every long-running service" 'test "$(grep -c "mem_limit:" "$HERE/compose.yaml")" -ge 8'

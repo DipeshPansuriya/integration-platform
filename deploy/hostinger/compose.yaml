@@ -1,15 +1,22 @@
 # iPass showcase/staging copy on the Hostinger VPS (ADR-H-IPASS-01). Deployed to /docker/ipass next to the existing
 # Traefik (external network `web`, resolver `letsencrypt`, entrypoint `websecure` - house guide section 2/4).
 # Variable NAMES only here; values live in the server's root-only .env (bootstrap-env.sh generates it). No `latest`.
-# Not routed on purpose: /v3, /actuator, Keycloak /admin and the master realm. Nothing publishes a port: Traefik
-# reaches app/ui/keycloak over `web`; postgres and kafka sit on internal-only networks.
-# demo profile: WireMock as an internal-only demo destination (ADR "Needs decision" 2), never routed.
+# Not routed on purpose: /v3, /actuator, Keycloak /admin and the master realm. Nothing publishes a port.
+# Only the `edge` proxy joins the shared `web` network (Traefik -> edge); edge reaches app/ui/keycloak over the
+# internal `ipass-front` network and enforces the path allow-list itself, so no other stack on `web` can reach the app,
+# the actuator or Keycloak's admin directly. The app alone has outbound reach (`ipass-egress`) for allow-listed destinations.
+# No test tooling here: the demo destination stub is demo/compose.demo.yaml (an explicit -f), never part of this file.
 name: ipass
 
 x-logging: &logging
   # ADR Decision 6: journald so the host's MaxRetentionSec=30day is ADR-016's collector. A dev box without journald
   # (the local smoke) sets IPASS_LOG_DRIVER=json-file.
   driver: ${IPASS_LOG_DRIVER:-journald}
+
+# every stateless service: no capabilities, no privilege gain (postgres keeps its entrypoint capabilities)
+x-hardened: &hardened
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
 
 services:
   postgres:
@@ -75,6 +82,7 @@ services:
     mem_limit: 768m
     cpus: 0.5
     logging: *logging
+    <<: *hardened
 
   kafka-init:
     image: apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837
@@ -91,6 +99,7 @@ services:
     mem_limit: 256m
     cpus: 0.2
     logging: *logging
+    <<: *hardened
 
   keycloak:
     image: ${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/keycloak:26.8.0-${IMAGE_TAG:?set IMAGE_TAG}
@@ -107,9 +116,8 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
-      # temporary bootstrap admin: replace with a named admin over SSH (kcadm.sh), then remove from .env
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-bootstrap-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?set KC_BOOTSTRAP_ADMIN_PASSWORD}
+      # no admin credential here: the temporary bootstrap admin exists only for the first start, through
+      # keycloak/compose.bootstrap-admin.yaml (README step 11), and is retired by keycloak/retire-bootstrap-admin.sh
       JAVA_OPTS_KC_HEAP: -XX:MaxRAMPercentage=70
       TZ: Etc/UTC
       # placeholders of platform-realm.json, filled at import
@@ -126,22 +134,11 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
-    networks: [web, ipass-data]
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=web
-      - traefik.http.routers.ipass-auth.rule=Host(`auth.${IPASS_DOMAIN}`) && !PathPrefix(`/admin`) && !PathPrefix(`/realms/master`)
-      - traefik.http.routers.ipass-auth.entrypoints=websecure
-      - traefik.http.routers.ipass-auth.tls.certresolver=letsencrypt
-      - traefik.http.routers.ipass-auth.middlewares=ipass-sec-kc
-      - traefik.http.routers.ipass-auth.service=ipass-auth
-      - traefik.http.services.ipass-auth.loadbalancer.server.port=8080
-      # Keycloak sets its own CSP and frame options: HSTS + nosniff only here
-      - traefik.http.middlewares.ipass-sec-kc.headers.stsSeconds=31536000
-      - traefik.http.middlewares.ipass-sec-kc.headers.contentTypeNosniff=true
+    networks: [ipass-front, ipass-data]
     mem_limit: 1g
     cpus: 0.5
     logging: *logging
+    <<: *hardened
 
   platform-app:
     image: ${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/platform-app:${IMAGE_TAG:?set IMAGE_TAG}
@@ -176,53 +173,76 @@ services:
       ROUTING_CORE_ALLOWED_SCHEMES: http,https
       # ADR Decision 5 point 9: the one allow-listed demo destination. Empty = every destination refused.
       PLATFORM_CONFIG_DESTINATIONS_ALLOWEDHOSTS: ${IPASS_DESTINATION_HOSTS:-}
-      # showcase-only exception (needs IPASS_PROFILES=showcase): lets the guard accept the private WireMock address
-      PLATFORM_CONFIG_DESTINATIONS_SHOWCASELOCALHOSTS: ${IPASS_SHOWCASE_LOCAL_HOSTS:-}
-      PLATFORM_CONFIG_DESTINATIONS_SHOWCASELOCALPORTS: ${IPASS_SHOWCASE_LOCAL_PORTS:-}
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q '\"UP\"' <&3"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 150s
-    networks: [web, ipass-data, ipass-work]
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=web
-      - traefik.http.routers.ipass-api.rule=Host(`ipass.${IPASS_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/oauth2`) || PathPrefix(`/login`) || Path(`/logout`))
-      - traefik.http.routers.ipass-api.priority=100
-      - traefik.http.routers.ipass-api.entrypoints=websecure
-      - traefik.http.routers.ipass-api.tls.certresolver=letsencrypt
-      - traefik.http.routers.ipass-api.middlewares=ipass-sec
-      - traefik.http.routers.ipass-api.service=ipass-api
-      - traefik.http.services.ipass-api.loadbalancer.server.port=8080
-      - traefik.http.middlewares.ipass-sec.headers.stsSeconds=31536000
-      - traefik.http.middlewares.ipass-sec.headers.contentTypeNosniff=true
-      - traefik.http.middlewares.ipass-sec.headers.customFrameOptionsValue=DENY
-      - traefik.http.middlewares.ipass-sec.headers.contentSecurityPolicy=frame-ancestors 'none'
-      - traefik.http.middlewares.ipass-sec.headers.referrerPolicy=same-origin
+    networks: [ipass-front, ipass-data, ipass-work, ipass-egress]
     mem_limit: 1536m
     cpus: 1.0
     logging: *logging
+    <<: *hardened
 
   ui:
     image: ${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/ui:${IMAGE_TAG:?set IMAGE_TAG}
     pull_policy: missing
     restart: unless-stopped
-    networks: [web]
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=web
-      - traefik.http.routers.ipass-ui.rule=Host(`ipass.${IPASS_DOMAIN}`)
-      - traefik.http.routers.ipass-ui.priority=1
-      - traefik.http.routers.ipass-ui.entrypoints=websecure
-      - traefik.http.routers.ipass-ui.tls.certresolver=letsencrypt
-      - traefik.http.routers.ipass-ui.middlewares=ipass-sec
-      - traefik.http.routers.ipass-ui.service=ipass-ui
-      - traefik.http.services.ipass-ui.loadbalancer.server.port=8080
+    networks: [ipass-front]
     mem_limit: 64m
     cpus: 0.1
     logging: *logging
+    <<: *hardened
+
+  # The only service on the shared `web` network: Traefik terminates TLS and sends both hostnames here. Same pinned nginx
+  # image as `ui`, its own config (edge/edge.conf): app paths -> platform-app, auth host -> keycloak minus /admin and the
+  # master realm, everything else -> ui, actuator and OpenAPI -> 404.
+  edge:
+    image: ${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/ui:${IMAGE_TAG:?set IMAGE_TAG}
+    pull_policy: missing
+    restart: unless-stopped
+    depends_on:
+      platform-app: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+      ui: {condition: service_started}
+    volumes:
+      - ./edge/edge.conf:/etc/nginx/conf.d/default.conf:ro
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [web, ipass-front]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=web
+      - traefik.http.services.ipass-edge.loadbalancer.server.port=8080
+      - traefik.http.routers.ipass-web.rule=Host(`ipass.${IPASS_DOMAIN}`)
+      - traefik.http.routers.ipass-web.entrypoints=websecure
+      - traefik.http.routers.ipass-web.tls.certresolver=letsencrypt
+      - traefik.http.routers.ipass-web.middlewares=ipass-sec
+      - traefik.http.routers.ipass-web.service=ipass-edge
+      - traefik.http.middlewares.ipass-sec.headers.stsSeconds=31536000
+      - traefik.http.middlewares.ipass-sec.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.ipass-sec.headers.customFrameOptionsValue=DENY
+      - traefik.http.middlewares.ipass-sec.headers.contentSecurityPolicy=frame-ancestors 'none'
+      - traefik.http.middlewares.ipass-sec.headers.referrerPolicy=same-origin
+      # the auth host: /admin and the master realm stay unrouted at Traefik too (edge refuses them as well).
+      # Keycloak sets its own CSP and frame options: HSTS + nosniff only here
+      - traefik.http.routers.ipass-auth.rule=Host(`auth.${IPASS_DOMAIN}`) && !PathPrefix(`/admin`) && !PathPrefix(`/realms/master`)
+      - traefik.http.routers.ipass-auth.entrypoints=websecure
+      - traefik.http.routers.ipass-auth.tls.certresolver=letsencrypt
+      - traefik.http.routers.ipass-auth.middlewares=ipass-sec-kc
+      - traefik.http.routers.ipass-auth.service=ipass-edge
+      - traefik.http.middlewares.ipass-sec-kc.headers.stsSeconds=31536000
+      - traefik.http.middlewares.ipass-sec-kc.headers.contentTypeNosniff=true
+    mem_limit: 64m
+    cpus: 0.2
+    logging: *logging
+    <<: *hardened
 
   pg-backup:
     image: postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
@@ -246,32 +266,19 @@ services:
     mem_limit: 128m
     cpus: 0.1
     logging: *logging
-
-  # demo profile only: internal demo destination, on the internal work network, no Traefik label, no port.
-  wiremock:
-    image: wiremock/wiremock:3.13.1@sha256:d61e7720f89483fdef5366843b58d1dfd06bcce5828179c9f2f54de5c28354b0
-    profiles: ["demo"]
-    restart: unless-stopped
-    command: ["--port", "8089", "--disable-banner"]   # not 8080: the guard refuses the app's own port
-    networks: [ipass-work]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8089/__admin/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 8
-      start_period: 15s
-    mem_limit: 128m
-    cpus: 0.2
-    logging: *logging
+    <<: *hardened
 
 networks:
-  web:
+  web:                 # the host's shared Traefik network: edge only
     external: true
     name: web
+  ipass-front:         # edge -> app/ui/keycloak; no outside reach, nothing else on it
+    internal: true
   ipass-data:
     internal: true
   ipass-work:
     internal: true
+  ipass-egress:        # the app's outbound reach (allow-listed destinations, the public issuer URL); nobody else joins
 
 volumes:
   ipass-pg-data:
