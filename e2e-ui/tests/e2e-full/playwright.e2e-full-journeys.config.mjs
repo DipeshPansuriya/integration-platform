@@ -3,10 +3,10 @@
 // credentials) that the seeded docker environment provides - the e2e-full doc ("UI leg ... reusing the
 // base-suite seed", documents/e2e-full.md) and tests/base-suite/support/global-setup.mjs boot both.
 //
-// This is deliberately a SECOND config from the e18 lane's read-only leg (ui/playwright.e2e-full.config.mjs,
+// This is deliberately a SECOND config from the e18 lane's read-only leg (e2e-ui/playwright.e2e-full.config.mjs,
 // the screens boot): that one answers the shell reads; this one boots what the INTAKE journey needs. Reuses
 // tests/base-suite/* unchanged (owned by feature/qa-release-base; imported, never edited) and does not edit
-// ui/tests/base-suite either. Run: npx playwright test -c tests/e2e-full/playwright.e2e-full-journeys.config.mjs
+// e2e-ui/tests/base-suite either. Run: npx playwright test -c tests/e2e-full/playwright.e2e-full-journeys.config.mjs
 // inside the docker env (the boot takes the docker-suite lock through boot-backed).
 // NEVER runs on `npm test` (node --test list) and never with a booted docker lock of another suite.
 

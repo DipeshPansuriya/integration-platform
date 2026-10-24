@@ -26,8 +26,8 @@ import { fileURLToPath } from 'node:url';
 import { sessionHeaders, sessionLogin, startKeycloak } from './keycloak-harness.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const UI = path.resolve(HERE, '..');
-export const REPO = path.resolve(UI, '..');
+export const REPO = path.resolve(HERE, '..', '..'); // the test project (e2e-ui) is one level below the repo root, like ui/ was
+export const UI = path.join(REPO, 'ui'); // L29: the console project (build, dist, vite config); the suites live in ../e2e-ui
 export const PG_IMAGE = 'postgres:17.11-alpine'; // R05: the exact tag compose/compose.yaml + TestImages.java use
 const AUDIENCE = 'integration-platform-api';
 /** The console's origin in the screen and perf protocols (tests/screens/console-server.mjs). */

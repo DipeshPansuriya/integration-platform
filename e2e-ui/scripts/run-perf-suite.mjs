@@ -25,6 +25,7 @@ import { runP95Check, formatReport } from './measure-p95.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.resolve(HERE, '..');
+const CONSOLE = path.resolve(UI, '..', 'ui'); // L29: the console project (npm run build); UI is e2e-ui
 
 const INTERFACES = 50; // E3-F1-S2's seeded fixture
 const TARGETS_PER_INTERFACE = 4; // 50 x 4 = 200 target endpoints
@@ -82,7 +83,7 @@ async function signedInState(consoleUrl, user) {
   }
 }
 
-const build = spawnSync('npm', ['run', 'build'], { cwd: UI, encoding: 'utf8', shell: process.platform === 'win32' });
+const build = spawnSync('npm', ['run', 'build'], { cwd: CONSOLE, encoding: 'utf8', shell: process.platform === 'win32' });
 if (build.status !== 0) {
   console.error(`run-perf-suite: the console build failed:\n${build.stdout}\n${build.stderr}`);
   process.exit(1);

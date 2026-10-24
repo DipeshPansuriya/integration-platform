@@ -22,7 +22,7 @@ import { TENANT_B_PLAN } from '../lib/tenants.mjs';
 import { BS_ENV, setBooted, setLogTap } from './boot-state.mjs';
 import { startLogTap } from './log-tap.mjs';
 
-const UI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const UI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'ui'); // L29: the console project (public/ + npm run build), not e2e-ui
 
 export default async function globalSetup() {
   const settings = exceptionSettings(process.env);

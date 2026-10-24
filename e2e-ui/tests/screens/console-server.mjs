@@ -13,7 +13,12 @@
 // the answer, so the browser's own session is never replaced. The backend authorizes and isolates
 // for real; nothing is mocked and no token ever reaches the browser.
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { preview } from 'vite';
+
+// L29: the suites moved out of ui/, so the process cwd is no longer the console project: name it.
+const CONSOLE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'ui');
 
 const LOGIN_MARKER = 'x-harness-login';
 const BACKEND_ROUTES = ['/api', '/v3', '/oauth2', '/login', '/logout'];
@@ -56,6 +61,7 @@ export async function startConsole(baseUrlOfBackend, sessions = {}) {
     }
   };
   const server = await preview({
+    root: CONSOLE_ROOT,
     preview: {
       host: '127.0.0.1', // vite binds ::1 only by default; everything here speaks 127.0.0.1
       port: 4173,

@@ -10,5 +10,5 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['json', { outputFile: 'test-results/mocked.json' }]],
   use: { headless: true, baseURL: `http://127.0.0.1:${PORT}` },
-  webServer: { command: `npx vite preview --host 127.0.0.1 --port ${PORT} --strictPort`, url: `http://127.0.0.1:${PORT}`, reuseExistingServer: false, timeout: 60000 }
+  webServer: { cwd: '../ui', command: `npx vite preview --host 127.0.0.1 --port ${PORT} --strictPort`, url: `http://127.0.0.1:${PORT}`, reuseExistingServer: false, timeout: 60000 }
 });

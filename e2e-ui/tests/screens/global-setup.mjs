@@ -16,7 +16,7 @@ import { screenAppEnv } from './screen-hosts.mjs';
 import { browserLogin } from './keycloak-login.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const UI = path.resolve(HERE, '..', '..');
+const UI = path.resolve(HERE, '..', '..', '..', 'ui'); // L29: the console project (public/ + npm run build), not e2e-ui
 
 /** T171: the screens boot with an optional lock holder name (the security gate suite names itself in the lock note). */
 export async function bootScreens({ lockHolder } = {}) {

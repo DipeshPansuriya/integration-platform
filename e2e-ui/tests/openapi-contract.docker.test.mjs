@@ -106,7 +106,7 @@ function normalize(doc) {
 }
 
 async function regenerateTypes(doc) {
-  const { regenerateClientTypes } = await import('../scripts/typescribe.mjs');
+  const { regenerateClientTypes } = await import('../../e2e-ui/scripts/typescribe.mjs');
   return regenerateClientTypes(doc);
 }
 
