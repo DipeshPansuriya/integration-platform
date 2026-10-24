@@ -145,6 +145,22 @@ export function addLink(graph: MappingGraph, source: string, target: string): Mu
   };
 }
 
+/**
+ * L28: "Auto-map matching names" - links every source field whose path the target contract also has
+ * (exact path), skipping a pair that is already linked. Never removes or changes a drawn link.
+ */
+export function autoMatchLinks(graph: MappingGraph): { graph: MappingGraph; added: number } {
+  let next = graph;
+  let added = 0;
+  for (const source of graph.sourceFields) {
+    if (!graph.targetFields.includes(source)) continue;
+    if (next.links.some((link) => link.source === source && link.target === source)) continue;
+    next = addLink(next, source, source).graph;
+    added += 1;
+  }
+  return { graph: next, added };
+}
+
 /** A link changed: retarget (or re-source) one drawn link; refused paths are not applied. */
 export function changeLink(
   graph: MappingGraph,

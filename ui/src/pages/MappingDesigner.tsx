@@ -10,7 +10,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import {
-  addLink as addLinkToGraph, changeLink as changeLinkOnGraph, deleteLink as deleteLinkFromGraph,
+  addLink as addLinkToGraph, autoMatchLinks, changeLink as changeLinkOnGraph, deleteLink as deleteLinkFromGraph,
   emptyGraph, parseSavedMapping, schemaPaths, targetRefusal, toSaveRequest
 } from '../mapping/graph';
 import { applyExpressionEdit as applyRawEdit } from '../mapping/expression/raw';
@@ -195,6 +195,14 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
     setRefusal(emitted.refusal);
   };
 
+  const autoMap = () => {
+    setSaved(false);
+    setDirty(true);
+    const emitted = withEmitted(autoMatchLinks(graph).graph);
+    setGraph(emitted.graph);
+    setRefusal(emitted.refusal);
+  };
+
   const changeTarget = (id: string, target: string) => {
     setSaved(false);
     setDirty(true);
@@ -366,6 +374,9 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
                   disabled={!selected.source || !selected.target}
                 >
                   Link selected fields
+                </button>
+                <button type="button" className="btn" data-action="auto-map-matching" onClick={autoMap} disabled={graph.sourceFields.length === 0}>
+                  Auto-map matching names
                 </button>
                 <button type="button" className="btn btn-primary" data-action="save" onClick={() => void save()} disabled={!canSaveMapping({ routeId, loaded, loadError })}>
                   Save
