@@ -57,7 +57,7 @@ roles="$(psqlx "SELECT rolname||':'||rolsuper::int||':'||rolbypassrls::int||':'|
 note "$roles"
 [ "$(echo "$roles" | grep -c .)" -ge 4 ] && echo "$roles" | grep -q '^ipass_app:0:0:1' && echo "$roles" | grep -q '^ipaas_app:0:0:0' && echo "$roles" | grep -q '^ipass_migrator:0:0:1' && ok "4-role split" || bad "4-role split"
 echo "$roles" | grep -q '^ipass_backup:0:1:1' && [ "$(psqlx "SELECT rolcreatedb::int FROM pg_roles WHERE rolname='ipass_backup'")" = 0 ] && ok "ipass_backup: BYPASSRLS, cannot create databases" || bad "ipass_backup attributes"
-[ "$(psqlx "SELECT rolcreatedb::int||rolbypassrls::int||rolsuper::int FROM pg_roles WHERE rolname='ipass_restore'")" = 100 ] && ok "ipass_restore: CREATEDB only" || bad "ipass_restore attributes"
+[ "$(psqlx "SELECT concat(rolcreatedb::int, rolbypassrls::int, rolsuper::int) FROM pg_roles WHERE rolname='ipass_restore'")" = 100 ] && ok "ipass_restore: CREATEDB only" || bad "ipass_restore attributes"
 [ "$(psqlx "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='ipass'")" = ipass_migrator ] && ok "migrator owns the database" || bad "db owner"
 [ "$(psqlx "SELECT count(*) FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE r.rolname='ipass_app' AND c.relnamespace='public'::regnamespace AND c.relkind IN ('r','p')")" = 0 ] && ok "ipass_app owns no tenant table" || bad "ipass_app owns tables"
 [ "$(psqlx "SELECT pg_has_role('ipass_app','ipaas_app','member')")" = t ] && ok "ipass_app is a member of ipaas_app" || bad "membership"
@@ -98,7 +98,7 @@ ok "flyway: $(psqlx "SELECT count(*) FROM flyway_schema_history WHERE success") 
 dc logs platform-app 2>&1 | grep -qi 'showcase' && ok "showcase profile active in the app log" || bad "no showcase trace in app log"
 # seed-showcase.sh against the real Keycloak, twice (idempotent)
 for i in 1 2; do
-  COMPOSE="docker compose -p $P --env-file $ENVF -f $HW/compose.yaml -f $HW/test/compose.smoke.yaml --profile demo" ENV_FILE="$ENVF" bash "$HERE/seed/seed-showcase.sh" > "$TMP/seed.out" 2>&1 || { bad "seed-showcase.sh run $i"; tail -5 "$TMP/seed.out"; }
+  COMPOSE="docker compose -p $P --env-file $ENVF $FILES" ENV_FILE="$ENVF" bash "$HERE/seed/seed-showcase.sh" > "$TMP/seed.out" 2>&1 || { bad "seed-showcase.sh run $i"; tail -5 "$TMP/seed.out"; }
 done
 [ "$(psqlx "SELECT count(*) FROM public.app_user") $(psqlx "SELECT count(*) FROM public.role_grant") $(psqlx "SELECT count(*) FROM public.tenant")" = "4 4 2" ] && ok "seed-showcase.sh with real Keycloak, idempotent (4 users, 4 grants, 2 tenants)" || bad "seed counts"
 # rotation: DB_PASSWORD rotated live with rotate-secret.sh, then the new login works, the old one does not, the app is ready again
@@ -106,9 +106,9 @@ old_pw="$(grep '^DB_PASSWORD=' "$ENVF" | cut -d= -f2)"
 COMPOSE="docker compose -p $P --env-file $ENVF $FILES" ENV_FILE="$ENVF" ROTATION_LOG="$TMP/rot.log" sh "$HERE/rotate-secret.sh" DB_PASSWORD > "$TMP/rot.out" 2>&1 || { bad "rotate-secret.sh DB_PASSWORD"; tail -5 "$TMP/rot.out"; }
 new_pw="$(grep '^DB_PASSWORD=' "$ENVF" | cut -d= -f2)"
 [ "$new_pw" != "$old_pw" ] && grep -q 'DB_PASSWORD fingerprint' "$TMP/rot.log" && ! grep -qF "$new_pw" "$TMP/rot.log" "$TMP/rot.out" && ok "rotation: .env changed, log holds a fingerprint only" || bad "rotation env/log"
-pg_as() { dc exec -T -e "PGPASSWORD=$1" postgres psql -h 127.0.0.1 -U ipass_app -d ipass -Atc 'select 1' 2>&1; }
+pg_as() { dc exec -T -e "PGPASSWORD=$1" postgres psql -h postgres -U ipass_app -d ipass -Atc 'select 1' 2>&1; }
 [ "$(pg_as "$new_pw")" = 1 ] && ! [ "$(pg_as "$old_pw")" = 1 ] && ok "rotation: new ipass_app password works, old one refused" || bad "rotation login"
-for i in $(seq 1 30); do app_ready="$(dc exec -T platform-app bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /actuator/health/readiness HTTP/1.0\r\n\r\n" >&3 && cat <&3' 2>&1)"; case "$app_ready" in *'"UP"'*) break;; esac; sleep 10; done
+for i in $(seq 1 30); do app_ready="$(dc exec -T platform-app bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /actuator/health/readiness HTTP/1.0\r\n\r\n" >&3 && cat <&3' 2>&1)" || true; case "$app_ready" in *'"UP"'*) break;; esac; sleep 10; done
 case "$app_ready" in *'"UP"'*) ok "rotation: app ready again on the new password";; *) bad "app not ready after rotation";; esac
 echo; [ $fail -eq 0 ] && note "SMOKE PASSED" || note "SMOKE FAILED"
 exit $fail
