@@ -10,6 +10,8 @@ keycloak-harness, run-release1-gate, run-release1-journey, release1/*, trial-up,
 
 Install: `npm ci` here (own lock; same npm cache as `ui/`; offline works from the cache). Needs `../ui` installed too (vite config, build).
 
+**Both folders need `npm ci`:** `ui` `npm test` ends by running `npm --prefix ../e2e-ui test`, so a checkout with only `ui` installed fails it (run `npm run test:product` there for the ui-only 383). Extra arguments forward through the `ui` delegates: `cd ui && npm run test:screens -- --list` (also `-- login.docker.spec.mjs`, `test:release1-journey -- <log>`).
+
 | Command (run in `e2e-ui/`) | Was (in `ui/`) |
 |---|---|
 | `npm test` (45 unit tests) | part of `npm test` |

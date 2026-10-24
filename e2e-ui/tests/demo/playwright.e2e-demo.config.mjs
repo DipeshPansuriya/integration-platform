@@ -2,7 +2,7 @@
 // (intake -> route -> transform -> deliver, both tenants), BS-08 (the stage timeline), BS-09 (one correlation id), BS-10 (a dead
 // letter on the Failures screen, then Replay) and BS-12 (dashboard counts) in that order, in a HEADED browser with slowMo.
 // Test code only: no spec is edited; the sign-in is the base-suite global setup's real Keycloak login, shown headed too.
-// Run from ui/ with E2E_DEMO=1 (a docker-suite command; it takes the docker-suite lock through the boot).
+// Run from e2e-ui/ with E2E_DEMO=1 (a docker-suite command; it takes the docker-suite lock through the boot).
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +17,7 @@ const launch = demoLaunchOptions();
 
 export default defineConfig({
   ...base,
-  testDir: path.join(UI, 'tests', 'base-suite', 'specs'), // absolute: this file lives outside ui/
+  testDir: path.join(UI, 'tests', 'base-suite', 'specs'), // absolute: this file lives under e2e-ui/tests/demo
   globalSetup: path.join(UI, 'tests', 'base-suite', 'support', 'global-setup.mjs'),
   globalTeardown: path.join(UI, 'tests', 'base-suite', 'support', 'global-teardown.mjs'),
   reporter: [['list']],
