@@ -112,26 +112,41 @@ export function psql(sql) {
   return execFileSync('docker', ['exec', process.env.SEC_PG, 'psql', '-U', 'owner', '-d', 'platform', '-t', '-A', '-c', sql], { encoding: 'utf8' }).trim();
 }
 
-/** Every request, redirect chain, response header and (text) response body the page sees, for token scans. */
-export function recordTraffic(page) {
+/**
+ * Every request, redirect chain, response header and (text) response body the page sees, for token scans.
+ * T211: a body read can NEVER resolve (a response cut off by the next navigation), and settle() waited for all of them, so
+ * S3-A6 hung to its 180 s timeout. Each read is now bounded by `bodyTimeoutMs`; a body that did not arrive is listed by
+ * unreadBodies() unless its request failed (cut off by a navigation = the page never received it), so a response that
+ * finished and was not scanned still fails the case instead of passing as "no token found".
+ */
+export function recordTraffic(page, { bodyTimeoutMs = 10000 } = {}) {
   const traffic = { requests: [], responses: [], navigations: [], pending: [] };
+  const unread = [];
+  const failed = new Set();
+  const bounded = (work, onTimeout) => new Promise((resolve) => {
+    const timer = setTimeout(() => { onTimeout(); resolve(); }, bodyTimeoutMs);
+    work.catch(() => {}).then(() => { clearTimeout(timer); resolve(); });
+  });
   page.on('request', (request) => {
     traffic.requests.push({ url: request.url(), method: request.method(), referer: request.headers().referer ?? null });
   });
+  page.on('requestfailed', (request) => failed.add(request));
   page.on('framenavigated', (frame) => traffic.navigations.push(frame.url()));
   page.on('response', (response) => {
     const headers = response.headers();
     const entry = { url: response.url(), status: response.status(), headers, setCookies: [], body: null };
     traffic.responses.push(entry);
     // Playwright keeps Set-Cookie out of headers(); the raw header list has it
-    traffic.pending.push(response.headersArray().then((list) => { entry.setCookies = list.filter((h) => h.name.toLowerCase() === 'set-cookie').map((h) => h.value); }).catch(() => {}));
+    traffic.pending.push(bounded(response.headersArray().then((list) => { entry.setCookies = list.filter((h) => h.name.toLowerCase() === 'set-cookie').map((h) => h.value); }), () => {}));
     const type = headers['content-type'] ?? '';
     // JS bundles and styles are the console's own code, not data it was handed; fonts and images carry no token.
     if (/json|html|text\/plain|x-www-form-urlencoded/.test(type) && !/javascript|css/.test(type)) {
-      traffic.pending.push(response.text().then((text) => { entry.body = text; }).catch(() => {}));
+      traffic.pending.push(bounded(response.text().then((text) => { entry.body = text; }), () => unread.push({ entry, request: response.request() })));
     }
   });
   traffic.settle = () => Promise.all(traffic.pending);
+  /** Responses whose body should have been scanned and was not (not counting requests the browser itself cut off). */
+  traffic.unreadBodies = () => unread.filter(({ entry, request }) => entry.body === null && !failed.has(request)).map(({ entry }) => ({ url: entry.url, status: entry.status }));
   return traffic;
 }
 

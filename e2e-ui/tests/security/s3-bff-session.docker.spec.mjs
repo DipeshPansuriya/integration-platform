@@ -247,7 +247,12 @@ test.describe('S3 BFF session (browser)', () => {
     }
     await atConsole(page);
     await api(page, 'GET', '/api/v1/me');
-    await traffic.settle();
+    await traffic.settle(); // bounded (T211): a body cut off by the navigation cannot hang it
+    // The next page.goto cuts off an /api read still streaming (measured: GET /api/v1/admin/flows, status 200, no requestfailed event), so
+    // its body never arrives and the page never received it. Everything else - documents, redirects, the login and callback responses
+    // where a token could travel - must have been read and scanned; a skipped one fails here instead of passing as "no token found".
+    const skipped = traffic.unreadBodies().filter((response) => !/^\/api\/v1\//.test(new URL(response.url).pathname));
+    expect(skipped, 'control: no document, redirect or login response went unscanned').toEqual([]);
 
     const urls = [...traffic.navigations, page.url(), ...(await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => entry.name)))];
     expectNoTokenInTraffic(traffic, urls);
