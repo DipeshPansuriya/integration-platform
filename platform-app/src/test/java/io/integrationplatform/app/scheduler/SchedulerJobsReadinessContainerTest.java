@@ -84,6 +84,48 @@ class SchedulerJobsReadinessContainerTest {
         }
     }
 
+    @Test
+    @DisplayName("T209: anonymous readiness and liveness answer 200 with exactly the status, nothing else")
+    void anonymousProbeBodiesAreTheStatusOnly() throws Exception {
+        awaitStatus(code -> code == 200);
+
+        for (String probe : new String[] {"readiness", "liveness"}) {
+            HttpResponse<String> response = get("/actuator/health/" + probe);
+            assertThat(response.statusCode()).as("%s: %s", probe, response.body()).isEqualTo(200);
+            assertThat(response.body()).as(probe + " body").isEqualTo("{\"status\":\"UP\"}");
+        }
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("T209: anonymous readiness under the B35 fault is 503 with the status only - no job names, no reason")
+    void anonymousReadinessUnderTheFaultLeaksNothing() throws Exception {
+        awaitStatus(code -> code == 200);
+        owner("REVOKE USAGE ON SCHEMA scheduler FROM ipaas_app");
+        try {
+            awaitStatus(code -> code == 503);
+
+            HttpResponse<String> readiness = get("/actuator/health/readiness");
+            assertThat(readiness.statusCode()).as(readiness.body()).isEqualTo(503);
+            assertThat(readiness.body()).isEqualTo("{\"status\":\"OUT_OF_SERVICE\"}");
+            assertThat(readiness.body()).doesNotContainIgnoringCase("scheduler").doesNotContain("reason")
+                    .doesNotContain("components").doesNotContain("details");
+            // liveness is about the process, not the scheduler grant: still UP
+            HttpResponse<String> liveness = get("/actuator/health/liveness");
+            assertThat(liveness.statusCode()).as(liveness.body()).isEqualTo(200);
+            assertThat(liveness.body()).isEqualTo("{\"status\":\"UP\"}");
+        } finally {
+            owner("GRANT USAGE ON SCHEMA scheduler TO ipaas_app");
+        }
+    }
+
+    private HttpResponse<String> get(String path) throws Exception {
+        return HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).timeout(Duration.ofSeconds(15))
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
     /** Polls the open health path (60 s budget) until the status code is accepted; returns the last answer. */
     private HttpResponse<String> awaitStatus(IntPredicate accepted) throws Exception {
         HttpClient client = HttpClient.newHttpClient();
