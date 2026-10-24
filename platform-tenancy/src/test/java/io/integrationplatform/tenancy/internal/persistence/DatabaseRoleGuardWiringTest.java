@@ -85,7 +85,7 @@ class DatabaseRoleGuardWiringTest {
                 .withBean("second", DataSource.class, DatabaseRoleGuardWiringTest::cleanRole)
                 .run(context -> {
                     assertThat(context).hasFailed();
-                    assertThat(context.getStartupFailure()).hasRootCauseMessage(
+                    assertThat(context.getStartupFailure()).hasMessage(
                             "K1: more than one DataSource and none is primary - cannot tell which login the application uses");
                 });
     }
