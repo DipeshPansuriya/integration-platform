@@ -75,4 +75,27 @@ class DatabaseRoleGuardWiringTest {
             assertThat(context).hasSingleBean(DatabaseRoleGuard.class);
         });
     }
+
+    @Test
+    @DisplayName("two DataSources and none primary: the guard fails closed instead of silently checking nothing")
+    void failsClosedWhenTheDataSourceIsNotUnique() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(ScansTheGuard.class)
+                .withBean("first", DataSource.class, DatabaseRoleGuardWiringTest::cleanRole)
+                .withBean("second", DataSource.class, DatabaseRoleGuardWiringTest::cleanRole)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasRootCauseMessage(
+                            "K1: more than one DataSource and none is primary - cannot tell which login the application uses");
+                });
+    }
+
+    @Test
+    @DisplayName("the guard opts out of lazy initialisation so spring.main.lazy-initialization=true cannot skip it")
+    void theGuardIsNeverLazy() {
+        org.springframework.context.annotation.Lazy lazy =
+                DatabaseRoleGuard.class.getAnnotation(org.springframework.context.annotation.Lazy.class);
+        assertThat(lazy).isNotNull();
+        assertThat(lazy.value()).isFalse();
+    }
 }

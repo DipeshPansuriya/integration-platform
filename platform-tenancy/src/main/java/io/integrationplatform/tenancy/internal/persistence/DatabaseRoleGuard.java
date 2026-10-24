@@ -8,6 +8,7 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 /**
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Component;
  * <p>The refusal wording is part of the contract: the hosting smoke test greps for "must not own a tenant table".
  */
 @Component
+@Lazy(false) // spring.main.lazy-initialization=true must not be able to skip the guard
 @TenantBoundaryCrossing("T6")
 class DatabaseRoleGuard implements SmartInitializingSingleton {
 
@@ -56,6 +58,11 @@ class DatabaseRoleGuard implements SmartInitializingSingleton {
     void verifyLoginRole() {
         DataSource source = dataSource.getIfUnique();
         if (source == null) {
+            if (dataSource.stream().findAny().isPresent()) {
+                // present but not unique: silently checking nothing would be the original K1 defect again
+                throw new IllegalStateException(
+                        "K1: more than one DataSource and none is primary - cannot tell which login the application uses");
+            }
             return;
         }
         try (Connection connection = source.getConnection();
