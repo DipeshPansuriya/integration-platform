@@ -15,7 +15,8 @@
     "test:e2e-full-ui": "playwright test -c playwright.e2e-full.config.mjs",
     "perf": "node scripts/measure-p95.mjs --base $API_BASE --config tests/perf/pages.json --loads 100",
     "test:perf": "npm run test:perf-negative && node scripts/run-perf-suite.mjs",
-    "test:perf-negative": "node --test tests/slow-page-negative.test.mjs"
+    "test:perf-negative": "node --test tests/slow-page-negative.test.mjs",
+    "test:paths": "node --test tests/console-paths.test.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
