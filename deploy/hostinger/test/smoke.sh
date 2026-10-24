@@ -72,7 +72,12 @@ pub="$(docker ps --filter "label=com.docker.compose.project=$P" --format '{{.Nam
 [ -z "$pub" ] && ok "no port published beyond 127.0.0.1" || bad "published: $pub"
 # C1: the migrator login is refused by the K1 guard
 set +e
-c1="$(timeout 240 docker compose -p "$P" --env-file "$ENVF" -f "$HW/compose.yaml" -f "$HW/test/compose.smoke.yaml" --profile demo run --rm -T --no-deps -e DB_USERNAME=ipass_migrator -e "DB_PASSWORD=$(grep '^DB_MIGRATION_PASSWORD=' "$ENVF" | cut -d= -f2)" -e SERVER_PORT=8099 platform-app 2>&1 | tail -80)"
+cid="$(docker compose -p "$P" --env-file "$ENVF" -f "$HW/compose.yaml" -f "$HW/test/compose.smoke.yaml" --profile demo run -d --no-deps -e DB_USERNAME=ipass_migrator -e "DB_PASSWORD=$(grep '^DB_MIGRATION_PASSWORD=' "$ENVF" | cut -d= -f2)" -e SERVER_PORT=8099 platform-app 2>&1 | tail -1)"
+sleep 90
+c1_users="$(psqlx "SELECT string_agg(DISTINCT usename, ',') FROM pg_stat_activity WHERE datname='ipass' AND pid<>pg_backend_pid()")"
+c1="$(docker logs "$cid" 2>&1 | tail -400)"
+docker rm -f "$cid" >/dev/null 2>&1
+note "C1 diagnostic: db sessions by login while the migrator-login app ran: $c1_users; refusal lines: $(echo "$c1" | grep -c 'must not')"
 set -e
 echo "$c1" | grep -q "must not own a tenant table" && ok "C1: app refuses to start as ipass_migrator" || { bad "C1 (no K1 refusal in the log)"; echo "$c1" | tail -8; }
 # restore test and backup, as run on the server
