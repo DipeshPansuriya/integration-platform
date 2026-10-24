@@ -12,7 +12,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # --- bootstrap-env.sh
 names="$(DRY_RUN=1 sh "$HERE/bootstrap-env.sh")"
-check "bootstrap lists 15 secret names" '[ "$(echo "$names" | wc -l)" -eq 15 ]'
+check "bootstrap lists 14 secret names" '[ "$(echo "$names" | wc -l)" -eq 14 ]'
 out="$(IPASS_DOMAIN=example.test IMAGE_TAG=abc1234 sh "$HERE/bootstrap-env.sh" "$TMP/.env" 2>&1)"
 check "bootstrap writes the env file" '[ -s "$TMP/.env" ]'
 check "bootstrap prints fingerprints, never a value" '! grep -q "=" <<<"$(echo "$out" | grep fingerprint)" && [ "$(echo "$out" | grep -c fingerprint)" -eq 15 ]'
@@ -21,8 +21,25 @@ check "no generated value appears in the output" '[ $leak -eq 0 ]'
 check "every secret name is in env.example" 'for n in $names; do grep -q "^$n=" "$HERE/env.example" || exit 1; done'
 check "env.example holds no value" '! grep -qE "^[A-Z_0-9]+=." "$HERE/env.example"'
 check "env file has every secret non-empty" 'for n in $names; do grep -qE "^$n=.{16,}" "$TMP/.env" || exit 1; done'
-check "secrets differ per name" '[ "$(grep -E "PASSWORD|SECRET" "$TMP/.env" | cut -d= -f2 | sort -u | wc -l)" -eq 14 ]'
+check "secrets differ per name" '[ "$(grep -E "PASSWORD|SECRET" "$TMP/.env" | cut -d= -f2 | sort -u | wc -l)" -eq 13 ]'
 check "bootstrap refuses to overwrite" '! IPASS_DOMAIN=example.test IMAGE_TAG=abc1234 sh "$HERE/bootstrap-env.sh" "$TMP/.env" >/dev/null 2>&1'
+check "bootstrap refuses to overwrite even with FORCE=1 (no blanket rotation)" '! FORCE=1 IPASS_DOMAIN=example.test IMAGE_TAG=abc1234 sh "$HERE/bootstrap-env.sh" "$TMP/.env" >/dev/null 2>&1'
+check "the Keycloak bootstrap admin is in its own file, not in .env, compose.yaml or env.example" '[ -s "$TMP/.env.bootstrap-admin" ] && grep -q "^KC_BOOTSTRAP_ADMIN_PASSWORD=.\{16,\}" "$TMP/.env.bootstrap-admin" && ! grep -q KC_BOOTSTRAP "$TMP/.env" && ! grep -q KC_BOOTSTRAP "$HERE/compose.yaml" && ! grep -q "^KC_BOOTSTRAP" "$HERE/env.example"'
+check "bootstrap admin value never appears in the output" 'v="$(grep ^KC_BOOTSTRAP_ADMIN_PASSWORD= "$TMP/.env.bootstrap-admin" | cut -d= -f2)"; [ -n "$v" ] && ! grep -qF -- "$v" <<<"$out"'
+check "bootstrap-admin override injects the file, holds no value" 'grep -q "env_file" "$HERE/keycloak/compose.bootstrap-admin.yaml" && ! grep -q "KC_BOOTSTRAP" "$HERE/keycloak/compose.bootstrap-admin.yaml"'
+check "retire script needs a different named admin and prints its steps" '! KC_ADMIN_USER=bootstrap-admin DRY_RUN=1 sh "$HERE/keycloak/retire-bootstrap-admin.sh" >/dev/null 2>&1 && KC_ADMIN_USER=alice DRY_RUN=1 sh "$HERE/keycloak/retire-bootstrap-admin.sh" | grep -q "delete user bootstrap-admin"'
+check "seed script works with the bootstrap admin retired (named admin)" 'grep -q KC_ADMIN_USER "$HERE/seed/seed-showcase.sh"'
+check "no ipass compose file mounts a Docker socket" '! grep -rqi "docker.sock" "$HERE/compose.yaml" "$HERE/demo" "$HERE/keycloak" "$HERE/test/compose.smoke.yaml"'
+ROTATE_SOURCE_ONLY=1 . "$HERE/rotate-secret.sh"; set +e
+printf 'A=1\nDB_PASSWORD=old\nB=2\n' > "$TMP/r.env"; chmod 644 "$TMP/r.env"
+set_env_value "$TMP/r.env" DB_PASSWORD 'new+/=value'
+check "rotate: set_env_value replaces only that line, atomically, mode 600" '[ "$(cat "$TMP/r.env")" = "$(printf "A=1\nDB_PASSWORD=new+/=value\nB=2")" ] && { [ "$(uname -o 2>/dev/null)" = Msys ] || [ "$(stat -c %a "$TMP/r.env")" = 600 ]; }'
+check "rotate: a name missing from the env file is an error" '! set_env_value "$TMP/r.env" NOPE x 2>/dev/null'
+for n in DB_PASSWORD DB_MIGRATION_PASSWORD BACKUP_DB_PASSWORD RESTORE_DB_PASSWORD KEYCLOAK_DB_PASSWORD POSTGRES_PASSWORD CONSOLE_OIDC_CLIENT_SECRET PLATFORM_ADMIN_CLIENT_SECRET OPERATOR_AGENT_CLIENT_SECRET; do
+  check "rotate: $n has a plan" 'ENV_FILE="$TMP/r.env" DRY_RUN=1 sh "$HERE/rotate-secret.sh" "$n" | grep -q "would generate"'
+done
+check "rotate: KEK, showcase and unknown names are refused with a reason" '! sh "$HERE/rotate-secret.sh" PLATFORM_CREDENTIAL_KEK_K1 2>/dev/null && ! sh "$HERE/rotate-secret.sh" SHOWCASE_PASSWORD_ADMIN_A 2>/dev/null && ! sh "$HERE/rotate-secret.sh" HOME 2>/dev/null'
+check "rotate: dry run changes nothing" 'before="$(cat "$TMP/r.env")"; ENV_FILE="$TMP/r.env" DRY_RUN=1 sh "$HERE/rotate-secret.sh" DB_PASSWORD >/dev/null; [ "$before" = "$(cat "$TMP/r.env")" ]'
 check "bootstrap refuses tag latest" '! IPASS_DOMAIN=example.test IMAGE_TAG=latest sh "$HERE/bootstrap-env.sh" "$TMP/x.env" >/dev/null 2>&1'
 check "bootstrap refuses a bad domain" '! IPASS_DOMAIN="a b;rm" IMAGE_TAG=abc sh "$HERE/bootstrap-env.sh" "$TMP/y.env" >/dev/null 2>&1'
 if [ "$(uname -o 2>/dev/null)" != Msys ]; then check "env file mode 600" '[ "$(stat -c %a "$TMP/.env")" = 600 ]'; fi

@@ -19,7 +19,12 @@ ISSUER="${OIDC_ISSUER_URI:-https://auth.${IPASS_DOMAIN}/realms/platform}"
 KCADM=/opt/keycloak/bin/kcadm.sh
 
 # passwords travel as environment NAMES (docker compose exec -e NAME) so no value reaches a host command line
-$COMPOSE exec -T keycloak sh -c "$KCADM config credentials --server http://localhost:8080 --realm master --user \"\$KC_BOOTSTRAP_ADMIN_USERNAME\" --password \"\$KC_BOOTSTRAP_ADMIN_PASSWORD\"" >/dev/null
+if $COMPOSE exec -T keycloak sh -c '[ -n "$KC_BOOTSTRAP_ADMIN_PASSWORD" ]'; then   # first-start window: the bootstrap override is active
+  $COMPOSE exec -T keycloak sh -c "$KCADM config credentials --server http://localhost:8080 --realm master --user \"\$KC_BOOTSTRAP_ADMIN_USERNAME\" --password \"\$KC_BOOTSTRAP_ADMIN_PASSWORD\"" >/dev/null
+else   # bootstrap admin retired: a named admin, password prompted by kcadm on the terminal
+  : "${KC_ADMIN_USER:?the bootstrap admin is retired: set KC_ADMIN_USER to a named realm admin}"
+  $COMPOSE exec keycloak $KCADM config credentials --server http://localhost:8080 --realm master --user "$KC_ADMIN_USER" >/dev/null
+fi
 
 ensure_user() { # username, password-variable-name -> prints the realm user id
   user="$1"; pwvar="$2"
