@@ -15,7 +15,7 @@ import { test, expect } from '@playwright/test';
 import { browserLogin } from '../screens/keycloak-login.mjs';
 import { consoleUrl } from '../screens/boot-state.mjs';
 import { waitsOn } from './pending.mjs';
-import { deliveriesOfOrder, targetAStub, utcDay, FAIL_STUB_ID } from './lib/journey-lib.mjs';
+import { deliveriesOfOrder, targetAStub, upsertStub, utcDay, FAIL_STUB_ID } from './lib/journey-lib.mjs';
 
 const GATE = waitsOn('T98', 'T143');
 const RUN = Date.now();
@@ -44,10 +44,7 @@ async function intake(request, orderNo) {
 }
 
 async function setTargetAStatus(status) {
-  const answer = await fetch(`${setting('E2E_WIREMOCK_ADMIN_URL')}/mappings/${FAIL_STUB_ID}`, {
-    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(targetAStub(status))
-  });
-  if (answer.status !== 200 && answer.status !== 201) throw new Error(`WireMock stub PUT answered ${answer.status}`);
+  await upsertStub(setting('E2E_WIREMOCK_ADMIN_URL'), targetAStub(status));
 }
 
 test.describe('Release 1 journey (E15-F1-S1)', () => {

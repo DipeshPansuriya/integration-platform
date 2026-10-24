@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { JOURNEY_ENV_NAMES, journeyEnv } from '../../../scripts/release1/journey-env.mjs';
 import { journeyVerdict } from '../../../scripts/release1/journey-verdict.mjs';
 import { REF } from '../../../scripts/release1/seed-ref-order.mjs';
-import { FAIL_STUB_ID, deliveriesOfOrder, deliveriesUnder, targetAStub, utcDay } from '../lib/journey-lib.mjs';
+import { FAIL_STUB_ID, deliveriesOfOrder, deliveriesUnder, targetAStub, upsertStub, utcDay } from '../lib/journey-lib.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.resolve(HERE, '..', '..', '..');
@@ -118,4 +118,17 @@ test('journal helpers: deliveries per order - only POSTs with an Idempotency-Key
   assert.equal(targetAStub(403).response.status, 403);
   assert.equal(targetAStub(200).id, FAIL_STUB_ID);
   assert.equal(utcDay(new Date('2026-10-24T23:59:59Z')), '2026-10-24');
+});
+
+test('upsertStub: PUT first; WireMock answers 404 to an unknown id, so it POSTs; any other refusal throws', async () => {
+  const calls = [];
+  const fake = (statuses) => async (url, init) => { calls.push(`${init.method} ${url}`); return { status: statuses.shift() }; };
+  const stub = targetAStub(403);
+  assert.equal(await upsertStub('http://w/__admin', stub, fake([404, 201])), 201);
+  assert.deepEqual(calls, [`PUT http://w/__admin/mappings/${stub.id}`, 'POST http://w/__admin/mappings']);
+  calls.length = 0;
+  assert.equal(await upsertStub('http://w/__admin', stub, fake([200])), 200);
+  assert.equal(calls.length, 1, 'a known id is replaced in place');
+  await assert.rejects(upsertStub('http://w/__admin', stub, fake([500])), /answered 500/);
+  await assert.rejects(upsertStub('http://w/__admin', stub, fake([404, 400])), /answered 400/);
 });

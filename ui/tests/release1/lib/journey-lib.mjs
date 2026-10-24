@@ -28,3 +28,15 @@ export function targetAStub(status) {
 export function utcDay(now = new Date()) {
   return now.toISOString().slice(0, 10);
 }
+
+/**
+ * Creates or replaces a WireMock stub by its fixed id. WireMock answers 404 to a PUT of an id it has never seen
+ * (first live run, 24-Oct), so: PUT, and on 404 POST it. Returns the final status; throws on anything but 200/201.
+ */
+export async function upsertStub(adminUrl, stub, fetchImpl = fetch) {
+  const send = (method, url) => fetchImpl(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(stub) });
+  let answer = await send('PUT', `${adminUrl}/mappings/${stub.id}`);
+  if (answer.status === 404) answer = await send('POST', `${adminUrl}/mappings`);
+  if (answer.status !== 200 && answer.status !== 201) throw new Error(`WireMock stub ${stub.id} answered ${answer.status}`);
+  return answer.status;
+}
