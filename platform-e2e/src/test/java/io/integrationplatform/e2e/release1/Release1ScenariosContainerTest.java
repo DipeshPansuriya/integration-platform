@@ -335,7 +335,7 @@ class Release1ScenariosContainerTest {
     void sc05NewContractVersionWithZeroDeploys() throws Exception {
         Release1Client client = client();
         String health = client.get("/actuator/info", Release1Client.bearer("TENANT_ADMIN")).body();
-        // Contract v2.1 import + publish is the browser journey's step (ui/tests/release1); here the API leg checks
+        // Contract v2.1 import + publish is the browser journey's step (e2e-ui/tests/release1); here the API leg checks
         // that the same running backend serves it.
         String queue = E2eNames.nameOf("mqTargetQueue");
         long before = queueCount(queue);

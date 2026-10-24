@@ -26,6 +26,7 @@ When this file and a document disagree, the document wins.
 - **Apache Kafka** client 4.3.1 - exactly one kafka-clients version, no spring-kafka (R12, ADR-005).
 - **PostgreSQL 17**, schema owned by Flyway (ADR-002).
 - A **React** console in `ui/`, served as static files and calling only the admin API - not built yet.
+- `e2e-ui/` holds the console's end-to-end suites (Playwright, base-suite, Release 1 journey, trial, perf) and their runner scripts - test-only, like `platform-e2e`. `ui/` keeps product code and product unit tests; the `ui` npm script names still work (they delegate to `e2e-ui`).
 
 ## Modules
 
