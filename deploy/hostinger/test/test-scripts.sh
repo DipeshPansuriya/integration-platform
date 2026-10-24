@@ -83,6 +83,9 @@ check "only the app has outbound reach (ipass-egress)" '[ "$(awk "/^  [a-z-]+:\$
 check "the front network (edge to app/ui/keycloak) is internal" 'grep -A1 "^  ipass-front:" "$HERE/compose.yaml" | grep -q "internal: true"'
 check "edge refuses actuator, openapi, keycloak admin and the master realm" 'for p in actuator v3 admin realms/master; do grep -q "$p" "$HERE/edge/edge.conf" || exit 1; done; grep -c "return 404" "$HERE/edge/edge.conf" | grep -qE "^[3-9]"'
 check "edge forwards only the paths the old Traefik rules routed to the app" 'for p in /api /oauth2 /login "= /logout"; do grep -q "location .*$p" "$HERE/edge/edge.conf" || exit 1; done'
+if command -v docker >/dev/null 2>&1 && docker image inspect "ipass/ui:${NGINX_TEST_TAG:-none}" >/dev/null 2>&1; then
+  check "edge.conf passes nginx -t (image ipass/ui:$NGINX_TEST_TAG)" 'MSYS_NO_PATHCONV=1 docker run --rm -v "$(cygpath -m "$HERE" 2>/dev/null || echo "$HERE")/edge/edge.conf:/etc/nginx/conf.d/default.conf:ro" "ipass/ui:$NGINX_TEST_TAG" nginx -t >/dev/null 2>&1'
+fi
 check "stateless services drop all capabilities and no-new-privileges" '[ "$(grep -c "<<: \*hardened" "$HERE/compose.yaml")" -ge 7 ] && grep -q "cap_drop: \[ALL\]" "$HERE/compose.yaml" && grep -q "no-new-privileges:true" "$HERE/compose.yaml"'
 check "no public route for /v3, /actuator, Keycloak admin" '! grep -E "traefik.*rule=" "$HERE/compose.yaml" | grep -E "PathPrefix\(\`/(v3|actuator)\`" ; grep -E "ipass-auth.rule" "$HERE/compose.yaml" | grep -q "!PathPrefix(\`/admin\`)"'
 check "every service has a restart policy or is one-shot" 'test "$(grep -c "restart:" "$HERE/compose.yaml")" -ge 7'
