@@ -14,7 +14,8 @@ import { FAIL_STUB_ID, deliveriesOfOrder, deliveriesUnder, targetAStub, upsertSt
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.resolve(HERE, '..', '..', '..');
-const read = (...parts) => fs.readFileSync(path.join(UI, ...parts), 'utf8');
+const CONSOLE = path.join(UI, '..', 'ui'); // L29: ui/src stays in the console project
+const read = (...parts) => fs.readFileSync(path.join(parts[0] === 'src' ? CONSOLE : UI, ...parts), 'utf8');
 const SPEC = read('tests', 'release1', 'journey.docker.spec.mjs');
 const RUNNER = path.join(UI, 'scripts', 'run-release1-journey.mjs');
 
@@ -27,7 +28,7 @@ const boot = {
 };
 
 /** Every source file under ui/src as one string. */
-function allSource(dir = path.join(UI, 'src')) {
+function allSource(dir = path.join(CONSOLE, 'src')) {
   return fs.readdirSync(dir, { withFileTypes: true })
     .map((e) => (e.isDirectory() ? allSource(path.join(dir, e.name)) : /\.(tsx?|css)$/.test(e.name) ? fs.readFileSync(path.join(dir, e.name), 'utf8') : ''))
     .join('\n');

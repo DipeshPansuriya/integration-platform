@@ -21,14 +21,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import bootBackend, { fetchOpenApiDocument } from '../scripts/boot-backend.mjs';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const UI = path.resolve(HERE, '..');
-const REPO = path.resolve(UI, '..');
-const GENERATED_TS = path.join(UI, 'src', 'api', 'openapi.d.ts');
-const COMMITTED_DOC = path.join(UI, 'openapi.json');
+import { CONSOLE, GENERATED_TS, COMMITTED_DOC, TYPESCRIBE } from './lib-console-paths.mjs';
 
 test.before(async () => {
   globalThis.__boot = await bootBackend();
@@ -106,7 +102,7 @@ function normalize(doc) {
 }
 
 async function regenerateTypes(doc) {
-  const { regenerateClientTypes } = await import('../scripts/typescribe.mjs');
+  const { regenerateClientTypes } = await import(pathToFileURL(TYPESCRIBE).href);
   return regenerateClientTypes(doc);
 }
 
@@ -114,7 +110,7 @@ async function runTypescript() {
   const { spawnSync } = await import('node:child_process');
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
   const result = spawnSync(npx, ['tsc', '-p', 'tsconfig.json', '--noEmit'], {
-    cwd: UI,
+    cwd: CONSOLE,
     encoding: 'utf8',
     shell: process.platform === 'win32'
   });

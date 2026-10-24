@@ -3,7 +3,7 @@
 //
 // Both tenants own the same flow shape: source "Customer A" contract v1.0 {customerId, orderId,
 // amount, cardNumber}, target "Target B" contract v2.0 {clientId, referenceNo, invoiceValue, cardRef}, flow "orders" with
-// one route - the T94 trial seed shape (ui/scripts/trial-up.mjs:17-21, :46-56). A tenant marker sits in
+// one route - the T94 trial seed shape (e2e-ui/scripts/trial-up.mjs:17-21, :46-56). A tenant marker sits in
 // every text value (A-CUST-0001 / B-CUST-0001, A-ORD-... / B-ORD-...), so a leak search is plain text.
 //
 // Logins: tenant A rides the harness's existing TENANT_ADMIN ("default", the author) and APPROVER

@@ -4,7 +4,7 @@
 // Plan section 2 (release-suite-base-20261022.md): two tenants with the SAME flow shape - source
 // "Customer A" contract v1.0 {customerId, orderId, amount}, target "Target B" contract v2.0
 // {clientId, referenceNo, invoiceValue}, flow "orders" with one route (the T94 trial seed shape,
-// ui/scripts/trial-up.mjs:17-21) - and a tenant marker in every value, so a leak search is a plain
+// e2e-ui/scripts/trial-up.mjs:17-21) - and a tenant marker in every value, so a leak search is a plain
 // text search. Logins: tenant A rides the harness's existing TENANT_ADMIN + APPROVER
 // (boot-backend.mjs:357-365); tenant B gets its OWN TENANT_ADMIN + APPROVER, never a repurposed
 // harness login (the other-tenant CONFIGURATOR must stay refused the dashboard, queue-dashboard

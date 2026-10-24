@@ -30,6 +30,7 @@ import { TENANTS } from '../tests/base-suite/lib/tenants.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.resolve(HERE, '..');
 const REPO = path.resolve(UI, '..');
+const CONSOLE = path.join(REPO, 'ui'); // L29: the console project (public/ + npm run build); UI above is e2e-ui
 
 if (process.argv.includes('--print-plan')) {
   console.log('run-release1-journey: slot -> artemis -> boot backend -> seed REF-ORDER -> build+serve console -> playwright.release1.config.mjs -> teardown');
@@ -74,9 +75,9 @@ try {
   options.appEnv = { ...options.appEnv, [portsVar]: `${settings.port},${MQ_PORT}` };
 
   // the console's login config, then the build (an unbuilt console is this run's own red)
-  fs.mkdirSync(path.join(UI, 'public'), { recursive: true });
-  fs.writeFileSync(path.join(UI, 'public', 'console-config.json'), JSON.stringify({ logins: ['approver'] }, null, 2));
-  const build = spawnSync('npm', ['run', 'build'], { cwd: UI, encoding: 'utf8', shell: process.platform === 'win32' });
+  fs.mkdirSync(path.join(CONSOLE, 'public'), { recursive: true });
+  fs.writeFileSync(path.join(CONSOLE, 'public', 'console-config.json'), JSON.stringify({ logins: ['approver'] }, null, 2));
+  const build = spawnSync('npm', ['run', 'build'], { cwd: CONSOLE, encoding: 'utf8', shell: process.platform === 'win32' });
   if (build.status !== 0) throw new Error(`the console build failed:\n${String(build.stdout).slice(-2000)}\n${String(build.stderr).slice(-2000)}`);
 
   const backend = await bootBackend(options);

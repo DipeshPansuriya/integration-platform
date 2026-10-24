@@ -33,7 +33,7 @@ test('suiteConfig() is a fresh, extensible copy - defineConfig can stamp it, the
   assert.equal(BASE_SUITE_CONFIG.workers, 1);
 });
 
-test('playwright.base-suite.config.mjs loads through defineConfig', { skip: !playwrightInstalled() && 'no ui/node_modules (@playwright/test) in this checkout' }, async () => {
+test('playwright.base-suite.config.mjs loads through defineConfig', { skip: !playwrightInstalled() && 'no e2e-ui/node_modules (@playwright/test) in this checkout' }, async () => {
   const { default: config } = await import('../../../playwright.base-suite.config.mjs');
   assert.equal(config.testDir, 'tests/base-suite/specs');
   assert.equal(config.retries, 0);

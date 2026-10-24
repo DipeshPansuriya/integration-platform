@@ -1,4 +1,5 @@
 #!/bin/bash
+# NOTE (L29): written for the pre-move layout (the frozen candidate export had the suites under ui/). On a candidate cut after L29 use $EXPORT/e2e-ui as the work dir and junction BOTH ui and e2e-ui node_modules.
 # Row 323 (F21) Tue 20 base-version run on the FROZEN candidate sha (aditya-qa-automation, T129/T130).
 # Modelled on _reports/row323-base-suite-20261020/t129-run/t129-run.sh, minus the lock wait:
 # this script NEVER takes, waits for or releases the docker-suite lock. The Tue lock owner runs it

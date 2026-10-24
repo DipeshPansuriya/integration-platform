@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { findAll, mount } from './hook-harness.mjs';
 
-const tests = join(dirname(fileURLToPath(import.meta.url)), '..');
+const tests = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'e2e-ui', 'tests'); // L29: the specs it reads moved to e2e-ui/tests
 const spec = (p) => readFileSync(join(tests, p), 'utf8');
 
 test('H1 the READ_ONLY 403 replay spec arms Replay before it presses (Failures asks to confirm first)', () => {
