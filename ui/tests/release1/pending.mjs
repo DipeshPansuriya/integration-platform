@@ -4,8 +4,8 @@
 
 export const ON_MAIN = Object.freeze({
   T95: true, T104: true, T105: true, T106: true, T107: true, T109: true, T110: true, T113: true,
-  T96: false, T98: false, T99: false, T111: false, T112: false, T115: false, T120: false,
-  T121: false, T143: false, T144: false, T157: false
+  T96: true, T98: true, T99: true, T111: true, T112: true, T115: true, T120: true,
+  T121: false, T143: true, T144: true, T157: true
 });
 
 /** null when every item is on main; otherwise the reason string for test.fixme. */
