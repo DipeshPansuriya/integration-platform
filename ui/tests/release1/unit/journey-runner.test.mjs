@@ -132,3 +132,9 @@ test('upsertStub: PUT first; WireMock answers 404 to an unknown id, so it POSTs;
   await assert.rejects(upsertStub('http://w/__admin', stub, fake([500])), /answered 500/);
   await assert.rejects(upsertStub('http://w/__admin', stub, fake([404, 400])), /answered 400/);
 });
+
+test('A1: the designer renders a persistent polite live region for the Auto-map result', () => {
+  const designer = read('src', 'pages', 'MappingDesigner.tsx');
+  assert.match(designer, /<p role="status" aria-live="polite"[^>]*data-auto-map-result>\s*\{autoMapNote\}/);
+  assert.match(designer, /setAutoMapNote\(autoMapMessage\(matched\.added\)\)/);
+});
