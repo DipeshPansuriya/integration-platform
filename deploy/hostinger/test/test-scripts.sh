@@ -162,5 +162,7 @@ check "memory limit on every long-running service" 'test "$(grep -c "mem_limit:"
 check "app image runs non-root and has a health check" 'grep -q "^USER 10001" "$REPO/platform-app/Dockerfile" && grep -q "^HEALTHCHECK" "$REPO/platform-app/Dockerfile"'
 check "no Dockerfile bakes a secret value" '! grep -iE "^(ENV|ARG).*(PASSWORD|SECRET|KEK)" "$REPO/platform-app/Dockerfile" "$REPO/ui/Dockerfile" "$HERE/keycloak/Dockerfile"'
 check "scripts are LF" '! grep -lU $'"'"'\r'"'"' "$HERE"/*.sh "$HERE"/*/*.sh | grep -q .'
+# --- git mode: the init scripts must be executable after a plain clone (Windows checkouts show 644 on disk, the index is what ships)
+check "every .sh under deploy/hostinger is mode 100755 in the git index" '[ -z "$(git -C "$REPO" ls-files -s -- deploy/hostinger | grep "\.sh$" | grep -v "^100755")" ] && [ -n "$(git -C "$REPO" ls-files -- deploy/hostinger | grep "\.sh$")" ]'
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail
