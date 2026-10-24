@@ -9,12 +9,12 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 LOCK="${DOCKER_SUITE_LOCK:-/d/Projects/ipass/.docker-suite.lock}"
 TAG="${IMAGE_TAG:?set IMAGE_TAG (local image tag)}"
 P=ipass-hosting-smoke
-TMP="$(mktemp -d)"; ENVF="$TMP/smoke.env"
+TMP="$(mktemp -d)"; ENVF="$(cygpath -m "$TMP" 2>/dev/null || echo "$TMP")/s.cfg"; HW="$(cygpath -m "$HERE" 2>/dev/null || echo "$HERE")"
 have_lock=0; fail=0
 note() { printf '%s\n' "$*"; }
 ok() { note "PASS $1"; }
 bad() { note "FAIL $1"; fail=1; }
-dc() { docker compose -p "$P" --env-file "$ENVF" -f "$HERE/compose.yaml" -f "$HERE/test/compose.smoke.yaml" --profile demo "$@"; }
+dc() { docker compose -p "$P" --env-file "$ENVF" -f "$HW/compose.yaml" -f "$HW/test/compose.smoke.yaml" --profile demo "$@"; }
 
 release() {
   dc down -v --remove-orphans >/dev/null 2>&1
