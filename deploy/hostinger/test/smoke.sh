@@ -14,7 +14,8 @@ have_lock=0; fail=0
 note() { printf '%s\n' "$*"; }
 ok() { note "PASS $1"; }
 bad() { note "FAIL $1"; fail=1; }
-dc() { docker compose -p "$P" --env-file "$ENVF" -f "$HW/compose.yaml" -f "$HW/test/compose.smoke.yaml" --profile demo "$@"; }
+FILES="-f $HW/compose.yaml -f $HW/demo/compose.demo.yaml -f $HW/keycloak/compose.bootstrap-admin.yaml -f $HW/test/compose.smoke.yaml"
+dc() { docker compose -p "$P" --env-file "$ENVF" $FILES "$@"; }
 
 release() {
   dc down -v --remove-orphans >/dev/null 2>&1
@@ -42,10 +43,7 @@ IPASS_DOMAIN=smoke.invalid IMAGE_TAG="$TAG" sh "$HERE/bootstrap-env.sh" "$ENVF" 
   echo "IPASS_LOG_DRIVER=json-file"
   echo "KC_HOSTNAME=http://keycloak:8080"
   echo "OIDC_ISSUER_URI=http://keycloak:8080/realms/platform"
-  echo "IPASS_PROFILES=showcase"
-  echo "IPASS_DESTINATION_HOSTS=wiremock"
-  echo "IPASS_SHOWCASE_LOCAL_HOSTS=wiremock"
-  echo "IPASS_SHOWCASE_LOCAL_PORTS=8089"
+  echo "IPASS_BOOTSTRAP_ADMIN_FILE=$ENVF.bootstrap-admin"
 } >> "$ENVF"
 
 dc up -d --wait --wait-timeout 600 2>&1 | tail -15
@@ -58,6 +56,8 @@ psqlx() { dc exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" 
 roles="$(psqlx "SELECT rolname||':'||rolsuper::int||':'||rolbypassrls::int||':'||rolcanlogin::int FROM pg_roles WHERE rolname LIKE 'ipa%' OR rolname='ipass_migrator' ORDER BY 1")"
 note "$roles"
 [ "$(echo "$roles" | grep -c .)" -ge 4 ] && echo "$roles" | grep -q '^ipass_app:0:0:1' && echo "$roles" | grep -q '^ipaas_app:0:0:0' && echo "$roles" | grep -q '^ipass_migrator:0:0:1' && ok "4-role split" || bad "4-role split"
+echo "$roles" | grep -q '^ipass_backup:0:1:1' && [ "$(psqlx "SELECT rolcreatedb::int FROM pg_roles WHERE rolname='ipass_backup'")" = 0 ] && ok "ipass_backup: BYPASSRLS, cannot create databases" || bad "ipass_backup attributes"
+[ "$(psqlx "SELECT rolcreatedb::int||rolbypassrls::int||rolsuper::int FROM pg_roles WHERE rolname='ipass_restore'")" = 100 ] && ok "ipass_restore: CREATEDB only" || bad "ipass_restore attributes"
 [ "$(psqlx "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='ipass'")" = ipass_migrator ] && ok "migrator owns the database" || bad "db owner"
 [ "$(psqlx "SELECT count(*) FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE r.rolname='ipass_app' AND c.relnamespace='public'::regnamespace AND c.relkind IN ('r','p')")" = 0 ] && ok "ipass_app owns no tenant table" || bad "ipass_app owns tables"
 [ "$(psqlx "SELECT pg_has_role('ipass_app','ipaas_app','member')")" = t ] && ok "ipass_app is a member of ipaas_app" || bad "membership"
@@ -70,9 +70,19 @@ dc exec -T platform-app bash -c 'exec 3<>/dev/tcp/wiremock/8089 && printf "GET /
 # nothing published except the two loopback overrides
 pub="$(docker ps --filter "label=com.docker.compose.project=$P" --format '{{.Names}} {{.Ports}}' | grep -E '0\.0\.0\.0|:::' )"
 [ -z "$pub" ] && ok "no port published beyond 127.0.0.1" || bad "published: $pub"
+# edge proxy: the only member of the shared network, path allow-list enforced
+members="$(docker network inspect ipass-hosting-smoke-web --format '{{range .Containers}}{{.Name}} {{end}}')"
+[ "$(echo $members | wc -w)" = 1 ] && echo "$members" | grep -q edge && ok "only edge is on the shared web network ($members)" || bad "web network members: $members"
+code() { curl -s -o /dev/null -w '%{http_code}' -H "Host: $1" "http://127.0.0.1:18082$2"; }
+[ "$(code ipass.smoke.invalid /actuator/health)" = 404 ] && [ "$(code ipass.smoke.invalid /v3/api-docs)" = 404 ] && ok "edge: actuator and OpenAPI are 404" || bad "edge actuator/v3"
+[ "$(code ipass.smoke.invalid /)" = 200 ] && ok "edge: / serves the ui" || bad "edge ui"
+case "$(code ipass.smoke.invalid /api/v1/tenants)" in 401|403) ok "edge: /api reaches the app (unauthenticated = 401/403)";; *) bad "edge /api";; esac
+[ "$(code auth.smoke.invalid /admin/)" = 404 ] && [ "$(code auth.smoke.invalid /realms/master/.well-known/openid-configuration)" = 404 ] && ok "edge: Keycloak /admin and master realm are 404" || bad "edge keycloak admin"
+[ "$(code auth.smoke.invalid /realms/platform/.well-known/openid-configuration)" = 200 ] && ok "edge: platform realm discovery is 200" || bad "edge realm"
+docker inspect $(docker ps -q --filter "label=com.docker.compose.project=$P") --format '{{range .Mounts}}{{.Source}} {{end}}' | grep -qi 'docker.sock' && bad "a container mounts the Docker socket" || ok "no container mounts the Docker socket"
 # C1: the migrator login is refused by the K1 guard
 set +e
-cid="$(docker compose -p "$P" --env-file "$ENVF" -f "$HW/compose.yaml" -f "$HW/test/compose.smoke.yaml" --profile demo run -d --no-deps -e DB_USERNAME=ipass_migrator -e "DB_PASSWORD=$(grep '^DB_MIGRATION_PASSWORD=' "$ENVF" | cut -d= -f2)" -e SERVER_PORT=8099 platform-app 2>&1 | tail -1)"
+cid="$(dc run -d --no-deps -e DB_USERNAME=ipass_migrator -e "DB_PASSWORD=$(grep '^DB_MIGRATION_PASSWORD=' "$ENVF" | cut -d= -f2)" -e SERVER_PORT=8099 platform-app 2>&1 | tail -1)"
 sleep 90
 c1_users="$(psqlx "SELECT string_agg(DISTINCT usename, ',') FROM pg_stat_activity WHERE datname='ipass' AND pid<>pg_backend_pid()")"
 c1="$(docker logs "$cid" 2>&1 | tail -400)"
@@ -82,7 +92,8 @@ set -e
 echo "$c1" | grep -q "must not own a tenant table" && ok "C1: app refuses to start as ipass_migrator" || { bad "C1 (no K1 refusal in the log)"; echo "$c1" | tail -8; }
 # restore test and backup, as run on the server
 dc exec -T pg-backup env RUN_ONCE=1 sh /scripts/backup.sh | tail -3
-dc exec -T pg-backup sh /scripts/restore-test.sh && ok "C4: restore test counts equal" || bad "restore test"
+[ "$(dc exec -T pg-backup sh -c 'ls /backups/*.dump | wc -l')" -ge 2 ] && ok "backup: two dumps written" || bad "backup dumps"
+dc --profile restore-test run --rm -T pg-restore-test && ok "C4: restore test counts equal (one-shot ipass_restore)" || bad "restore test"
 ok "flyway: $(psqlx "SELECT count(*) FROM flyway_schema_history WHERE success") successful history rows"
 dc logs platform-app 2>&1 | grep -qi 'showcase' && ok "showcase profile active in the app log" || bad "no showcase trace in app log"
 # seed-showcase.sh against the real Keycloak, twice (idempotent)
@@ -90,5 +101,14 @@ for i in 1 2; do
   COMPOSE="docker compose -p $P --env-file $ENVF -f $HW/compose.yaml -f $HW/test/compose.smoke.yaml --profile demo" ENV_FILE="$ENVF" bash "$HERE/seed/seed-showcase.sh" > "$TMP/seed.out" 2>&1 || { bad "seed-showcase.sh run $i"; tail -5 "$TMP/seed.out"; }
 done
 [ "$(psqlx "SELECT count(*) FROM public.app_user") $(psqlx "SELECT count(*) FROM public.role_grant") $(psqlx "SELECT count(*) FROM public.tenant")" = "4 4 2" ] && ok "seed-showcase.sh with real Keycloak, idempotent (4 users, 4 grants, 2 tenants)" || bad "seed counts"
+# rotation: DB_PASSWORD rotated live with rotate-secret.sh, then the new login works, the old one does not, the app is ready again
+old_pw="$(grep '^DB_PASSWORD=' "$ENVF" | cut -d= -f2)"
+COMPOSE="docker compose -p $P --env-file $ENVF $FILES" ENV_FILE="$ENVF" ROTATION_LOG="$TMP/rot.log" sh "$HERE/rotate-secret.sh" DB_PASSWORD > "$TMP/rot.out" 2>&1 || { bad "rotate-secret.sh DB_PASSWORD"; tail -5 "$TMP/rot.out"; }
+new_pw="$(grep '^DB_PASSWORD=' "$ENVF" | cut -d= -f2)"
+[ "$new_pw" != "$old_pw" ] && grep -q 'DB_PASSWORD fingerprint' "$TMP/rot.log" && ! grep -qF "$new_pw" "$TMP/rot.log" "$TMP/rot.out" && ok "rotation: .env changed, log holds a fingerprint only" || bad "rotation env/log"
+pg_as() { dc exec -T -e "PGPASSWORD=$1" postgres psql -h 127.0.0.1 -U ipass_app -d ipass -Atc 'select 1' 2>&1; }
+[ "$(pg_as "$new_pw")" = 1 ] && ! [ "$(pg_as "$old_pw")" = 1 ] && ok "rotation: new ipass_app password works, old one refused" || bad "rotation login"
+for i in $(seq 1 30); do app_ready="$(dc exec -T platform-app bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /actuator/health/readiness HTTP/1.0\r\n\r\n" >&3 && cat <&3' 2>&1)"; case "$app_ready" in *'"UP"'*) break;; esac; sleep 10; done
+case "$app_ready" in *'"UP"'*) ok "rotation: app ready again on the new password";; *) bad "app not ready after rotation";; esac
 echo; [ $fail -eq 0 ] && note "SMOKE PASSED" || note "SMOKE FAILED"
 exit $fail
