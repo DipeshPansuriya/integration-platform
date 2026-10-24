@@ -180,7 +180,7 @@ services:
       PLATFORM_CONFIG_DESTINATIONS_SHOWCASELOCALHOSTS: ${IPASS_SHOWCASE_LOCAL_HOSTS:-}
       PLATFORM_CONFIG_DESTINATIONS_SHOWCASELOCALPORTS: ${IPASS_SHOWCASE_LOCAL_PORTS:-}
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health/readiness | grep -q '\"UP\"'"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q '\"UP\"' <&3"]
       interval: 30s
       timeout: 5s
       retries: 5

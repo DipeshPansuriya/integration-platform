@@ -4,6 +4,7 @@
 # env file, asserts the controls, tears everything down (volumes too) and releases the lock. Local images only:
 #   IMAGE_TAG=<short-commit> bash deploy/hostinger/test/smoke.sh      (images ipass/<name>:<tag> must exist)
 set -u
+export MSYS_NO_PATHCONV=1   # git-bash must not rewrite /opt/... container paths
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 LOCK="${DOCKER_SUITE_LOCK:-/d/Projects/ipass/.docker-suite.lock}"
 TAG="${IMAGE_TAG:?set IMAGE_TAG (local image tag)}"
@@ -54,9 +55,9 @@ dc ps -a --format '{{.Service}} {{.State}} {{.Health}}' | sort
 app_ready="$(dc exec -T platform-app wget -qO- http://127.0.0.1:8080/actuator/health/readiness 2>&1)"
 case "$app_ready" in *'"UP"'*) ok "app readiness UP (K1 guard, Flyway, scheduler, KEK checks included)";; *) bad "app readiness: $app_ready"; dc logs --tail 60 platform-app;; esac
 psqlx() { dc exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "$0"' "$1"; }
-roles="$(psqlx "SELECT rolname||':'||rolsuper||':'||rolbypassrls||':'||rolcanlogin FROM pg_roles WHERE rolname LIKE 'ipa%' OR rolname='ipass_migrator' ORDER BY 1")"
+roles="$(psqlx "SELECT rolname||':'||rolsuper::int||':'||rolbypassrls::int||':'||rolcanlogin::int FROM pg_roles WHERE rolname LIKE 'ipa%' OR rolname='ipass_migrator' ORDER BY 1")"
 note "$roles"
-[ "$(echo "$roles" | grep -c .)" -ge 4 ] && echo "$roles" | grep -q '^ipass_app:f:f:t' && echo "$roles" | grep -q '^ipaas_app:f:f:f' && echo "$roles" | grep -q '^ipass_migrator:f:f:t' && ok "4-role split" || bad "4-role split"
+[ "$(echo "$roles" | grep -c .)" -ge 4 ] && echo "$roles" | grep -q '^ipass_app:0:0:1' && echo "$roles" | grep -q '^ipaas_app:0:0:0' && echo "$roles" | grep -q '^ipass_migrator:0:0:1' && ok "4-role split" || bad "4-role split"
 [ "$(psqlx "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='ipass'")" = ipass_migrator ] && ok "migrator owns the database" || bad "db owner"
 [ "$(psqlx "SELECT count(*) FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE r.rolname='ipass_app' AND c.relnamespace='public'::regnamespace AND c.relkind IN ('r','p')")" = 0 ] && ok "ipass_app owns no tenant table" || bad "ipass_app owns tables"
 [ "$(psqlx "SELECT pg_has_role('ipass_app','ipaas_app','member')")" = t ] && ok "ipass_app is a member of ipaas_app" || bad "membership"
