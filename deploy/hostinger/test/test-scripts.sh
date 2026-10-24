@@ -158,6 +158,13 @@ check "the front network (edge to app/ui/keycloak) is internal" 'grep -A1 "^  ip
 check "edge refuses actuator, openapi, keycloak admin and the master realm" 'for p in actuator v3 admin realms/master; do grep -q "$p" "$HERE/edge/edge.conf" || exit 1; done; grep -c "return 404" "$HERE/edge/edge.conf" | grep -qE "^[3-9]"'
 check "edge forwards only the paths the old Traefik rules routed to the app" 'for p in /api /oauth2 /login "= /logout"; do grep -q "location .*$p" "$HERE/edge/edge.conf" || exit 1; done'
 check "env.example names the three per-image variables" 'grep -q "^IPASS_APP_IMAGE=$" "$HERE/env.example" && grep -q "^IPASS_UI_IMAGE=$" "$HERE/env.example" && grep -q "^IPASS_KEYCLOAK_IMAGE=$" "$HERE/env.example"'
+# --- login rate limit at the edge (Karan open item): 10 r/min per client, 429; the key is the LAST X-Forwarded-For entry (the one Traefik appends), never the first (client-supplied)
+E="$HERE/edge/edge.conf"
+check "edge: login/token paths are rate limited (zones at 10r/m, 429, burst)" 'grep -qE "limit_req_zone .*zone=ipass_auth:[0-9]+m rate=10r/m" "$E" && grep -qE "limit_req_zone .*zone=ipass_login:[0-9]+m rate=10r/m" "$E" && grep -q "limit_req_status 429" "$E" && grep -c "limit_req zone=" "$E" | grep -qE "^[3-9]"'
+check "edge: the Keycloak token, login-actions/authenticate and the app /login, /oauth2 locations each carry limit_req" 'grep -E "openid-connect/token" "$E" | grep -q "limit_req zone=ipass_auth" && grep -E "login-actions/authenticate" "$E" | grep -q "limit_req zone=ipass_auth" && grep -F "location ^~ /login " "$E" | grep -q "limit_req zone=ipass_login" && grep -F "location ^~ /oauth2 " "$E" | grep -q "limit_req zone=ipass_login"'
+check "edge: the limit key is the last X-Forwarded-For entry, falling back to the connection address" 'grep -qF "map $http_x_forwarded_for $ipass_client_ip" "$E" && grep -q "default \$remote_addr" "$E" && grep -qF "(?<last>[^,[:space:]]+)[[:space:]]*\$" "$E"'
+check "edge: Keycloak /admin and the master realm stay 404 ahead of the limited paths (^~ beats regex)" 'grep -q "location ^~ /realms/master { return 404; }" "$E"'
+check "edge rate-limit behaviour script exists and is executable in the index" '[ -n "$(git -C "$REPO" ls-files -s -- deploy/hostinger/test/edge-ratelimit.sh | grep "^100755")" ]'
 if command -v docker >/dev/null 2>&1 && docker image inspect "ipass/ui:${NGINX_TEST_TAG:-none}" >/dev/null 2>&1; then
   check "edge.conf passes nginx -t (image ipass/ui:$NGINX_TEST_TAG)" 'MSYS_NO_PATHCONV=1 docker run --rm -v "$(cygpath -m "$HERE" 2>/dev/null || echo "$HERE")/edge/edge.conf:/etc/nginx/conf.d/default.conf:ro" "ipass/ui:$NGINX_TEST_TAG" nginx -t >/dev/null 2>&1'
 fi

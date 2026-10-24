@@ -7,6 +7,8 @@ Source: ADR-H-IPASS-01 (hub: `_personal/_project_ipass/integration-platform/_doc
 | File | Purpose |
 |---|---|
 | `compose.yaml` | The production stack: `edge` (the only service on the shared `web` network), app, ui, keycloak, postgres, kafka (+ `kafka-init`), `pg-backup`, one-shot `pg-restore-test`. No test tooling |
+| `edge/edge.conf` | The edge proxy path allow-list (actuator, `/v3`, Keycloak `/admin` and the master realm answer 404). Login and token paths are rate limited: about 10 requests/min per client, burst 5, 429 beyond that (the client is the last `X-Forwarded-For` entry, the one Traefik appends - a spoofed first entry is ignored). |
+| `test/edge-ratelimit.sh` | Behaviour proof of that rate limit in nginx (build PC, Docker lock) |
 | `demo/compose.demo.yaml` | Opt-in override: WireMock demo destination + the showcase profile. Never part of `compose.yaml` |
 | `keycloak/` | `compose.bootstrap-admin.yaml` (first start only), `retire-bootstrap-admin.sh`, `Dockerfile` |
 | `rotate-secret.sh` | Rotates one secret at a time (database roles, realm client secrets) |
@@ -78,4 +80,5 @@ The host's Traefik does read the socket (ADR Decision 5 point 8). A read-only mo
 ## Tests (build PC)
 
 - Offline: `bash deploy/hostinger/test/test-scripts.sh` (dry runs, secret hygiene, compose controls).
+- Rate limit proof: `NGINX_TEST_TAG=<tag of a local ipass/ui image> bash deploy/hostinger/test/edge-ratelimit.sh` (one stub upstream + the real `edge/edge.conf` in nginx; takes the Docker lock, exits 2 without starting if a live owner holds it).
 - Whole stack: `IMAGE_TAG=<sc> bash deploy/hostinger/test/smoke.sh` (also asserts the edge allow-list, the web-network membership, the K1 refusal C1, a live DB password rotation) with local images `ipass/<name>:<sc>` - takes the PC-wide docker-suite lock, uses dummy secrets in a temp file, deletes everything afterwards.
