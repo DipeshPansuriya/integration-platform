@@ -5,7 +5,9 @@
 // workers 1 / retries 0: a flaky step is reported, never retried to green.
 import { defineConfig } from '@playwright/test';
 
-// Watch mode (set by the runner when JOURNEY_WATCH=1): headed, slowMo ~1s, video on. Trace is always on.
+// Watch mode (JOURNEY_WATCH=1 in the caller's shell - the runner does not set it): headed, slowMo ~1s, video on.
+// S1: the trace keeps the run-scoped admin login and bearer in clear text, so it is kept only for a FAILED run.
+// Those secrets die with the run (backend and Keycloak torn down), and the output folders are gitignored.
 const WATCH = process.env.JOURNEY_WATCH === '1';
 
 export default defineConfig({
@@ -16,6 +18,6 @@ export default defineConfig({
   retries: 0,
   outputDir: process.env.JOURNEY_OUT || 'test-results',
   use: WATCH
-    ? { headless: false, trace: 'on', video: 'on', launchOptions: { slowMo: 1000 } }
-    : { headless: true, trace: 'on' }
+    ? { headless: false, trace: 'retain-on-failure', video: 'on', launchOptions: { slowMo: 1000 } }
+    : { headless: true, trace: 'retain-on-failure' }
 });

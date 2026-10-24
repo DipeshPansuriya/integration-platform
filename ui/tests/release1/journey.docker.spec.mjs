@@ -29,7 +29,7 @@ function setting(name) {
 }
 
 async function journal() {
-  const answer = await fetch(`${setting('E2E_WIREMOCK_ADMIN_URL')}/requests`);
+  const answer = await fetch(`${setting('E2E_WIREMOCK_ADMIN_URL')}/requests`, { signal: AbortSignal.timeout(15_000) });
   if (!answer.ok) throw new Error(`WireMock journal answered ${answer.status}`);
   return answer.json();
 }
@@ -75,7 +75,10 @@ test.describe('Release 1 journey (E15-F1-S1)', () => {
       await expect(mapPage.locator('[data-page="mapping-designer"]')).toBeVisible();
       const rows = mapPage.locator('[data-link-row]');
       await expect(rows).toHaveCount(3);
-      while ((await rows.count()) > 0) await rows.first().locator('[data-action="delete-link"]').click();
+      for (let left = 3; left > 0; left -= 1) { // bounded: a delete that removes nothing fails here, not at the test timeout
+        await rows.first().locator('[data-action="delete-link"]').click();
+        await expect(rows).toHaveCount(left - 1);
+      }
       await mapPage.locator('[data-action="auto-map-matching"]').click();
       for (const field of ['orderNo', 'customer', 'qty']) {
         await expect(mapPage.locator(`[data-link-row="${field}->${field}"]`)).toBeVisible();
@@ -93,8 +96,10 @@ test.describe('Release 1 journey (E15-F1-S1)', () => {
 
     try {
       let trackingId;
+      let day;
       await test.step('target A refuses (403): the delivery dead-letters after one send', async () => {
         await setTargetAStatus(403);
+        day = utcDay(); // once, at the send: a run crossing 00:00 UTC still filters the day the failure happened
         trackingId = await intake(page.request, FAIL_ORDER);
         await expect.poll(async () => deliveriesOfOrder(await journal(), FAIL_ORDER).length, { timeout: 90_000 }).toBe(1);
       });
@@ -103,7 +108,7 @@ test.describe('Release 1 journey (E15-F1-S1)', () => {
         await page.goto(`${base}/#/failures`);
         await expect(page.locator('[data-page="failures"]')).toHaveAttribute('data-failures-loaded', 'true');
         await page.locator('[data-field="failures-flow"]').selectOption(setting('E2E_FLOW_ID'));
-        await page.locator('[data-field="failures-date"]').fill(utcDay());
+        await page.locator('[data-field="failures-date"]').fill(day);
         await expect(page.locator(`[data-failure-row="${trackingId}"]`)).toHaveAttribute('data-failing-stage', 'DELIVER', { timeout: 60_000 });
       });
 
@@ -115,7 +120,7 @@ test.describe('Release 1 journey (E15-F1-S1)', () => {
         expect(deliveriesOfOrder(await journal(), FAIL_ORDER), 'arming the confirm step sends nothing').toHaveLength(1);
         await setTargetAStatus(200);
         await replay.click();
-        await expect(page.locator('[data-action-answer]').first()).toContainText('Replay queued');
+        await expect(page.locator(`[data-failure-row="${trackingId}"] [data-action-answer]`)).toContainText('Replay queued');
         await expect.poll(async () => deliveriesOfOrder(await journal(), FAIL_ORDER).length, { timeout: 90_000 }).toBe(2);
         const [first, second] = deliveriesOfOrder(await journal(), FAIL_ORDER);
         expect(second.deliveryId, 'the replay keeps the delivery id').toBe(first.deliveryId);

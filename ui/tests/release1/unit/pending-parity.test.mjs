@@ -29,3 +29,8 @@ test('the items the journey waits on (T98 MQ target, T143 e2e profile) are on ma
 test('the gate still names what is missing: T121 (report screen) is not on main', () => {
   assert.match(waitsOn('T95', 'T121'), /waits on T121/);
 });
+
+test('waitsOn refuses an unknown item and an empty call (the throw paths the old @negative test held)', () => {
+  assert.throws(() => waitsOn('T999'), /unknown/);
+  assert.throws(() => waitsOn(), /at least one/);
+});

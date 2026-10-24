@@ -1,5 +1,5 @@
 // L28 (row 372): the Release 1 browser journey's pure helpers - no browser, no docker. Unit-tested in
-// tests/release1/unit/journey-lib.test.mjs. The WireMock journal reading reuses the base suite's own
+// tests/release1/unit/journey-runner.test.mjs. The WireMock journal reading reuses the base suite's own
 // oracle (tests/base-suite/lib/wiremock.mjs deliveriesTo) - never duplicated.
 import { deliveriesTo } from '../../base-suite/lib/wiremock.mjs';
 
@@ -34,7 +34,7 @@ export function utcDay(now = new Date()) {
  * (first live run, 24-Oct), so: PUT, and on 404 POST it. Returns the final status; throws on anything but 200/201.
  */
 export async function upsertStub(adminUrl, stub, fetchImpl = fetch) {
-  const send = (method, url) => fetchImpl(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(stub) });
+  const send = (method, url) => fetchImpl(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(stub), signal: AbortSignal.timeout(15_000) });
   let answer = await send('PUT', `${adminUrl}/mappings/${stub.id}`);
   if (answer.status === 404) answer = await send('POST', `${adminUrl}/mappings`);
   if (answer.status !== 200 && answer.status !== 201) throw new Error(`WireMock stub ${stub.id} answered ${answer.status}`);

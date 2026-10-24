@@ -186,3 +186,15 @@ test('A1: the designer renders a persistent polite live region for the Auto-map 
   assert.match(designer, /<p role="status" aria-live="polite"[^>]*data-auto-map-result>\s*\{autoMapNote\}/);
   assert.match(designer, /setAutoMapNote\(autoMapMessage\(matched\.added\)\)/);
 });
+
+test('S1: reports and traces are gitignored and a trace is kept only for a failed run', () => {
+  assert.match(read('.gitignore'), /^playwright-report\/$/m);
+  assert.match(read('.gitignore'), /^_reports\/$/m);
+  assert.doesNotMatch(read('playwright.release1.config.mjs'), /trace: 'on'/);
+  assert.match(read('playwright.release1.config.mjs'), /retain-on-failure/);
+});
+
+test('runner wiring: signals, slot-derived names and the json report that V1 reads', () => {
+  const runner = fs.readFileSync(RUNNER, 'utf8');
+  for (const piece of ['installSignalCleanup(cleanup', 'journeyNames(slot.path)', '--reporter=line,html,json', 'readStats(jsonReport)', "slotNames: ['.docker-suite.lock-2', '.docker-suite.lock-3']"]) assert.ok(runner.includes(piece), piece);
+});
