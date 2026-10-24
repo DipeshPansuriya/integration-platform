@@ -114,7 +114,7 @@ class AdminChunkedBodyRealServerTest {
 
     @Test
     void aChunkedBodyOverTheLimitIsThe413WithTheStaticBodyAndNeverReachesTheController() throws Exception {
-        HttpResponse<String> response = postChunked(json(LIMIT * 256));
+        HttpResponse<String> response = postChunked(json(LIMIT * 4));
 
         assertThat(FRAMING).as("the request really was chunked, with no declared length").containsExactly("chunked|-1");
         assertThat(response.statusCode()).isEqualTo(413);

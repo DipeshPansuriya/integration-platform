@@ -176,7 +176,11 @@ class ApprovedTableRefusalAuditContainerTest {
 
         assertThatThrownBy(() -> underTenant(TENANT_A,
                 () -> service.decide(SYSTEM.toString(), ROW.toString(), "APPROVE", APPROVER)))
-                .isInstanceOfSatisfying(ConfigApiException.class, e -> assertThat(e.httpStatus()).isEqualTo(409));
+                .isInstanceOfSatisfying(ConfigApiException.class, e -> {
+                    assertThat(e.httpStatus()).isEqualTo(409);
+                    assertThat(e.body().toString()).as("the answer carries no stored host or login")
+                            .doesNotContain("db.invalid").doesNotContain("t209_narrow");
+                });
 
         List<String> underA = refusalRows(TENANT_A);
         assertThat(underA).as("tenant A reads exactly one refusal row from the ledger").hasSize(1);
@@ -188,7 +192,8 @@ class ApprovedTableRefusalAuditContainerTest {
                 .contains("DELETE").contains("SUPERUSER");
         assertThat(row).as("no account, host, SQL or driver text reaches the ledger")
                 .doesNotContain("svc_secret_login").doesNotContain("10.1.2.3").doesNotContain("drop table")
-                .doesNotContain("grant the restricted");
+                .doesNotContain("grant the restricted").doesNotContain("db.invalid")
+                .doesNotContain("t209_narrow");
         assertThat(refusalRows(TENANT_B)).as("RLS: tenant B reads none of tenant A's refusals").isEmpty();
         assertThat(ownerScalar("select count(*) || '@' || min(tenant_id::text) from public.audit_event"
                 + " where action = 'DB_TABLE_APPROVAL_REFUSED'"))

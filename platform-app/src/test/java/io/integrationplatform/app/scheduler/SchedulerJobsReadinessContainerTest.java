@@ -30,7 +30,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /**
  * T198 (B35) in the real boot: the {@code schedulerJobs} readiness check flags a scheduler schema the app login
  * cannot use while the application otherwise runs. Read through the root {@code /actuator/health} (the one open
- * path; the group paths are Open item O2). {@code show-details} is unset, so an anonymous caller gets the status and
+ * path; the group paths /actuator/health/readiness and /actuator/health/liveness are read by the T209 tests below).
+ * {@code show-details} is unset, so an anonymous caller gets the status and
  * nothing else.
  *
  * <pre>

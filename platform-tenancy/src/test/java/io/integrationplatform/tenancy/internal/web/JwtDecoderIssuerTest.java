@@ -54,6 +54,7 @@ class JwtDecoderIssuerTest {
     void aValidlySignedTokenWithAForeignIssuerIsRejectedByTheDecoder() {
         String token = issuer.rs256(issuer.claims(ALICE, c -> c.issuer("https://other-issuer.test/realms/platform")));
 
-        assertThatThrownBy(() -> decoder().decode(token)).isInstanceOf(BadJwtException.class);
+        assertThatThrownBy(() -> decoder().decode(token)).isInstanceOf(BadJwtException.class)
+                .hasMessageContaining("iss");
     }
 }
