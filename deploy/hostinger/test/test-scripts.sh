@@ -12,16 +12,16 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # --- bootstrap-env.sh
 names="$(DRY_RUN=1 sh "$HERE/bootstrap-env.sh")"
-check "bootstrap lists 14 secret names" '[ "$(echo "$names" | wc -l)" -eq 14 ]'
+check "bootstrap lists 15 secret names" '[ "$(echo "$names" | wc -l)" -eq 15 ]'
 out="$(IPASS_DOMAIN=example.test IMAGE_TAG=abc1234 sh "$HERE/bootstrap-env.sh" "$TMP/.env" 2>&1)"
 check "bootstrap writes the env file" '[ -s "$TMP/.env" ]'
-check "bootstrap prints fingerprints, never a value" '! grep -q "=" <<<"$(echo "$out" | grep fingerprint)" && [ "$(echo "$out" | grep -c fingerprint)" -eq 14 ]'
+check "bootstrap prints fingerprints, never a value" '! grep -q "=" <<<"$(echo "$out" | grep fingerprint)" && [ "$(echo "$out" | grep -c fingerprint)" -eq 15 ]'
 leak=0; while IFS='=' read -r k v; do case "$k" in *PASSWORD|*SECRET|*KEK_K1) [ -n "$v" ] && grep -qF -- "$v" <<<"$out" && leak=1;; esac; done < "$TMP/.env"
 check "no generated value appears in the output" '[ $leak -eq 0 ]'
 check "every secret name is in env.example" 'for n in $names; do grep -q "^$n=" "$HERE/env.example" || exit 1; done'
 check "env.example holds no value" '! grep -qE "^[A-Z_0-9]+=." "$HERE/env.example"'
 check "env file has every secret non-empty" 'for n in $names; do grep -qE "^$n=.{16,}" "$TMP/.env" || exit 1; done'
-check "secrets differ per name" '[ "$(grep -E "PASSWORD|SECRET" "$TMP/.env" | cut -d= -f2 | sort -u | wc -l)" -eq 13 ]'
+check "secrets differ per name" '[ "$(grep -E "PASSWORD|SECRET" "$TMP/.env" | cut -d= -f2 | sort -u | wc -l)" -eq 14 ]'
 check "bootstrap refuses to overwrite" '! IPASS_DOMAIN=example.test IMAGE_TAG=abc1234 sh "$HERE/bootstrap-env.sh" "$TMP/.env" >/dev/null 2>&1'
 check "bootstrap refuses tag latest" '! IPASS_DOMAIN=example.test IMAGE_TAG=latest sh "$HERE/bootstrap-env.sh" "$TMP/x.env" >/dev/null 2>&1'
 check "bootstrap refuses a bad domain" '! IPASS_DOMAIN="a b;rm" IMAGE_TAG=abc sh "$HERE/bootstrap-env.sh" "$TMP/y.env" >/dev/null 2>&1'
@@ -43,8 +43,45 @@ check "backup dumps ipass as ipass_backup and keycloak, -Fc" 'grep -q "pg_dump -
 mkdir -p "$TMP/bk"; : > "$TMP/bk/ipass-old.dump"; : > "$TMP/bk/ipass-new.dump"; touch -d '10 days ago' "$TMP/bk/ipass-old.dump"
 BACKUP_DIR="$TMP/bk" prune
 check "prune removes a dump older than 7 days, keeps a new one" '[ ! -e "$TMP/bk/ipass-old.dump" ] && [ -e "$TMP/bk/ipass-new.dump" ]'
+check "backup dumps keycloak as ipass_backup too (one credential in pg-backup)" 'grep -q "pg_dump -Fc .* -U ipass_backup .* keycloak$" <<<"$bout"'
+# stubs: pg_dump writes a fake archive (or a truncated one / fails), pg_restore -l accepts only the fake archive
+mkdir -p "$TMP/stub"
+cat > "$TMP/stub/pg_dump" <<'STUB'
+#!/bin/sh
+out=""; prev=""; for a in "$@"; do [ "$prev" = -f ] && out="$a"; prev="$a"; last="$a"; done
+case "${STUB_MODE:-ok}:$last" in
+  fail:"${STUB_DB:-}") echo partial > "$out"; exit 1;;
+  corrupt:"${STUB_DB:-}") echo garbage > "$out"; exit 0;;
+esac
+echo PGDMP > "$out"
+STUB
+cat > "$TMP/stub/pg_restore" <<'STUB'
+#!/bin/sh
+for f; do :; done
+grep -q PGDMP "$f"
+STUB
+chmod +x "$TMP/stub/pg_dump" "$TMP/stub/pg_restore"
+run_backup() { # mode db dir -> status of backup_all
+  ( export PATH="$TMP/stub:$PATH" BACKUP_DIR="$3" STUB_MODE="$1" STUB_DB="$2"; backup_all >/dev/null 2>&1 )
+}
+mkdir -p "$TMP/b-ok"; run_backup ok "" "$TMP/b-ok"; st_ok=$?
+check "backup_all keeps two verified dumps, no .part, exit 0" '[ $st_ok -eq 0 ] && [ "$(ls "$TMP/b-ok"/*.dump | wc -l)" -eq 2 ] && ! ls "$TMP/b-ok"/*.part >/dev/null 2>&1'
+if [ "$(uname -o 2>/dev/null)" != Msys ]; then check "dumps are mode 600" '[ "$(stat -c %a "$TMP/b-ok"/ipass-*.dump)" = 600 ]'; fi
+mkdir -p "$TMP/b-fail"; : > "$TMP/b-fail/ipass-old.dump"; touch -d "10 days ago" "$TMP/b-fail/ipass-old.dump"
+run_backup fail ipass "$TMP/b-fail"; st_fail=$?
+check "a failed pg_dump is an error, leaves no .part and no fake dump" '[ $st_fail -ne 0 ] && ! ls "$TMP/b-fail"/*.part >/dev/null 2>&1 && ! ls "$TMP/b-fail"/ipass-2*.dump >/dev/null 2>&1'
+check "after a failed dump nothing is pruned (the last good dump survives)" '[ -e "$TMP/b-fail/ipass-old.dump" ]'
+check "the other database is still dumped when one fails" 'ls "$TMP/b-fail"/keycloak-*.dump >/dev/null 2>&1'
+mkdir -p "$TMP/b-bad"; run_backup corrupt ipass "$TMP/b-bad"; st_bad=$?
+check "a dump that pg_restore -l rejects is not kept and is an error" '[ $st_bad -ne 0 ] && ! ls "$TMP/b-bad"/ipass-*.dump >/dev/null 2>&1'
 rout="$(DRY_RUN=1 sh "$HERE/backup/restore-test.sh")"
-check "restore test restores into a scratch db and drops it" 'grep -q "createdb .* ipass_restore_check" <<<"$rout" && grep -q "pg_restore .* --no-owner" <<<"$rout" && grep -q "dropdb ipass_restore_check" <<<"$rout"'
+check "restore test restores into a scratch db as ipass_restore and drops it" 'grep -q "createdb .* -U ipass_restore .*ipass_restore_check" <<<"$rout" && grep -q "pg_restore .* -U ipass_restore .*--no-owner" <<<"$rout" && grep -q "dropdb .* -U ipass_restore .*ipass_restore_check" <<<"$rout"'
+check "restore test counts rows as ipass_backup (the only login that sees FORCE-RLS rows)" 'grep -q "count.*ipass_backup" <<<"$rout"'
+roles="$HERE/postgres-init/20-platform-roles.sh"
+check "ipass_backup cannot create databases; ipass_restore can but bypasses no RLS" '! grep "ALTER ROLE ipass_backup" "$roles" | grep -qE "[^O]CREATEDB" && grep "ALTER ROLE ipass_backup" "$roles" | grep -q NOCREATEDB && grep "ALTER ROLE ipass_restore" "$roles" | grep -qE "[^O]CREATEDB" && grep "ALTER ROLE ipass_restore" "$roles" | grep -q NOBYPASSRLS'
+check "roles script fails loudly on an over-privileged backup/restore split" 'grep -q "rolcreatedb" "$roles" && grep -q "ipass_restore" "$roles"'
+check "pg-backup holds the one backup credential only" '! awk "/^  pg-backup:/,/^  pg-restore-test:/" "$HERE/compose.yaml" | grep -qE "KEYCLOAK_DB_PASSWORD|RESTORE_DB_PASSWORD|POSTGRES_PASSWORD"'
+check "restore test is a one-shot profile service, not a resident container" 'awk "/^  pg-restore-test:/,/^networks:/" "$HERE/compose.yaml" | grep -q "profiles: \[\"restore-test\"\]"'
 check "seed dry run needs no docker" 'DRY_RUN=1 sh "$HERE/seed/seed-showcase.sh" | grep -q showcase-admin-a'
 
 # --- compose.yaml static controls (needs docker compose; dummy values only)
@@ -55,6 +92,7 @@ POSTGRES_PASSWORD=x
 DB_MIGRATION_PASSWORD=x
 DB_PASSWORD=x
 BACKUP_DB_PASSWORD=x
+RESTORE_DB_PASSWORD=x
 KEYCLOAK_DB_PASSWORD=x
 KC_BOOTSTRAP_ADMIN_PASSWORD=x
 CONSOLE_OIDC_CLIENT_SECRET=x

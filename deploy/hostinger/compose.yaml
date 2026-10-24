@@ -33,6 +33,7 @@ services:
       DB_MIGRATION_PASSWORD: ${DB_MIGRATION_PASSWORD:?set DB_MIGRATION_PASSWORD}
       DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
       BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD:?set BACKUP_DB_PASSWORD}
+      RESTORE_DB_PASSWORD: ${RESTORE_DB_PASSWORD:?set RESTORE_DB_PASSWORD}
       KEYCLOAK_DB_NAME: ${KEYCLOAK_DB_NAME:-keycloak}
       KEYCLOAK_DB_USERNAME: ${KEYCLOAK_DB_USERNAME:-keycloak}
       KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
@@ -250,18 +251,44 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
     entrypoint: ["/bin/sh", "/scripts/backup.sh"]
-    environment:
+    environment:      # the one backup credential - nothing else (no Keycloak, no restore, no superuser secret)
       PGHOST: postgres
       BACKUP_DB_USERNAME: ipass_backup
       PGPASSWORD: ${BACKUP_DB_PASSWORD:?set BACKUP_DB_PASSWORD}
       KEYCLOAK_DB_NAME: ${KEYCLOAK_DB_NAME:-keycloak}
-      KEYCLOAK_DB_USERNAME: ${KEYCLOAK_DB_USERNAME:-keycloak}
-      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-ipass}
       TZ: Etc/UTC
     volumes:
       - ipass-backups:/backups
       - ./backup:/scripts:ro
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [ipass-data]
+    mem_limit: 128m
+    cpus: 0.1
+    logging: *logging
+    <<: *hardened
+
+  # one-shot restore test (README step 14): docker compose --profile restore-test run --rm pg-restore-test
+  pg-restore-test:
+    image: postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
+    profiles: ["restore-test"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    entrypoint: ["/bin/sh", "/scripts/restore-test.sh"]
+    environment:
+      PGHOST: postgres
+      BACKUP_DB_USERNAME: ipass_backup
+      BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD:?set BACKUP_DB_PASSWORD}
+      RESTORE_DB_USERNAME: ipass_restore
+      RESTORE_DB_PASSWORD: ${RESTORE_DB_PASSWORD:?set RESTORE_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ipass}
+      TZ: Etc/UTC
+    volumes:
+      - ipass-backups:/backups:ro
+      - ./backup:/scripts:ro
+    read_only: true
+    tmpfs: [/tmp]
     networks: [ipass-data]
     mem_limit: 128m
     cpus: 0.1
