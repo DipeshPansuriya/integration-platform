@@ -1,0 +1,85 @@
+#!/bin/bash
+# Offline tests for deploy/hostinger (no container start, no lock needed): script dry-runs, secret hygiene and the
+# static controls of compose.yaml (ADR-H-IPASS-01 conformance). Run:  bash deploy/hostinger/test/test-scripts.sh
+set -u
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"
+fail=0
+ok() { echo "PASS $1"; }
+bad() { echo "FAIL $1"; fail=1; }
+check() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+
+# --- bootstrap-env.sh
+names="$(DRY_RUN=1 sh "$HERE/bootstrap-env.sh")"
+check "bootstrap lists 14 secret names" '[ "$(echo "$names" | wc -l)" -eq 14 ]'
+out="$(IPASS_DOMAIN=example.test IMAGE_TAG=abc1234 sh "$HERE/bootstrap-env.sh" "$TMP/.env" 2>&1)"
+check "bootstrap writes the env file" '[ -s "$TMP/.env" ]'
+check "bootstrap prints fingerprints, never a value" '! grep -q "=" <<<"$(echo "$out" | grep fingerprint)" && [ "$(echo "$out" | grep -c fingerprint)" -eq 14 ]'
+leak=0; while IFS='=' read -r k v; do case "$k" in *PASSWORD|*SECRET|*KEK_K1) [ -n "$v" ] && grep -qF -- "$v" <<<"$out" && leak=1;; esac; done < "$TMP/.env"
+check "no generated value appears in the output" '[ $leak -eq 0 ]'
+check "every secret name is in env.example" 'for n in $names; do grep -q "^$n=" "$HERE/env.example" || exit 1; done'
+check "env.example holds no value" '! grep -qE "^[A-Z_0-9]+=." "$HERE/env.example"'
+check "env file has every secret non-empty" 'for n in $names; do grep -qE "^$n=.{16,}" "$TMP/.env" || exit 1; done'
+check "secrets differ per name" '[ "$(grep -E "PASSWORD|SECRET" "$TMP/.env" | cut -d= -f2 | sort -u | wc -l)" -eq 13 ]'
+check "bootstrap refuses to overwrite" '! IPASS_DOMAIN=example.test IMAGE_TAG=abc1234 sh "$HERE/bootstrap-env.sh" "$TMP/.env" >/dev/null 2>&1'
+check "bootstrap refuses tag latest" '! IPASS_DOMAIN=example.test IMAGE_TAG=latest sh "$HERE/bootstrap-env.sh" "$TMP/x.env" >/dev/null 2>&1'
+check "bootstrap refuses a bad domain" '! IPASS_DOMAIN="a b;rm" IMAGE_TAG=abc sh "$HERE/bootstrap-env.sh" "$TMP/y.env" >/dev/null 2>&1'
+if [ "$(uname -o 2>/dev/null)" != Msys ]; then check "env file mode 600" '[ "$(stat -c %a "$TMP/.env")" = 600 ]'; fi
+
+# --- kafka topics = the code's register
+code_topics="$(grep -A1 'PLATFORM_TOPICS = List.of' "$REPO/platform-config/src/main/java/io/integrationplatform/config/destination/SystemTopicRefusal.java" | grep -oE '"platform\.[a-z.]+"' | tr -d '"' | sort)"
+script_topics="$(DRY_RUN=1 sh "$HERE/kafka/create-topics.sh" | grep -oE -- '--topic [^ ]+' | cut -d' ' -f2 | sort)"
+check "kafka-init topics equal SystemTopicRefusal.PLATFORM_TOPICS" '[ -n "$code_topics" ] && [ "$code_topics" = "$script_topics" ]'
+check "kafka-init is idempotent (--if-not-exists)" 'DRY_RUN=1 sh "$HERE/kafka/create-topics.sh" | grep -c -- --if-not-exists | grep -q 3'
+
+# --- backup / restore
+BACKUP_SOURCE_ONLY=1 . "$HERE/backup/backup.sh"
+check "backup waits 3600s at 01:00 UTC" '[ "$(seconds_until_run 3600)" -eq 3600 ]'
+check "backup waits a full day at 02:00:00" '[ "$(seconds_until_run 7200)" -eq 86400 ]'
+check "backup waits 82800s at 03:00 UTC" '[ "$(seconds_until_run 10800)" -eq 82800 ]'
+bout="$(DRY_RUN=1 RUN_ONCE=1 BACKUP_DB_USERNAME=ipass_backup sh "$HERE/backup/backup.sh")"
+check "backup dumps ipass as ipass_backup and keycloak, -Fc" 'grep -q "pg_dump -Fc .* -U ipass_backup .* ipass$" <<<"$bout" && grep -q "pg_dump -Fc .* keycloak$" <<<"$bout"'
+mkdir -p "$TMP/bk"; : > "$TMP/bk/ipass-old.dump"; : > "$TMP/bk/ipass-new.dump"; touch -d '10 days ago' "$TMP/bk/ipass-old.dump"
+BACKUP_DIR="$TMP/bk" prune
+check "prune removes a dump older than 7 days, keeps a new one" '[ ! -e "$TMP/bk/ipass-old.dump" ] && [ -e "$TMP/bk/ipass-new.dump" ]'
+rout="$(DRY_RUN=1 sh "$HERE/backup/restore-test.sh")"
+check "restore test restores into a scratch db and drops it" 'grep -q "createdb .* ipass_restore_check" <<<"$rout" && grep -q "pg_restore .* --no-owner" <<<"$rout" && grep -q "dropdb ipass_restore_check" <<<"$rout"'
+check "seed dry run needs no docker" 'DRY_RUN=1 sh "$HERE/seed/seed-showcase.sh" | grep -q showcase-admin-a'
+
+# --- compose.yaml static controls (needs docker compose; dummy values only)
+cat > "$TMP/c.env" <<EOF
+IPASS_DOMAIN=example.test
+IMAGE_TAG=abc1234
+POSTGRES_PASSWORD=x
+DB_MIGRATION_PASSWORD=x
+DB_PASSWORD=x
+BACKUP_DB_PASSWORD=x
+KEYCLOAK_DB_PASSWORD=x
+KC_BOOTSTRAP_ADMIN_PASSWORD=x
+CONSOLE_OIDC_CLIENT_SECRET=x
+PLATFORM_ADMIN_CLIENT_SECRET=x
+OPERATOR_AGENT_CLIENT_SECRET=x
+PLATFORM_CREDENTIAL_KEK_K1=x
+EOF
+if command -v docker >/dev/null 2>&1; then
+  cfg="$(docker compose --env-file "$TMP/c.env" -f "$HERE/compose.yaml" --profile demo config 2>"$TMP/cfg.err")"
+  check "docker compose config validates (demo profile)" '[ -n "$cfg" ]'
+  check "docker compose config validates (no profile)" 'docker compose --env-file "$TMP/c.env" -f "$HERE/compose.yaml" config -q'
+  check "no image tag is latest and none is untagged" '! grep -E "^\s+image:" <<<"$cfg" | grep -E ":latest|image: [^:@]+$"'
+  check "no service publishes a port" '! grep -qE "^\s+ports:" <<<"$cfg"'
+  check "required variable is enforced (no IMAGE_TAG fails)" '! docker compose --env-file <(grep -v IMAGE_TAG "$TMP/c.env") -f "$HERE/compose.yaml" config -q 2>/dev/null'
+fi
+check "postgres and kafka are never on the web network" 'awk "/^  postgres:/,/^  kafka:/" "$HERE/compose.yaml" | grep -q "networks: \[ipass-data\]" && awk "/^  kafka:/,/^  kafka-init:/" "$HERE/compose.yaml" | grep -q "networks: \[ipass-work\]"'
+check "internal-only networks for data and work" 'grep -A1 "^  ipass-data:" "$HERE/compose.yaml" | grep -q "internal: true" && grep -A1 "^  ipass-work:" "$HERE/compose.yaml" | grep -q "internal: true"'
+check "wiremock is demo-profile only and has no Traefik label" 'awk "/^  wiremock:/,/^networks:/" "$HERE/compose.yaml" | grep -q "profiles: \[\"demo\"\]" && ! awk "/^  wiremock:/,/^networks:/" "$HERE/compose.yaml" | grep -q traefik'
+check "no public route for /v3, /actuator, Keycloak admin" '! grep -E "traefik.*rule=" "$HERE/compose.yaml" | grep -E "PathPrefix\(\`/(v3|actuator)\`" ; grep -E "ipass-auth.rule" "$HERE/compose.yaml" | grep -q "!PathPrefix(\`/admin\`)"'
+check "every service has a restart policy or is one-shot" 'test "$(grep -c "restart:" "$HERE/compose.yaml")" -ge 7'
+check "memory limit on every long-running service" 'test "$(grep -c "mem_limit:" "$HERE/compose.yaml")" -ge 8'
+
+# --- Dockerfiles
+check "app image runs non-root and has a health check" 'grep -q "^USER 10001" "$REPO/platform-app/Dockerfile" && grep -q "^HEALTHCHECK" "$REPO/platform-app/Dockerfile"'
+check "no Dockerfile bakes a secret value" '! grep -iE "^(ENV|ARG).*(PASSWORD|SECRET|KEK)" "$REPO/platform-app/Dockerfile" "$REPO/ui/Dockerfile" "$HERE/keycloak/Dockerfile"'
+check "scripts are LF" '! grep -lU $'"'"'\r'"'"' "$HERE"/*.sh "$HERE"/*/*.sh | grep -q .'
+echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
+exit $fail

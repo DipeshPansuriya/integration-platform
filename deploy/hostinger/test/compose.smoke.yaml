@@ -1,0 +1,11 @@
+# Local smoke overrides ONLY (never deployed): turns the external Traefik network into a private one, binds the two
+# entry ports to 127.0.0.1, and points the issuer at the in-network Keycloak name so no DNS or TLS is needed.
+# Used by smoke.sh with the PC-wide docker-suite lock held.
+services:
+  platform-app:
+    ports: ["127.0.0.1:18080:8080"]
+  keycloak:
+    ports: ["127.0.0.1:18081:8080"]
+networks:
+  web: !override
+    name: ipass-hosting-smoke-web
