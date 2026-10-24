@@ -141,6 +141,13 @@ if command -v docker >/dev/null 2>&1; then
   check "no image tag is latest and none is untagged" '! grep -E "^\s+image:" <<<"$cfg" | grep -E ":latest|image: [^:@]+$"'
   check "no service publishes a port" '! grep -qE "^\s+ports:" <<<"$cfg"'
   check "required variable is enforced (no IMAGE_TAG fails)" '! docker compose --env-file <(grep -v IMAGE_TAG "$TMP/c.env") -f "$HERE/compose.yaml" config -q 2>/dev/null'
+  # per-image names (Docker Hub has one namespace level, one prefix cannot build dipeshpansuriya/ipass-<name>:<tag>)
+  { cat "$TMP/c.env"; echo "IPASS_APP_IMAGE=hub.test/u/ipass-platform-app:t1"; echo "IPASS_UI_IMAGE=hub.test/u/ipass-ui:t2"; echo "IPASS_KEYCLOAK_IMAGE=hub.test/u/ipass-keycloak:26.8.0-t3"; } > "$TMP/o.env"
+  ocfg="$(docker compose --env-file "$TMP/o.env" -f "$HERE/compose.yaml" config 2>/dev/null)"
+  check "IPASS_APP_IMAGE / IPASS_UI_IMAGE / IPASS_KEYCLOAK_IMAGE are honoured (ui twice: ui and edge)" '[ "$(grep -c "image: hub.test/u/ipass-platform-app:t1" <<<"$ocfg")" -eq 1 ] && [ "$(grep -c "image: hub.test/u/ipass-ui:t2" <<<"$ocfg")" -eq 2 ] && [ "$(grep -c "image: hub.test/u/ipass-keycloak:26.8.0-t3" <<<"$ocfg")" -eq 1 ]'
+  check "without the overrides the prefix-based names are unchanged" 'grep -q "image: acsnewacr.azurecr.io/ipass/platform-app:abc1234" <<<"$basecfg" && [ "$(grep -c "image: acsnewacr.azurecr.io/ipass/ui:abc1234" <<<"$basecfg")" -eq 2 ] && grep -q "image: acsnewacr.azurecr.io/ipass/keycloak:26.8.0-abc1234" <<<"$basecfg"'
+  { cat "$TMP/c.env"; echo IPASS_IMAGE_PREFIX=ipass; } > "$TMP/p.env"
+  check "IPASS_IMAGE_PREFIX still builds the names when no override is set" 'docker compose --env-file "$TMP/p.env" -f "$HERE/compose.yaml" config 2>/dev/null | grep -q "image: ipass/platform-app:abc1234"'
 fi
 check "postgres and kafka are never on the web network" 'awk "/^  postgres:/,/^  kafka:/" "$HERE/compose.yaml" | grep -q "networks: \[ipass-data\]" && awk "/^  kafka:/,/^  kafka-init:/" "$HERE/compose.yaml" | grep -q "networks: \[ipass-work\]"'
 check "internal-only networks for data and work" 'grep -A1 "^  ipass-data:" "$HERE/compose.yaml" | grep -q "internal: true" && grep -A1 "^  ipass-work:" "$HERE/compose.yaml" | grep -q "internal: true"'
@@ -150,6 +157,7 @@ check "only the app has outbound reach (ipass-egress)" '[ "$(awk "/^  [a-z-]+:\$
 check "the front network (edge to app/ui/keycloak) is internal" 'grep -A1 "^  ipass-front:" "$HERE/compose.yaml" | grep -q "internal: true"'
 check "edge refuses actuator, openapi, keycloak admin and the master realm" 'for p in actuator v3 admin realms/master; do grep -q "$p" "$HERE/edge/edge.conf" || exit 1; done; grep -c "return 404" "$HERE/edge/edge.conf" | grep -qE "^[3-9]"'
 check "edge forwards only the paths the old Traefik rules routed to the app" 'for p in /api /oauth2 /login "= /logout"; do grep -q "location .*$p" "$HERE/edge/edge.conf" || exit 1; done'
+check "env.example names the three per-image variables" 'grep -q "^IPASS_APP_IMAGE=$" "$HERE/env.example" && grep -q "^IPASS_UI_IMAGE=$" "$HERE/env.example" && grep -q "^IPASS_KEYCLOAK_IMAGE=$" "$HERE/env.example"'
 if command -v docker >/dev/null 2>&1 && docker image inspect "ipass/ui:${NGINX_TEST_TAG:-none}" >/dev/null 2>&1; then
   check "edge.conf passes nginx -t (image ipass/ui:$NGINX_TEST_TAG)" 'MSYS_NO_PATHCONV=1 docker run --rm -v "$(cygpath -m "$HERE" 2>/dev/null || echo "$HERE")/edge/edge.conf:/etc/nginx/conf.d/default.conf:ro" "ipass/ui:$NGINX_TEST_TAG" nginx -t >/dev/null 2>&1'
 fi

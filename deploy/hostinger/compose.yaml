@@ -103,7 +103,7 @@ services:
     <<: *hardened
 
   keycloak:
-    image: ${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/keycloak:26.8.0-${IMAGE_TAG:?set IMAGE_TAG}
+    image: ${IPASS_KEYCLOAK_IMAGE:-${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/keycloak:26.8.0-${IMAGE_TAG:?set IMAGE_TAG}}
     pull_policy: missing
     restart: unless-stopped
     depends_on:
@@ -142,7 +142,7 @@ services:
     <<: *hardened
 
   platform-app:
-    image: ${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/platform-app:${IMAGE_TAG:?set IMAGE_TAG}
+    image: ${IPASS_APP_IMAGE:-${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/platform-app:${IMAGE_TAG:?set IMAGE_TAG}}
     pull_policy: missing
     restart: unless-stopped
     depends_on:
@@ -187,7 +187,7 @@ services:
     <<: *hardened
 
   ui:
-    image: ${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/ui:${IMAGE_TAG:?set IMAGE_TAG}
+    image: ${IPASS_UI_IMAGE:-${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/ui:${IMAGE_TAG:?set IMAGE_TAG}}
     pull_policy: missing
     restart: unless-stopped
     networks: [ipass-front]
@@ -200,7 +200,7 @@ services:
   # image as `ui`, its own config (edge/edge.conf): app paths -> platform-app, auth host -> keycloak minus /admin and the
   # master realm, everything else -> ui, actuator and OpenAPI -> 404.
   edge:
-    image: ${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/ui:${IMAGE_TAG:?set IMAGE_TAG}
+    image: ${IPASS_UI_IMAGE:-${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/ui:${IMAGE_TAG:?set IMAGE_TAG}}
     pull_policy: missing
     restart: unless-stopped
     depends_on:
