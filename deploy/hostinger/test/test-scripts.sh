@@ -39,6 +39,18 @@ for n in DB_PASSWORD DB_MIGRATION_PASSWORD BACKUP_DB_PASSWORD RESTORE_DB_PASSWOR
   check "rotate: $n has a plan" 'ENV_FILE="$TMP/r.env" DRY_RUN=1 sh "$HERE/rotate-secret.sh" "$n" | grep -q "would generate"'
 done
 check "rotate: KEK, showcase and unknown names are refused with a reason" '! sh "$HERE/rotate-secret.sh" PLATFORM_CREDENTIAL_KEK_K1 2>/dev/null && ! sh "$HERE/rotate-secret.sh" SHOWCASE_PASSWORD_ADMIN_A 2>/dev/null && ! sh "$HERE/rotate-secret.sh" HOME 2>/dev/null'
+# docker compose lets the PROCESS environment beat --env-file: a rotate script that exports the old .env would recreate the app with the OLD password (found in the smoke, row 394)
+cat > "$TMP/fakecompose" <<'FAKE'
+#!/bin/sh
+case "$*" in *" up "*|up\ *) echo "${DB_PASSWORD:-unset-in-env}" > "$FAKE_SEEN";; *) cat >/dev/null;; esac
+FAKE
+chmod +x "$TMP/fakecompose"
+printf 'POSTGRES_USER=ipass_admin
+DB_PASSWORD=oldoldoldoldoldold
+' > "$TMP/r2.env"
+( unset DB_PASSWORD; export FAKE_SEEN="$TMP/up.seen"; COMPOSE="$TMP/fakecompose" ENV_FILE="$TMP/r2.env" ROTATION_LOG="$TMP/r2.log" sh "$HERE/rotate-secret.sh" DB_PASSWORD >/dev/null 2>&1 )
+check "rotate: the re-created service sees the NEW value (the script does not export the old .env)" '[ -s "$TMP/up.seen" ] && [ "$(cat "$TMP/up.seen")" != oldoldoldoldoldold ] && ! grep -q "set -a" "$HERE/rotate-secret.sh"'
+check "rotate: .env holds the new value and the log only a fingerprint" '! grep -q oldoldoldold "$TMP/r2.env" && grep -q "DB_PASSWORD fingerprint" "$TMP/r2.log" && ! grep -qF "$(grep ^DB_PASSWORD= "$TMP/r2.env" | cut -d= -f2)" "$TMP/r2.log"'
 check "rotate: dry run changes nothing" 'before="$(cat "$TMP/r.env")"; ENV_FILE="$TMP/r.env" DRY_RUN=1 sh "$HERE/rotate-secret.sh" DB_PASSWORD >/dev/null; [ "$before" = "$(cat "$TMP/r.env")" ]'
 check "bootstrap refuses tag latest" '! IPASS_DOMAIN=example.test IMAGE_TAG=latest sh "$HERE/bootstrap-env.sh" "$TMP/x.env" >/dev/null 2>&1'
 check "bootstrap refuses a bad domain" '! IPASS_DOMAIN="a b;rm" IMAGE_TAG=abc sh "$HERE/bootstrap-env.sh" "$TMP/y.env" >/dev/null 2>&1'

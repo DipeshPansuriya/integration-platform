@@ -69,7 +69,9 @@ if [ "${ROTATE_SOURCE_ONLY:-0}" != 1 ]; then
     exit 0
   fi
   [ -f "$ENV_FILE" ] || { echo "no $ENV_FILE here" >&2; exit 1; }
-  set -a; . "$ENV_FILE"; set +a
+  # read the names it needs as plain shell variables - NOT exported: docker compose lets the process environment beat
+  # --env-file, so an exported old value would re-create the service with the OLD secret
+  . "$ENV_FILE"
   v="$(rand)"
   if [ "$KIND" = db ]; then apply_db "$TARGET" "$v"; else apply_client "$TARGET" "$v"; fi
   set_env_value "$ENV_FILE" "$name" "$v"
