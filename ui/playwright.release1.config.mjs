@@ -5,11 +5,17 @@
 // workers 1 / retries 0: a flaky step is reported, never retried to green.
 import { defineConfig } from '@playwright/test';
 
+// Watch mode (set by the runner when JOURNEY_WATCH=1): headed, slowMo ~1s, video on. Trace is always on.
+const WATCH = process.env.JOURNEY_WATCH === '1';
+
 export default defineConfig({
   testDir: 'tests/release1',
   testMatch: /journey\.docker\.spec\.mjs$/,
   timeout: 10 * 60 * 1000,
   workers: 1,
   retries: 0,
-  use: { headless: true, trace: 'on' }
+  outputDir: process.env.JOURNEY_OUT || 'test-results',
+  use: WATCH
+    ? { headless: false, trace: 'on', video: 'on', launchOptions: { slowMo: 1000 } }
+    : { headless: true, trace: 'on' }
 });

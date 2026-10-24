@@ -48,7 +48,7 @@ const HOLDER = 'arjun l28-journey';
 const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: REPO, encoding: 'utf8', windowsHide: true });
 const slotRoot = path.dirname(path.dirname(common.stdout.trim()));
 
-const slot = await acquireSlot({ root: slotRoot, holder: HOLDER, pollMs: 60000, log });
+const slot = await acquireSlot({ root: slotRoot, holder: HOLDER, slotNames: ['.docker-suite.lock-2', '.docker-suite.lock-3'], pollMs: 60000, log });
 const keepFresh = setInterval(() => slot.refresh(), 10 * 60 * 1000);
 let backend;
 let artemis;
@@ -102,8 +102,8 @@ try {
 
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
   const code = await new Promise((resolve) => {
-    const child = spawn(npx, ['playwright', 'test', '-c', 'playwright.release1.config.mjs', '--reporter=line'],
-      { cwd: UI, shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...env } });
+    const child = spawn(npx, ['playwright', 'test', '-c', 'playwright.release1.config.mjs', '--reporter=line,html'],
+      { cwd: UI, shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...env, PLAYWRIGHT_HTML_OPEN: 'never' } });
     const out = fs.createWriteStream(logFile, { flags: 'a' });
     child.stdout.pipe(out, { end: false });
     child.stderr.pipe(out, { end: false });
