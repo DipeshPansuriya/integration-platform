@@ -18,6 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startArtemis } from './release1/artemis.mjs';
 import { JOURNEY_ENV_NAMES, journeyEnv } from './release1/journey-env.mjs';
+import { installSignalCleanup, journeyNames, makeCleanup, readStats } from './release1/journey-run.mjs';
 import { journeyVerdict } from './release1/journey-verdict.mjs';
 import { seedRefOrder } from './release1/seed-ref-order.mjs';
 import { acquireSlot } from './release1/slot.mjs';
@@ -40,28 +41,30 @@ const logFile = process.argv[2];
 if (!logFile) throw new Error('usage: run-release1-journey.mjs <log-file> | --print-plan');
 const log = (message) => fs.appendFileSync(logFile, `${new Date().toISOString()} ${message}\n`);
 
-const MQ_PORT = 61616;
 const MQ_QUEUE = 'r1.orders.mq';
-const ARTEMIS_NAME = 'l28-artemis';
 const HOLDER = 'arjun l28-journey';
 
 const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: REPO, encoding: 'utf8', windowsHide: true });
+if (common.status !== 0 || !common.stdout.trim()) throw new Error('runner: git could not name the main clone (the docker slots sit beside it)');
 const slotRoot = path.dirname(path.dirname(common.stdout.trim()));
 
 const slot = await acquireSlot({ root: slotRoot, holder: HOLDER, slotNames: ['.docker-suite.lock-2', '.docker-suite.lock-3'], pollMs: 60000, log });
-const keepFresh = setInterval(() => slot.refresh(), 10 * 60 * 1000);
-let backend;
-let artemis;
-let consoleServer;
+const { artemisName: ARTEMIS_NAME, mqPort: MQ_PORT, innerLock: inner } = journeyNames(slot.path); // R2: slot-derived, collision-free
+const cleanup = makeCleanup(log); // R1: one idempotent cleanup for finally AND for SIGINT / SIGTERM
+cleanup.add('slot', () => slot.release());
+installSignalCleanup(cleanup, { log });
+const keepFresh = setInterval(() => { try { slot.refresh(); } catch (e) { log(`slot refresh: ${e.message}`); } }, 10 * 60 * 1000);
+cleanup.add('refresh timer', () => clearInterval(keepFresh));
 try {
-  const inner = path.join(os.tmpdir(), 'l28-inner.lock'); // boot-backend takes its own lock: a private one inside our slot
+  // boot-backend takes its own lock: a private one inside our slot
   fs.rmSync(inner, { recursive: true, force: true });
   process.env.DOCKER_SUITE_LOCK = inner;
   const { default: bootBackend } = await import('./boot-backend.mjs');
   const { startConsole } = await import(new URL('../tests/screens/console-server.mjs', import.meta.url).href);
 
   spawnSync('docker', ['rm', '-f', ARTEMIS_NAME], { encoding: 'utf8' });
-  artemis = await startArtemis({ name: ARTEMIS_NAME, port: MQ_PORT, queue: MQ_QUEUE, user: `r1-${crypto.randomUUID()}`, password: crypto.randomUUID(), base: process.env });
+  const artemis = await startArtemis({ name: ARTEMIS_NAME, port: MQ_PORT, queue: MQ_QUEUE, user: `r1-${crypto.randomUUID()}`, password: crypto.randomUUID(), base: process.env });
+  cleanup.add('artemis', () => artemis.stop());
   log(`artemis ${ARTEMIS_NAME} up on 127.0.0.1:${MQ_PORT}`);
 
   const settings = exceptionSettings(process.env);
@@ -74,9 +77,10 @@ try {
   fs.mkdirSync(path.join(UI, 'public'), { recursive: true });
   fs.writeFileSync(path.join(UI, 'public', 'console-config.json'), JSON.stringify({ logins: ['approver'] }, null, 2));
   const build = spawnSync('npm', ['run', 'build'], { cwd: UI, encoding: 'utf8', shell: process.platform === 'win32' });
-  if (build.status !== 0) throw new Error(`the console build failed:\n${build.stdout}\n${build.stderr}`);
+  if (build.status !== 0) throw new Error(`the console build failed:\n${String(build.stdout).slice(-2000)}\n${String(build.stderr).slice(-2000)}`);
 
-  backend = await bootBackend(options);
+  const backend = await bootBackend(options);
+  cleanup.add('backend', () => backend.teardown());
   const wiremock = backend.services.wiremock;
   const base = `http://${settings.host}:${wiremock.port}`;
   log(`backend ${backend.baseUrl}; wiremock ${wiremock.url}; tenant A ${backend.tenantCode}`);
@@ -95,21 +99,24 @@ try {
   log(`REF-ORDER seeded: interface ${seeded.interfaceCode}, flow ${seeded.flowId}`);
   const tokens = { CUSTOMER_A: await clientCredentialsToken(backend.issuer, seeded.credential.clientId, seeded.credential.secret) };
 
-  consoleServer = await startConsole(backend.baseUrl, backend.sessions);
+  const consoleServer = await startConsole(backend.baseUrl, backend.sessions);
+  cleanup.add('console', () => consoleServer.close());
   log(`console ${consoleServer.url}`);
   const env = journeyEnv({ ui: UI, consoleUrl: consoleServer.url, backend, wiremock, seeded, tokens });
   log(`env wired: ${Object.keys(env).join(', ')}`);
 
+  const jsonReport = path.join(os.tmpdir(), `l28-journey-report-${process.pid}.json`);
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
   const code = await new Promise((resolve) => {
-    const child = spawn(npx, ['playwright', 'test', '-c', 'playwright.release1.config.mjs', '--reporter=line,html'],
-      { cwd: UI, shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...env, PLAYWRIGHT_HTML_OPEN: 'never' } });
+    const child = spawn(npx, ['playwright', 'test', '-c', 'playwright.release1.config.mjs', '--reporter=line,html,json'],
+      { cwd: UI, shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...env, PLAYWRIGHT_HTML_OPEN: 'never', PLAYWRIGHT_JSON_OUTPUT_NAME: jsonReport } });
     const out = fs.createWriteStream(logFile, { flags: 'a' });
     child.stdout.pipe(out, { end: false });
     child.stderr.pipe(out, { end: false });
     child.on('close', (c) => { out.end(); resolve(c); });
   });
-  const verdict = journeyVerdict(code);
+  const verdict = journeyVerdict(code, readStats(jsonReport));
+  fs.rmSync(jsonReport, { force: true });
   log(verdict.line);
   console.log(verdict.line);
   process.exitCode = verdict.exitCode;
@@ -118,10 +125,6 @@ try {
   console.error(e.message);
   process.exitCode = 2;
 } finally {
-  clearInterval(keepFresh);
-  if (consoleServer) await consoleServer.close().catch((e) => log(`console close: ${e.message}`));
-  if (backend) await backend.teardown().catch((e) => log(`backend teardown: ${e.message}`));
-  if (artemis) artemis.stop();
-  slot.release();
+  await cleanup.run();
   log('slot released');
 }

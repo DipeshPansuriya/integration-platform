@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { JOURNEY_ENV_NAMES, journeyEnv } from '../../../scripts/release1/journey-env.mjs';
+import { journeyNames, makeCleanup, installSignalCleanup, readStats } from '../../../scripts/release1/journey-run.mjs';
 import { journeyVerdict } from '../../../scripts/release1/journey-verdict.mjs';
 import { REF } from '../../../scripts/release1/seed-ref-order.mjs';
 import { FAIL_STUB_ID, deliveriesOfOrder, deliveriesUnder, targetAStub, upsertStub, utcDay } from '../lib/journey-lib.mjs';
@@ -89,9 +90,56 @@ test('the journey config boots nothing (no globalSetup), one worker, no retries'
   assert.match(config, /retries: 0/);
 });
 
-test('verdict: only a Playwright exit 0 is green', () => {
-  assert.deepEqual(journeyVerdict(0), { exitCode: 0, line: 'RELEASE 1 BROWSER JOURNEY: PASS (playwright exit 0)' });
-  for (const bad of [1, 2, null]) assert.equal(journeyVerdict(bad).exitCode, 1);
+test('verdict (V1): green needs exit 0 AND a report with >=1 passed and nothing skipped, failed or flaky', () => {
+  const ok = { expected: 1, skipped: 0, unexpected: 0, flaky: 0 };
+  assert.deepEqual(journeyVerdict(0, ok), { exitCode: 0, line: 'RELEASE 1 BROWSER JOURNEY: PASS (1 passed, playwright exit 0)' });
+  for (const bad of [1, 2, null]) assert.equal(journeyVerdict(bad, ok).exitCode, 1);
+  assert.match(journeyVerdict(0, { ...ok, expected: 0, skipped: 1 }).line, /FAIL \(zero tests passed\)/, 'a fully fixme-d journey is never PASS');
+  assert.match(journeyVerdict(0, { ...ok, skipped: 1 }).line, /FAIL \(skipped 1/);
+  assert.match(journeyVerdict(0, null).line, /FAIL \(no test report\)/);
+  assert.equal(readStats(path.join(UI, 'does-not-exist.json')), null);
+});
+
+test('names (R2): container, MQ port and inner lock follow the slot, so two runners cannot collide', () => {
+  const two = journeyNames('/x/.docker-suite.lock-2', '/tmp');
+  const three = journeyNames('/x/.docker-suite.lock-3', '/tmp');
+  assert.deepEqual([two.artemisName, two.mqPort], ['l28-artemis-2', 61618]);
+  for (const key of ['artemisName', 'mqPort', 'innerLock']) assert.notEqual(two[key], three[key]);
+  assert.equal(journeyNames('/x/.docker-suite.lock', '/tmp').n, 0);
+});
+
+test('cleanup (R1): newest step first, a failing step never strands the rest, a second run is a no-op', async () => {
+  const order = [];
+  const logged = [];
+  const cleanup = makeCleanup((m) => logged.push(m));
+  cleanup.add('slot', () => order.push('slot'));
+  cleanup.add('artemis', () => order.push('artemis'));
+  cleanup.add('backend', () => { throw new Error('boom'); });
+  cleanup.add('console', () => order.push('console'));
+  await Promise.all([cleanup.run(), cleanup.run()]);
+  assert.deepEqual(order, ['console', 'artemis', 'slot']);
+  assert.match(logged.join('|'), /cleanup backend: boom/);
+  await cleanup.run();
+  assert.equal(order.length, 3);
+});
+
+test('signals (R1): SIGINT and SIGTERM run the cleanup, then exit 130 / 143; removing the handlers leaves none', async () => {
+  const { EventEmitter } = await import('node:events');
+  for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+    const proc = new EventEmitter();
+    const ran = [];
+    const exited = new Promise((resolve) => {
+      const cleanup = makeCleanup();
+      cleanup.add('slot', () => ran.push('slot released'));
+      installSignalCleanup(cleanup, { proc, exit: resolve });
+    });
+    proc.emit(signal);
+    assert.equal(await exited, code);
+    assert.deepEqual(ran, ['slot released']);
+  }
+  const proc = new EventEmitter();
+  installSignalCleanup(makeCleanup(), { proc })();
+  assert.equal(proc.listenerCount('SIGINT') + proc.listenerCount('SIGTERM'), 0);
 });
 
 test('runner --print-plan starts nothing; with no log file it refuses before touching docker', () => {
