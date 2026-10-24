@@ -115,18 +115,27 @@ export function psql(sql) {
 /**
  * Every request, redirect chain, response header and (text) response body the page sees, for token scans.
  * T211: a body read can NEVER resolve (a response cut off by the next navigation), and settle() waited for all of them, so
- * S3-A6 hung to its 180 s timeout. Each read is now bounded by `bodyTimeoutMs`; a body that did not arrive is listed by
- * unreadBodies() unless its request failed (cut off by a navigation = the page never received it), so a response that
- * finished and was not scanned still fails the case instead of passing as "no token found".
+ * S3-A6 hung to its 180 s timeout. Each read is now bounded by `bodyTimeoutMs`. A read that did not deliver (timed out, rejected,
+ * still pending) is listed by unreadBodies() with its reason, and expectNoTokenInTraffic() fails on any, so a response that was not
+ * scanned never passes as "no token found". Exempt: a redirect (a 3xx has no body to read; its Location header is scanned) and a
+ * timeout whose request failed (cut off by the browser: the page never received it).
+ * quiesce(page) lets in-flight reads finish BEFORE a navigation would cut them off.
  */
-export function recordTraffic(page, { bodyTimeoutMs = 10000 } = {}) {
+export function recordTraffic(page, { bodyTimeoutMs = 10000, idleTimeoutMs = 5000 } = {}) {
   const traffic = { requests: [], responses: [], navigations: [], pending: [] };
-  const unread = [];
+  const reads = []; // { entry, request, what: 'body' | 'headers', state: 'pending' | 'ok' | 'timeout' | 'rejected', reason }
   const failed = new Set();
-  const bounded = (work, onTimeout) => new Promise((resolve) => {
-    const timer = setTimeout(() => { onTimeout(); resolve(); }, bodyTimeoutMs);
-    work.catch(() => {}).then(() => { clearTimeout(timer); resolve(); });
-  });
+  const read = (work, entry, request, what) => {
+    const record = { entry, request, what, state: 'pending', reason: '' };
+    reads.push(record);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { if (record.state === 'pending') { record.state = 'timeout'; record.reason = `no answer within ${bodyTimeoutMs} ms`; } resolve(); }, bodyTimeoutMs);
+      work.then(
+        () => { if (record.state === 'pending') record.state = 'ok'; },
+        (error) => { if (record.state === 'pending') { record.state = 'rejected'; record.reason = String(error?.message ?? error).split('\n')[0]; } }
+      ).then(() => { clearTimeout(timer); resolve(); });
+    });
+  };
   page.on('request', (request) => {
     traffic.requests.push({ url: request.url(), method: request.method(), referer: request.headers().referer ?? null });
   });
@@ -137,21 +146,34 @@ export function recordTraffic(page, { bodyTimeoutMs = 10000 } = {}) {
     const entry = { url: response.url(), status: response.status(), headers, setCookies: [], body: null };
     traffic.responses.push(entry);
     // Playwright keeps Set-Cookie out of headers(); the raw header list has it
-    traffic.pending.push(bounded(response.headersArray().then((list) => { entry.setCookies = list.filter((h) => h.name.toLowerCase() === 'set-cookie').map((h) => h.value); }), () => {}));
+    traffic.pending.push(read(response.headersArray().then((list) => { entry.setCookies = list.filter((h) => h.name.toLowerCase() === 'set-cookie').map((h) => h.value); }), entry, response.request(), 'headers'));
     const type = headers['content-type'] ?? '';
     // JS bundles and styles are the console's own code, not data it was handed; fonts and images carry no token.
     if (/json|html|text\/plain|x-www-form-urlencoded/.test(type) && !/javascript|css/.test(type)) {
-      traffic.pending.push(bounded(response.text().then((text) => { entry.body = text; }), () => unread.push({ entry, request: response.request() })));
+      traffic.pending.push(read(response.text().then((text) => { entry.body = text; }), entry, response.request(), 'body'));
     }
   });
   traffic.settle = () => Promise.all(traffic.pending);
-  /** Responses whose body should have been scanned and was not (not counting requests the browser itself cut off). */
-  traffic.unreadBodies = () => unread.filter(({ entry, request }) => entry.body === null && !failed.has(request)).map(({ entry }) => ({ url: entry.url, status: entry.status }));
+  /** Call before a navigation: the page's own requests finish (bounded) and every read is awaited, so nothing is cut off mid-body. */
+  traffic.quiesce = async () => {
+    await page.waitForLoadState('networkidle', { timeout: idleTimeoutMs }).catch(() => {});
+    await traffic.settle();
+  };
+  /** Reads that should have delivered and did not: { url, status, what, state, reason }. */
+  traffic.unreadBodies = () => reads
+    .filter((r) => r.state !== 'ok' && !(r.state === 'rejected' && r.entry.status >= 300 && r.entry.status < 400) && !(r.state !== 'rejected' && failed.has(r.request)))
+    .map((r) => ({ url: r.entry.url, status: r.entry.status, what: r.what, state: r.state, reason: r.reason }));
   return traffic;
 }
 
-/** Fails when any URL, Referer, Location header or console/backend-origin body shows a token. */
-export function expectNoTokenInTraffic(traffic, extraUrls = []) {
+/**
+ * Fails when any URL, Referer, Location header or console/backend-origin body shows a token, and (T211) when any response's body or
+ * Set-Cookie headers were not read (see recordTraffic). `tolerateUnread` is an explicit, annotated allow-list:
+ * [{ pattern: /^\/api\/v1\/x/, reason: 'why this one may stay unread' }] matched against the URL path; the default is none.
+ */
+export function expectNoTokenInTraffic(traffic, extraUrls = [], { tolerateUnread = [] } = {}) {
+  const unread = traffic.unreadBodies().filter((r) => !tolerateUnread.some(({ pattern }) => pattern.test(new URL(r.url).pathname)));
+  expect(unread, 'control: every response was read and scanned (a body or header read that did not deliver is not "no token found")').toEqual([]);
   const consoleHostName = consoleHost();
   const findings = [];
   for (const url of [...traffic.navigations, ...extraUrls, ...traffic.requests.map((request) => request.url)]) {

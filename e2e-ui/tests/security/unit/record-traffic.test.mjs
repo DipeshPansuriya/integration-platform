@@ -1,57 +1,124 @@
-// T211: recordTraffic().settle() must never hang. S3-A6 sat at its 180 s timeout because one response.text() never
-// resolved (a body cut off by the next navigation), so Promise.all(pending) never did. No Docker, no browser: a fake page.
+// T211: recordTraffic() must never hang AND must never turn an unread response into "no token found". S3-A6 sat at its 180 s timeout
+// because one response.text() never resolved (a body cut off by the next navigation). No Docker, no browser: a fake page.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { recordTraffic } from '../lib.mjs';
+import { recordTraffic, expectNoTokenInTraffic } from '../lib.mjs';
 
-function fakeResponse({ url, body, type = 'application/json' }) {
+process.env.CONSOLE_URL ??= 'http://127.0.0.1:4173';
+const TIMEOUT = { timeout: 5000 };
+const never = () => new Promise(() => {});
+const later = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
+
+function fakeResponse({ url, body, status = 200, type = 'application/json', headers }) {
   const request = { url: () => url };
   return {
     request: () => request,
     url: () => url,
-    status: () => 200,
+    status: () => status,
     headers: () => ({ 'content-type': type }),
-    headersArray: async () => [{ name: 'Set-Cookie', value: 'a=b' }],
+    headersArray: headers ?? (async () => [{ name: 'Set-Cookie', value: 'a=b' }]),
     text: () => body
   };
 }
 
-function fakePage() {
-  const page = new EventEmitter();
-  return page;
+function fakePage(extra = {}) {
+  return Object.assign(new EventEmitter(), extra);
 }
 
-test('settle returns although one body never resolves, and names that body as unread', async () => {
+test('settle returns although one body never resolves, and names that body as unread', TIMEOUT, async () => {
   const page = fakePage();
   const traffic = recordTraffic(page, { bodyTimeoutMs: 50 });
-  const done = fakeResponse({ url: 'http://c/api/me', body: Promise.resolve('{"ok":true}') });
-  const stuck = fakeResponse({ url: 'http://c/api/flows', body: new Promise(() => {}) });
-  page.emit('response', done);
-  page.emit('response', stuck);
+  page.emit('response', fakeResponse({ url: 'http://c/api/me', body: Promise.resolve('{"ok":true}') }));
+  page.emit('response', fakeResponse({ url: 'http://c/api/flows', body: never() }));
   const started = Date.now();
   await traffic.settle();
   assert.ok(Date.now() - started < 2000, 'settle is bounded');
   assert.equal(traffic.responses.find((r) => r.url.endsWith('/me')).body, '{"ok":true}', 'a finished body is still scanned');
-  assert.deepEqual(traffic.unreadBodies().map((r) => r.url), ['http://c/api/flows'], 'the stuck body is reported, never skipped silently');
+  assert.deepEqual(traffic.unreadBodies().map((r) => [r.url, r.what, r.state]), [['http://c/api/flows', 'body', 'timeout']]);
 });
 
-test('a body cut off by a navigation (request failed) is not an unread body; a finished response with no body is', async () => {
+test('a body cut off by a navigation (request failed) is not unread; a timeout without a failed request is', TIMEOUT, async () => {
   const page = fakePage();
   const traffic = recordTraffic(page, { bodyTimeoutMs: 50 });
-  const aborted = fakeResponse({ url: 'http://c/api/flows', body: new Promise(() => {}) });
-  const silent = fakeResponse({ url: 'http://c/api/systems', body: new Promise(() => {}) });
+  const aborted = fakeResponse({ url: 'http://c/api/flows', body: never() });
   page.emit('response', aborted);
-  page.emit('response', silent);
+  page.emit('response', fakeResponse({ url: 'http://c/api/systems', body: never() }));
   page.emit('requestfailed', aborted.request());
   await traffic.settle();
   assert.deepEqual(traffic.unreadBodies().map((r) => r.url), ['http://c/api/systems']);
 });
 
-test('a rejecting body read is tolerated as before and a response with a set-cookie header is recorded', async () => {
+test('a REJECTED body read (page closed, protocol error) is counted as unread with its reason', TIMEOUT, async () => {
   const page = fakePage();
   const traffic = recordTraffic(page, { bodyTimeoutMs: 50 });
-  page.emit('response', fakeResponse({ url: 'http://c/api/x', body: Promise.reject(new Error('gone')) }));
+  const rejected = Promise.reject(new Error('Target page, context or browser has been closed\n  at stack'));
+  rejected.catch(() => {});
+  page.emit('response', fakeResponse({ url: 'http://c/login/oauth2/code/keycloak', body: rejected, type: 'text/html' }));
   await traffic.settle();
-  assert.deepEqual(traffic.responses[0].setCookies, ['a=b']);
+  assert.deepEqual(traffic.unreadBodies().map((r) => [r.url, r.state, r.reason]), [['http://c/login/oauth2/code/keycloak', 'rejected', 'Target page, context or browser has been closed']]);
+});
+
+test('a redirect has no body to read: its rejected read is not unread (its Location header is scanned elsewhere)', TIMEOUT, async () => {
+  const page = fakePage();
+  const traffic = recordTraffic(page, { bodyTimeoutMs: 50 });
+  const rejected = Promise.reject(new Error('Response body is unavailable for redirect responses'));
+  rejected.catch(() => {});
+  page.emit('response', fakeResponse({ url: 'http://c/login/oauth2/code/keycloak', status: 302, body: rejected, type: 'text/html' }));
+  await traffic.settle();
+  assert.deepEqual(traffic.unreadBodies(), []);
+});
+
+test('a header read that times out or rejects is surfaced, not silent', TIMEOUT, async () => {
+  const page = fakePage();
+  const traffic = recordTraffic(page, { bodyTimeoutMs: 50 });
+  page.emit('response', fakeResponse({ url: 'http://c/a', body: Promise.resolve('x'), headers: never }));
+  page.emit('response', fakeResponse({ url: 'http://c/b', body: Promise.resolve('x'), headers: async () => { throw new Error('gone'); } }));
+  await traffic.settle();
+  assert.deepEqual(traffic.unreadBodies().map((r) => [r.url, r.what, r.state]), [['http://c/a', 'headers', 'timeout'], ['http://c/b', 'headers', 'rejected']]);
+});
+
+test('a read still pending at check time is unread, so a missing settle() cannot pass a scan', TIMEOUT, async () => {
+  const page = fakePage();
+  const traffic = recordTraffic(page, { bodyTimeoutMs: 5000 });
+  page.emit('response', fakeResponse({ url: 'http://c/api/slow', body: later(300, '{}') }));
+  assert.deepEqual(traffic.unreadBodies().map((r) => r.state), ['pending', 'pending'], 'headers read and body read');
+  await traffic.settle();
+  assert.deepEqual(traffic.unreadBodies(), []);
+});
+
+test('quiesce lets a slow but finite body finish before a navigation, so it is read, not cut off', TIMEOUT, async () => {
+  const idle = [];
+  const page = fakePage({ waitForLoadState: async (state) => { idle.push(state); await later(20); } });
+  const traffic = recordTraffic(page, { bodyTimeoutMs: 5000 });
+  page.emit('response', fakeResponse({ url: 'http://c/api/v1/admin/flows', body: later(150, '{"flows":[]}') }));
+  await traffic.quiesce();
+  assert.deepEqual(idle, ['networkidle']);
+  assert.equal(traffic.responses[0].body, '{"flows":[]}');
+  assert.deepEqual(traffic.unreadBodies(), []);
+});
+
+test('quiesce survives a network that never idles', TIMEOUT, async () => {
+  const page = fakePage({ waitForLoadState: async () => { throw new Error('Timeout 5000ms exceeded'); } });
+  const traffic = recordTraffic(page, { bodyTimeoutMs: 50 });
+  await traffic.quiesce();
+  assert.deepEqual(traffic.unreadBodies(), []);
+});
+
+test('expectNoTokenInTraffic fails on an unread response, and only an explicit annotated tolerance lets one pass', TIMEOUT, async () => {
+  const page = fakePage();
+  const traffic = recordTraffic(page, { bodyTimeoutMs: 50 });
+  page.emit('response', fakeResponse({ url: 'http://127.0.0.1:4173/api/v1/admin/flows', body: never() }));
+  await traffic.settle();
+  assert.throws(() => expectNoTokenInTraffic(traffic), /every response was read and scanned/, 'unread /api/v1 body fails by default');
+  assert.doesNotThrow(() => expectNoTokenInTraffic(traffic, [], { tolerateUnread: [{ pattern: /^\/api\/v1\/admin\/flows$/, reason: 'test: cut off on purpose' }] }));
+  assert.throws(() => expectNoTokenInTraffic(traffic, [], { tolerateUnread: [{ pattern: /^\/other$/, reason: 'x' }] }), /every response was read/);
+});
+
+test('a token in a scanned console body still fails the scan', TIMEOUT, async () => {
+  const page = fakePage();
+  const traffic = recordTraffic(page, { bodyTimeoutMs: 50 });
+  page.emit('response', fakeResponse({ url: 'http://127.0.0.1:4173/api/v1/x', body: Promise.resolve('{"access_token":"x"}') }));
+  await traffic.settle();
+  assert.throws(() => expectNoTokenInTraffic(traffic), /no token reaches the browser/);
 });
