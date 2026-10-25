@@ -35,7 +35,7 @@ class AdminBaseUriTest {
             "http://localhost:8080", "http://127.0.0.1:8080", "http://127.5.5.5", "http://[::1]:8080",
             "http://10.1.2.3", "http://10.255.255.255:8080", "http://172.16.5.5", "http://172.31.255.255:8080",
             "http://192.168.0.5", "http://192.168.255.1:8443", "http://[fd12:3456::1]:8080", "http://[fc00::5]",
-            "http://KeyCloak:8080"})
+            "http://KeyCloak:8080", "http://k8s-name-2:8080", "http://a"})
     @DisplayName("Plain http to an internal host is accepted")
     void internalPlainHttpIsAccepted(String base) {
         assertThat(resolve(base)).isEqualTo(base);
@@ -52,7 +52,8 @@ class AdminBaseUriTest {
             "http://172.32.0.1:8080", "http://172.15.0.1", "http://192.169.0.1", "http://11.0.0.1",
             "http://169.254.169.254", "http://[2001:db8::1]", "http://[fe80::1]", "http://keycloak.:8080",
             "http://keycloak.internal:8080", "http://[::ffff:8.8.8.8]", "http://010.1.2.3", "http://999.1.1.1",
-            "http://0.0.0.0", "http://1.2.3"})
+            "http://0.0.0.0", "http://1.2.3", "http://134744072", "http://2852039166", "http://0",
+            "http://0x7f000001", "http://010100000", "http://9keycloak"})
     @Tag("negative")
     @DisplayName("Plain http to any other host (public name, public IP, link-local, odd shapes) is refused")
     void publicPlainHttpIsRefused(String base) {
@@ -68,7 +69,7 @@ class AdminBaseUriTest {
     @ParameterizedTest
     @ValueSource(strings = {"ftp://keycloak", "file:///etc/passwd", "keycloak:8080", "http://", "gopher://keycloak",
             "http://key cloak:8080", "http://keycloak:8080?x=1", "http://keycloak:8080#frag",
-            "https://auth.example.test?x=1", "http://keycloak:", "//keycloak:8080"})
+            "https://auth.example.test?x=1", "http://keycloak:", "//keycloak:8080", "http://-keycloak"})
     @Tag("negative")
     @DisplayName("A non-http(s) scheme, a missing host, a query or a fragment is refused")
     void malformedIsRefused(String base) {

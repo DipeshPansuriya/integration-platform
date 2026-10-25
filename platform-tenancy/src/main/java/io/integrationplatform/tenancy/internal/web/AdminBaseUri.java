@@ -6,6 +6,7 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.util.regex.Pattern;
 
 /**
  * F1 (row 417): the rule for the optional Keycloak admin base URI. The app sends an admin-capable bearer token and the
@@ -25,6 +26,9 @@ final class AdminBaseUri {
 
     private static final String REFUSED = "The identity provider admin base URI "
             + "(platform.tenancy.identity-admin.base-uri, env KEYCLOAK_ADMIN_BASE_URI) is refused: ";
+
+    /** A single-label service name: starts with a letter; letters, digits and hyphens only (no all-digit, hex or octal host). */
+    private static final Pattern SERVICE_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9-]*");
 
     private AdminBaseUri() {
     }
@@ -90,7 +94,7 @@ final class AdminBaseUri {
         }
     }
 
-    /** Loopback, RFC1918 or ULA literal, or a single-label name (a Docker service name, localhost). */
+    /** Loopback, RFC1918 or ULA literal, or a service name that is one label of letters, digits and hyphens. */
     private static boolean internalHost(String host) {
         String h = unbracket(host);
         if (h.indexOf(':') >= 0) {
@@ -105,7 +109,7 @@ final class AdminBaseUri {
         if (v4 != null) {
             return privateV4(v4);
         }
-        return h.indexOf('.') < 0;
+        return SERVICE_NAME.matcher(h).matches();
     }
 
     private static boolean privateAddress(InetAddress ip) {
