@@ -250,7 +250,7 @@ test.describe('S3 BFF session (browser)', () => {
     await traffic.quiesce(); // the full navigation below used to cut off a streaming /api/v1/admin/flows body (the S3-A6 hang)
     await atConsole(page);
     await api(page, 'GET', '/api/v1/me');
-    await traffic.settle(); // bounded (T211): a read that never answers cannot hang it; expectNoTokenInTraffic then fails on it
+    await traffic.quiesce(); // bounded (T211): a read that never answers cannot hang it; expectNoTokenInTraffic then fails on it
     const urls = [...traffic.navigations, page.url(), ...(await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => entry.name)))];
     expectNoTokenInTraffic(traffic, urls);
     expect(await page.evaluate(() => document.referrer), 'no referrer carries a token').not.toMatch(JWT_PATTERN);

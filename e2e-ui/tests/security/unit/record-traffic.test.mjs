@@ -87,21 +87,44 @@ test('a read still pending at check time is unread, so a missing settle() cannot
   assert.deepEqual(traffic.unreadBodies(), []);
 });
 
-test('quiesce lets a slow but finite body finish before a navigation, so it is read, not cut off', TIMEOUT, async () => {
-  const idle = [];
-  const page = fakePage({ waitForLoadState: async (state) => { idle.push(state); await later(20); } });
-  const traffic = recordTraffic(page, { bodyTimeoutMs: 5000 });
-  page.emit('response', fakeResponse({ url: 'http://c/api/v1/admin/flows', body: later(150, '{"flows":[]}') }));
+function fakeRequest(url) {
+  return { url: () => url, method: () => 'GET', headers: () => ({}) };
+}
+
+test('quiesce waits for an in-flight request and its slow body, so a navigation after it cuts nothing off', TIMEOUT, async () => {
+  const page = fakePage();
+  const traffic = recordTraffic(page, { bodyTimeoutMs: 5000, quietMs: 30 });
+  const request = fakeRequest('http://c/api/v1/admin/flows');
+  page.emit('request', request);
+  setTimeout(() => {
+    page.emit('response', Object.assign(fakeResponse({ url: 'http://c/api/v1/admin/flows', body: later(100, '{"flows":[]}') }), { request: () => request }));
+    setTimeout(() => page.emit('requestfinished', request), 120);
+  }, 60);
   await traffic.quiesce();
-  assert.deepEqual(idle, ['networkidle']);
+  assert.equal(traffic.responses.length, 1, 'the response that arrived while quiescing was waited for');
   assert.equal(traffic.responses[0].body, '{"flows":[]}');
   assert.deepEqual(traffic.unreadBodies(), []);
 });
 
-test('quiesce survives a network that never idles', TIMEOUT, async () => {
-  const page = fakePage({ waitForLoadState: async () => { throw new Error('Timeout 5000ms exceeded'); } });
-  const traffic = recordTraffic(page, { bodyTimeoutMs: 50 });
+test('quiesce is bounded when a request never finishes, and that read is then reported unread', TIMEOUT, async () => {
+  const page = fakePage();
+  const traffic = recordTraffic(page, { bodyTimeoutMs: 50, idleTimeoutMs: 100, quietMs: 30 });
+  const request = fakeRequest('http://c/api/v1/admin/flows');
+  page.emit('request', request);
+  page.emit('response', Object.assign(fakeResponse({ url: 'http://c/api/v1/admin/flows', body: never() }), { request: () => request }));
+  const started = Date.now();
   await traffic.quiesce();
+  assert.ok(Date.now() - started < 2000);
+  assert.deepEqual(traffic.unreadBodies().map((r) => [r.what, r.state]), [['body', 'timeout']]);
+});
+
+test('settle also waits for a response that arrives while it is waiting', TIMEOUT, async () => {
+  const page = fakePage();
+  const traffic = recordTraffic(page, { bodyTimeoutMs: 5000 });
+  page.emit('response', fakeResponse({ url: 'http://c/api/a', body: later(60, '{}') }));
+  setTimeout(() => page.emit('response', fakeResponse({ url: 'http://c/api/b', body: later(60, '{}') })), 30);
+  await traffic.settle();
+  assert.equal(traffic.responses.length, 2);
   assert.deepEqual(traffic.unreadBodies(), []);
 });
 

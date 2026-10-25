@@ -121,10 +121,11 @@ export function psql(sql) {
  * timeout whose request failed (cut off by the browser: the page never received it).
  * quiesce(page) lets in-flight reads finish BEFORE a navigation would cut them off.
  */
-export function recordTraffic(page, { bodyTimeoutMs = 10000, idleTimeoutMs = 5000 } = {}) {
+export function recordTraffic(page, { bodyTimeoutMs = 10000, idleTimeoutMs = 5000, quietMs = 300 } = {}) {
   const traffic = { requests: [], responses: [], navigations: [], pending: [] };
   const reads = []; // { entry, request, what: 'body' | 'headers', state: 'pending' | 'ok' | 'timeout' | 'rejected', reason }
   const failed = new Set();
+  const inflight = new Set();
   const read = (work, entry, request, what) => {
     const record = { entry, request, what, state: 'pending', reason: '' };
     reads.push(record);
@@ -137,9 +138,11 @@ export function recordTraffic(page, { bodyTimeoutMs = 10000, idleTimeoutMs = 500
     });
   };
   page.on('request', (request) => {
+    inflight.add(request);
     traffic.requests.push({ url: request.url(), method: request.method(), referer: request.headers().referer ?? null });
   });
-  page.on('requestfailed', (request) => failed.add(request));
+  page.on('requestfinished', (request) => inflight.delete(request));
+  page.on('requestfailed', (request) => { failed.add(request); inflight.delete(request); });
   page.on('framenavigated', (frame) => traffic.navigations.push(frame.url()));
   page.on('response', (response) => {
     const headers = response.headers();
@@ -153,10 +156,28 @@ export function recordTraffic(page, { bodyTimeoutMs = 10000, idleTimeoutMs = 500
       traffic.pending.push(read(response.text().then((text) => { entry.body = text; }), entry, response.request(), 'body'));
     }
   });
-  traffic.settle = () => Promise.all(traffic.pending);
-  /** Call before a navigation: the page's own requests finish (bounded) and every read is awaited, so nothing is cut off mid-body. */
+  // A response can arrive while the reads are awaited, so wait again until no new read was added.
+  traffic.settle = async () => {
+    let seen;
+    do { seen = traffic.pending.length; await Promise.all(traffic.pending); } while (traffic.pending.length !== seen);
+  };
+  /**
+   * Call before a navigation: wait (bounded by idleTimeoutMs) until the page has had no request in flight for quietMs, then await every
+   * read, so nothing is cut off mid-body. Own in-flight tracking, because page.waitForLoadState('networkidle') returns at once on an SPA
+   * route change (the document's load state does not reset), which left /api/v1/admin/flows cut off in the full suite.
+   */
   traffic.quiesce = async () => {
-    await page.waitForLoadState('networkidle', { timeout: idleTimeoutMs }).catch(() => {});
+    const deadline = Date.now() + idleTimeoutMs;
+    let quietSince = null;
+    while (Date.now() < deadline) {
+      if (inflight.size === 0) {
+        quietSince ??= Date.now();
+        if (Date.now() - quietSince >= quietMs) break;
+      } else {
+        quietSince = null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
     await traffic.settle();
   };
   /** Reads that should have delivered and did not: { url, status, what, state, reason }. */
