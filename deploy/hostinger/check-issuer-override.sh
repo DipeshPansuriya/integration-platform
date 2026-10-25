@@ -6,7 +6,12 @@
 # Usage:  ./check-issuer-override.sh [env-file]      (default ./.env)   Run it before `docker compose up`.
 ENV_FILE="${1:-./.env}"
 [ -r "$ENV_FILE" ] || { echo "check-issuer-override: cannot read the env file" >&2; exit 2; }
-value() { grep -E "^$1=" "$ENV_FILE" | tail -n 1 | cut -d= -f2-; }
+# Reads the env file only, never the shell environment. Accepts `NAME=v`, `export NAME=v`, leading spaces, CRLF endings
+# and one pair of surrounding single or double quotes, as compose does; a value empty after that counts as unset.
+value() {
+  grep -E "^[[:space:]]*(export[[:space:]]+)?$1=" "$ENV_FILE" | tail -n 1 | tr -d '\r' | cut -d= -f2- \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\\(.*\\)'\$/\\1/"
+}
 issuer="$(value OIDC_ISSUER_URI)"
 admin="$(value KEYCLOAK_ADMIN_BASE_URI)"
 if [ -n "$issuer" ] && [ -z "$admin" ]; then

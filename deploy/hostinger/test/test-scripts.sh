@@ -211,5 +211,27 @@ check "issuer check: override with an explicit KEYCLOAK_ADMIN_BASE_URI passes" '
 check "issuer check: the failure names both variables and never prints a value" 'm="$(sh "$HERE/check-issuer-override.sh" "$TMP/i3.env" 2>&1)"; grep -q OIDC_ISSUER_URI <<<"$m" && grep -q KEYCLOAK_ADMIN_BASE_URI <<<"$m" && ! grep -q idp.other.test <<<"$m"'
 check "issuer check: a missing env file is an error" '! sh "$HERE/check-issuer-override.sh" "$TMP/none.env" >/dev/null 2>&1'
 check "compose comment, env.example and README warn about the issuer override" 'grep -q "external identity provider" "$HERE/compose.yaml" && grep -q "OIDC_ISSUER_URI" "$HERE/env.example" && grep -q "check-issuer-override.sh" "$HERE/README.md"'
+# quoting, CRLF, export and indentation forms (compose reads them the same way: quotes stripped, export allowed)
+printf 'OIDC_ISSUER_URI=https://idp.other.test/realms/x\nKEYCLOAK_ADMIN_BASE_URI=""\n' > "$TMP/q1.env"
+printf "OIDC_ISSUER_URI=https://idp.other.test/realms/x\nKEYCLOAK_ADMIN_BASE_URI=''\n" > "$TMP/q2.env"
+printf 'OIDC_ISSUER_URI=https://idp.other.test/realms/x\r\nKEYCLOAK_ADMIN_BASE_URI=\r\n' > "$TMP/q3.env"
+printf 'OIDC_ISSUER_URI="https://idp.other.test/realms/x"\nKEYCLOAK_ADMIN_BASE_URI="http://idp-internal:8080"\n' > "$TMP/q4.env"
+printf "OIDC_ISSUER_URI='https://idp.other.test/realms/x'\r\nKEYCLOAK_ADMIN_BASE_URI='http://idp-internal:8080'\r\n" > "$TMP/q5.env"
+printf 'OIDC_ISSUER_URI=""\nKEYCLOAK_ADMIN_BASE_URI=\n' > "$TMP/q6.env"
+printf 'export OIDC_ISSUER_URI=https://idp.other.test/realms/x\n' > "$TMP/q7.env"
+printf 'export OIDC_ISSUER_URI=https://idp.other.test/realms/x\nexport KEYCLOAK_ADMIN_BASE_URI=http://idp-internal:8080\n' > "$TMP/q8.env"
+printf '  OIDC_ISSUER_URI=https://idp.other.test/realms/x\n' > "$TMP/q9.env"
+printf '  OIDC_ISSUER_URI=https://idp.other.test/realms/x\n  KEYCLOAK_ADMIN_BASE_URI=http://idp-internal:8080\n' > "$TMP/q10.env"
+printf 'export OIDC_ISSUER_URI=https://idp.other.test/realms/x\nexport KEYCLOAK_ADMIN_BASE_URI=""\n' > "$TMP/q11.env"
+printf 'OIDC_ISSUER_URI=\r\n' > "$TMP/q12.env"
+chk() { sh "$HERE/check-issuer-override.sh" "$TMP/$1.env" >/dev/null 2>&1; }
+check "issuer check: double-quoted empty KEYCLOAK_ADMIN_BASE_URI fails" '! chk q1'
+check "issuer check: single-quoted empty KEYCLOAK_ADMIN_BASE_URI fails" '! chk q2'
+check "issuer check: CRLF line endings, empty admin value fails" '! chk q3'
+check "issuer check: CRLF line endings, empty issuer is not an override" 'chk q12'
+check "issuer check: quoted non-empty values pass (double, and single with CRLF)" 'chk q4 && chk q5'
+check "issuer check: quoted empty OIDC_ISSUER_URI is not an override" 'chk q6'
+check "issuer check: export form is detected (fails without admin, passes with it, fails with quoted empty)" '! chk q7 && chk q8 && ! chk q11'
+check "issuer check: leading spaces are detected (fails without admin, passes with it)" '! chk q9 && chk q10'
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail
