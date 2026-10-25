@@ -3,7 +3,8 @@
 // ARRAY with ONE flat record per container (the appointment and vehicle fields repeated on each). The mapping is the raw JSONata
 // expression in nested-appointment/expression.jsonata (the drawn-links emitter cannot repeat a parent field per child, the raw
 // editor and the engine can); the sample in nested-appointment/sample.json is both the sample run and the documented source.
-// Idempotent: a flow with this code already registered means nothing is written; existing systems are reused.
+// Idempotent and resumable: a flow with this code that is PUBLISHED means nothing is written; a draft left by a run that died is resumed
+// (existing systems and contract versions are reused and only advanced: submit if draft, approve if pending) and published.
 // Fictional test data only. Never run against the hosted app from here - the hosted seed run is a separate go.
 import { readFileSync } from 'node:fs';
 
@@ -13,7 +14,8 @@ const file = (name) => readFileSync(new URL(`./nested-appointment/${name}`, impo
 const text = { type: 'string' };
 const num = { type: 'number' };
 const dateTime = { type: 'string', format: 'date-time' };
-const objectSchema = (properties) => ({ type: 'object', required: Object.keys(properties), properties });
+// `required` lists only the keys every valid document has; the rest may be absent (the expression then omits them from the record)
+const objectSchema = (properties, required = []) => ({ type: 'object', ...(required.length ? { required } : {}), properties });
 
 /** The source contract: the payload exactly as received (numbers as numbers, ids as strings, ISO-8601 date-times). */
 const sourceDocument = {
@@ -26,11 +28,11 @@ const sourceDocument = {
         SlotDate: dateTime, SlotStartTime: dateTime, SlotEndTime: dateTime, DriverPortId: text,
         ContainerList: {
           type: 'array',
-          items: objectSchema({ BookingType: text, TransactionID: num, ContainerNo: text, Size: text, Type: text, ISOCode: text, NoOfPackages: num, GrossWeight: num, ActualWeight: num })
+          items: objectSchema({ BookingType: text, TransactionID: num, ContainerNo: text, Size: text, Type: text, ISOCode: text, NoOfPackages: num, GrossWeight: num, ActualWeight: num }, ['ContainerNo'])
         }
       })
     }
-  })
+  }, ['AppointmentId', 'VehicleList'])
 };
 
 /** The target contract describes ONE record; the body sent is an array of them (one per container). */
@@ -40,7 +42,7 @@ const targetDocument = {
     terminalOpsId: num, terminalId: num, appointmentId: num, appointmentDate: dateTime, appointmentStatus: text, noOfVehicles: num, berthNo: text,
     slotDate: dateTime, slotStartTime: dateTime, slotEndTime: dateTime, driverPortId: text,
     bookingType: text, transactionId: num, containerNo: text, size: text, type: text, isoCode: text, noOfPackages: num, grossWeight: num, actualWeight: num
-  })
+  }, ['appointmentId', 'containerNo'])
 };
 
 /** Informational links for the designer (source path -> target field); the compiled expression is what runs. */
@@ -69,14 +71,14 @@ function must(answer, what) {
 
 /**
  * Registers NESTED-APPOINTMENT. `call(login, method, path, body)` is the boot's console-session call; `author` / `approver` are its login
- * names. Returns { skipped, flowId, ... }; `skipped: true` (nothing written, no credential - a secret is shown once) when the flow exists.
+ * names. Returns { skipped, resumed, flowId, ... }; `skipped: true` (nothing written, no credential - a secret is shown once) when the flow is already published.
  */
 export async function seedNestedAppointment({ call, author = 'default', approver = 'approver', customerId, apiBase, sourceBase }) {
   const as = async (login, method, path, body, what) => must(await call(login, method, path, body), `NESTED-APPOINTMENT ${what}`);
 
   const flows = await as(author, 'GET', '/api/v1/admin/flows', undefined, 'list flows');
   const existing = flows.find((flow) => flow.code === NESTED.flowCode || flow.name === NESTED.flowCode);
-  if (existing) return { skipped: true, flowId: existing.id, interfaceCode: existing.code, credential: null };
+  if (existing?.status === 'PUBLISHED') return { skipped: true, resumed: false, flowId: existing.id, interfaceCode: existing.code, credential: null };
 
   const systems = await as(author, 'GET', '/api/v1/admin/systems', undefined, 'list systems');
   const ensureSystem = async (def, direction, baseUrl) =>
@@ -85,16 +87,27 @@ export async function seedNestedAppointment({ call, author = 'default', approver
   const source = await ensureSystem(NESTED.source, 'INBOUND', sourceBase);
   await ensureSystem(NESTED.target, 'OUTBOUND', apiBase);
 
+  // each contract version: imported if absent, submitted if still a draft, approved if not yet (a run that died leaves any of these)
+  const contracts = (await as(author, 'GET', '/api/v1/admin/contracts', undefined, 'list contracts')).contracts ?? [];
   const versionIds = {};
   for (const [key, contract, role] of [['source', NESTED.source, 'SOURCE_REQUEST'], ['target', NESTED.target, 'TARGET_REQUEST']]) {
-    const { id } = await as(author, 'POST', '/api/v1/admin/contracts/versions/import', { system: contract.system, role, versionLabel: contract.versionLabel, format: 'JSON_SCHEMA', document: contract.document }, `import ${contract.name}`);
-    await as(author, 'POST', `/api/v1/admin/contracts/versions/${id}/submit`, { changeNote: `NESTED-APPOINTMENT ${contract.name} v${contract.versionLabel}` }, `submit ${contract.name}`);
-    await as(approver, 'POST', `/api/v1/admin/contracts/versions/${id}/approve`, undefined, `approve ${contract.name}`);
-    versionIds[key] = id;
+    let version = contracts.filter((c) => c.system === contract.system && c.role === role).flatMap((c) => c.versions ?? []).find((v) => v.versionLabel === contract.versionLabel);
+    if (!version) {
+      const imported = await as(author, 'POST', '/api/v1/admin/contracts/versions/import', { system: contract.system, role, versionLabel: contract.versionLabel, format: 'JSON_SCHEMA', document: contract.document }, `import ${contract.name}`);
+      version = { id: imported.id, status: 'DRAFT' };
+    }
+    if (version.status === 'DRAFT') {
+      await as(author, 'POST', `/api/v1/admin/contracts/versions/${version.id}/submit`, { changeNote: `NESTED-APPOINTMENT ${contract.name} v${contract.versionLabel}` }, `submit ${contract.name}`);
+      version.status = 'PENDING_APPROVAL';
+    }
+    if (version.status === 'PENDING_APPROVAL') {
+      await as(approver, 'POST', `/api/v1/admin/contracts/versions/${version.id}/approve`, undefined, `approve ${contract.name}`);
+    }
+    versionIds[key] = version.id;
   }
 
   const flowBody = { code: NESTED.flowCode, name: NESTED.flowCode, sourceSystem: NESTED.source.system, destinations: [NESTED.target.system], businessKeyRule: 'AppointmentId' };
-  const flow = await as(author, 'POST', '/api/v1/admin/flows', flowBody, 'flow');
+  const flow = existing ?? await as(author, 'POST', '/api/v1/admin/flows', flowBody, 'flow');
   const routes = (await as(author, 'GET', `/api/v1/admin/flows/${flow.id}/routes`, undefined, 'routes')).routes ?? [];
   if (routes.length !== 1) throw new Error(`NESTED-APPOINTMENT routes: expected 1, got ${routes.length}`);
   const route = routes[0];
@@ -116,5 +129,5 @@ export async function seedNestedAppointment({ call, author = 'default', approver
   await as(author, 'POST', `/api/v1/admin/flows/${flow.id}/publish`, undefined, 'publish');
   const published = await as(author, 'GET', `/api/v1/admin/flows/${flow.id}`, undefined, 'read published');
   const credential = await as(author, 'POST', `/api/v1/admin/systems/${source.id}/source-credentials`, { customerId }, 'source credential');
-  return { skipped: false, flowId: flow.id, interfaceCode: published.code, routeId: route.id, versionIds, credential: { clientId: credential.clientId, secret: credential.secret } };
+  return { skipped: false, resumed: Boolean(existing), flowId: flow.id, interfaceCode: published.code, routeId: route.id, versionIds, credential: { clientId: credential.clientId, secret: credential.secret } };
 }
