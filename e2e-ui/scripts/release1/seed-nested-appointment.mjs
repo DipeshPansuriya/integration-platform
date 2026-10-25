@@ -78,7 +78,11 @@ function must(answer, what) {
  * names. Returns { skipped, resumed, flowId, ... }; `skipped: true` (nothing written, no credential - a secret is shown once) when the flow is already published.
  */
 export async function seedNestedAppointment({ call, author = 'default', approver = 'approver', customerId, apiBase, sourceBase }) {
-  const as = async (login, method, path, body, what) => must(await call(login, method, path, body), `NESTED-APPOINTMENT ${what}`);
+  const as = async (login, method, path, body, what) => {
+    let answer;
+    try { answer = await call(login, method, path, body); } catch (failure) { throw new Error(`NESTED-APPOINTMENT ${what}: ${failure?.name === 'TimeoutError' ? 'timed out' : failure?.message ?? failure}`); }
+    return must(answer, `NESTED-APPOINTMENT ${what}`);
+  };
 
   const flows = await as(author, 'GET', '/api/v1/admin/flows', undefined, 'list flows');
   const existing = flows.find((flow) => flow.code === NESTED.flowCode || flow.name === NESTED.flowCode);

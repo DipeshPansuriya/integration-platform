@@ -205,6 +205,15 @@ test('seed: an existing contract 1.0 with DIFFERENT content stops the run with a
   const { call, calls, state } = fakeAdmin();
   state.contracts.push({ system: NESTED.target.system, role: 'TARGET_REQUEST', versions: [{ id: 'v-tgt', versionLabel: '1.0', status: 'APPROVED', document: { type: 'object', properties: {} } }] });
   await assert.rejects(seedNestedAppointment(args(call)), /contract nested-target 1\.0 already exists with different content.*retire it or use another version label/);
+  // systems are created/reused before the check; contracts, the flow and the credential only after a match
+  assert.ok(!calls.some((c) => /\/contracts\/versions\/(import|[^/]+\/(submit|approve))$/.test(c.p)), 'no contract import, submit or approve');
+  assert.ok(!calls.some((c) => c.p.startsWith('/api/v1/admin/flows') && c.method !== 'GET'), 'no flow call');
+  assert.ok(!calls.some((c) => c.p.endsWith('/source-credentials')), 'no credential call');
   assert.equal(state.flows.length, 0);
-  assert.ok(!calls.some((c) => c.p.endsWith('/approve') || c.p.endsWith('/publish')));
+});
+
+test('seed: a call that times out names its step', async () => {
+  const { call } = fakeAdmin();
+  const hung = async (login, method, p, body) => { if (p === '/api/v1/admin/flows' && method === 'GET') throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }); return call(login, method, p, body); };
+  await assert.rejects(seedNestedAppointment(args(hung)), /^Error: NESTED-APPOINTMENT list flows: timed out$/);
 });
