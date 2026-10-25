@@ -70,7 +70,8 @@ test.describe('S3 BFF session (browser)', () => {
 
     const stored = await page.evaluate(() => JSON.stringify({ local: Object.entries(localStorage), session: Object.entries(sessionStorage), name: window.name }));
     expect(tokenFindings(stored), 'no token in localStorage, sessionStorage or window.name').toEqual([]);
-    expectNoTokenInTraffic(traffic); // cookies, the /callback exchange and every API answer carry no token
+    await traffic.settle();
+    expectNoTokenInTraffic(traffic); // cookies, the /callback exchange and every API answer carry no token; every body and header read delivered
     await context.close();
   });
 
@@ -242,13 +243,14 @@ test.describe('S3 BFF session (browser)', () => {
     await signIn(page);
     await expect(page.locator('[data-session-tenant]')).toBeVisible();
     for (const screen of ['versions', 'flows', 'systems', 'contracts', 'failures']) {
+      await traffic.quiesce(); // T211: the previous screen's reads finish before this navigation could cut them off
       await page.goto(`${consoleUrl()}/#/${screen}`);
       await expect(page.locator(`[data-page="${screen}"]`).or(page.locator('[data-page]').first())).toBeVisible();
     }
+    await traffic.quiesce(); // the full navigation below used to cut off a streaming /api/v1/admin/flows body (the S3-A6 hang)
     await atConsole(page);
     await api(page, 'GET', '/api/v1/me');
-    await traffic.settle();
-
+    await traffic.quiesce(); // bounded (T211): a read that never answers cannot hang it; expectNoTokenInTraffic then fails on it
     const urls = [...traffic.navigations, page.url(), ...(await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => entry.name)))];
     expectNoTokenInTraffic(traffic, urls);
     expect(await page.evaluate(() => document.referrer), 'no referrer carries a token').not.toMatch(JWT_PATTERN);
