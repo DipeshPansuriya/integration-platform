@@ -114,6 +114,9 @@ services:
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
       KC_HOSTNAME: ${KC_HOSTNAME:-https://auth.${IPASS_DOMAIN:?set IPASS_DOMAIN}}
       KC_HOSTNAME_STRICT: "true"
+      # T219: the admin console (master realm) is served on the operator host only; strict hostname stays on and the
+      # platform realm / issuer stay on the auth host. The auth host still 404s /admin and /realms/master at edge + Traefik.
+      KC_HOSTNAME_ADMIN: ${KC_HOSTNAME_ADMIN:-https://ops.${IPASS_DOMAIN}}
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
@@ -189,6 +192,57 @@ services:
     logging: *logging
     <<: *hardened
 
+  # T219 operator view of Kafka (ops.<domain>/kafka/): READ-ONLY, topic names / partitions / offsets / consumer groups only.
+  # Three independent layers: cluster readOnly flag, an RBAC role with no message permission (config/kafbat-roles.yml),
+  # and edge.conf, which 404s every messages path and refuses any non-GET. Login is Keycloak OIDC (client ops-kafbat,
+  # role ops-operator, OTP) - no anonymous access. Kafka stays PLAINTEXT on the internal ipass-work network only.
+  kafbat:
+    image: kafbat/kafka-ui:v1.5.0@sha256:7cda86a33344160309fdb65146332e4da65db81a945614f2fe32e210803f6fd1
+    pull_policy: missing
+    restart: unless-stopped
+    depends_on:
+      kafka: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+    environment:
+      TZ: Etc/UTC
+      JAVA_OPTS: -Xms128m -Xmx384m
+      SERVER_SERVLET_CONTEXT_PATH: /kafka
+      DYNAMIC_CONFIG_ENABLED: "false"
+      KAFKA_CLUSTERS_0_NAME: ipass
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_READONLY: "true"
+      SPRING_CONFIG_ADDITIONAL-LOCATION: file:/etc/kafkaui/kafbat-roles.yml
+      AUTH_TYPE: OAUTH2
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_PROVIDER: keycloak
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_CLIENTNAME: Keycloak
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_CLIENTID: ops-kafbat
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_CLIENTSECRET: ${OPS_KAFBAT_CLIENT_SECRET:?set OPS_KAFBAT_CLIENT_SECRET}
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_SCOPE: openid
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_AUTHORIZATIONGRANTTYPE: authorization_code
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_REDIRECTURI: https://ops.${IPASS_DOMAIN}/kafka/login/oauth2/code/keycloak
+      # the browser goes to the public auth host; the server-side calls use the internal Keycloak address (Kafbat has no egress)
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_AUTHORIZATIONURI: https://auth.${IPASS_DOMAIN}/realms/platform/protocol/openid-connect/auth
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_TOKENURI: http://keycloak:8080/realms/platform/protocol/openid-connect/token
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_JWKSETURI: http://keycloak:8080/realms/platform/protocol/openid-connect/certs
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_USERINFOURI: http://keycloak:8080/realms/platform/protocol/openid-connect/userinfo
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_USERNAMEATTRIBUTE: preferred_username
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_CUSTOMPARAMS_TYPE: oauth
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_CUSTOMPARAMS_ROLESFIELD: roles
+    volumes:
+      - ./kafbat/kafbat-roles.yml:/etc/kafkaui/kafbat-roles.yml:ro
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/kafka/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    networks: [ipass-front, ipass-work]
+    mem_limit: 640m
+    cpus: 0.5
+    logging: *logging
+    <<: *hardened
+
   ui:
     image: ${IPASS_UI_IMAGE:-${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/ui:${IMAGE_TAG:?set IMAGE_TAG}}
     pull_policy: missing
@@ -210,6 +264,7 @@ services:
       platform-app: {condition: service_healthy}
       keycloak: {condition: service_healthy}
       ui: {condition: service_started}
+      kafbat: {condition: service_healthy}
     volumes:
       - ./edge/edge.conf:/etc/nginx/conf.d/default.conf:ro
     tmpfs: [/tmp]
@@ -243,6 +298,20 @@ services:
       - traefik.http.routers.ipass-auth.service=ipass-edge
       - traefik.http.middlewares.ipass-sec-kc.headers.stsSeconds=31536000
       - traefik.http.middlewares.ipass-sec-kc.headers.contentTypeNosniff=true
+      # T219 operator host: Keycloak admin console + master realm paths keep Keycloak's own CSP/frame headers (priority 20);
+      # everything else on the host (Kafbat under /kafka) gets the main host's headers (priority 10). Edge 404s anything else.
+      - traefik.http.routers.ipass-ops-kc.rule=Host(`ops.${IPASS_DOMAIN}`) && (PathPrefix(`/admin`) || PathPrefix(`/realms/master`) || PathPrefix(`/resources`) || PathPrefix(`/js`))
+      - traefik.http.routers.ipass-ops-kc.priority=20
+      - traefik.http.routers.ipass-ops-kc.entrypoints=websecure
+      - traefik.http.routers.ipass-ops-kc.tls.certresolver=letsencrypt
+      - traefik.http.routers.ipass-ops-kc.middlewares=ipass-sec-kc
+      - traefik.http.routers.ipass-ops-kc.service=ipass-edge
+      - traefik.http.routers.ipass-ops.rule=Host(`ops.${IPASS_DOMAIN}`)
+      - traefik.http.routers.ipass-ops.priority=10
+      - traefik.http.routers.ipass-ops.entrypoints=websecure
+      - traefik.http.routers.ipass-ops.tls.certresolver=letsencrypt
+      - traefik.http.routers.ipass-ops.middlewares=ipass-sec
+      - traefik.http.routers.ipass-ops.service=ipass-edge
     mem_limit: 64m
     cpus: 0.2
     logging: *logging
