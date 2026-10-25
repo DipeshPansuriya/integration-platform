@@ -114,9 +114,6 @@ services:
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
       KC_HOSTNAME: ${KC_HOSTNAME:-https://auth.${IPASS_DOMAIN:?set IPASS_DOMAIN}}
       KC_HOSTNAME_STRICT: "true"
-      # T219: the admin console (master realm) is served on the operator host only; strict hostname stays on and the
-      # platform realm / issuer stay on the auth host. The auth host still 404s /admin and /realms/master at edge + Traefik.
-      KC_HOSTNAME_ADMIN: ${KC_HOSTNAME_ADMIN:-https://ops.${IPASS_DOMAIN}}
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
@@ -298,14 +295,7 @@ services:
       - traefik.http.routers.ipass-auth.service=ipass-edge
       - traefik.http.middlewares.ipass-sec-kc.headers.stsSeconds=31536000
       - traefik.http.middlewares.ipass-sec-kc.headers.contentTypeNosniff=true
-      # T219 operator host: Keycloak admin console + master realm paths keep Keycloak's own CSP/frame headers (priority 20);
-      # everything else on the host (Kafbat under /kafka) gets the main host's headers (priority 10). Edge 404s anything else.
-      - traefik.http.routers.ipass-ops-kc.rule=Host(`ops.${IPASS_DOMAIN}`) && (PathPrefix(`/admin`) || PathPrefix(`/realms/master`) || PathPrefix(`/resources`) || PathPrefix(`/js`))
-      - traefik.http.routers.ipass-ops-kc.priority=20
-      - traefik.http.routers.ipass-ops-kc.entrypoints=websecure
-      - traefik.http.routers.ipass-ops-kc.tls.certresolver=letsencrypt
-      - traefik.http.routers.ipass-ops-kc.middlewares=ipass-sec-kc
-      - traefik.http.routers.ipass-ops-kc.service=ipass-edge
+      # T219 operator host: Kafbat under /kafka only (edge 404s the rest); main-host security headers.
       - traefik.http.routers.ipass-ops.rule=Host(`ops.${IPASS_DOMAIN}`)
       - traefik.http.routers.ipass-ops.priority=10
       - traefik.http.routers.ipass-ops.entrypoints=websecure
