@@ -60,6 +60,9 @@ class ApplicationStartsAgainstPostgresTest {
     @Autowired
     private DataSource dataSource;
 
+    @Autowired
+    private org.springframework.context.ApplicationContext context;
+
     @Test
     void healthEndpointReportsUp() throws Exception { // no token: health stays open (lane B chain)
         HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
@@ -91,6 +94,13 @@ class ApplicationStartsAgainstPostgresTest {
             assertThat(rs.getBoolean(2)).as("superuser").isFalse();
             assertThat(rs.getBoolean(3)).as("bypassrls").isFalse();
         }
+    }
+
+    /** Row 393 (Karan m-aec16c): the K1 guard was never created; the app that just started passed it, as a restricted login. */
+    @Test
+    void theK1DatabaseRoleGuardIsInTheRealContextExactlyOnce() throws Exception {
+        Class<?> guard = Class.forName("io.integrationplatform.tenancy.internal.persistence.DatabaseRoleGuard");
+        assertThat(context.getBeanNamesForType(guard)).hasSize(1);
     }
 
     /** T198: ready now includes the job register, so the login joins ipaas_app before the scheduler starts. */
