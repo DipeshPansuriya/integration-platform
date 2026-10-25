@@ -179,5 +179,13 @@ check "no Dockerfile bakes a secret value" '! grep -iE "^(ENV|ARG).*(PASSWORD|SE
 check "scripts are LF" '! grep -lU $'"'"'\r'"'"' "$HERE"/*.sh "$HERE"/*/*.sh | grep -q .'
 # --- git mode: the init scripts must be executable after a plain clone (Windows checkouts show 644 on disk, the index is what ships)
 check "every .sh under deploy/hostinger is mode 100755 in the git index" '[ -z "$(git -C "$REPO" ls-files -s -- deploy/hostinger | grep "\.sh$" | grep -v "^100755")" ] && [ -n "$(git -C "$REPO" ls-files -- deploy/hostinger | grep "\.sh$")" ]'
+# --- Keycloak admin base: the hosted edge hides /admin, so the app reaches the admin REST API on the internal address
+check "compose passes KEYCLOAK_ADMIN_BASE_URI to platform-app, defaulting to the internal keycloak service" 'grep -qF "      KEYCLOAK_ADMIN_BASE_URI: \${KEYCLOAK_ADMIN_BASE_URI:-http://keycloak:8080}" "$HERE/compose.yaml"'
+check "the issuer stays the public URL (tokens are unchanged)" 'grep -qF "      OIDC_ISSUER_URI: \${OIDC_ISSUER_URI:-https://auth." "$HERE/compose.yaml"'
+check "env.example lists KEYCLOAK_ADMIN_BASE_URI without a value" 'grep -q "^KEYCLOAK_ADMIN_BASE_URI=$" "$HERE/env.example"'
+check "README documents KEYCLOAK_ADMIN_BASE_URI" 'grep -q "KEYCLOAK_ADMIN_BASE_URI" "$HERE/README.md"'
+# structural: the variable sits under platform-app only (a service block runs from its 2-space key to the next one)
+check "KEYCLOAK_ADMIN_BASE_URI is set on the platform-app service only (not edge, ui, keycloak)" '[ "$(grep -c "KEYCLOAK_ADMIN_BASE_URI" "$HERE/compose.yaml")" -eq 1 ] && [ "$(awk '"'"'/^  [a-z][a-z0-9_-]*:/{svc=$1} /KEYCLOAK_ADMIN_BASE_URI/{print svc}'"'"' "$HERE/compose.yaml")" = "platform-app:" ]'
+check "README says the admin base override must be internal and names the post-deploy check" 'grep -q "must be an internal address the edge does not publish" "$HERE/README.md" && grep -q "issue source credential" "$HERE/README.md"'
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail

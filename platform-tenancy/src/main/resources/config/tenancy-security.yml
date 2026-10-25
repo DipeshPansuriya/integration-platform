@@ -18,6 +18,10 @@ spring:
 # fixed by ADR-007 and is not a setting.
 platform:
   tenancy:
+    identity-admin:
+      # optional (env KEYCLOAK_ADMIN_BASE_URI): server address for the Keycloak admin REST calls only, e.g. http://keycloak:8080
+      # when the public edge does not route /admin; empty = derived from OIDC_ISSUER_URI. Tokens and issuer stay public.
+      base-uri: ${KEYCLOAK_ADMIN_BASE_URI:}
     identity-provider:
       retry-max-attempts: 3            # first attempt included; transient failures only (refused, connect timeout, 429, 502-504)
       retry-initial-backoff: 200ms     # exponential random backoff ...
