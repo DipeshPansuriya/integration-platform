@@ -17,7 +17,7 @@ Source: ADR-H-IPASS-01 (hub: `_personal/_project_ipass/integration-platform/_doc
 | `postgres-init/` | `10-keycloak-database.sh`, `20-platform-roles.sh` (the four DB roles + `ipass_backup` + `ipass_restore`) |
 | `kafka/create-topics.sh` | Creates the three platform topics |
 | `backup/` | `backup.sh` (nightly dump loop), `restore-test.sh` |
-| `seed/` | `seed-showcase.sh` + `seed.sql` (two tenants, four users) |
+| `seed/` | `seed-showcase.sh` + `seed.sql` (two tenants, four users); `NESTED-APPOINTMENT.md` = hand-off for the nested-appointment showcase flow (not part of the seed run) |
 | `test/` | `test-scripts.sh` (offline), `smoke.sh` + `compose.smoke.yaml` (build-PC only) |
 
 Images (built elsewhere, see "Build"): `acsnewacr.azurecr.io/ipass/platform-app:<sc>`, `.../ui:<sc>`, `.../keycloak:26.8.0-<sc>`. `<sc>` = short commit of the merged `main`. Never `latest`.
