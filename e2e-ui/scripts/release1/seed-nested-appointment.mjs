@@ -64,6 +64,10 @@ export const NESTED = Object.freeze({
 /** The sample record the mapping's mandatory sample run posts: the documented payload, as given. */
 export const SAMPLE = JSON.parse(file('sample.json'));
 
+/** The value with every object's keys sorted: JSON content compared regardless of key order. */
+const canonical = (value) => (Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value);
+
 function must(answer, what) {
   if (answer.status !== 200 && answer.status !== 201) throw new Error(`${what}: HTTP ${answer.status} ${JSON.stringify(answer.data)}`);
   return answer.data;
@@ -87,11 +91,25 @@ export async function seedNestedAppointment({ call, author = 'default', approver
   const source = await ensureSystem(NESTED.source, 'INBOUND', sourceBase);
   await ensureSystem(NESTED.target, 'OUTBOUND', apiBase);
 
-  // each contract version: imported if absent, submitted if still a draft, approved if not yet (a run that died leaves any of these)
+  // the contract versions that already exist (a run that died leaves any state)
   const contracts = (await as(author, 'GET', '/api/v1/admin/contracts', undefined, 'list contracts')).contracts ?? [];
+  // an existing contract version is reused only when its content is ours; checked for both BEFORE any write, so a clash stops the run clean
+  const existingVersion = (contract, role) =>
+    contracts.filter((c) => c.system === contract.system && c.role === role).flatMap((c) => c.versions ?? []).find((v) => v.versionLabel === contract.versionLabel);
+  const pairs = [['source', NESTED.source, 'SOURCE_REQUEST'], ['target', NESTED.target, 'TARGET_REQUEST']];
+  for (const [, contract, role] of pairs) {
+    const version = existingVersion(contract, role);
+    if (!version) continue;
+    const stored = await as(author, 'GET', `/api/v1/admin/contracts/versions/${version.id}`, undefined, `read ${contract.name}`);
+    if (JSON.stringify(canonical(stored.jsonSchema)) !== JSON.stringify(canonical(contract.document))) {
+      throw new Error(`NESTED-APPOINTMENT: contract ${contract.system} ${contract.versionLabel} already exists with different content - retire it or use another version label, then run again`);
+    }
+  }
+
+  // each contract version: imported if absent, submitted if still a draft, approved if not yet (a run that died leaves any of these)
   const versionIds = {};
-  for (const [key, contract, role] of [['source', NESTED.source, 'SOURCE_REQUEST'], ['target', NESTED.target, 'TARGET_REQUEST']]) {
-    let version = contracts.filter((c) => c.system === contract.system && c.role === role).flatMap((c) => c.versions ?? []).find((v) => v.versionLabel === contract.versionLabel);
+  for (const [key, contract, role] of pairs) {
+    let version = existingVersion(contract, role);
     if (!version) {
       const imported = await as(author, 'POST', '/api/v1/admin/contracts/versions/import', { system: contract.system, role, versionLabel: contract.versionLabel, format: 'JSON_SCHEMA', document: contract.document }, `import ${contract.name}`);
       version = { id: imported.id, status: 'DRAFT' };
