@@ -207,6 +207,85 @@ class KeycloakAdminAdapterTest {
         keycloak.verify();
     }
 
+    private KeycloakAdminAdapter adapterWithAdminBase(String adminBase) {
+        return new KeycloakAdminAdapter(ISSUER, adminBase, "platform-admin", () -> adminSecret, rest, observations);
+    }
+
+    @Test
+    @DisplayName("Admin base: create goes to the admin base; the token and the issuer keep the public URL")
+    void anAdminBaseReplacesOnlyTheAdminHost() {
+        KeycloakAdminAdapter internal = adapterWithAdminBase("http://keycloak:8080");
+        adminToken();
+        keycloak.expect(once(), requestTo("http://keycloak:8080/admin/realms/platform/clients"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withCreatedEntity(URI.create("http://keycloak:8080/admin/realms/platform/clients/"
+                        + UUID.randomUUID())));
+
+        internal.createConfidentialClient("src-erp-a");
+
+        keycloak.verify();
+        assertThat(internal.issuer()).isEqualTo(ISSUER);
+    }
+
+    @Test
+    @DisplayName("Admin base: disable looks up and writes on the admin base; a trailing slash and a context path are kept")
+    void disableUsesTheAdminBaseWithItsPath() {
+        String id = UUID.randomUUID().toString();
+        String base = "http://keycloak:8080/auth";
+        KeycloakAdminAdapter internal = adapterWithAdminBase(base + "/");
+        adminToken();
+        keycloak.expect(once(), requestTo(base + "/admin/realms/platform/clients?clientId=src-erp-a"))
+                .andRespond(withSuccess("[{\"id\":\"" + id + "\",\"clientId\":\"src-erp-a\"}]",
+                        MediaType.APPLICATION_JSON));
+        keycloak.expect(once(), requestTo(base + "/admin/realms/platform/clients/" + id))
+                .andExpect(method(HttpMethod.PUT)).andRespond(withNoContent());
+
+        internal.disableClient("src-erp-a");
+
+        keycloak.verify();
+    }
+
+    @Test
+    @DisplayName("Admin base unset (null or blank): exactly the issuer-derived admin URL, as before")
+    void anUnsetAdminBaseFallsBackToTheIssuer() {
+        for (String unset : new String[] {null, "", "   "}) {
+            keycloak.reset();
+            adminToken();
+            keycloak.expect(once(), requestTo(ADMIN + "/clients")).andRespond(withCreatedEntity(
+                    URI.create(ADMIN + "/clients/" + UUID.randomUUID())));
+
+            adapterWithAdminBase(unset).createConfidentialClient("src-erp-a");
+
+            keycloak.verify();
+        }
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("Admin base: only a plain http(s) server URL - no other scheme, no credentials, no query, no fragment")
+    void anUnsafeAdminBaseIsRefusedAtConstruction() {
+        for (String bad : new String[] {"ftp://keycloak:8080", "file:///etc/passwd", "keycloak:8080", "http://",
+                "http://admin:s3cret@keycloak:8080", "http://:s3cret@keycloak:8080", "http://keycloak:8080?x=1",
+                "http://keycloak:8080#frag", "http://key cloak:8080", "gopher://keycloak"}) {
+            assertThatThrownBy(() -> adapterWithAdminBase(bad)).as(bad)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageNotContaining("s3cret");
+        }
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("Admin base: the token endpoint is never moved - the secret form goes to the issuer, not the admin base")
+    void theAdminSecretNeverGoesToTheAdminBase() {
+        KeycloakAdminAdapter internal = adapterWithAdminBase("http://keycloak:8080");
+        keycloak.expect(once(), requestTo(TOKEN)).andRespond(withStatus(HttpStatus.UNAUTHORIZED));
+
+        assertThatThrownBy(() -> internal.createConfidentialClient("src-erp-a"))
+                .isInstanceOf(IdentityProviderAdminException.class);
+
+        keycloak.verify();
+    }
+
     @Test
     @Tag("negative")
     @DisplayName("R13: an admin call that gets no answer is cut at the 5 s admin timeout (ADR-007 Decision 4)")
