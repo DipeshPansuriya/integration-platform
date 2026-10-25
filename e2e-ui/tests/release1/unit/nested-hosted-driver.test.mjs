@@ -35,13 +35,13 @@ test('the hosted base must be https', () => {
 // the users and their roles from the hosted seed (seed-showcase.sh + seed.sql) - this test reads all of them.
 const text = (rel) => readFileSync(new URL(`../../../../${rel}`, import.meta.url), 'utf8');
 const policy = text('platform-tenancy/src/main/java/io/integrationplatform/tenancy/RolePolicy.java');
-const rolesOf = (operation) => new RegExp(`${operation}\(Caller\.ROLE, ([A-Z_, ]+)\)`).exec(policy)[1].split(',').map((r) => r.trim());
+const rolesOf = (operation) => new RegExp(String.raw`${operation}\(Caller\.ROLE, ([A-Z_, ]+)\)`).exec(policy)[1].split(',').map((r) => r.trim());
 const seedScript = text('deploy/hostinger/seed/seed-showcase.sh');
 const seedSql = text('deploy/hostinger/seed/seed.sql');
 const hostedRole = (user) => {
-  const variable = new RegExp(`(sub_[a-z_]+)="\$\(ensure_user ${user} `).exec(seedScript)?.[1];
+  const variable = new RegExp(String.raw`(sub_[a-z_]+)="\$\(ensure_user ${user} `).exec(seedScript)?.[1];
   assert.ok(variable, `${user} is not created by seed-showcase.sh`);
-  const role = new RegExp(`:'${variable}',\s*'([A-Z_]+)'`).exec(seedSql)?.[1];
+  const role = new RegExp(String.raw`:'${variable}',\s*'([A-Z_]+)'`).exec(seedSql)?.[1];
   assert.ok(role, `${user} has no role in seed.sql`);
   return role;
 };
