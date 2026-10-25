@@ -114,4 +114,33 @@ class NestedAppointmentFlattenTest {
         assertEquals(TransformPort.Status.OK, bare.status(), bare.error());
         assertEquals("[]", bare.outputJson());
     }
+
+    private static String withContainerList(String containerListJson) {
+        return "{\"AppointmentId\":7,\"VehicleList\":[{\"DriverPortId\":\"P1\",\"ContainerList\":" + containerListJson + "}]}";
+    }
+
+    @Test
+    void aNullOrTextContainerListGivesZeroRecordsNotAHalfRecord() throws IOException {
+        for (String bad : List.of("null", "\"oops\"", "5", "true", "[\"x\",null,3]")) {
+            TransformPort.Result result = run(withContainerList(bad));
+            assertEquals(TransformPort.Status.OK, result.status(), result.error());
+            assertEquals("[]", result.outputJson(), "ContainerList " + bad);
+        }
+    }
+
+    @Test
+    void aSingleContainerObjectInsteadOfAnArrayStillGivesOneFullRecord() throws IOException {
+        TransformPort.Result result = run(withContainerList("{\"ContainerNo\":\"C1\",\"Size\":\"40\"}"));
+        assertEquals(TransformPort.Status.OK, result.status(), result.error());
+        assertEquals("[{\"appointmentId\":7,\"driverPortId\":\"P1\",\"containerNo\":\"C1\",\"size\":\"40\"}]",
+                result.outputJson());
+    }
+
+    @Test
+    void aSparseSampleKeepsOnlyTheKeysThatExistAndTheAlwaysPresentOnesAreThere() throws IOException {
+        // the target contract requires only appointmentId and containerNo; every other key is omitted when the source omits it
+        TransformPort.Result result = run("{\"AppointmentId\":7,\"VehicleList\":[{\"ContainerList\":[{\"ContainerNo\":\"C1\"}]}]}");
+        assertEquals(TransformPort.Status.OK, result.status(), result.error());
+        assertEquals("[{\"appointmentId\":7,\"containerNo\":\"C1\"}]", result.outputJson());
+    }
 }
