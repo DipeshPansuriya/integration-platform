@@ -187,5 +187,29 @@ check "README documents KEYCLOAK_ADMIN_BASE_URI" 'grep -q "KEYCLOAK_ADMIN_BASE_U
 # structural: the variable sits under platform-app only (a service block runs from its 2-space key to the next one)
 check "KEYCLOAK_ADMIN_BASE_URI is set on the platform-app service only (not edge, ui, keycloak)" '[ "$(grep -c "KEYCLOAK_ADMIN_BASE_URI" "$HERE/compose.yaml")" -eq 1 ] && [ "$(awk '"'"'/^  [a-z][a-z0-9_-]*:/{svc=$1} /KEYCLOAK_ADMIN_BASE_URI/{print svc}'"'"' "$HERE/compose.yaml")" = "platform-app:" ]'
 check "README says the admin base override must be internal and names the post-deploy check" 'grep -q "must be an internal address the edge does not publish" "$HERE/README.md" && grep -q "issue source credential" "$HERE/README.md"'
+# --- Issuer override: the bundled-Keycloak admin default is wrong for an external identity provider
+printf 'IPASS_DOMAIN=example.test
+' > "$TMP/i1.env"
+printf 'IPASS_DOMAIN=example.test
+OIDC_ISSUER_URI=
+KEYCLOAK_ADMIN_BASE_URI=
+' > "$TMP/i2.env"
+printf 'IPASS_DOMAIN=example.test
+OIDC_ISSUER_URI=https://idp.other.test/realms/x
+' > "$TMP/i3.env"
+printf 'IPASS_DOMAIN=example.test
+OIDC_ISSUER_URI=https://idp.other.test/realms/x
+KEYCLOAK_ADMIN_BASE_URI=
+' > "$TMP/i4.env"
+printf 'IPASS_DOMAIN=example.test
+OIDC_ISSUER_URI=https://idp.other.test/realms/x
+KEYCLOAK_ADMIN_BASE_URI=http://idp-internal:8080
+' > "$TMP/i5.env"
+check "issuer check: no override passes" 'sh "$HERE/check-issuer-override.sh" "$TMP/i1.env" >/dev/null 2>&1 && sh "$HERE/check-issuer-override.sh" "$TMP/i2.env" >/dev/null 2>&1'
+check "issuer check: OIDC_ISSUER_URI overridden without KEYCLOAK_ADMIN_BASE_URI fails (unset and empty)" '! sh "$HERE/check-issuer-override.sh" "$TMP/i3.env" >/dev/null 2>&1 && ! sh "$HERE/check-issuer-override.sh" "$TMP/i4.env" >/dev/null 2>&1'
+check "issuer check: override with an explicit KEYCLOAK_ADMIN_BASE_URI passes" 'sh "$HERE/check-issuer-override.sh" "$TMP/i5.env" >/dev/null 2>&1'
+check "issuer check: the failure names both variables and never prints a value" 'm="$(sh "$HERE/check-issuer-override.sh" "$TMP/i3.env" 2>&1)"; grep -q OIDC_ISSUER_URI <<<"$m" && grep -q KEYCLOAK_ADMIN_BASE_URI <<<"$m" && ! grep -q idp.other.test <<<"$m"'
+check "issuer check: a missing env file is an error" '! sh "$HERE/check-issuer-override.sh" "$TMP/none.env" >/dev/null 2>&1'
+check "compose comment, env.example and README warn about the issuer override" 'grep -q "external identity provider" "$HERE/compose.yaml" && grep -q "OIDC_ISSUER_URI" "$HERE/env.example" && grep -q "check-issuer-override.sh" "$HERE/README.md"'
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail

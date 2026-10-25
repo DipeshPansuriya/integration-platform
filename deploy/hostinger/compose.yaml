@@ -160,7 +160,9 @@ services:
       DB_MIGRATION_PASSWORD: ${DB_MIGRATION_PASSWORD:?set DB_MIGRATION_PASSWORD}
       OIDC_ISSUER_URI: ${OIDC_ISSUER_URI:-https://auth.${IPASS_DOMAIN}/realms/platform}
       # the public edge hides /admin: the app reaches Keycloak's admin REST API on the internal service address
-      # (tokens and the issuer stay the public URL above)
+      # (tokens and the issuer stay the public URL above). If the issuer is overridden to an
+      # external identity provider, ALSO set this admin base to that provider's internal admin address: the default
+      # below points at the bundled Keycloak only (check-issuer-override.sh fails when it is missing).
       KEYCLOAK_ADMIN_BASE_URI: ${KEYCLOAK_ADMIN_BASE_URI:-http://keycloak:8080}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-platform-api}
       CONSOLE_OIDC_CLIENT_ID: platform-console
