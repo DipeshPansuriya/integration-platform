@@ -65,10 +65,14 @@ case "$verb $path" in
 esac
 echo "stub: unhandled $verb $path $args" >&2; exit 9
 STUB
-chmod +x "$T/kcadm"
+# the stub itself may use awk (it runs on this PC); the SCRIPT under test must not: the keycloak container has no awk.
+sed -i "s#awk -F#$(command -v awk) -F#g" "$T/kcadm"; chmod +x "$T/kcadm"
+mkdir -p "$T/noawk"; printf '#!/bin/sh
+echo "awk is not in the keycloak container" >&2; exit 127
+' > "$T/noawk/awk"; chmod +x "$T/noawk/awk"
 
 run() { # scenario-dir -> runs the real script against the stub; sets RC and OUT
-  S="$1"; OUT="$(STUB_DIR="$S" KCADM="$T/kcadm" IPASS_DOMAIN=example.test KC_ADMIN_USERNAME=u KC_ADMIN_PASSWORD=p OPS_KAFBAT_CLIENT_SECRET=s bash "$SCRIPT" 2>&1)"; RC=$?; }
+  S="$1"; OUT="$(PATH="$T/noawk:$PATH" STUB_DIR="$S" KCADM="$T/kcadm" IPASS_DOMAIN=example.test KC_ADMIN_USERNAME=u KC_ADMIN_PASSWORD=p OPS_KAFBAT_CLIENT_SECRET=s bash "$SCRIPT" 2>&1)"; RC=$?; }
 mk() { rm -rf "$T/$1"; mkdir -p "$T/$1"; : > "$T/$1/calls"; echo "$T/$1"; }
 
 # 1. fresh realm

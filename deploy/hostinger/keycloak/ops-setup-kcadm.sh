@@ -53,30 +53,36 @@ if ! list get "clients/$CID/protocol-mappers/models" -r $R --fields name --forma
 fi
 
 # 3. flow
-flow_id() { list get authentication/flows -r $R --fields id,alias --format csv --noquotes | awk -F, '$2=="ops-browser"{print $1; exit}'; }
+flow_id() { # the container has no awk: bash only
+  local rows id alias; rows="$(list get authentication/flows -r $R --fields id,alias --format csv --noquotes)" || return 1
+  while IFS=, read -r id alias; do [ "$alias" = ops-browser ] && { echo "$id"; return 0; }; done <<<"$rows"; return 0
+}
 
 # the flow is right only if it holds exactly these executions, in this order inside ops-browser-forms, and the role gate
 # is NEGATED (deny anyone WITHOUT ops-operator)
 verify_flow() {
-  local rows cfg
+  local rows nm prov rq lv cfg condcfg="" seen="" l1="" line
   rows="$(list get authentication/flows/ops-browser/executions -r $R --fields displayName,providerId,requirement,level,authenticationConfig --format csv --noquotes)" || return 1
-  [ "$(printf '%s\n' "$rows" | awk -F, '{printf "%s|%s|%s|%s\n",$1,$2,$3,$4}' | LC_ALL=C sort)" = "$(printf '%s\n' \
-    'Condition - user role|conditional-user-role|REQUIRED|2' \
-    'Deny access|deny-access-authenticator|REQUIRED|2' \
-    'OTP Form|auth-otp-form|REQUIRED|1' \
-    'Username Password Form|auth-username-password-form|REQUIRED|1' \
-    'ops-browser-forms||REQUIRED|0' \
-    'ops-role-gate||CONDITIONAL|1' | LC_ALL=C sort)" ] || return 1
-  [ "$(printf '%s\n' "$rows" | awk -F, '$4==1{printf "%s ", $2$1}')" = "auth-username-password-formUsername Password Form ops-role-gate auth-otp-formOTP Form " ] || return 1
-  cfg="$(printf '%s\n' "$rows" | awk -F, '$2=="conditional-user-role"{print $5; exit}')"
-  [ -n "$cfg" ] || return 1
-  list get "authentication/config/$cfg" -r $R | tr -d ' ' | grep '"condUserRole":"ops-operator"' >/dev/null || return 1
-  list get "authentication/config/$cfg" -r $R | tr -d ' ' | grep '"negate":"true"' >/dev/null || return 1
+  while IFS=, read -r nm prov rq lv cfg; do
+    [ -n "$nm$prov$rq$lv" ] || continue
+    seen+="$nm|$prov|$rq|$lv"$'
+'
+    [ "$lv" = 1 ] && l1+="$prov$nm "
+    [ "$prov" = conditional-user-role ] && condcfg="$cfg"
+  done <<<"$rows"
+  [ "$(printf '%s' "$seen" | LC_ALL=C sort)" = "$(printf '%s
+'     'Condition - user role|conditional-user-role|REQUIRED|2'     'Deny access|deny-access-authenticator|REQUIRED|2'     'OTP Form|auth-otp-form|REQUIRED|1'     'Username Password Form|auth-username-password-form|REQUIRED|1'     'ops-browser-forms||REQUIRED|0'     'ops-role-gate||CONDITIONAL|1' | LC_ALL=C sort)" ] || return 1
+  [ "$l1" = "auth-username-password-formUsername Password Form ops-role-gate auth-otp-formOTP Form " ] || return 1
+  [ -n "$condcfg" ] || return 1
+  line="$(list get "authentication/config/$condcfg" -r $R | tr -d ' ')" || return 1
+  grep '"condUserRole":"ops-operator"' >/dev/null <<<"$line" || return 1
+  grep '"negate":"true"' >/dev/null <<<"$line" || return 1
 }
 
 req() { # flow-alias  displayName-or-providerId  requirement  -> prints the execution id
-  local id
-  id="$(list get "authentication/flows/$1/executions" -r $R --fields id,displayName,providerId --format csv --noquotes | awk -F, -v w="$2" '$2==w||$3==w{print $1; exit}')"
+  local id="" rows i nm prov
+  rows="$(list get "authentication/flows/$1/executions" -r $R --fields id,displayName,providerId --format csv --noquotes)" || exit 1
+  while IFS=, read -r i nm prov; do [ "$nm" = "$2" ] || [ "$prov" = "$2" ] && { id="$i"; break; }; done <<<"$rows"
   [ -n "$id" ] || { echo "execution $2 not found in $1" >&2; exit 1; }
   "$K" update "authentication/flows/$1/executions" -r $R -b "{\"id\":\"$id\",\"requirement\":\"$3\"}" >/dev/null
   echo "$id"
