@@ -279,6 +279,25 @@ class KeycloakAdminAdapterTest {
     }
 
     @Test
+    @DisplayName("Issuer: kept exactly as configured (a trailing slash is NOT stripped - revoke/disable compare it); the URLs built from it stay well-formed")
+    void theIssuerIsNotAlteredButTheCallUrlsStayWellFormed() {
+        for (String configured : new String[] {ISSUER + "/", ISSUER + "///"}) {
+            keycloak.reset();
+            KeycloakAdminAdapter slashed = new KeycloakAdminAdapter(configured, "platform-admin",
+                    () -> adminSecret, rest, observations);
+            adminToken();
+            keycloak.expect(once(), requestTo(ADMIN + "/clients")).andRespond(withCreatedEntity(
+                    URI.create(ADMIN + "/clients/" + UUID.randomUUID())));
+
+            slashed.createConfidentialClient("src-erp-a");
+
+            keycloak.verify();
+            assertThat(slashed.issuer()).isEqualTo(configured);
+        }
+        assertThat(adapter.issuer()).isEqualTo(ISSUER);
+    }
+
+    @Test
     @DisplayName("Admin base: a plain-http base on a public-looking host logs a WARN naming only the host; start-up is not blocked")
     void aPublicHttpAdminBaseWarnsWithoutEchoingTheValue(CapturedOutput output) {
         for (String publicHttp : new String[] {"http://idp.example.com:8080/secretpath", "http://8.8.8.8:8080",

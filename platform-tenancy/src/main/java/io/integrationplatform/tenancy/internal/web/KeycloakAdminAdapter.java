@@ -90,15 +90,18 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
 
     public KeycloakAdminAdapter(String issuer, String adminBaseUri, String adminClientId,
             Supplier<String> adminClientSecret, RestTemplate rest, ObservationRegistry observations) {
-        this.issuer = stripSlash(Objects.requireNonNull(issuer, "issuer"));
-        int realms = this.issuer.lastIndexOf("/realms/");
+        // The issuer is kept exactly as configured: revoke and disable compare it with the stored one. Only the URLs
+        // built from it use a slash-trimmed copy; the slash stripping is for the admin base alone.
+        this.issuer = Objects.requireNonNull(issuer, "issuer");
+        String realmUri = stripSlash(this.issuer);
+        int realms = realmUri.lastIndexOf("/realms/");
         if (realms < 0) {
             throw new IllegalArgumentException("The issuer is not a Keycloak realm URI: " + this.issuer);
         }
-        this.tokenEndpoint = URI.create(this.issuer + "/protocol/openid-connect/token");
+        this.tokenEndpoint = URI.create(realmUri + "/protocol/openid-connect/token");
         String adminBase = adminBase(adminBaseUri);
-        this.clientsResource = (adminBase != null ? adminBase : this.issuer.substring(0, realms))
-                + "/admin" + this.issuer.substring(realms) + "/clients";
+        this.clientsResource = (adminBase != null ? adminBase : realmUri.substring(0, realms))
+                + "/admin" + realmUri.substring(realms) + "/clients";
         this.adminClientId = Objects.requireNonNull(adminClientId, "adminClientId");
         this.adminClientSecret = Objects.requireNonNull(adminClientSecret, "adminClientSecret");
         this.rest = Objects.requireNonNull(rest, "rest");

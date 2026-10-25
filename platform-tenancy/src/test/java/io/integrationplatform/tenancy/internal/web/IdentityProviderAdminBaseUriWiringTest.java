@@ -18,7 +18,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.PlatformTransactionManager;
 
 /**
@@ -99,6 +101,53 @@ class IdentityProviderAdminBaseUriWiringTest {
     @DisplayName("With the admin base unset the admin call goes where it always went - the issuer's host")
     void unsetKeepsTheIssuerDerivedAdminUrl() {
         runner().run(context -> {
+            try {
+                context.getBean(IdentityProviderAdmin.class).createConfidentialClient("src-erp-a");
+            } catch (IdentityProviderAdmin.IdentityProviderAdminException hidden) {
+                // the public stub answers 404 for /admin, as the hosted edge does
+            }
+        });
+
+        assertThat(internalRequests).isEmpty();
+        assertThat(publicRequests).contains("POST /admin/realms/platform/clients");
+    }
+
+    /** The shipped tenancy-security.yml as a property source, so the env variable NAME is resolved the way the app does. */
+    private ApplicationContextRunner runnerFromShippedYaml(String... environment) {
+        String issuer = "http://127.0.0.1:" + publicEdge.getAddress().getPort() + REALM_PATH;
+        return new ApplicationContextRunner()
+                .withInitializer(context -> {
+                    try {
+                        context.getEnvironment().getPropertySources().addLast(new YamlPropertySourceLoader()
+                                .load("tenancy-security", new ClassPathResource("config/tenancy-security.yml")).get(0));
+                    } catch (IOException e) {
+                        throw new IllegalStateException(e);
+                    }
+                })
+                .withUserConfiguration(IdentityProviderAdminConfiguration.class)
+                .withBean(SourceCredentialStore.class, () -> Mockito.mock(SourceCredentialStore.class))
+                .withBean(PlatformTransactionManager.class, () -> Mockito.mock(PlatformTransactionManager.class))
+                .withPropertyValues("PLATFORM_ADMIN_CLIENT_SECRET=stub-" + UUID.randomUUID(),
+                        "OIDC_ISSUER_URI=" + issuer, "OIDC_AUDIENCE=platform-api")
+                .withPropertyValues(environment);
+    }
+
+    @Test
+    @DisplayName("The env variable KEYCLOAK_ADMIN_BASE_URI, through the shipped tenancy-security.yml, reaches the adapter")
+    void theEnvironmentVariableReachesTheAdapter() {
+        String base = "http://127.0.0.1:" + internal.getAddress().getPort();
+
+        runnerFromShippedYaml("KEYCLOAK_ADMIN_BASE_URI=" + base).run(context ->
+                context.getBean(IdentityProviderAdmin.class).createConfidentialClient("src-erp-a"));
+
+        assertThat(publicRequests).containsExactly("POST " + REALM_PATH + "/protocol/openid-connect/token");
+        assertThat(internalRequests).containsExactly("POST /admin/realms/platform/clients");
+    }
+
+    @Test
+    @DisplayName("The env variable unset (the yaml default is empty): the admin URL stays issuer-derived")
+    void theEnvironmentVariableUnsetKeepsTheIssuerDerivedAdminUrl() {
+        runnerFromShippedYaml().run(context -> {
             try {
                 context.getBean(IdentityProviderAdmin.class).createConfidentialClient("src-erp-a");
             } catch (IdentityProviderAdmin.IdentityProviderAdminException hidden) {

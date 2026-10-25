@@ -1,7 +1,12 @@
 #!/bin/bash
 # Offline tests for deploy/hostinger (no container start, no lock needed): script dry-runs, secret hygiene and the
-# static controls of compose.yaml (ADR-H-IPASS-01 conformance). Run:  bash deploy/hostinger/test/test-scripts.sh
+# static controls of compose.yaml (ADR-H-IPASS-01 conformance). Run (any directory, bash or sh):  bash deploy/hostinger/test/test-scripts.sh
+# Needs bash, not POSIX mode: under "sh" (bash in POSIX mode, or dash) a prefix assignment on a sourced file ("X=1 . f") stays set and
+# is exported, so the child scripts below saw ROTATE_SOURCE_ONLY/BACKUP_SOURCE_ONLY and printed nothing (rotate/backup checks failed).
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
+set +o posix
 set -u
+for t in openssl awk sed grep mktemp git; do command -v "$t" >/dev/null 2>&1 || { echo "MISSING PREREQUISITE: $t is not on PATH (needed by the scripts under test); install it and re-run" >&2; exit 2; }; done
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 fail=0
@@ -30,7 +35,7 @@ check "bootstrap-admin override injects the file, holds no value" 'grep -q "env_
 check "retire script needs a different named admin and prints its steps" '! KC_ADMIN_USER=bootstrap-admin DRY_RUN=1 sh "$HERE/keycloak/retire-bootstrap-admin.sh" >/dev/null 2>&1 && KC_ADMIN_USER=alice DRY_RUN=1 sh "$HERE/keycloak/retire-bootstrap-admin.sh" | grep -q "delete user bootstrap-admin"'
 check "seed script works with the bootstrap admin retired (named admin)" 'grep -q KC_ADMIN_USER "$HERE/seed/seed-showcase.sh"'
 check "no ipass compose file mounts a Docker socket" '! grep -rqi "docker.sock" "$HERE/compose.yaml" "$HERE/demo" "$HERE/keycloak" "$HERE/test/compose.smoke.yaml"'
-ROTATE_SOURCE_ONLY=1 . "$HERE/rotate-secret.sh"; set +e
+ROTATE_SOURCE_ONLY=1 . "$HERE/rotate-secret.sh"; set +e; unset ROTATE_SOURCE_ONLY
 printf 'A=1\nDB_PASSWORD=old\nB=2\n' > "$TMP/r.env"; chmod 644 "$TMP/r.env"
 set_env_value "$TMP/r.env" DB_PASSWORD 'new+/=value'
 check "rotate: set_env_value replaces only that line, atomically, mode 600" '[ "$(cat "$TMP/r.env")" = "$(printf "A=1\nDB_PASSWORD=new+/=value\nB=2")" ] && { [ "$(uname -o 2>/dev/null)" = Msys ] || [ "$(stat -c %a "$TMP/r.env")" = 600 ]; }'
@@ -63,7 +68,8 @@ check "kafka-init topics equal SystemTopicRefusal.PLATFORM_TOPICS" '[ -n "$code_
 check "kafka-init is idempotent (--if-not-exists)" 'DRY_RUN=1 sh "$HERE/kafka/create-topics.sh" | grep -c -- --if-not-exists | grep -q 3'
 
 # --- backup / restore
-BACKUP_SOURCE_ONLY=1 . "$HERE/backup/backup.sh"; set +e   # backup.sh sets -e for itself
+BACKUP_SOURCE_ONLY=1 . "$HERE/backup/backup.sh"; set +e; unset BACKUP_SOURCE_ONLY   # backup.sh sets -e for itself
+check "source-only flags do not leak into child scripts (POSIX-mode sh keeps a prefix assignment on a sourced file)" '[ -z "${ROTATE_SOURCE_ONLY:-}" ] && [ -z "${BACKUP_SOURCE_ONLY:-}" ]'
 check "backup waits 3600s at 01:00 UTC" '[ "$(seconds_until_run 3600)" -eq 3600 ]'
 check "backup waits a full day at 02:00:00" '[ "$(seconds_until_run 7200)" -eq 86400 ]'
 check "backup waits 82800s at 03:00 UTC" '[ "$(seconds_until_run 10800)" -eq 82800 ]'
@@ -187,5 +193,51 @@ check "README documents KEYCLOAK_ADMIN_BASE_URI" 'grep -q "KEYCLOAK_ADMIN_BASE_U
 # structural: the variable sits under platform-app only (a service block runs from its 2-space key to the next one)
 check "KEYCLOAK_ADMIN_BASE_URI is set on the platform-app service only (not edge, ui, keycloak)" '[ "$(grep -c "KEYCLOAK_ADMIN_BASE_URI" "$HERE/compose.yaml")" -eq 1 ] && [ "$(awk '"'"'/^  [a-z][a-z0-9_-]*:/{svc=$1} /KEYCLOAK_ADMIN_BASE_URI/{print svc}'"'"' "$HERE/compose.yaml")" = "platform-app:" ]'
 check "README says the admin base override must be internal and names the post-deploy check" 'grep -q "must be an internal address the edge does not publish" "$HERE/README.md" && grep -q "issue source credential" "$HERE/README.md"'
+# --- Issuer override: the bundled-Keycloak admin default is wrong for an external identity provider
+printf 'IPASS_DOMAIN=example.test
+' > "$TMP/i1.env"
+printf 'IPASS_DOMAIN=example.test
+OIDC_ISSUER_URI=
+KEYCLOAK_ADMIN_BASE_URI=
+' > "$TMP/i2.env"
+printf 'IPASS_DOMAIN=example.test
+OIDC_ISSUER_URI=https://idp.other.test/realms/x
+' > "$TMP/i3.env"
+printf 'IPASS_DOMAIN=example.test
+OIDC_ISSUER_URI=https://idp.other.test/realms/x
+KEYCLOAK_ADMIN_BASE_URI=
+' > "$TMP/i4.env"
+printf 'IPASS_DOMAIN=example.test
+OIDC_ISSUER_URI=https://idp.other.test/realms/x
+KEYCLOAK_ADMIN_BASE_URI=http://idp-internal:8080
+' > "$TMP/i5.env"
+check "issuer check: no override passes" 'sh "$HERE/check-issuer-override.sh" "$TMP/i1.env" >/dev/null 2>&1 && sh "$HERE/check-issuer-override.sh" "$TMP/i2.env" >/dev/null 2>&1'
+check "issuer check: OIDC_ISSUER_URI overridden without KEYCLOAK_ADMIN_BASE_URI fails (unset and empty)" '! sh "$HERE/check-issuer-override.sh" "$TMP/i3.env" >/dev/null 2>&1 && ! sh "$HERE/check-issuer-override.sh" "$TMP/i4.env" >/dev/null 2>&1'
+check "issuer check: override with an explicit KEYCLOAK_ADMIN_BASE_URI passes" 'sh "$HERE/check-issuer-override.sh" "$TMP/i5.env" >/dev/null 2>&1'
+check "issuer check: the failure names both variables and never prints a value" 'm="$(sh "$HERE/check-issuer-override.sh" "$TMP/i3.env" 2>&1)"; grep -q OIDC_ISSUER_URI <<<"$m" && grep -q KEYCLOAK_ADMIN_BASE_URI <<<"$m" && ! grep -q idp.other.test <<<"$m"'
+check "issuer check: a missing env file is an error" '! sh "$HERE/check-issuer-override.sh" "$TMP/none.env" >/dev/null 2>&1'
+check "compose comment, env.example and README warn about the issuer override" 'grep -q "external identity provider" "$HERE/compose.yaml" && grep -q "OIDC_ISSUER_URI" "$HERE/env.example" && grep -q "check-issuer-override.sh" "$HERE/README.md"'
+# quoting, CRLF, export and indentation forms (compose reads them the same way: quotes stripped, export allowed)
+printf 'OIDC_ISSUER_URI=https://idp.other.test/realms/x\nKEYCLOAK_ADMIN_BASE_URI=""\n' > "$TMP/q1.env"
+printf "OIDC_ISSUER_URI=https://idp.other.test/realms/x\nKEYCLOAK_ADMIN_BASE_URI=''\n" > "$TMP/q2.env"
+printf 'OIDC_ISSUER_URI=https://idp.other.test/realms/x\r\nKEYCLOAK_ADMIN_BASE_URI=\r\n' > "$TMP/q3.env"
+printf 'OIDC_ISSUER_URI="https://idp.other.test/realms/x"\nKEYCLOAK_ADMIN_BASE_URI="http://idp-internal:8080"\n' > "$TMP/q4.env"
+printf "OIDC_ISSUER_URI='https://idp.other.test/realms/x'\r\nKEYCLOAK_ADMIN_BASE_URI='http://idp-internal:8080'\r\n" > "$TMP/q5.env"
+printf 'OIDC_ISSUER_URI=""\nKEYCLOAK_ADMIN_BASE_URI=\n' > "$TMP/q6.env"
+printf 'export OIDC_ISSUER_URI=https://idp.other.test/realms/x\n' > "$TMP/q7.env"
+printf 'export OIDC_ISSUER_URI=https://idp.other.test/realms/x\nexport KEYCLOAK_ADMIN_BASE_URI=http://idp-internal:8080\n' > "$TMP/q8.env"
+printf '  OIDC_ISSUER_URI=https://idp.other.test/realms/x\n' > "$TMP/q9.env"
+printf '  OIDC_ISSUER_URI=https://idp.other.test/realms/x\n  KEYCLOAK_ADMIN_BASE_URI=http://idp-internal:8080\n' > "$TMP/q10.env"
+printf 'export OIDC_ISSUER_URI=https://idp.other.test/realms/x\nexport KEYCLOAK_ADMIN_BASE_URI=""\n' > "$TMP/q11.env"
+printf 'OIDC_ISSUER_URI=\r\n' > "$TMP/q12.env"
+chk() { sh "$HERE/check-issuer-override.sh" "$TMP/$1.env" >/dev/null 2>&1; }
+check "issuer check: double-quoted empty KEYCLOAK_ADMIN_BASE_URI fails" '! chk q1'
+check "issuer check: single-quoted empty KEYCLOAK_ADMIN_BASE_URI fails" '! chk q2'
+check "issuer check: CRLF line endings, empty admin value fails" '! chk q3'
+check "issuer check: CRLF line endings, empty issuer is not an override" 'chk q12'
+check "issuer check: quoted non-empty values pass (double, and single with CRLF)" 'chk q4 && chk q5'
+check "issuer check: quoted empty OIDC_ISSUER_URI is not an override" 'chk q6'
+check "issuer check: export form is detected (fails without admin, passes with it, fails with quoted empty)" '! chk q7 && chk q8 && ! chk q11'
+check "issuer check: leading spaces are detected (fails without admin, passes with it)" '! chk q9 && chk q10'
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail
