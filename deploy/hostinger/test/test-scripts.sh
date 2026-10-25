@@ -196,7 +196,7 @@ check "README says the admin base override must be internal and names the post-d
 # F1: an unsafe admin base stops the app at start; the external-https opt-in is explicit and off by default
 check "compose passes KEYCLOAK_ADMIN_ALLOW_EXTERNAL to platform-app only, default false" 'grep -qF "      KEYCLOAK_ADMIN_ALLOW_EXTERNAL: \${KEYCLOAK_ADMIN_ALLOW_EXTERNAL:-false}" "$HERE/compose.yaml" && [ "$(grep -c "KEYCLOAK_ADMIN_ALLOW_EXTERNAL:" "$HERE/compose.yaml")" -eq 1 ] && [ "$(awk '"'"'/^  [a-z][a-z0-9_-]*:/{svc=$1} /KEYCLOAK_ADMIN_ALLOW_EXTERNAL:/{print svc}'"'"' "$HERE/compose.yaml")" = "platform-app:" ]'
 check "env.example lists KEYCLOAK_ADMIN_ALLOW_EXTERNAL without a value" 'grep -q "^KEYCLOAK_ADMIN_ALLOW_EXTERNAL=$" "$HERE/env.example"'
-check "README documents KEYCLOAK_ADMIN_ALLOW_EXTERNAL as an opt-in that is off by default and says the app refuses to start" 'grep -q "KEYCLOAK_ADMIN_ALLOW_EXTERNAL.*(default off" "$HERE/README.md" && grep -q "refuses to start. (fail closed" "$HERE/README.md"'
+check "README documents KEYCLOAK_ADMIN_ALLOW_EXTERNAL as an opt-in that is off by default and says the app refuses to start" 'grep -q "KEYCLOAK_ADMIN_ALLOW_EXTERNAL.*(default off" "$HERE/README.md" && grep -q "refuses to start.* (fail closed" "$HERE/README.md"'
 # --- Issuer override: the bundled-Keycloak admin default is wrong for an external identity provider
 printf 'IPASS_DOMAIN=example.test
 ' > "$TMP/i1.env"
