@@ -190,9 +190,10 @@ services:
     <<: *hardened
 
   # T219 operator view of Kafka (ops.<domain>/kafka/): READ-ONLY, topic names / partitions / offsets / consumer groups only.
-  # Three independent layers: cluster readOnly flag, an RBAC role with no message permission (config/kafbat-roles.yml),
-  # and edge.conf, which 404s every messages path and refuses any non-GET. Login is Keycloak OIDC (client ops-kafbat,
-  # role ops-operator, OTP) - no anonymous access. Kafka stays PLAINTEXT on the internal ipass-work network only.
+  # Why no message bodies: the cluster `readOnly` flag only stops WRITES. Reads are held back by two layers: an RBAC role
+  # with no message permission (kafbat/kafbat-roles.yml) and edge.conf, which 404s every messages path and allows GET only.
+  # Both sit in front of an unauthenticated PLAINTEXT broker (internal ipass-work network only); a broker-side ACL is the
+  # follow-up. Login is Keycloak OIDC (client ops-kafbat, role ops-operator, OTP) - no anonymous access.
   kafbat:
     image: kafbat/kafka-ui:v1.5.0@sha256:7cda86a33344160309fdb65146332e4da65db81a945614f2fe32e210803f6fd1
     pull_policy: missing
@@ -204,6 +205,8 @@ services:
       TZ: Etc/UTC
       JAVA_OPTS: -Xms128m -Xmx384m
       SERVER_SERVLET_CONTEXT_PATH: /kafka
+      # the edge speaks plain http to Kafbat: set the cookie flag here, not from a forwarded-proto guess
+      SERVER_REACTIVE_SESSION_COOKIE_SECURE: "true"
       DYNAMIC_CONFIG_ENABLED: "false"
       KAFKA_CLUSTERS_0_NAME: ipass
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
@@ -261,7 +264,6 @@ services:
       platform-app: {condition: service_healthy}
       keycloak: {condition: service_healthy}
       ui: {condition: service_started}
-      kafbat: {condition: service_healthy}
     volumes:
       - ./edge/edge.conf:/etc/nginx/conf.d/default.conf:ro
     tmpfs: [/tmp]
