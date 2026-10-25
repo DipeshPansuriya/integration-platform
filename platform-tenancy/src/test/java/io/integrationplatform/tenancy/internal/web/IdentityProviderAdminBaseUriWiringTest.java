@@ -169,4 +169,47 @@ class IdentityProviderAdminBaseUriWiringTest {
                 .run(context -> assertThat(context).hasFailed());
         assertThat(internalRequests).isEmpty();
     }
+
+    private static String chain(Throwable failure) {
+        StringBuilder all = new StringBuilder();
+        for (Throwable t = failure; t != null; t = t.getCause()) {
+            all.append(t.getMessage()).append('\n');
+        }
+        return all.toString();
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("F1: plain http to a public host stops the application at start-up; the message names the setting, the value appears nowhere in the cause chain")
+    void aPublicPlainHttpAdminBaseFailsTheStartWithoutEchoingTheValue() {
+        runner("platform.tenancy.identity-admin.base-uri=http://idp.example.com:8080/secretpath").run(context -> {
+            assertThat(context).hasFailed();
+            String all = chain(context.getStartupFailure());
+            assertThat(all).contains("platform.tenancy.identity-admin.base-uri").contains("KEYCLOAK_ADMIN_BASE_URI")
+                    .doesNotContain("idp.example.com").doesNotContain("secretpath");
+        });
+        runnerFromShippedYaml("KEYCLOAK_ADMIN_BASE_URI=http://8.8.8.8").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(chain(context.getStartupFailure())).contains("KEYCLOAK_ADMIN_BASE_URI")
+                    .doesNotContain("8.8.8.8");
+        });
+        assertThat(internalRequests).isEmpty();
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("F1: https to a host other than the issuer host fails the start unless KEYCLOAK_ADMIN_ALLOW_EXTERNAL=true (default off)")
+    void anExternalHttpsAdminBaseNeedsTheOptInToStart() {
+        runnerFromShippedYaml("KEYCLOAK_ADMIN_BASE_URI=https://idp.other.test").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(chain(context.getStartupFailure())).contains("KEYCLOAK_ADMIN_ALLOW_EXTERNAL")
+                    .doesNotContain("other.test");
+        });
+        runnerFromShippedYaml("KEYCLOAK_ADMIN_BASE_URI=https://idp.other.test", "KEYCLOAK_ADMIN_ALLOW_EXTERNAL=false")
+                .run(context -> assertThat(context).hasFailed());
+        runnerFromShippedYaml("KEYCLOAK_ADMIN_BASE_URI=https://idp.other.test", "KEYCLOAK_ADMIN_ALLOW_EXTERNAL=true")
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(IdentityProviderAdmin.class));
+        runnerFromShippedYaml("KEYCLOAK_ADMIN_BASE_URI=https://idp.other.test", "KEYCLOAK_ADMIN_ALLOW_EXTERNAL=")
+                .run(context -> assertThat(context).hasFailed());
+    }
 }

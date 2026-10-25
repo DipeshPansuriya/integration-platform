@@ -298,28 +298,50 @@ class KeycloakAdminAdapterTest {
     }
 
     @Test
-    @DisplayName("Admin base: a plain-http base on a public-looking host logs a WARN naming only the host; start-up is not blocked")
-    void aPublicHttpAdminBaseWarnsWithoutEchoingTheValue(CapturedOutput output) {
+    @Tag("negative")
+    @DisplayName("Admin base: plain http to a public name or address is refused at construction - the value is neither echoed nor carried as a cause")
+    void aPublicHttpAdminBaseIsRefusedWithoutEchoingTheValue() {
         for (String publicHttp : new String[] {"http://idp.example.com:8080/secretpath", "http://8.8.8.8:8080",
                 "http://172.32.0.1:8080", "http://192.169.0.1"}) {
-            adapterWithAdminBase(publicHttp);
+            assertThatThrownBy(() -> adapterWithAdminBase(publicHttp)).as(publicHttp)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("KEYCLOAK_ADMIN_BASE_URI")
+                    .hasMessageNotContaining("secretpath").hasMessageNotContaining("example.com")
+                    .hasMessageNotContaining("8.8.8.8").hasMessageNotContaining("172.32")
+                    .hasMessageNotContaining("192.169").hasNoCause();
         }
-
-        assertThat(output.getAll()).contains("WARN").contains("idp.example.com").contains("8.8.8.8")
-                .contains("172.32.0.1").contains("192.169.0.1").doesNotContain("secretpath");
     }
 
     @Test
-    @DisplayName("Admin base: internal names and addresses (loopback, RFC1918, dotless service name) and https do not warn")
-    void anInternalOrHttpsAdminBaseDoesNotWarn(CapturedOutput output) {
-        for (String quiet : new String[] {"http://keycloak:8080", "http://localhost:8080", "http://127.0.0.1:8080",
-                "http://[::1]:8080", "http://10.1.2.3", "http://172.16.0.9:8080", "http://172.31.255.1",
-                "http://192.168.1.5", "https://idp.example.com"}) {
-            adapterWithAdminBase(quiet);
+    @DisplayName("Admin base: internal names and addresses (loopback, RFC1918, dotless service name) and https to the issuer host are accepted and silent")
+    void anInternalOrHttpsAdminBaseIsAcceptedWithoutWarning(CapturedOutput output) {
+        for (String quiet : new String[] {"http://keycloak:8080", "http://idp-internal", "http://localhost:8080",
+                "http://127.0.0.1:8080", "http://[::1]:8080", "http://10.1.2.3", "http://172.16.5.5",
+                "http://172.31.255.1", "http://192.168.0.5", "https://idp.test"}) {
+            assertThat(adapterWithAdminBase(quiet)).as(quiet).isNotNull();
         }
         adapterWithAdminBase(null);
 
-        assertThat(output.getAll()).doesNotContain("admin base").doesNotContain("idp.example.com");
+        assertThat(output.getAll()).doesNotContain("admin base");
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("Admin base: https to a host other than the issuer host needs the explicit opt-in")
+    void anExternalHttpsAdminBaseNeedsTheOptIn() {
+        assertThatThrownBy(() -> adapterWithAdminBase("https://idp.example.com"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("KEYCLOAK_ADMIN_ALLOW_EXTERNAL").hasMessageNotContaining("example.com");
+        KeycloakAdminAdapter allowed = new KeycloakAdminAdapter(ISSUER, "https://idp.example.com", true,
+                "platform-admin", () -> adminSecret, rest, observations);
+        adminToken();
+        keycloak.expect(once(), requestTo("https://idp.example.com/admin/realms/platform/clients"))
+                .andRespond(withCreatedEntity(URI.create("https://idp.example.com/admin/realms/platform/clients/"
+                        + UUID.randomUUID())));
+
+        allowed.createConfidentialClient("src-erp-a");
+
+        keycloak.verify();
     }
 
     @Test
