@@ -5,6 +5,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import java.net.URI;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -14,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -58,6 +62,7 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
     private static final String ADMIN_BASE_REFUSED = "The identity provider admin base URI must be a plain http(s) "
             + "server address (no user info, query or fragment)";
 
+    private static final Logger LOG = LoggerFactory.getLogger(KeycloakAdminAdapter.class);
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final String issuer;
@@ -261,10 +266,33 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
                 || parsed.getRawFragment() != null) {
             throw new IllegalArgumentException(ADMIN_BASE_REFUSED);
         }
+        if ("http".equalsIgnoreCase(scheme) && !internalHost(parsed.getHost())) {
+            // The admin bearer and the new client secret travel in clear over this hop; only the host is named.
+            LOG.warn("The Keycloak admin base is plain http to host '{}', which is not a private or internal name; "
+                    + "the admin token and client secret would leave the private network unencrypted", parsed.getHost());
+        }
         return base;
     }
 
+    /** Loopback, RFC1918 / link-local address, or a dotless name (a Docker service name). No DNS lookup is made. */
+    private static boolean internalHost(String host) {
+        String h = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+        if (h.matches("\\d{1,3}(\\.\\d{1,3}){3}") || h.contains(":")) {
+            try {
+                InetAddress ip = InetAddress.getByName(h); // a literal, so no lookup
+                return ip.isLoopbackAddress() || ip.isSiteLocalAddress() || ip.isLinkLocalAddress();
+            } catch (UnknownHostException notLiteral) {
+                return false;
+            }
+        }
+        return !h.contains(".") || "localhost".equalsIgnoreCase(h);
+    }
+
     private static String stripSlash(String uri) {
-        return uri.endsWith("/") ? uri.substring(0, uri.length() - 1) : uri;
+        int end = uri.length();
+        while (end > 0 && uri.charAt(end - 1) == '/') {
+            end--;
+        }
+        return uri.substring(0, end);
     }
 }

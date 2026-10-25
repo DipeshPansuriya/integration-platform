@@ -184,5 +184,8 @@ check "compose passes KEYCLOAK_ADMIN_BASE_URI to platform-app, defaulting to the
 check "the issuer stays the public URL (tokens are unchanged)" 'grep -qF "      OIDC_ISSUER_URI: \${OIDC_ISSUER_URI:-https://auth." "$HERE/compose.yaml"'
 check "env.example lists KEYCLOAK_ADMIN_BASE_URI without a value" 'grep -q "^KEYCLOAK_ADMIN_BASE_URI=$" "$HERE/env.example"'
 check "README documents KEYCLOAK_ADMIN_BASE_URI" 'grep -q "KEYCLOAK_ADMIN_BASE_URI" "$HERE/README.md"'
+# structural: the variable sits under platform-app only (a service block runs from its 2-space key to the next one)
+check "KEYCLOAK_ADMIN_BASE_URI is set on the platform-app service only (not edge, ui, keycloak)" '[ "$(grep -c "KEYCLOAK_ADMIN_BASE_URI" "$HERE/compose.yaml")" -eq 1 ] && [ "$(awk '"'"'/^  [a-z][a-z0-9_-]*:/{svc=$1} /KEYCLOAK_ADMIN_BASE_URI/{print svc}'"'"' "$HERE/compose.yaml")" = "platform-app:" ]'
+check "README says the admin base override must be internal and names the post-deploy check" 'grep -q "must be an internal address the edge does not publish" "$HERE/README.md" && grep -q "issue source credential" "$HERE/README.md"'
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail
