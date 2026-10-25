@@ -55,6 +55,9 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
 
     static final String OBSERVATION = "identity.provider.admin";
 
+    private static final String ADMIN_BASE_REFUSED = "The identity provider admin base URI must be a plain http(s) "
+            + "server address (no user info, query or fragment)";
+
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final String issuer;
@@ -67,19 +70,30 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
 
     /**
      * @param issuer            the realm's issuer, {@code <base>/realms/<realm>} (OIDC_ISSUER_URI)
+     * @param adminBaseUri      optional server address for the admin REST calls only ({@code <base>} of
+     *                          {@code <base>/admin/realms/<realm>}), for a deployment whose public edge does not route
+     *                          /admin; null or blank = derived from the issuer, as before. The token endpoint and
+     *                          {@link #issuer()} always stay on the issuer.
      * @param adminClientId     the service-account client ({@code platform-admin})
      * @param adminClientSecret its secret, read when a token is needed and held only for that call
      * @param rest              a client from {@link #restTemplate} (the shared breaker, the admin timeout)
      */
     public KeycloakAdminAdapter(String issuer, String adminClientId, Supplier<String> adminClientSecret,
             RestTemplate rest, ObservationRegistry observations) {
+        this(issuer, null, adminClientId, adminClientSecret, rest, observations);
+    }
+
+    public KeycloakAdminAdapter(String issuer, String adminBaseUri, String adminClientId,
+            Supplier<String> adminClientSecret, RestTemplate rest, ObservationRegistry observations) {
         this.issuer = stripSlash(Objects.requireNonNull(issuer, "issuer"));
         int realms = this.issuer.lastIndexOf("/realms/");
         if (realms < 0) {
             throw new IllegalArgumentException("The issuer is not a Keycloak realm URI: " + this.issuer);
         }
         this.tokenEndpoint = URI.create(this.issuer + "/protocol/openid-connect/token");
-        this.clientsResource = this.issuer.substring(0, realms) + "/admin" + this.issuer.substring(realms) + "/clients";
+        String adminBase = adminBase(adminBaseUri);
+        this.clientsResource = (adminBase != null ? adminBase : this.issuer.substring(0, realms))
+                + "/admin" + this.issuer.substring(realms) + "/clients";
         this.adminClientId = Objects.requireNonNull(adminClientId, "adminClientId");
         this.adminClientSecret = Objects.requireNonNull(adminClientSecret, "adminClientSecret");
         this.rest = Objects.requireNonNull(rest, "rest");
@@ -223,6 +237,31 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /**
+     * The optional admin base: null when unset; otherwise a plain http(s) server address - no other scheme, no embedded
+     * secrets, no query, no fragment. It is operator configuration, never request data; the value is not echoed (it
+     * could carry a password).
+     */
+    private static String adminBase(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String base = stripSlash(raw.strip());
+        URI parsed;
+        try {
+            parsed = new URI(base);
+        } catch (java.net.URISyntaxException malformed) {
+            throw new IllegalArgumentException(ADMIN_BASE_REFUSED);
+        }
+        String scheme = parsed.getScheme();
+        boolean http = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+        if (!http || parsed.getHost() == null || parsed.getRawUserInfo() != null || parsed.getRawQuery() != null
+                || parsed.getRawFragment() != null) {
+            throw new IllegalArgumentException(ADMIN_BASE_REFUSED);
+        }
+        return base;
     }
 
     private static String stripSlash(String uri) {

@@ -159,6 +159,9 @@ services:
       DB_MIGRATION_USERNAME: ipass_migrator   # Flyway owner, in-app at startup (ADR Decision 3)
       DB_MIGRATION_PASSWORD: ${DB_MIGRATION_PASSWORD:?set DB_MIGRATION_PASSWORD}
       OIDC_ISSUER_URI: ${OIDC_ISSUER_URI:-https://auth.${IPASS_DOMAIN}/realms/platform}
+      # the public edge hides /admin: the app reaches Keycloak's admin REST API on the internal service address
+      # (tokens and the issuer stay the public URL above)
+      KEYCLOAK_ADMIN_BASE_URI: ${KEYCLOAK_ADMIN_BASE_URI:-http://keycloak:8080}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-platform-api}
       CONSOLE_OIDC_CLIENT_ID: platform-console
       CONSOLE_OIDC_CLIENT_SECRET: ${CONSOLE_OIDC_CLIENT_SECRET:?set CONSOLE_OIDC_CLIENT_SECRET}
