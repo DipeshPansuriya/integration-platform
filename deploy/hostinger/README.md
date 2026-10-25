@@ -84,3 +84,17 @@ The host's Traefik does read the socket (ADR Decision 5 point 8). A read-only mo
 - Offline: `bash deploy/hostinger/test/test-scripts.sh` (dry runs, secret hygiene, compose controls).
 - Rate limit proof: `NGINX_TEST_TAG=<tag of a local ipass/ui image> bash deploy/hostinger/test/edge-ratelimit.sh` (one stub upstream + the real `edge/edge.conf` in nginx; takes the Docker lock, exits 2 without starting if a live owner holds it).
 - Whole stack: `IMAGE_TAG=<sc> bash deploy/hostinger/test/smoke.sh` (also asserts the edge allow-list, the web-network membership, the K1 refusal C1, a live DB password rotation) with local images `ipass/<name>:<sc>` - takes the PC-wide docker-suite lock, uses dummy secrets in a temp file, deletes everything afterwards.
+
+## Operator address ops.<domain> (T219)
+
+Everything on `ops.<domain>` is behind a Keycloak login; nothing is anonymous. Served by the same edge, Traefik routers `ipass-ops` / `ipass-ops-kc`.
+
+| URL | What | Gate |
+|---|---|---|
+| `/kafka/` | Kafbat, read-only: topic names, partitions, offsets, consumer groups, counts. No message bodies | Keycloak realm `platform`, client `ops-kafbat`, role `ops-operator`, OTP (flow `ops-browser`) |
+| `/admin/master/console/` (+ `/realms/master`, `/resources`, `/js`) | Keycloak admin console | master-realm named admin |
+
+Not exposed on ops (404): the platform realm, `/v3`, swagger, any `/actuator`, Kafbat actuator, every Kafbat message / produce / smartfilter / serde path; the API accepts GET only. Postgres, raw Kafka 9092 and WireMock publish nothing. The auth host still 404s `/admin` and `/realms/master`.
+
+Setup on a new server: add the DNS A record `ops`, ship the files, run `./keycloak/ops-setup.sh` (role, client, flow; generates `OPS_KAFBAT_CLIENT_SECRET` in `.env`; creates no user), set the master realm Frontend URL once (`kcadm update realms/master -s attributes.frontendUrl=https://ops.<domain>`, so the console login runs on the ops host), then `docker compose up -d keycloak kafbat edge`. Operators: create the named users in realm `platform`, assign role `ops-operator`; the first login makes them enrol an authenticator. Rotate the Kafbat secret: delete its line from `.env`, re-run `ops-setup.sh`, `up -d kafbat`.
+Rollback: restore `compose.yaml`, `edge/edge.conf`, `.env` from the backup dir, `docker compose up -d --remove-orphans`, then `kcadm update realms/master -s attributes.frontendUrl=` (empty).
