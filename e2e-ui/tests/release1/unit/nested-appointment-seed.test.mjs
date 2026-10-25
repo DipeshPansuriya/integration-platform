@@ -25,10 +25,11 @@ function fakeAdmin({ dieAt } = {}) {
     if (p === '/api/v1/admin/contracts' && method === 'GET') return { status: 200, data: { contracts: state.contracts } };
     if (p === '/api/v1/admin/contracts/versions/import') {
       state.imports += 1;
-      const v = { id: `cv-${body.system}-${body.versionLabel}`, versionLabel: body.versionLabel, status: 'DRAFT' };
+      const v = { id: `cv-${body.system}-${body.versionLabel}`, versionLabel: body.versionLabel, status: 'DRAFT', document: body.document };
       state.contracts.push({ system: body.system, role: body.role, versions: [v] });
       return { status: 201, data: { id: v.id } };
     }
+    if (/\/contracts\/versions\/[^/]+$/.test(p) && method === 'GET') return { status: 200, data: { id: p.split('/').at(-1), jsonSchema: version(p.split('/').at(-1)).document } };
     if (/\/contracts\/versions\/[^/]+\/submit$/.test(p)) { version(p.split('/').at(-2)).status = 'PENDING_APPROVAL'; return { status: 200, data: {} }; }
     if (/\/contracts\/versions\/[^/]+\/approve$/.test(p)) { version(p.split('/').at(-2)).status = 'APPROVED'; return { status: 200, data: {} }; }
     if (p === '/api/v1/admin/flows/flow-1/routes') return { status: 200, data: { routes: [{ id: 'route-1', targetSystem: NESTED.target.system, mappingId: 'm-1' }] } };
@@ -41,6 +42,8 @@ function fakeAdmin({ dieAt } = {}) {
   return { call, calls, state };
 }
 const args = (call) => ({ call, customerId: 'CUST-A', apiBase: 'http://wiremock:8089/nested-target/', sourceBase: 'http://wiremock:8089/nested-source/' });
+/** The same JSON with its object keys in reverse order: key order is not content. */
+const reordered = (value) => (Array.isArray(value) ? value.map(reordered) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).reverse().map(([k, v]) => [k, reordered(v)])) : value);
 const writes = (calls) => calls.filter((c) => c.method !== 'GET');
 
 test('fixtures: the seed carries the sample and the expression files, nothing retyped', () => {
@@ -152,8 +155,8 @@ test('seed: a run that died before the flow existed (contracts imported, one sti
 
 test('seed: a contract left pending approval is approved, a draft one is submitted and approved', async () => {
   const { call, calls, state } = fakeAdmin();
-  state.contracts.push({ system: NESTED.source.system, role: 'SOURCE_REQUEST', versions: [{ id: 'v-src', versionLabel: '1.0', status: 'PENDING_APPROVAL' }] },
-    { system: NESTED.target.system, role: 'TARGET_REQUEST', versions: [{ id: 'v-tgt', versionLabel: '1.0', status: 'DRAFT' }] });
+  state.contracts.push({ system: NESTED.source.system, role: 'SOURCE_REQUEST', versions: [{ id: 'v-src', versionLabel: '1.0', status: 'PENDING_APPROVAL', document: reordered(NESTED.source.document) }] },
+    { system: NESTED.target.system, role: 'TARGET_REQUEST', versions: [{ id: 'v-tgt', versionLabel: '1.0', status: 'DRAFT', document: NESTED.target.document }] });
   await seedNestedAppointment(args(call));
   assert.equal(state.imports, 0);
   assert.ok(calls.some((c) => c.p === '/api/v1/admin/contracts/versions/v-src/approve'));
@@ -167,4 +170,41 @@ test('seed: a refused step names itself and carries the status', async () => {
   const { call } = fakeAdmin();
   const refusing = async (login, method, p, body) => (p === '/api/v1/admin/contracts/versions/import' ? { status: 409, data: { error: 'x' } } : call(login, method, p, body));
   await assert.rejects(seedNestedAppointment(args(refusing)), /NESTED-APPOINTMENT import .*: HTTP 409/);
+});
+
+for (const step of ['/flows/flow-1/approve', '/flows/flow-1/publish']) {
+  test(`seed: a run that died at ${step.split('/').at(-1)} is resumed to published with the credential`, async () => {
+    const admin = fakeAdmin({ dieAt: step });
+    await assert.rejects(seedNestedAppointment(args(admin.call)), /the run died here/);
+    assert.equal(admin.state.flows[0].status, 'DRAFT');
+    const resumed = await seedNestedAppointment(args(admin.call));
+    assert.deepEqual([resumed.skipped, resumed.resumed], [false, true]);
+    assert.equal(admin.state.flows[0].status, 'PUBLISHED');
+    assert.equal(admin.state.flows.length, 1);
+    assert.equal(admin.state.imports, 2);
+    assert.deepEqual(resumed.credential, { clientId: 'cid', secret: 'sec' });
+  });
+}
+
+test('seed: a run that died after publish (credential never issued) reports published and no credential - the runbook issues one by hand', async () => {
+  const admin = fakeAdmin({ dieAt: '/source-credentials' });
+  await assert.rejects(seedNestedAppointment(args(admin.call)), /the run died here/);
+  assert.equal(admin.state.flows[0].status, 'PUBLISHED');
+  const again = await seedNestedAppointment(args(admin.call));
+  assert.deepEqual([again.skipped, again.credential], [true, null]);
+});
+
+test('seed: an existing contract 1.0 with the same content is reused (key order is not content)', async () => {
+  const { call, state } = fakeAdmin();
+  state.contracts.push({ system: NESTED.source.system, role: 'SOURCE_REQUEST', versions: [{ id: 'v-src', versionLabel: '1.0', status: 'APPROVED', document: reordered(NESTED.source.document) }] });
+  await seedNestedAppointment(args(call));
+  assert.equal(state.imports, 1, 'only the target contract was imported');
+});
+
+test('seed: an existing contract 1.0 with DIFFERENT content stops the run with a clear message and writes nothing more', async () => {
+  const { call, calls, state } = fakeAdmin();
+  state.contracts.push({ system: NESTED.target.system, role: 'TARGET_REQUEST', versions: [{ id: 'v-tgt', versionLabel: '1.0', status: 'APPROVED', document: { type: 'object', properties: {} } }] });
+  await assert.rejects(seedNestedAppointment(args(call)), /contract nested-target 1\.0 already exists with different content.*retire it or use another version label/);
+  assert.equal(state.flows.length, 0);
+  assert.ok(!calls.some((c) => c.p.endsWith('/approve') || c.p.endsWith('/publish')));
 });
