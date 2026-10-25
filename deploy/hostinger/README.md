@@ -81,6 +81,6 @@ The host's Traefik does read the socket (ADR Decision 5 point 8). A read-only mo
 
 ## Tests (build PC)
 
-- Offline: `bash deploy/hostinger/test/test-scripts.sh` (dry runs, secret hygiene, compose controls).
+- Offline: `bash deploy/hostinger/test/test-scripts.sh` (dry runs, secret hygiene, compose controls). Run it from any directory; needs `bash` (it re-runs itself under bash and leaves POSIX mode if started as `sh`), `openssl`, `awk`, `sed`, `grep`, `mktemp` and `git` on PATH, and stops with `MISSING PREREQUISITE: <tool>` otherwise. No Docker, `pg_dump` or `psql` is needed.
 - Rate limit proof: `NGINX_TEST_TAG=<tag of a local ipass/ui image> bash deploy/hostinger/test/edge-ratelimit.sh` (one stub upstream + the real `edge/edge.conf` in nginx; takes the Docker lock, exits 2 without starting if a live owner holds it).
 - Whole stack: `IMAGE_TAG=<sc> bash deploy/hostinger/test/smoke.sh` (also asserts the edge allow-list, the web-network membership, the K1 refusal C1, a live DB password rotation) with local images `ipass/<name>:<sc>` - takes the PC-wide docker-suite lock, uses dummy secrets in a temp file, deletes everything afterwards.

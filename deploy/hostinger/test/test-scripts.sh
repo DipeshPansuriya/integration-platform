@@ -1,7 +1,12 @@
 #!/bin/bash
 # Offline tests for deploy/hostinger (no container start, no lock needed): script dry-runs, secret hygiene and the
-# static controls of compose.yaml (ADR-H-IPASS-01 conformance). Run:  bash deploy/hostinger/test/test-scripts.sh
+# static controls of compose.yaml (ADR-H-IPASS-01 conformance). Run (any directory, bash or sh):  bash deploy/hostinger/test/test-scripts.sh
+# Needs bash, not POSIX mode: under "sh" (bash in POSIX mode, or dash) a prefix assignment on a sourced file ("X=1 . f") stays set and
+# is exported, so the child scripts below saw ROTATE_SOURCE_ONLY/BACKUP_SOURCE_ONLY and printed nothing (rotate/backup checks failed).
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
+set +o posix
 set -u
+for t in openssl awk sed grep mktemp git; do command -v "$t" >/dev/null 2>&1 || { echo "MISSING PREREQUISITE: $t is not on PATH (needed by the scripts under test); install it and re-run" >&2; exit 2; }; done
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 fail=0
@@ -30,7 +35,7 @@ check "bootstrap-admin override injects the file, holds no value" 'grep -q "env_
 check "retire script needs a different named admin and prints its steps" '! KC_ADMIN_USER=bootstrap-admin DRY_RUN=1 sh "$HERE/keycloak/retire-bootstrap-admin.sh" >/dev/null 2>&1 && KC_ADMIN_USER=alice DRY_RUN=1 sh "$HERE/keycloak/retire-bootstrap-admin.sh" | grep -q "delete user bootstrap-admin"'
 check "seed script works with the bootstrap admin retired (named admin)" 'grep -q KC_ADMIN_USER "$HERE/seed/seed-showcase.sh"'
 check "no ipass compose file mounts a Docker socket" '! grep -rqi "docker.sock" "$HERE/compose.yaml" "$HERE/demo" "$HERE/keycloak" "$HERE/test/compose.smoke.yaml"'
-ROTATE_SOURCE_ONLY=1 . "$HERE/rotate-secret.sh"; set +e
+ROTATE_SOURCE_ONLY=1 . "$HERE/rotate-secret.sh"; set +e; unset ROTATE_SOURCE_ONLY
 printf 'A=1\nDB_PASSWORD=old\nB=2\n' > "$TMP/r.env"; chmod 644 "$TMP/r.env"
 set_env_value "$TMP/r.env" DB_PASSWORD 'new+/=value'
 check "rotate: set_env_value replaces only that line, atomically, mode 600" '[ "$(cat "$TMP/r.env")" = "$(printf "A=1\nDB_PASSWORD=new+/=value\nB=2")" ] && { [ "$(uname -o 2>/dev/null)" = Msys ] || [ "$(stat -c %a "$TMP/r.env")" = 600 ]; }'
@@ -63,7 +68,8 @@ check "kafka-init topics equal SystemTopicRefusal.PLATFORM_TOPICS" '[ -n "$code_
 check "kafka-init is idempotent (--if-not-exists)" 'DRY_RUN=1 sh "$HERE/kafka/create-topics.sh" | grep -c -- --if-not-exists | grep -q 3'
 
 # --- backup / restore
-BACKUP_SOURCE_ONLY=1 . "$HERE/backup/backup.sh"; set +e   # backup.sh sets -e for itself
+BACKUP_SOURCE_ONLY=1 . "$HERE/backup/backup.sh"; set +e; unset BACKUP_SOURCE_ONLY   # backup.sh sets -e for itself
+check "source-only flags do not leak into child scripts (POSIX-mode sh keeps a prefix assignment on a sourced file)" '[ -z "${ROTATE_SOURCE_ONLY:-}" ] && [ -z "${BACKUP_SOURCE_ONLY:-}" ]'
 check "backup waits 3600s at 01:00 UTC" '[ "$(seconds_until_run 3600)" -eq 3600 ]'
 check "backup waits a full day at 02:00:00" '[ "$(seconds_until_run 7200)" -eq 86400 ]'
 check "backup waits 82800s at 03:00 UTC" '[ "$(seconds_until_run 10800)" -eq 82800 ]'
