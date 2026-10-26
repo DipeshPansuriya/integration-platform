@@ -193,6 +193,60 @@ services:
     logging: *logging
     <<: *hardened
 
+  # T219 operator view of Kafka (ops.<domain>/kafka/): READ-ONLY, topic names / partitions / offsets / consumer groups only.
+  # Why no message bodies: the cluster `readOnly` flag only stops WRITES. Reads are held back by two layers: an RBAC role
+  # with no message permission (kafbat/kafbat-roles.yml) and edge.conf, which 404s every messages path and allows GET only.
+  # Both sit in front of an unauthenticated PLAINTEXT broker (internal ipass-work network only); a broker-side ACL is the
+  # follow-up. Login is Keycloak OIDC (client ops-kafbat, role ops-operator, OTP) - no anonymous access.
+  kafbat:
+    image: kafbat/kafka-ui:v1.5.0@sha256:7cda86a33344160309fdb65146332e4da65db81a945614f2fe32e210803f6fd1
+    pull_policy: missing
+    restart: unless-stopped
+    depends_on:
+      kafka: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+    environment:
+      TZ: Etc/UTC
+      JAVA_OPTS: -Xms128m -Xmx384m
+      SERVER_SERVLET_CONTEXT_PATH: /kafka
+      # the edge speaks plain http to Kafbat: set the cookie flag here, not from a forwarded-proto guess
+      SERVER_REACTIVE_SESSION_COOKIE_SECURE: "true"
+      DYNAMIC_CONFIG_ENABLED: "false"
+      KAFKA_CLUSTERS_0_NAME: ipass
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_READONLY: "true"
+      SPRING_CONFIG_ADDITIONAL-LOCATION: file:/etc/kafkaui/kafbat-roles.yml
+      AUTH_TYPE: OAUTH2
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_PROVIDER: keycloak
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_CLIENTNAME: Keycloak
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_CLIENTID: ops-kafbat
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_CLIENTSECRET: ${OPS_KAFBAT_CLIENT_SECRET:?set OPS_KAFBAT_CLIENT_SECRET}
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_SCOPE: openid
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_AUTHORIZATIONGRANTTYPE: authorization_code
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_REDIRECTURI: https://ops.${IPASS_DOMAIN}/kafka/login/oauth2/code/keycloak
+      # the browser goes to the public auth host; the server-side calls use the internal Keycloak address (Kafbat has no egress)
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_AUTHORIZATIONURI: https://auth.${IPASS_DOMAIN}/realms/platform/protocol/openid-connect/auth
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_TOKENURI: http://keycloak:8080/realms/platform/protocol/openid-connect/token
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_JWKSETURI: http://keycloak:8080/realms/platform/protocol/openid-connect/certs
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_USERINFOURI: http://keycloak:8080/realms/platform/protocol/openid-connect/userinfo
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_USERNAMEATTRIBUTE: preferred_username
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_CUSTOMPARAMS_TYPE: oauth
+      AUTH_OAUTH2_CLIENT_KEYCLOAK_CUSTOMPARAMS_ROLESFIELD: roles
+    volumes:
+      - ./kafbat/kafbat-roles.yml:/etc/kafkaui/kafbat-roles.yml:ro
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/kafka/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    networks: [ipass-front, ipass-work]
+    mem_limit: 640m
+    cpus: 0.5
+    logging: *logging
+    <<: *hardened
+
   ui:
     image: ${IPASS_UI_IMAGE:-${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/ui:${IMAGE_TAG:?set IMAGE_TAG}}
     pull_policy: missing
@@ -247,6 +301,13 @@ services:
       - traefik.http.routers.ipass-auth.service=ipass-edge
       - traefik.http.middlewares.ipass-sec-kc.headers.stsSeconds=31536000
       - traefik.http.middlewares.ipass-sec-kc.headers.contentTypeNosniff=true
+      # T219 operator host: Kafbat under /kafka only (edge 404s the rest); main-host security headers.
+      - traefik.http.routers.ipass-ops.rule=Host(`ops.${IPASS_DOMAIN}`)
+      - traefik.http.routers.ipass-ops.priority=10
+      - traefik.http.routers.ipass-ops.entrypoints=websecure
+      - traefik.http.routers.ipass-ops.tls.certresolver=letsencrypt
+      - traefik.http.routers.ipass-ops.middlewares=ipass-sec
+      - traefik.http.routers.ipass-ops.service=ipass-edge
     mem_limit: 64m
     cpus: 0.2
     logging: *logging
