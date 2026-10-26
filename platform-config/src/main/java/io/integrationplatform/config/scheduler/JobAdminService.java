@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /**
@@ -18,6 +19,8 @@ import org.springframework.stereotype.Service;
  * moves the recurring task's pending execution to now; pause/resume change the register row and re-run the schedule
  * sync so the change takes effect at once. No tenant id anywhere (jobs are platform-wide, ADR-012 section 4).
  */
+// Only where db-scheduler runs (platform-app's scheduler.yml): it is the source of SchedulerClient and JobScheduleSync.
+@ConditionalOnProperty(name = "db-scheduler.enabled", havingValue = "true")
 @Service
 public class JobAdminService {
 

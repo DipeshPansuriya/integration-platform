@@ -1,9 +1,11 @@
 package io.integrationplatform.config.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import com.github.kagkarlsson.scheduler.SchedulerClient;
+import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.scheduler.adapter.in.JobAdminController;
 import io.integrationplatform.tenancy.port.SchedulerRegistry;
 import org.junit.jupiter.api.DisplayName;
@@ -24,11 +26,13 @@ class JobAdminWiringTest {
             .withBean(JobAdminAudit.class, () -> mock(JobAdminAudit.class));
 
     @Test
-    @DisplayName("db-scheduler off and no SchedulerClient: the context starts without the job admin API")
+    @DisplayName("db-scheduler off and no SchedulerClient: the context starts; the job admin API answers 503")
     void startsWithoutScheduler() {
         runner.run(context -> {
             assertThat(context).hasNotFailed();
-            assertThat(context).doesNotHaveBean(JobAdminService.class).doesNotHaveBean(JobAdminController.class);
+            assertThat(context).doesNotHaveBean(JobAdminService.class).hasSingleBean(JobAdminController.class);
+            assertThatThrownBy(() -> context.getBean(JobAdminController.class).list())
+                    .isInstanceOfSatisfying(ConfigApiException.class, e -> assertThat(e.httpStatus()).isEqualTo(503));
         });
     }
 
