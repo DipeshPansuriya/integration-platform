@@ -21,7 +21,9 @@ public final class E2eNames {
             Map.entry("replayApi", "/api/v1/admin/messages/deliveries/{deliveryId}/replay"), // DeliveryOperatorController.java:61 (by DELIVERY id)
             Map.entry("dailyReportApi", "/api/v1/reports/delivery?day={day}"), // DeliveryReportController, DeliveryReportEndpointRoles.REPORT (T-139): the stored roll-up of one UTC day
             Map.entry("mqTargetQueue", "r1.orders.mq"), // the queue the T174b runner seeds target B (MQ-CSV) with
-            Map.entry("flowCodeDefault", "REF-ORDER"));
+            Map.entry("flowCodeDefault", "REF-ORDER"),
+            // tenant B's code is generated per run: MARKER + "-b-" + token (TenantSeedPlan.java:25,54); the run's own code is tenantBCode()
+            Map.entry("tenantBCodePrefix", "e2e-seed-b-"));
 
     private static final Set<String> LOOPBACK = Set.of("127.0.0.1", "localhost", "[::1]", "::1");
 

@@ -12,6 +12,7 @@ const WATCH = process.env.JOURNEY_WATCH === '1';
 
 export default defineConfig({
   testDir: 'tests/release1',
+  testIgnore: '**/unit/**', // node:test unit tests (pending-gate) run via `node --test`, never through Playwright
   testMatch: /journey\.docker\.spec\.mjs$/,
   timeout: 10 * 60 * 1000,
   workers: 1,

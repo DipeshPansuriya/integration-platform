@@ -38,6 +38,7 @@ export default defineConfig({
     {
       name: 'e2e-full-journeys',
       testMatch: /e2e-full-journeys\.docker\.spec\.mjs$/,
+      testIgnore: '**/unit/**',
       dependencies: [SEED_PROJECT]
     }
   ]
