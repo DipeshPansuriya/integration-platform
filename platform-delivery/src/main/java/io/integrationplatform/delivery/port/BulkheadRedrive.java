@@ -22,8 +22,31 @@ public interface BulkheadRedrive {
      * @return {@code true} when a delivery was re-driven; {@code false} when none was waiting (or another
      *     transaction already moved it) - no effect, never an exception for that
      */
-    boolean redriveOneDeferred(UUID targetEndpointId);
+    default boolean redriveOneDeferred(UUID targetEndpointId) {
+        return redriveOneDeferred(targetEndpointId, Cause.SLOT_FREE);
+    }
+
+    /**
+     * The same re-drive naming what triggered it: the {@code REDRIVE} event detail tells a re-drive after a finished
+     * send ({@code slot-free}) from the chain after a HELD/duplicate claim ({@code held-chain}), where no slot freed.
+     */
+    boolean redriveOneDeferred(UUID targetEndpointId, Cause cause);
+
+    /** What triggered a re-drive; {@link #detail()} is the {@code REDRIVE} event detail (the retry job writes none). */
+    enum Cause {
+        SLOT_FREE("slot-free"), HELD_CHAIN("held-chain");
+
+        private final String detail;
+
+        Cause(String detail) {
+            this.detail = detail;
+        }
+
+        public String detail() {
+            return detail;
+        }
+    }
 
     /** For callers and slices without a delivery store: nothing is re-driven, the retry job stays the only path. */
-    BulkheadRedrive NONE = targetEndpointId -> false;
+    BulkheadRedrive NONE = (targetEndpointId, cause) -> false;
 }

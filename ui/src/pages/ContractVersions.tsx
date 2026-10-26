@@ -15,6 +15,7 @@ import {
 } from '../api/contracts';
 import { hasHarnessLogin, loadHarnessConfig } from '../api/harness-config';
 import { Drawer } from '../ui/Drawer';
+import { refusalWords } from '../ui/refusal-words';
 import { ContractList, type CardRefusal } from './contracts/ContractList';
 import { contractKey } from './contracts/contracts-view';
 import { ImportContractForm } from './contracts/ImportContractForm';
@@ -92,20 +93,32 @@ export function ContractVersions() {
     <div data-page="contracts" data-contracts-loaded={String(loaded)}>
       <div className="contracts-page">
         <div className="contracts-head">
-          <h2>Contract versions</h2>
+          <h1>Contract versions</h1>
           <button type="button" className="btn btn-primary" data-action="open-import" onClick={() => setImporting(true)}>
             Import a contract version
           </button>
         </div>
         {listRefusal !== null && (
           <p role="alert" className="contracts-alert contracts-alert-danger" data-refusal={`list-refused-${listRefusal}`}>
-            The API refused the contracts list (HTTP {listRefusal}).
+            {refusalWords(listRefusal, 'the contracts list')}
+            {' '}
+            <button type="button" className="btn" data-action="retry-load" onClick={() => void refresh()}>
+              Retry
+            </button>
+          </p>
+        )}
+        {!loaded && (
+          <p className="contracts-muted-cell" role="status" data-contracts-loading>
+            Loading contract versions...
           </p>
         )}
         {loaded && contracts.length === 0 && listRefusal === null && (
-          <p className="contracts-empty" data-contracts-empty>
-            No contracts yet.
-          </p>
+          <div className="contracts-empty" data-contracts-empty>
+            <p>Import a contract version to start comparing.</p>
+            <button type="button" className="btn" data-action="import-from-empty" onClick={() => setImporting(true)}>
+              Import a contract version
+            </button>
+          </div>
         )}
         <ContractList
           contracts={contracts}

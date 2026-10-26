@@ -239,14 +239,17 @@ public final class Stage1Environment {
             for (int i = 0; i < routes.size(); i++) {
                 RouteRows route = routes.get(i);
                 UUID mappingVersionId = UUID.randomUUID();
+                // the T172 guard refuses a route snapshot with no target contract pin; snapshot and row must agree
+                UUID targetContractVersionId = UUID.randomUUID();
                 snapshot.append(i == 0 ? "" : ",").append("{\"id\":\"").append(UUID.randomUUID())
                         .append("\",\"routeId\":\"").append(route.routeId())
-                        .append("\",\"mappingVersionId\":\"").append(mappingVersionId).append("\"}");
+                        .append("\",\"mappingVersionId\":\"").append(mappingVersionId)
+                        .append("\",\"targetContractVersionId\":\"").append(targetContractVersionId).append("\"}");
                 mappingRows.append(" insert into public.mapping_version (id, tenant_id, mapping_id, version,"
                         + " source_contract_version_id, target_contract_version_id, engine, field_mappings,"
                         + " compiled_expression, content_sha256, author_id) values ('" + mappingVersionId + "', '"
                         + TENANT + "', '" + UUID.randomUUID() + "', 1, '" + UUID.randomUUID() + "', '"
-                        + UUID.randomUUID() + "', 'JSONATA', '[]'::jsonb, '$', sha256('" + mappingVersionId
+                        + targetContractVersionId + "', 'JSONATA', '[]'::jsonb, '$', sha256('" + mappingVersionId
                         + "'::bytea), '" + UUID.randomUUID() + "');");
             }
             snapshot.append("]}");

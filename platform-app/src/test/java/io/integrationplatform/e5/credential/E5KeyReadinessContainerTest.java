@@ -13,12 +13,16 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Base64;
 import org.junit.jupiter.api.DisplayName;
+import io.integrationplatform.app.scheduler.GrantAppRoleFlywayCallback;
+import org.flywaydb.core.api.callback.Callback;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.health.contributor.Status;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -46,6 +50,8 @@ class E5KeyReadinessContainerTest {
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestImages.POSTGRES);
 
+    private static PlatformTestWiring.RestrictedLogin login;
+
     @LocalServerPort
     private int port;
 
@@ -57,7 +63,7 @@ class E5KeyReadinessContainerTest {
 
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
-        PlatformTestWiring.register(registry, POSTGRES);
+        login = PlatformTestWiring.register(registry, POSTGRES);
         byte[] key = new byte[32];
         RANDOM.nextBytes(key);
         registry.add("PLATFORM_CREDENTIAL_KEK_K2", () -> Base64.getEncoder().encodeToString(key));
@@ -83,5 +89,15 @@ class E5KeyReadinessContainerTest {
         HttpResponse<String> open = get("/actuator/health");
         assertThat(open.statusCode()).as(open.body()).isEqualTo(503);
         assertThat(open.body()).contains("OUT_OF_SERVICE");
+    }
+
+    /** T198: ready now includes the job register, so the login joins ipaas_app before the scheduler starts. */
+    @TestConfiguration(proxyBeanMethods = false)
+    static class GrantAppRoleWiring {
+
+        @Bean
+        Callback grantAppRoleFlywayCallback() {
+            return new GrantAppRoleFlywayCallback(POSTGRES, login);
+        }
     }
 }

@@ -51,6 +51,20 @@ class E16TargetSettingsTest {
                 .singleElement().asString().contains("settings.topic");
     }
 
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("The platform-topic refusal keeps its (T-184 SF-2) marker: only the echoed topic name is clipped, not the sentence")
+    void thePlatformTopicRefusalKeepsItsMarkerAndClipsOnlyTheEchoedName() {
+        assertThat(errors("KAFKA", "{\"bootstrapServers\":\"k.partner.example:9092\",\"topic\":\"platform.poison\"}"))
+                .singleElement().asString().endsWith("is a platform topic - the platform's own register is never a "
+                        + "tenant destination (T-184 SF-2)");
+        String longName = "platform." + "x".repeat(100);
+        assertThat(errors("KAFKA", "{\"bootstrapServers\":\"k.partner.example:9092\",\"topic\":\"" + longName + "\"}"))
+                .singleElement().asString().contains(longName.substring(0, 64) + "...")
+                .doesNotContain(longName).endsWith("(T-184 SF-2)");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"k.partner.example", "k.partner.example:0", "k.partner.example:99999", ":9092"})
     @Tag("negative")

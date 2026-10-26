@@ -56,11 +56,34 @@ public interface IntakeTransaction {
             String idempotencyKey, String credentialRef) {
     }
 
-    /** One record's answer: ACCEPTED with its tracking id, or REJECTED with the refusal code. */
-    record RecordResult(int index, String status, UUID trackingId, Long outboxId, String code, String message) {
+    /**
+     * One violation of a rejected record (B37, E6-F2-S1): where it is, a stable code, the message, and which step
+     * found it ({@code SCHEMA} or {@code RULE}). Never a submitted value (T-066).
+     */
+    record RecordViolation(String field, String code, String message, String source) {
+    }
+
+    /**
+     * One record's answer: ACCEPTED with its tracking id, or REJECTED with the refusal code and - for a record that
+     * broke its contract or rules (B37) - every violation (path, code, message), never a tracking id.
+     */
+    record RecordResult(int index, String status, UUID trackingId, Long outboxId, String code, String message,
+            List<RecordViolation> violations) {
 
         public static final String ACCEPTED = "ACCEPTED";
         public static final String REJECTED = "REJECTED";
+
+        public RecordResult {
+            violations = violations == null ? List.of() : List.copyOf(violations);
+        }
+
+        public RecordResult(int index, String status, UUID trackingId, Long outboxId, String code, String message) {
+            this(index, status, trackingId, outboxId, code, message, List.of());
+        }
+
+        public static RecordResult rejected(int index, String code, String message, List<RecordViolation> violations) {
+            return new RecordResult(index, REJECTED, null, null, code, message, violations);
+        }
 
         public static RecordResult accepted(int index, UUID trackingId, long outboxId) {
             return new RecordResult(index, ACCEPTED, trackingId, outboxId, null, null);

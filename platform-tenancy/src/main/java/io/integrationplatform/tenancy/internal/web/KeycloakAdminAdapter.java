@@ -67,19 +67,41 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
 
     /**
      * @param issuer            the realm's issuer, {@code <base>/realms/<realm>} (OIDC_ISSUER_URI)
+     * @param adminBaseUri      optional server address for the admin REST calls only ({@code <base>} of
+     *                          {@code <base>/admin/realms/<realm>}), for a deployment whose public edge does not route
+     *                          /admin; null or blank = derived from the issuer, as before. The token endpoint and
+     *                          {@link #issuer()} always stay on the issuer.
+     * @param allowExternal     the explicit opt-in (KEYCLOAK_ADMIN_ALLOW_EXTERNAL) for an https admin base on a host other
+     *                          than the issuer host; default off. The admin base itself is checked by {@link AdminBaseUri}
+     *                          and an unsafe value stops the start-up.
      * @param adminClientId     the service-account client ({@code platform-admin})
      * @param adminClientSecret its secret, read when a token is needed and held only for that call
      * @param rest              a client from {@link #restTemplate} (the shared breaker, the admin timeout)
      */
     public KeycloakAdminAdapter(String issuer, String adminClientId, Supplier<String> adminClientSecret,
             RestTemplate rest, ObservationRegistry observations) {
-        this.issuer = stripSlash(Objects.requireNonNull(issuer, "issuer"));
-        int realms = this.issuer.lastIndexOf("/realms/");
+        this(issuer, null, adminClientId, adminClientSecret, rest, observations);
+    }
+
+    public KeycloakAdminAdapter(String issuer, String adminBaseUri, String adminClientId,
+            Supplier<String> adminClientSecret, RestTemplate rest, ObservationRegistry observations) {
+        this(issuer, adminBaseUri, false, adminClientId, adminClientSecret, rest, observations);
+    }
+
+    public KeycloakAdminAdapter(String issuer, String adminBaseUri, boolean allowExternal, String adminClientId,
+            Supplier<String> adminClientSecret, RestTemplate rest, ObservationRegistry observations) {
+        // The issuer is kept exactly as configured: revoke and disable compare it with the stored one. Only the URLs
+        // built from it use a slash-trimmed copy; the slash stripping is for the admin base alone.
+        this.issuer = Objects.requireNonNull(issuer, "issuer");
+        String realmUri = stripSlash(this.issuer);
+        int realms = realmUri.lastIndexOf("/realms/");
         if (realms < 0) {
             throw new IllegalArgumentException("The issuer is not a Keycloak realm URI: " + this.issuer);
         }
-        this.tokenEndpoint = URI.create(this.issuer + "/protocol/openid-connect/token");
-        this.clientsResource = this.issuer.substring(0, realms) + "/admin" + this.issuer.substring(realms) + "/clients";
+        this.tokenEndpoint = URI.create(realmUri + "/protocol/openid-connect/token");
+        String adminBase = AdminBaseUri.resolve(adminBaseUri, this.issuer, allowExternal);
+        this.clientsResource = (adminBase != null ? adminBase : realmUri.substring(0, realms))
+                + "/admin" + realmUri.substring(realms) + "/clients";
         this.adminClientId = Objects.requireNonNull(adminClientId, "adminClientId");
         this.adminClientSecret = Objects.requireNonNull(adminClientSecret, "adminClientSecret");
         this.rest = Objects.requireNonNull(rest, "rest");
@@ -226,6 +248,10 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
     }
 
     private static String stripSlash(String uri) {
-        return uri.endsWith("/") ? uri.substring(0, uri.length() - 1) : uri;
+        int end = uri.length();
+        while (end > 0 && uri.charAt(end - 1) == '/') {
+            end--;
+        }
+        return uri.substring(0, end);
     }
 }

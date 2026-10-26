@@ -127,11 +127,16 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
 
     /** {@code RETRY_WAIT -> DUE}: the stored retry time was reached (the delivery-retry job's re-drive). */
     public boolean redrive(UUID id, Instant at) {
+        return redrive(id, at, null);
+    }
+
+    /** The same re-drive with a named cause in the {@code REDRIVE} event detail (e.g. {@code slot-free}). */
+    public boolean redrive(UUID id, Instant at, String detail) {
         return transition(
                 "update public.delivery set state = 'DUE', updated_at = :at, next_attempt_at = null",
                 "id = :id::uuid and state = 'RETRY_WAIT'",
                 params("at", at, "id", id.toString()),
-                id, DeliveryEventType.REDRIVE, null, at);
+                id, DeliveryEventType.REDRIVE, detail, at);
     }
 
     /** {@code SENDING -> RETRY_WAIT} with the new retry time, conditional on the claim token. */
@@ -430,6 +435,12 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
     public int stage1InsertPerRoute(Collection<Stage1Delivery> deliveries) {
         int inserted = 0;
         for (Stage1Delivery delivery : deliveries) {
+            if (delivery.mappingVersionId() != null && delivery.contractVersionId() == null) {
+                // T172 (BS-10): never a mapping pin without its contract pin - the replay could not pin it (409)
+                throw new IllegalArgumentException("stage-1 delivery of message " + delivery.messageId() + " route "
+                        + delivery.routeId() + " pins mapping version " + delivery.mappingVersionId()
+                        + " without a contract version");
+            }
             List<UUID> ids = query(
                     "with ins as ("
                             + " insert into public.delivery"

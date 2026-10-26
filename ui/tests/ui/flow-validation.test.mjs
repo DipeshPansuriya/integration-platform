@@ -57,8 +57,11 @@ test('B13 rework: a field error shows the refusal sentence itself; the fixed tex
     'errorText() prefers validationServerText; validationText(field, serverText) is the fallback');
   // The client-side source-schema refusal (invalid JSON before any call) carries no server text: it must
   // still land on the field.
-  assert.match(editor, /catch \{\s*\n?\s*setValidationField\('source-schema'\);/,
-    'a JSON.parse failure on the schema sets the source-schema field');
+  // A1-A3 (B27): the save logic moved to flow-save.ts; the page applies its 'validation' outcome to the field.
+  const saveLogic = readFileSync(join(src, 'pages', 'flow-save.ts'), 'utf8');
+  assert.match(saveLogic, /catch \{\s*return \{ kind: 'validation', field: 'source-schema'/,
+    'a JSON.parse failure on the schema yields a source-schema validation outcome');
+  assert.match(editor, /setValidationField\(outcome\.field\)/);
 });
 
 test('B13: all four validatable fields are aria-wired and render their visible error paragraph', () => {

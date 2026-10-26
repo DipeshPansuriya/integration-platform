@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { reportRows, reportColumns, reportQuery, todayUtc } = await import(
+const { reportRows, reportColumns, reportQuery, todayUtc, reportDayBounds, REPORT_MAX_AGE_DAYS } = await import(
   '../../src/pages/delivery-report-view.ts'
 );
 
@@ -66,4 +66,11 @@ test('reportQuery validates the day and drops junk (a junk value would be a 400,
 
 test('todayUtc is the backend shape: a UTC YYYY-MM-DD day', () => {
   assert.equal(todayUtc(new Date('2026-10-19T01:23:45Z')), '2026-10-19');
+});
+
+test('T194 reportDayBounds: the day picker spans today back 31 UTC days, the window the API accepts (older or future = 400)', () => {
+  assert.equal(REPORT_MAX_AGE_DAYS, 31, 'mirrors platform.delivery.report.max-age-days (default 31)');
+  assert.deepEqual(reportDayBounds(new Date('2026-10-23T23:59:59Z')), { min: '2026-09-22', max: '2026-10-23' });
+  // UTC, not local: just after midnight UTC the new day is already allowed, across a month and a year edge
+  assert.deepEqual(reportDayBounds(new Date('2027-01-01T00:00:01Z')), { min: '2026-12-01', max: '2027-01-01' });
 });

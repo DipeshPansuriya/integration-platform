@@ -321,9 +321,8 @@ final class EndpointMatrix {
             new B9FlowRoutesMatrix(), new E11IntakeMatrix(), new F10QueueSummaryMatrix(), new E13TimelineMatrix(),
             new T111DeliveryOperatorMatrix(),
             new E12ActivityMatrix(),
-            // forged-tenant triage 2026-10-22: endpoints the coverage guard listed without an entry
-            new E14JobAdminMatrix(), new E16ApprovedTableMatrix(), new E13ReportFacadeMatrix(),
-            new E13DeliveryReportMatrix());
+            // T186: job admin (operator agent only), the report reads, the E16 F3 approved tables
+            new T186JobAdminMatrix(), new T186ReportMatrix(), new T186ApprovedTableMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),

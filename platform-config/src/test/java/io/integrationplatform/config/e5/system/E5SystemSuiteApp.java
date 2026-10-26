@@ -43,6 +43,12 @@ public class E5SystemSuiteApp {
     /** The one WireMock of the JVM's lane B suites; started by the suites that need it. */
     static final WireMockDestination WIREMOCK = new WireMockDestination();
 
+    /** T178a: this config-only suite has no partner database to probe; the routing module's probe is proven elsewhere. */
+    @Bean
+    io.integrationplatform.config.system.application.DbAccountWidthCheck e5SystemSuiteNarrowAccount() {
+        return (systemId, settings) -> java.util.Optional.empty();
+    }
+
     @Primary
     @Bean
     JwtDecoder e5SystemSuiteTokenDecoder() {

@@ -46,6 +46,8 @@ public final class ConfigAuditActions {
     public static final String DB_TABLE_REQUESTED = "DB_TABLE_REQUESTED";
     public static final String DB_TABLE_APPROVED = "DB_TABLE_APPROVED";
     public static final String DB_TABLE_REVOKED = "DB_TABLE_REVOKED";
+    /** L19: an approval refused after authorisation and state checks (wide or unverifiable account, target changed). */
+    public static final String DB_TABLE_APPROVAL_REFUSED = "DB_TABLE_APPROVAL_REFUSED";
 
     private ConfigAuditActions() {
     }

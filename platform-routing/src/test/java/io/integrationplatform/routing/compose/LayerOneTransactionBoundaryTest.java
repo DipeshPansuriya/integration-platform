@@ -8,35 +8,30 @@ import io.integrationplatform.routing.stage2.TargetCall;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * E15/E9 gap: the layer-1 route keeps the whole-call transaction only for the types whose adapters still read the
- * database mid-call (DB, FILE). API (T71), MQ and KAFKA own their short reads and run the call with no transaction.
+ * T71/T175: the layer-1 route wraps NO target type in a whole-call transaction. Every type, DB and FILE included,
+ * reads in its own short transaction and holds no pooled connection while the call is in flight. The DB and FILE
+ * adapter wiring is pinned by DbPoolIsolationTest and FilePoolIsolationTest; this test pins that the composition
+ * hands the registry's calls to the router as they are.
  */
 class LayerOneTransactionBoundaryTest {
 
     private final Stage2Send send =
             new Stage2Send(UUID.randomUUID(), UUID.randomUUID(), null, UUID.randomUUID(), false);
 
-    private int openDuringCall(String type) {
+    @Test
+    void everyTargetTypeRunsItsCallWithNoTransactionOpen() {
         CountingTransactionManager pool = new CountingTransactionManager();
         AtomicInteger open = new AtomicInteger(-1);
-        TargetCall call = s -> open.set(pool.open());
-        PipelineCompositionConfiguration.wrapForType(type, call, new TransactionTemplate(pool)).call(send);
-        return open.get();
-    }
-
-    @Test
-    void apiMqAndKafkaCallsHoldNoTransaction() {
-        assertThat(openDuringCall("API")).isZero();
-        assertThat(openDuringCall("MQ")).isZero();
-        assertThat(openDuringCall("KAFKA")).isZero();
-    }
-
-    @Test
-    void dbAndFileCallsStillRunInsideOneTransaction() {
-        assertThat(openDuringCall("DB")).isEqualTo(1);
-        assertThat(openDuringCall("FILE")).isEqualTo(1);
+        TargetCall probe = s -> open.set(pool.open());
+        for (String type : new String[] {"API", "MQ", "KAFKA", "DB", "FILE"}) {
+            open.set(-1);
+            TargetCall routed = PipelineCompositionConfiguration.routedCalls(java.util.Map.of(type, probe)).get(type);
+            assertThat(routed).as("the %s call is routed as composed, not wrapped", type).isSameAs(probe);
+            routed.call(send);
+            assertThat(open.get()).as("transactions open during the %s call", type).isZero();
+        }
+        assertThat(pool.begun()).isZero();
     }
 }

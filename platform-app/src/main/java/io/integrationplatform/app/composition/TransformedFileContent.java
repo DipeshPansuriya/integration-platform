@@ -1,7 +1,9 @@
 package io.integrationplatform.app.composition;
 
+import io.integrationplatform.domain.delivery.OutcomeClass;
 import io.integrationplatform.routing.adapter.api.ApiTargetBody;
 import io.integrationplatform.routing.adapter.file.FileTargetContent;
+import io.integrationplatform.routing.stage2.TargetFaultException;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,6 +32,10 @@ final class TransformedFileContent {
         return send -> body.bodyFor(send).map(wire -> {
             String extension = wire.contentType().toLowerCase(Locale.ROOT).contains("csv") ? "csv" : "json";
             String pattern = pattern(settingsJson.apply(send.targetEndpointId()).orElse(null));
+            if (pattern != null && !pattern.contains("{deliveryId}")) { // T178c-1: stored before the rule; never overwrite
+                throw new TargetFaultException(OutcomeClass.PERMANENT,
+                        "File name pattern has no {deliveryId}: edit the target system before it can send");
+            }
             String name = pattern == null ? send.deliveryId() + "." + extension
                     : pattern.replace("{deliveryId}", send.deliveryId().toString()).replace("{ext}", extension);
             return new FileTargetContent.Content(name, wire.bytes());

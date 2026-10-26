@@ -6,3 +6,5 @@ node_modules/
 .idea/
 .vscode/
 .claude/worktrees/
+# Journey run outputs (videos, traces and HTML reports hold run-scoped credentials)
+/_reports/
