@@ -660,6 +660,53 @@ class DeliveryDueDispatchTest {
     }
 
     @Test
+    @DisplayName("T190 optional: a SLOT_FREE re-drive resets the sticky cap - HELD claims counted while the send ran"
+            + " do not keep the next deferral from chaining")
+    void aSlotFreeRedriveResetsTheStickyCap() throws Exception {
+        UUID running = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(2);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            facts.byDelivery.put(running, new BulkheadFacts(target, "key-r", 0));
+            CountDownLatch inSend = new CountDownLatch(1);
+            CountDownLatch finishSend = new CountDownLatch(1);
+            send.onCall = thread -> {
+                inSend.countDown();
+                try {
+                    finishSend.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            };
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            dispatch.onWork(deliveryRecord(running), TENANT);
+            assertThat(inSend.await(5, TimeUnit.SECONDS)).isTrue(); // permit 1 held by the running send
+
+            deferOnce(dispatch, registry, target); // permit 2 taken by hand: the record defers
+            for (int i = 0; i < 9; i++) {
+                claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+                dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+            }
+            assertThat(redrive.calls).as("8 chained, the 9th is past the cap").hasSize(8);
+
+            finishSend.countDown();
+            awaitRedrives(9); // the finished send's own SLOT_FREE re-drive
+            assertThat(redrive.calls.get(8).cause()).isEqualTo(BulkheadRedrive.Cause.SLOT_FREE);
+
+            claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+            dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+
+            assertThat(redrive.calls.stream().filter(c -> c.cause() == BulkheadRedrive.Cause.HELD_CHAIN).count())
+                    .as("the slot-free re-drive reset the cap, so this HELD chains again (was: stuck at the cap)")
+                    .isEqualTo(9);
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("T190-1: HELD claims with nothing deferred here are no-ops and do not spend the sticky cap -"
             + " a later real deferral still chains")
     void noOpHeldClaimsDoNotSpendTheStickyCap() throws Exception {

@@ -247,7 +247,7 @@ class LayerOneRouteTemplateOutcomeTest {
         RouteInstance instance = mock(RouteInstance.class);
         when(instance.consumerUri()).thenReturn("direct:stage2-send");
         RouteInstanceFactory routes = mock(RouteInstanceFactory.class);
-        when(routes.ensure(row)).thenReturn(instance);
+        when(routes.ensure(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(row))).thenReturn(instance);
         JdbcDueDeliveries deliveries = mock(JdbcDueDeliveries.class);
         when(deliveries.claimed(DELIVERY)).thenReturn(Optional.of(
                 new JdbcDueDeliveries.DueDelivery(DELIVERY, ROUTE, ENDPOINT, IFACE, "key-1")));

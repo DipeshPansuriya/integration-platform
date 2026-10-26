@@ -4,7 +4,7 @@
 // /api/v1/admin/rule-sets/{ruleSetId}/evaluate on the one typed client - never an engine in the
 // browser. Its verdict is the canonical JSON (keys sorted, no whitespace) of {output, violations}
 // from the evaluate answer, so lane C's parity test (T-029) can compare it byte for byte with the
-// port's own answer. The screen side is ui/tests/screens/rules-editor.docker.spec.mjs.
+// port's own answer. The screen side is e2e-ui/tests/screens/rules-editor.docker.spec.mjs.
 
 import fs from 'node:fs';
 import path from 'node:path';

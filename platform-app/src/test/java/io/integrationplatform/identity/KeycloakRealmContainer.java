@@ -244,7 +244,7 @@ public final class KeycloakRealmContainer extends GenericContainer<KeycloakRealm
 
     /**
      * Drives the console login the way a browser does, for tests without a browser (the Playwright twin lives in
-     * {@code ui/tests/screens/keycloak-login.mjs}): the backend's {@code /oauth2/authorization/keycloak} redirect,
+     * {@code e2e-ui/tests/screens/keycloak-login.mjs}): the backend's {@code /oauth2/authorization/keycloak} redirect,
      * the realm's login form, the code callback - every response is kept for inspection.
      */
     public ConsoleBrowser browser(URI backend) {

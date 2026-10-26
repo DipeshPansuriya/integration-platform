@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "orderNo",
+    "customer",
+    "qty",
+    "contractVersion"
+  ],
+  "properties": {
+    "orderNo": {
+      "type": "string"
+    },
+    "customer": {
+      "type": "string"
+    },
+    "qty": {
+      "type": "number"
+    },
+    "contractVersion": {
+      "type": "string"
+    }
+  }
+}

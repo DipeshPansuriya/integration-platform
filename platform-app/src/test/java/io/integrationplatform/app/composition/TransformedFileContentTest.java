@@ -64,4 +64,17 @@ class TransformedFileContentTest {
     void noTransformResultIsNoContent() {
         assertThat(content("application/json", null, "{\"rootPath\":\"/out\"}").contentFor(SEND)).isEmpty();
     }
+
+    /** T178c-1: a stored fixed name would overwrite (or dead-letter) the next delivery - the send is refused, static text. */
+    @Test
+    void aStoredPatternWithoutDeliveryIdRefusesTheSendWithAStaticPermanentFault() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> content("application/json", OUTPUT,
+                "{\"rootPath\":\"/out\",\"fileNamePattern\":\"orders-SECRET.csv\"}").contentFor(SEND))
+                .isInstanceOfSatisfying(io.integrationplatform.routing.stage2.TargetFaultException.class, fault -> {
+                    org.assertj.core.api.Assertions.assertThat(fault.outcomeClass())
+                            .isEqualTo(io.integrationplatform.domain.delivery.OutcomeClass.PERMANENT);
+                    org.assertj.core.api.Assertions.assertThat(fault.getMessage()).doesNotContain("SECRET")
+                            .contains("{deliveryId}");
+                });
+    }
 }

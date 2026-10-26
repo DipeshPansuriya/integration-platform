@@ -84,7 +84,7 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
         }
         RouteInstance instance;
         try {
-            instance = routes.ensure(row);
+            instance = routes.ensure(tenantId, row);
         } catch (RouteBuildRefusedException refused) {
             log.warn("stage 2: delivery {} - its route instance was refused: {}", send.deliveryId(),
                     refused.getMessage());

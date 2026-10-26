@@ -11,7 +11,7 @@ import java.util.Optional;
 /**
  * Row 323 T139/T140: one flag per T-item - is its feature on local main? Flip ONE line when the item lands; every
  * scenario annotated {@code @WaitsOn(item)} then runs. Never flip for a lane or seam branch. Same pattern as the
- * base suite's {@code ui/tests/base-suite/lib/pending-names.mjs} (lane t130). Measured against main efa7d1d, 18-Oct; T96/T98/T99/T111/T112/T143/T144/T157 re-measured against main ecef544b, 22-Oct (lane t174-sc).
+ * base suite's {@code e2e-ui/tests/base-suite/lib/pending-names.mjs} (lane t130). Measured against main efa7d1d, 18-Oct; T96/T98/T99/T111/T112/T143/T144/T157 re-measured against main ecef544b, 22-Oct (lane t174-sc).
  */
 public final class Release1Pending {
 
@@ -38,7 +38,7 @@ public final class Release1Pending {
         flags.put("T121", false); // report screen - not on main
         flags.put("T143", true); // platform-e2e compose profile - on main (compose/compose.yaml profile e2e: artemis + wiremock); provisions NO bearer tokens and NO REF-ORDER seed
         flags.put("T144", true); // AdjustableClock (e2e profile) - on main (PlatformClockConfiguration @Profile e2e)
-        flags.put("T157", true); // tenant B seed - on main (ui/tests/base-suite/lib/tenants.mjs TENANT_B_PLAN)
+        flags.put("T157", true); // tenant B seed - on main (e2e-ui/tests/base-suite/lib/tenants.mjs TENANT_B_PLAN)
         ON_MAIN = Collections.unmodifiableMap(flags);
     }
 

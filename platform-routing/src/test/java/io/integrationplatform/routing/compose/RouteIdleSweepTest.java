@@ -55,7 +55,7 @@ class RouteIdleSweepTest {
 
     @Test
     void aSweepRemovesTheInstanceIdlePastThirtyMinutesAndKeepsAFreshOne() {
-        RouteInstance instance = factory.ensure(new RouteConfigRow(UUID.randomUUID(), ENDPOINT, "API",
+        RouteInstance instance = factory.ensure(java.util.UUID.fromString("00000000-0000-4000-8000-0000000000aa"), new RouteConfigRow(UUID.randomUUID(), ENDPOINT, "API",
                 "https://target-a.example/v1", null, UUID.randomUUID()));
         RouteIdleSweep sweep = new RouteIdleSweep(factory, now::get);
 

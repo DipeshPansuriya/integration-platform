@@ -10,7 +10,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import {
-  addLink as addLinkToGraph, changeLink as changeLinkOnGraph, deleteLink as deleteLinkFromGraph,
+  addLink as addLinkToGraph, autoMapMessage, autoMatchLinks, changeLink as changeLinkOnGraph, deleteLink as deleteLinkFromGraph,
   emptyGraph, parseSavedMapping, schemaPaths, targetRefusal, toSaveRequest
 } from '../mapping/graph';
 import { applyExpressionEdit as applyRawEdit } from '../mapping/expression/raw';
@@ -84,6 +84,7 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
   const [versions, setVersions] = useState<VersionOption[]>([]);
   const [selected, setSelected] = useState<CanvasSelected>({ source: null, target: null });
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [autoMapNote, setAutoMapNote] = useState<string | null>(null); // A1: the polite announcement after Auto-map
   const [saved, setSaved] = useState(false);
   // T92: the sample runs the SAVED mapping - its id, and whether the drawing has unsaved edits.
   const [mappingId, setMappingId] = useState<string | null>(null);
@@ -162,6 +163,7 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
   const bindSide = async (side: 'sourceContractVersionId' | 'targetContractVersionId', versionId: string) => {
     setSaved(false);
     setDirty(true);
+    setAutoMapNote(null);
     const schema = versionId ? (await loadVersion(versionId))?.jsonSchema ?? null : null;
     setTargetSchema((current) => (side === 'targetContractVersionId' ? schema : current));
     setGraph((current) => ({
@@ -185,6 +187,7 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
     if (!selected.source || !selected.target) return;
     setSaved(false);
     setDirty(true);
+    setAutoMapNote(null);
     const { graph: next, refusal: refused } = addLinkToGraph(graph, selected.source, selected.target);
     if (refused) {
       setRefusal(refused); // named field (the target contract does not have it)
@@ -195,9 +198,21 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
     setRefusal(emitted.refusal);
   };
 
+  const autoMap = () => {
+    setSaved(false);
+    setDirty(true);
+    setAutoMapNote(null);
+    const matched = autoMatchLinks(graph);
+    const emitted = withEmitted(matched.graph);
+    setGraph(emitted.graph);
+    setRefusal(emitted.refusal);
+    setAutoMapNote(autoMapMessage(matched.added));
+  };
+
   const changeTarget = (id: string, target: string) => {
     setSaved(false);
     setDirty(true);
+    setAutoMapNote(null);
     const { graph: next, refusal: refused } = changeLinkOnGraph(graph, id, { target });
     if (refused) {
       setGraph(next);
@@ -212,6 +227,7 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
   const removeLink = (id: string) => {
     setSaved(false);
     setDirty(true);
+    setAutoMapNote(null);
     const emitted = withEmitted(deleteLinkFromGraph(graph, id));
     setGraph(emitted.graph);
     setRefusal(emitted.refusal);
@@ -225,6 +241,7 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
     if (text === graph.expression) return;
     setSaved(false);
     setDirty(true);
+    setAutoMapNote(null);
     const { graph: next, refusal: refused } = applyRawEdit(graph, text);
     setGraph(next);
     setRefusal(refused);
@@ -367,10 +384,16 @@ function MappingDesignerRoute({ routeId }: { routeId: string | null }) {
                 >
                   Link selected fields
                 </button>
+                <button type="button" className="btn" data-action="auto-map-matching" onClick={autoMap} disabled={graph.sourceFields.length === 0}>
+                  Auto-map matching names
+                </button>
                 <button type="button" className="btn btn-primary" data-action="save" onClick={() => void save()} disabled={!canSaveMapping({ routeId, loaded, loadError })}>
                   Save
                 </button>
                 <div className="mapping-actions-note">
+                  <p role="status" aria-live="polite" className="mapping-auto-map-note" data-auto-map-result>
+                    {autoMapNote}
+                  </p>
                   {refusal && (
                     <p role="alert" className="mapping-alert mapping-alert-danger" data-refusal>
                       {refusal}

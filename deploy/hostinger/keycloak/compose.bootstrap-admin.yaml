@@ -1,0 +1,7 @@
+# First start only (README step 8/11): the temporary Keycloak bootstrap admin, kept out of compose.yaml and out of .env.
+#   docker compose -f compose.yaml -f keycloak/compose.bootstrap-admin.yaml up -d
+# bootstrap-env.sh writes the credential to .env.bootstrap-admin (mode 600). keycloak/retire-bootstrap-admin.sh deletes
+# the user and the file and re-creates keycloak from compose.yaml alone.
+services:
+  keycloak:
+    env_file: [ "${IPASS_BOOTSTRAP_ADMIN_FILE:-.env.bootstrap-admin}" ]
