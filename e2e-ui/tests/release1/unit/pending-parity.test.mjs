@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { ON_MAIN, waitsOn } from '../pending.mjs';
+import { ON_MAIN, waitsOn, waitsOnIn } from '../pending.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const JAVA = path.resolve(HERE, '../../../../platform-e2e/src/test/java/io/integrationplatform/e2e/release1/Release1Pending.java');
@@ -26,11 +26,20 @@ test('the items the journey waits on (T98 MQ target, T143 e2e profile) are on ma
   assert.equal(waitsOn('T98', 'T143'), null);
 });
 
-// T121 (report screen) was the "not on main" example until it landed; the check now follows the map, so it never goes stale again.
-test('the gate names what is missing: the first item not on main, or null when everything is', () => {
-  const missing = Object.keys(ON_MAIN).find((item) => !ON_MAIN[item]);
-  if (missing) assert.match(waitsOn('T95', missing), new RegExp(`waits on ${missing}`));
-  else assert.equal(waitsOn(...Object.keys(ON_MAIN)), null);
+// A synthetic map, so the gate can fail whatever ON_MAIN holds today (T121 was the real "not on main" example until it landed).
+test('the gate names what is missing: an item not on main yields "waits on X", all on main yields null', () => {
+  const map = { A1: true, B2: false, C3: false };
+  assert.match(waitsOnIn(map, 'A1', 'B2'), /^waits on B2 \(not on main\)/);
+  assert.match(waitsOnIn(map, 'B2', 'C3'), /waits on B2, C3/);
+  assert.equal(waitsOnIn(map, 'A1'), null);
+  assert.equal(waitsOnIn({ A1: true, B2: true }, 'A1', 'B2'), null);
+  assert.throws(() => waitsOnIn(map, 'Z9'), /unknown/);
+});
+
+test('the real waitsOn is waitsOnIn over ON_MAIN', () => {
+  const items = Object.keys(ON_MAIN);
+  assert.equal(waitsOn(...items), waitsOnIn(ON_MAIN, ...items));
+  assert.equal(waitsOn(...items) === null, items.every((item) => ON_MAIN[item]));
 });
 
 test('waitsOn refuses an unknown item and an empty call (the throw paths the old @negative test held)', () => {

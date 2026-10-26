@@ -14,11 +14,11 @@ Install: `npm ci` here (own lock; same npm cache as `ui/`; offline works from th
 
 | Command (run in `e2e-ui/`) | Was (in `ui/`) |
 |---|---|
-| `npm test` (98 unit tests) | part of `npm test` |
+| `npm test` (111 unit tests) | part of `npm test` |
 | `npm run test:screens` / `test:mocked` / `test:e2e-full-ui` | same names |
 | `npm run test:release1-journey -- <log>` / `node scripts/run-release1-gate.mjs <log>` | same names |
 | `npx playwright test -c playwright.base-suite.config.mjs` / `playwright.security.config.mjs` / `playwright.release1.config.mjs` | same files |
 | `npm run test:container` / `test:trial` / `trial` / `perf` / `test:perf` | same names |
 
 From `ui/` every old script name still works: it runs `npm --prefix ../e2e-ui run <name>` (extra args: run it in `e2e-ui/` instead).
-`ui` `npm test` = 383 own tests + the 98 here = 481; `npm run test:product` runs only the 383.
+`ui` `npm test` = 383 own tests + the 111 here = 494; `npm run test:product` runs only the 383.
