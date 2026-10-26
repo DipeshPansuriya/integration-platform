@@ -7,7 +7,9 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.context.annotation.Bean;
+import io.integrationplatform.suitesupport.SuiteSchedulerConfig;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 
@@ -30,6 +32,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
  * E3LaneCSuiteApp's javadoc). Without a stereotype annotation the scan never picks this class up.
  */
 @EnableAutoConfiguration
+@Import(SuiteSchedulerConfig.class)
 @ComponentScan(basePackages = {
         "io.integrationplatform.config",
         "io.integrationplatform.tenancy.internal.persistence",
@@ -39,6 +42,12 @@ public class E5SystemSuiteApp {
 
     /** The one WireMock of the JVM's lane B suites; started by the suites that need it. */
     static final WireMockDestination WIREMOCK = new WireMockDestination();
+
+    /** T178a: this config-only suite has no partner database to probe; the routing module's probe is proven elsewhere. */
+    @Bean
+    io.integrationplatform.config.system.application.DbAccountWidthCheck e5SystemSuiteNarrowAccount() {
+        return (systemId, settings) -> java.util.Optional.empty();
+    }
 
     @Primary
     @Bean

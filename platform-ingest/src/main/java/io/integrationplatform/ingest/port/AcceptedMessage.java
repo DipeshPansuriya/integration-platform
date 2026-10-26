@@ -11,8 +11,13 @@ import java.util.UUID;
  * @param trackingId the message id; the message's {@code accepted_at} (its partition key) belongs to the same
  *        committed transaction
  * @param outboxId the outbox row id carrying {@code platform.message.accepted} for this message
+ * @param sync true when the interface is SYNC and the caller may wait for an inline answer (T-129)
  */
-public record AcceptedMessage(UUID trackingId, long outboxId) {
+public record AcceptedMessage(UUID trackingId, long outboxId, boolean sync) {
+
+    public AcceptedMessage(UUID trackingId, long outboxId) {
+        this(trackingId, outboxId, false);
+    }
 
     public AcceptedMessage {
         java.util.Objects.requireNonNull(trackingId, "trackingId");

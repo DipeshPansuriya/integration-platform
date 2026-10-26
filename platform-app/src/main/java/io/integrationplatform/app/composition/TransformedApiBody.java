@@ -2,6 +2,7 @@ package io.integrationplatform.app.composition;
 
 import io.integrationplatform.routing.adapter.api.ApiTargetBody;
 import io.integrationplatform.routing.stage2.Stage2Send;
+import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.tenancy.TenantContext;
 import io.integrationplatform.tenancy.TenantScopedRepository;
 import io.integrationplatform.transform.api.LookupSource;
@@ -33,12 +34,20 @@ final class TransformedApiBody implements ApiTargetBody {
     private final Inputs inputs;
     private final TransformPort transform;
     private final LookupSource lookups;
+    private final StageTimings timings;
 
     TransformedApiBody(JdbcClient jdbcClient, TenantContext tenantContext, TransformPort transform,
             LookupSource lookups) {
+        this(jdbcClient, tenantContext, transform, lookups, null);
+    }
+
+    /** T105: records the TRANSFORM stage timing for the message when a timing writer is bound. */
+    TransformedApiBody(JdbcClient jdbcClient, TenantContext tenantContext, TransformPort transform,
+            LookupSource lookups, StageTimings timings) {
         this.inputs = new Inputs(jdbcClient, tenantContext);
         this.transform = Objects.requireNonNull(transform, "transform");
         this.lookups = Objects.requireNonNull(lookups, "lookups");
+        this.timings = timings;
     }
 
     @Override
@@ -54,10 +63,18 @@ final class TransformedApiBody implements ApiTargetBody {
                     input.engine());
             return Optional.empty();
         }
+        java.time.Instant startedAt = java.time.Instant.now();
         TransformPort.Result result = transform.transform(input.expression(), input.payloadJson(), lookups);
         if (result.status() != TransformPort.Status.OK || result.outputJson() == null) {
             log.warn("delivery {}: the pinned mapping version answered {}", send.deliveryId(), result.status());
             return Optional.empty();
+        }
+        if (timings != null && input.messageId() != null) {
+            try {
+                timings.record(input.messageId(), StageTimings.Stage.TRANSFORM, startedAt, java.time.Instant.now());
+            } catch (RuntimeException ignored) {
+                // T105: transform timing is observational; it must not fail a send
+            }
         }
         log.info("delivery {}: transformed through its pinned mapping version", send.deliveryId());
         return Optional.of(new ApiWireBody("application/json", result.outputJson().getBytes(StandardCharsets.UTF_8)));
@@ -66,11 +83,12 @@ final class TransformedApiBody implements ApiTargetBody {
     /** The delivery's pinned mapping version and its message's payload - one table in the FROM clause (R08). */
     static final class Inputs extends TenantScopedRepository {
 
-        record Input(String expression, String engine, String payloadJson) {
+        record Input(UUID messageId, String expression, String engine, String payloadJson) {
         }
 
         private static final String SELECT_INPUT = """
-                select (select mv.compiled_expression from public.mapping_version mv
+                select d.message_id as message_id,
+                       (select mv.compiled_expression from public.mapping_version mv
                          where mv.id = d.mapping_version_id) as expression,
                        (select mv.engine from public.mapping_version mv
                          where mv.id = d.mapping_version_id) as engine,
@@ -84,9 +102,11 @@ final class TransformedApiBody implements ApiTargetBody {
 
         Optional<Input> forDelivery(UUID deliveryId) {
             List<Input> rows = query(SELECT_INPUT, "d.id = :id::uuid", Map.of("id", deliveryId.toString()),
-                    (rs, n) -> new Input(rs.getString("expression"), rs.getString("engine"),
-                            rs.getString("payload")));
+                    (rs, n) -> new Input(rs.getObject("message_id", UUID.class), rs.getString("expression"),
+                            rs.getString("engine"), rs.getString("payload")));
             return rows.stream().findFirst();
         }
     }
+
+    // (keep forDelivery mapping below intact)
 }

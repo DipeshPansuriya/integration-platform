@@ -111,6 +111,9 @@ public final class StageConsumer {
     private final StageAlerts alerts;
     private final io.github.resilience4j.circuitbreaker.CircuitBreaker breaker;
     private boolean breakerPausedAll;
+    /** T-201 (E10-F15): readiness DOWN pauses the whole assignment, commits nothing, and resumes once UP. */
+    private final java.util.function.BooleanSupplier ready;
+    private boolean readinessPaused;
     /** The single consumer thread reads these back for the alert and the breaker; never shared. */
     private String lastUnreadableReason;
     private Throwable lastTransientCause;
@@ -126,6 +129,16 @@ public final class StageConsumer {
             Duration pollTimeout, Clock clock, Sleeper sleeper, StageSettings settings,
             io.micrometer.core.instrument.MeterRegistry meters,
             io.micrometer.observation.ObservationRegistry observations, StageAlerts alerts) {
+        this(consumer, parser, rows, handler, poison, backoff, pollTimeout, clock, sleeper, settings, meters,
+                observations, alerts, () -> true);
+    }
+
+    public StageConsumer(Consumer<byte[], byte[]> consumer, WorkRecordParser parser, ProtectedRows rows,
+            Handler handler, PoisonSink poison, java.util.function.IntFunction<Duration> backoff,
+            Duration pollTimeout, Clock clock, Sleeper sleeper, StageSettings settings,
+            io.micrometer.core.instrument.MeterRegistry meters,
+            io.micrometer.observation.ObservationRegistry observations, StageAlerts alerts,
+            java.util.function.BooleanSupplier ready) {
         this.consumer = consumer;
         this.parser = parser;
         this.rows = rows;
@@ -139,9 +152,10 @@ public final class StageConsumer {
         this.meters = meters;
         this.observations = observations;
         this.alerts = alerts;
+        this.ready = ready;
         if (settings != null && meters != null) {
             this.breaker = io.github.resilience4j.circuitbreaker.CircuitBreaker
-                    .of("database-" + settings.group(), io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
+                    .of(settings.breakerName(), io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
                             .custom()
                             .slidingWindowSize(settings.breakerFailureThreshold())
                             .minimumNumberOfCalls(settings.breakerFailureThreshold())
@@ -221,6 +235,16 @@ public final class StageConsumer {
                 return noRow(kind, contract);
             }
             handler.onWork(contract, tenantId);
+        } catch (UnroutableWorkException e) {
+            // T190: work that can never succeed goes to poison once (like an unreadable record), never TRANSIENT
+            lastUnreadableReason = e.getMessage();
+            try {
+                poison.write(record.key(), record.value(), e.getMessage());
+            } catch (RuntimeException poisonFailure) {
+                lastTransientCause = poisonFailure;
+                return Outcome.TRANSIENT;
+            }
+            return Outcome.POISONED;
         } catch (RuntimeException e) {
             lastTransientCause = e;
             return Outcome.TRANSIENT;
@@ -238,6 +262,26 @@ public final class StageConsumer {
      * the number of records seen.
      */
     public int drainOnce() throws InterruptedException {
+        if (!ready.getAsBoolean()) {
+            // Re-paused every turn so a rebalance's new partitions stay stopped; the zero poll keeps group
+            // membership, nothing is worked or committed, and any record it still returns is fetched again.
+            consumer.pause(consumer.assignment());
+            readinessPaused = true;
+            ConsumerRecords<byte[], byte[]> unwanted = consumer.poll(Duration.ZERO);
+            for (TopicPartition partition : unwanted.partitions()) {
+                consumer.seek(partition, unwanted.records(partition).get(0).offset());
+            }
+            sleeper.sleep(pollTimeout); // bounded wait, like the open breaker - never a hot spin
+            return 0;
+        }
+        if (readinessPaused) {
+            readinessPaused = false;
+            if (!breakerPausedAll) {
+                List<TopicPartition> resumeBack = new ArrayList<>(consumer.assignment());
+                resumeBack.removeAll(paused.keySet()); // a recorded back-off keeps its own resume time
+                consumer.resume(resumeBack);
+            }
+        }
         if (breaker != null && !breaker.tryAcquirePermission()) {
             // The breaker is open and the open period has not passed: none of the group's partitions is
             // polled. The wait is bounded like the empty poll below, never a hot spin.
@@ -267,8 +311,11 @@ public final class StageConsumer {
             consumer.resume(due);
         }
 
-        ConsumerRecords<byte[], byte[]> records = consumer.poll(pollTimeout);
+        // T-122: this poll's handled offsets leave in ONE commitSync at the end of the turn - the per-record
+        // commit round trip was the measured drip amplifier; the poison/transient commit rules are unchanged.
+        ConsumerRecords<byte[], byte[]> records = timed("poll", () -> consumer.poll(pollTimeout));
         List<TopicPartition> batch = new ArrayList<>(records.partitions());
+        Map<TopicPartition, OffsetAndMetadata> handled = new java.util.LinkedHashMap<>();
         for (int index = 0; index < batch.size(); index++) {
             TopicPartition partition = batch.get(index);
             if (breaker != null && breaker.getState()
@@ -276,6 +323,8 @@ public final class StageConsumer {
                 // The breaker opened mid-drain: the partitions of this poll not yet processed are seeked
                 // back to their first record and paused - the half-open trial redelivers them, none is
                 // skipped (the fetch moved their position past records no code has seen).
+                // The partitions handled before the breaker opened keep their offsets (was: one commit each).
+                commitHandled(handled);
                 for (TopicPartition skip : batch.subList(index, batch.size())) {
                     consumer.seek(skip, records.records(skip).get(0).offset());
                     consumer.pause(List.of(skip));
@@ -284,8 +333,11 @@ public final class StageConsumer {
             }
             for (ConsumerRecord<byte[], byte[]> record : records.records(partition)) {
                 seen++;
-                Outcome outcome = handleWithControls(record);
+                Outcome outcome = timed("handle", () -> handleWithControls(record));
                 if (outcome == Outcome.TRANSIENT) {
+                    // The handled prefix of this poll is committed first, the transient record never is: the
+                    // seek + pause below redeliver exactly it (T-113, T-181 unchanged).
+                    commitHandled(handled);
                     recordBreakerFailure();
                     if (breaker != null && breaker.getState()
                             == io.github.resilience4j.circuitbreaker.CircuitBreaker.State.OPEN && !breakerPausedAll) {
@@ -304,13 +356,28 @@ public final class StageConsumer {
                 if (breaker != null) {
                     breaker.onSuccess(0L, TimeUnit.MILLISECONDS);
                 }
-                if (paused.remove(partition) != null) {
+                boolean recovered = paused.remove(partition) != null;
+                if (recovered) {
                     // A retried record succeeded - the partition keeps its work (T-181: pauses and resumes).
                     consumer.resume(List.of(partition));
+                    long commitStart = System.nanoTime();
+                    try {
+                        consumer.commitSync(Map.of(partition, new OffsetAndMetadata(record.offset() + 1)));
+                    } finally {
+                        drainTimer("commit", commitStart);
+                    }
+                } else {
+                    handled.put(partition, new OffsetAndMetadata(record.offset() + 1));
+                    if (outcome == Outcome.POISONED) {
+                        // CTO fix (T-122): a poison offset commits at once - batching it would let a crash
+                        // redeliver the batch and write the poison record a second time (one-poison-topic rule).
+                        commitHandled(handled);
+                    }
                 }
-                consumer.commitSync(Map.of(partition, new OffsetAndMetadata(record.offset() + 1)));
             }
         }
+        // One commitSync for the whole poll batch (T-122): the per-record round trip was the drip amplifier.
+        commitHandled(handled);
 
         if (seen == 0) {
             // Nothing arrived - wait for the next pending pause's resume, or one poll interval, never a hot spin.
@@ -323,7 +390,9 @@ public final class StageConsumer {
                 waitMillis = earliest.toEpochMilli() - clock.instant().toEpochMilli();
             }
             if (waitMillis > 0) {
+                long settleStart = System.nanoTime();
                 sleeper.sleep(Duration.ofMillis(Math.min(waitMillis, pollTimeout.toMillis() * 4)));
+                drainTimer("settle", settleStart);
             }
         }
         return seen;
@@ -345,6 +414,40 @@ public final class StageConsumer {
             return outcome;
         } finally {
             observation.stop();
+        }
+    }
+
+    /** One commitSync per poll batch (T-122): the per-record commit round trip was the measured E9 drip
+     * amplifier. An offset is here only once its outcome is final, so the poison/transient commit rules of
+     * the class javadoc are unchanged; a failed commit redelivers the batch, the stages are idempotent. */
+    private void commitHandled(Map<TopicPartition, OffsetAndMetadata> handled) {
+        if (handled.isEmpty()) {
+            return;
+        }
+        long start = System.nanoTime();
+        try {
+            consumer.commitSync(handled);
+        } finally {
+            drainTimer("commit", start);
+            handled.clear();
+        }
+    }
+
+    /** T-122 drain probe: one named sub-step of the drain turn (poll / handle / commit / settle) timed into
+     * the meter registry, so the budget's hoard is attributable per sub-step without a stage-1 probe. */
+    private void drainTimer(String step, long startNanos) {
+        if (meters != null) {
+            meters.timer("platform.stage.drain", "group", settings.group(), "step", step)
+                    .record(System.nanoTime() - startNanos, java.util.concurrent.TimeUnit.NANOSECONDS);
+        }
+    }
+
+    private <T> T timed(String step, java.util.function.Supplier<T> work) {
+        long start = System.nanoTime();
+        try {
+            return work.get();
+        } finally {
+            drainTimer(step, start);
         }
     }
 

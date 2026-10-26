@@ -1,6 +1,6 @@
 // Row 327 T112 (lane D - vijay-developer, row 328 V1/V3): renders ONE console screen (.tsx) under plain
 // `node --test`, with no DOM and no test library added. esbuild (already installed as Vite's own bundler)
-// compiles the screen; `react` is swapped for a tiny hook runtime (useState + useEffect only - what the
+// compiles the screen; `react` is swapped for a tiny hook runtime (useState + useEffect + a first-wins useCallback - what the
 // screens use) and the screen's API module for the stubs a test passes. The result is a plain element
 // tree: { type, props } objects a test can search by data-* attributes and whose handlers it can call.
 // ponytail: a hand-rolled hook runtime instead of jsdom + Testing Library (not installed); it models
@@ -15,7 +15,13 @@ const FRAGMENT = Symbol.for('hook-harness.fragment');
 
 const STUBS = {
   react: 'export const useState = (i) => globalThis.__hookHarness.useState(i);\n'
-    + 'export const useEffect = (f, d) => globalThis.__hookHarness.useEffect(f, d);\n',
+    + 'export const useEffect = (f, d) => globalThis.__hookHarness.useEffect(f, d);\n'
+    + 'export const useCallback = (f, d) => globalThis.__hookHarness.useCallback(f, d);\n'
+    + 'export const useRef = (i) => globalThis.__hookHarness.useRef(i);\n'
+    + 'export const useId = () => ":r0:";\n'
+    + 'export const createContext = (d) => ({ Provider: Symbol("Provider"), _d: d });\n'
+    + 'export const useContext = (c) => c._d;\n'
+    + 'export const Fragment = Symbol.for("hook-harness.fragment");\n',
   'react/jsx-runtime': 'const h = (type, props) => globalThis.__hookHarness.element(type, props);\n'
     + 'export const jsx = h; export const jsxs = h; export const Fragment = Symbol.for("hook-harness.fragment");\n'
 };
@@ -37,9 +43,10 @@ async function load(page, apiSpecifiers) {
         setup(b) {
           b.onResolve({ filter: /^react(\/jsx-runtime)?$/ }, (a) => ({ path: a.path, namespace: 'stub' }));
           b.onResolve({ filter: api }, (a) => ({ path: a.path, namespace: 'api' }));
+          b.onLoad({ filter: /\.css$/ }, () => ({ contents: '', loader: 'js' })); // pages import their own stylesheet; Vite handles it, the harness ignores it
           b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: STUBS[a.path], loader: 'js' }));
           b.onLoad({ filter: /.*/, namespace: 'api' }, () => ({
-            contents: 'export default null;\n' + ['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery']
+            contents: 'export default null;\n' + [...new Set(['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery', 'queueSummary', 'deliveryReport', ...Object.keys(globalThis.__hookHarness.api)])]
               .map((n) => `export const ${n} = (...a) => globalThis.__hookHarness.api.${n}(...a);`).join('\n'),
             loader: 'js'
           }));
@@ -62,6 +69,7 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
   let effectCursor = 0;
   let pending = [];
   let dirty = false;
+  let components = []; // [{ type, props }] of every function component rendered in the last pass - lets a test reach a child's props (e.g. onDone)
   globalThis.__hookHarness = {
     api,
     useState(initial) {
@@ -89,9 +97,21 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
         effects[i].cleanup = typeof cleanup === 'function' ? cleanup : undefined;
       });
     },
+    useRef(initial) {
+      const [cell] = this.useState(() => ({ current: initial }));
+      return cell;
+    },
+    // ponytail: the first function wins (the screens that use useCallback pass only setters, so no stale-closure risk).
+    useCallback(fn) {
+      const [cell] = this.useState(() => ({ fn }));
+      return cell.fn;
+    },
     element(type, elementProps) {
       if (type === FRAGMENT) return elementProps.children;
-      if (typeof type === 'function') return type(elementProps); // hook-free child components only
+      if (typeof type === 'function') {
+        components.push({ type, props: elementProps });
+        return type(elementProps); // hook-free child components only
+      }
       return { type, props: elementProps };
     }
   };
@@ -102,6 +122,7 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
       stateCursor = 0;
       effectCursor = 0;
       dirty = false;
+      components = [];
       current = Screen(props);
       const run = pending;
       pending = [];
@@ -113,6 +134,16 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
   render();
   return {
     tree: () => current,
+    /** Re-renders with new props (a route change on a mounted screen). */
+    setProps(next) {
+      props = next;
+      render();
+    },
+    components: (name) => components.filter((c) => c.type.name === name).map((c) => c.props),
+    /** Runs every effect cleanup, as React does when the screen leaves. */
+    unmount() {
+      effects.forEach((e) => e?.cleanup?.());
+    },
     async settle() {
       for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
       render();

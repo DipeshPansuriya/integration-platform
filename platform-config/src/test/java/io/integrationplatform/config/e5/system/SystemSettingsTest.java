@@ -33,7 +33,7 @@ class SystemSettingsTest {
     @CsvSource(delimiter = '|', value = {
         "API  | {\"baseUrl\":\"https://api.partner.example/v1\"}",
         "API  | {\"baseUrl\":\"http://api.partner.example:8080\",\"timeoutMs\":2500,\"followRedirects\":true}",
-        "DB   | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\"}",
+        "DB   | {\"host\":\"db.partner.example\",\"port\":5432,\"database\":\"orders\",\"user\":\"ipass_orders\"}",
         "MQ   | {\"host\":\"mq.partner.example\",\"port\":1414,\"queue\":\"ORDERS.IN\"}",
         "FILE | {\"rootPath\":\"/data/outbound\"}",
         "FILE | {\"rootPath\":\"D:/exchange/out\"}"})
@@ -71,8 +71,8 @@ class SystemSettingsTest {
     @DisplayName("Every missing setting is listed, not only the first")
     void everyErrorIsListed() {
         List<String> errors = errors("DB", "{}");
-        assertThat(errors).hasSize(3);
-        assertThat(String.join("\n", errors)).contains("host").contains("port").contains("database");
+        assertThat(errors).hasSize(4);
+        assertThat(String.join("\n", errors)).contains("host").contains("port").contains("database").contains("user");
     }
 
     @Test
@@ -107,5 +107,54 @@ class SystemSettingsTest {
     @DisplayName("No type and no settings is the legacy E3 registration: nothing to validate")
     void noTypeNoSettingsIsValid() {
         assertThat(errors(null, null)).isEmpty();
+    }
+
+    // ---------- T-182 / T-183 (E10-F1-S5): the error dictionary and the half-open trial count ----------
+
+    private static final String API = "\"baseUrl\":\"https://a.example/\"";
+
+    @Test
+    @DisplayName("T-182: an API target may override the class of a status, and set its half-open trial count")
+    void anErrorDictionaryAndATrialCountAreAccepted() {
+        assertThat(errors("API", "{" + API + ",\"errorDictionary\":{\"500\":\"TRANSIENT\",\"404\":\"PERMANENT\","
+                + "\"409\":\"AMBIGUOUS\"},\"halfOpenTrialCalls\":5}")).isEmpty();
+    }
+
+    @ParameterizedTest(name = "{0} as TRANSIENT")
+    @CsvSource({"400", "401", "403", "422"})
+    @Tag("negative")
+    @DisplayName("T-182: an override can never make 400, 401, 403 or 422 retryable - the save is refused with the reason")
+    void anOverrideCannotMakeARefusalRetryable(String status) {
+        assertThat(errors("API", "{" + API + ",\"errorDictionary\":{\"" + status + "\":\"TRANSIENT\"}}"))
+                .singleElement().asString().contains("errorDictionary").contains(status).contains("never retryable");
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("T-182: a status outside 100-599, an unknown class, SUCCESS and a non-object are each refused")
+    void aMalformedDictionaryIsRefused() {
+        assertThat(errors("API", "{" + API + ",\"errorDictionary\":{\"99\":\"TRANSIENT\",\"abc\":\"TRANSIENT\","
+                + "\"500\":\"MAYBE\",\"502\":\"SUCCESS\"}}")).hasSize(4)
+                .allSatisfy(error -> assertThat(error).contains("errorDictionary"));
+        assertThat(errors("API", "{" + API + ",\"errorDictionary\":[1]}")).singleElement().asString()
+                .contains("errorDictionary").contains("object");
+    }
+
+    @ParameterizedTest(name = "halfOpenTrialCalls {0}")
+    @CsvSource({"0", "-1", "101", "2.5"})
+    @Tag("negative")
+    @DisplayName("T-183: the half-open trial count is a whole number from 1 to 100")
+    void theTrialCountIsBounded(String value) {
+        assertThat(errors("API", "{" + API + ",\"halfOpenTrialCalls\":" + value + "}"))
+                .singleElement().asString().contains("halfOpenTrialCalls").contains("1 to 100");
+    }
+
+    @Test
+    @DisplayName("T-183: every type may carry the trial count; only an API target has a status dictionary")
+    void theTrialCountIsOnEveryTypeTheDictionaryOnlyOnApi() {
+        assertThat(errors("DB", "{\"host\":\"h\",\"port\":5432,\"database\":\"d\",\"user\":\"u\",\"halfOpenTrialCalls\":2}")).isEmpty();
+        assertThat(errors("FILE", "{\"rootPath\":\"/o\",\"halfOpenTrialCalls\":2}")).isEmpty();
+        assertThat(errors("FILE", "{\"rootPath\":\"/o\",\"errorDictionary\":{\"500\":\"TRANSIENT\"}}"))
+                .singleElement().asString().contains("errorDictionary");
     }
 }

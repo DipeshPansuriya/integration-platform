@@ -32,13 +32,23 @@ final class JdbcOperatorActionStore extends TenantScopedRepository implements Op
 
     @Override
     public Optional<Target> lockForAction(UUID deliveryId) {
-        return query("select scoped.id, scoped.state, scoped.mapping_version_id, scoped.contract_version_id from ("
-                        + " select d.id, d.state, d.mapping_version_id, d.contract_version_id, d.tenant_id"
+        return query("select scoped.id, scoped.state, scoped.mapping_version_id, scoped.contract_version_id,"
+                        + " scoped.target_id from ("
+                        + " select d.id, d.state, d.mapping_version_id, d.contract_version_id, d.target_id, d.tenant_id"
                         + " from public.delivery d"
                         + " where d.tenant_id = :tenant_id::uuid and d.id = :id::uuid for update) scoped",
                 null, Map.of("id", deliveryId.toString()),
-                (rs, n) -> new Target(uuid(rs, 1), DeliveryState.valueOf(rs.getString(2)), uuid(rs, 3), uuid(rs, 4)))
+                (rs, n) -> new Target(uuid(rs, 1), DeliveryState.valueOf(rs.getString(2)), uuid(rs, 3), uuid(rs, 4),
+                        uuid(rs, 5)))
                 .stream().findFirst();
+    }
+
+    @Override
+    public boolean pinContract(UUID deliveryId, UUID contractVersionId) {
+        // the row is already locked FOR UPDATE by lockForAction in this transaction; the NULL guard keeps a pin immutable
+        return update("update public.delivery set contract_version_id = :contract_version_id::uuid",
+                "id = :id::uuid and contract_version_id is null",
+                Map.of("id", deliveryId.toString(), "contract_version_id", contractVersionId.toString())) >= 1;
     }
 
     @Override

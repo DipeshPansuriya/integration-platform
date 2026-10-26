@@ -216,7 +216,7 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
     /** Stage 2's lazy build: each ACTIVE row read in a tenant-stamped transaction, then ensured. */
     private void ensureActiveRoutes(UUID interfaceId) {
         new TransactionTemplate(stamped).execute(status -> reader.activeRoutes(TENANT, interfaceId))
-                .forEach(factory::ensure);
+                .forEach(row -> factory.ensure(java.util.UUID.fromString("00000000-0000-4000-8000-0000000000aa"), row));
     }
 
     private List<String> routeIds() {

@@ -30,6 +30,11 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-ingest</artifactId>
     </dependency>
+    <!-- T-139: the tenant delivery report controller (GET /api/v1/reports/delivery). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-jdbc</artifactId>
@@ -46,6 +51,18 @@
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
       <scope>runtime</scope>
+    </dependency>
+
+    <!-- T208/O1: the advice tests run the real tenancy chain over MockMvc (webmvc slice, spring-security-test jwt()). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security-test</artifactId>
+      <scope>test</scope>
     </dependency>
 
     <!-- Container tests (@Tag("container"), -Pcontainer only; R03, R06). -->

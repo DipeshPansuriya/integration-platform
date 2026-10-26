@@ -195,3 +195,14 @@ export function detailStateOf(status: number): DetailRefusal {
   if (status === 403) return 'refused';
   return 'error';
 }
+
+
+/** The message state enum as a worded badge: "ROUTE_FAILED" -> "Route failed", tinted by outcome (the word carries it). */
+export function stateBadge(state: string): { word: string; tone: 'success' | 'danger' | 'info' | 'neutral' } {
+  const spaced = state.toLowerCase().replace(/_/g, ' ');
+  const word = spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  if (/FAIL|DEAD/.test(state)) return { word, tone: 'danger' };
+  if (state === 'ROUTED' || state === 'DELIVERED') return { word, tone: 'success' };
+  if (state === 'ACCEPTED') return { word, tone: 'info' };
+  return { word, tone: 'neutral' };
+}

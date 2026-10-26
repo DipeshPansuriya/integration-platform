@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.delivery.internal.JdbcDeliveryRepository;
+import io.integrationplatform.delivery.internal.JdbcSendOutcomes;
 import io.integrationplatform.delivery.internal.JdbcDeliveryRetryStore;
 import io.integrationplatform.delivery.internal.retry.OutcomeRecorder;
 import io.integrationplatform.delivery.internal.retry.RetryPolicy;
@@ -201,6 +202,29 @@ class StageTimingCommitContainerTest {
     }
 
     @Test
+    @DisplayName("the send path's markDelivered writes one DELIVER row, a redelivery writes none")
+    void theSendOutcomesDeliveredMoveWritesOneDeliverRowAndARedeliveryNone() throws SQLException {
+        Instant acceptedAt = micros(Instant.now());
+        UUID message = message(TENANT_A, acceptedAt);
+        route(TENANT_A, message, acceptedAt, UUID.randomUUID());
+        UUID delivery = deliveries(message).get(0);
+        UUID token = claim(TENANT_A, delivery);
+        Instant callStarted = micros(Instant.now());
+        attempt(TENANT_A, delivery, OutcomeClass.SUCCESS, callStarted, callStarted.plusMillis(30));
+        JdbcSendOutcomes outcomes = new JdbcSendOutcomes(jdbc, context(TENANT_A), writer(TENANT_A));
+
+        assertThat(inTx(TENANT_A, () -> outcomes.markDelivered(delivery, token))).isTrue();
+        // the broker redelivers the same due record: the delivery is DELIVERED already, so nothing moves or records
+        assertThat(inTx(TENANT_A, () -> outcomes.markDelivered(delivery, token))).isFalse();
+
+        assertThat(deliveryState(delivery)).isEqualTo("DELIVERED");
+        List<StageRow> rows = stages(message);
+        assertThat(rows).extracting(StageRow::stage).containsExactly("ROUTE", "DELIVER");
+        assertThat(rows.get(1).startedAt()).isEqualTo(callStarted);
+        assertThat(rows.get(1).finishedAt()).isAfterOrEqualTo(callStarted);
+    }
+
+    @Test
     @DisplayName("the DELIVERED move writes one DELIVER row through the same writer")
     void theDeliveredMoveWritesOneDeliverRow() throws SQLException {
         Instant acceptedAt = micros(Instant.now());
@@ -391,7 +415,7 @@ class StageTimingCommitContainerTest {
     }
 
     private static Stage1Delivery delivery(UUID message, Instant acceptedAt, UUID route) {
-        return new Stage1Delivery(message, route, acceptedAt, TARGET, null, null);
+        return new Stage1Delivery(message, route, acceptedAt, TARGET, null, null, null, null, null, null);
     }
 
     private UUID claim(UUID tenant, UUID delivery) {

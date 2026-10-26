@@ -41,7 +41,12 @@ public final class DirectorySeed {
             owner.commit();
             return tenant;
         } catch (SQLException | RuntimeException failure) {
-            owner.rollback();
+            // rollback() can itself throw, which would mask the original cause; keep the original and attach the rollback failure.
+            try {
+                owner.rollback();
+            } catch (SQLException rollbackFailure) {
+                failure.addSuppressed(rollbackFailure);
+            }
             throw failure;
         } finally {
             owner.setAutoCommit(autoCommit);

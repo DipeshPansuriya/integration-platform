@@ -1,6 +1,8 @@
 package io.integrationplatform.delivery.internal;
 
+import io.integrationplatform.delivery.port.DeliveryDailyAggregates;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
+import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.tenancy.TenantContext;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
@@ -27,9 +29,21 @@ class DeliveryPersistenceConfiguration {
      * is the caller's (the transaction's) concern, never the store's.
      */
     @Bean
-    DeliveryRetryStore deliveryRetryStore(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts) {
+    DeliveryRetryStore deliveryRetryStore(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts,
+            ObjectProvider<StageTimings> timings) {
         TenantContext bound = tenantContexts.getIfAvailable();
-        return new JdbcDeliveryRetryStore(jdbcClient, bound != null ? bound : neverBound());
+        // a dead letter through this store (credential, reconciler AMBIGUOUS) also finishes the DELIVER stage; a
+        // bare slice without the timing bean still builds and writes none
+        return new JdbcDeliveryRetryStore(jdbcClient, bound != null ? bound : neverBound(),
+                timings.getIfAvailable());
+    }
+
+    /** T-138: the daily delivery pre-aggregate, the same fail-closed binding shape as the retry store. */
+    @Bean
+    DeliveryDailyAggregates deliveryDailyAggregates(JdbcClient jdbcClient,
+            ObjectProvider<TenantContext> tenantContexts) {
+        TenantContext bound = tenantContexts.getIfAvailable();
+        return new JdbcDeliveryDailyAggregateStore(jdbcClient, bound != null ? bound : neverBound());
     }
 
     /** The fail-closed no-binding context - the anonymous shape over the two-method contract. */

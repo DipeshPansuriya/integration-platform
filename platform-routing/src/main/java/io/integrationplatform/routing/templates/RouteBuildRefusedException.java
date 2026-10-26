@@ -10,7 +10,7 @@ package io.integrationplatform.routing.templates;
  * {@code InterfacePublishRefused} with that answer as its reason, and config owns the 400.
  * Row 278 B22 (Kavita M1/L1): both {@link #answer()} and {@link #getMessage()} carry only {@link RefusalText}-bounded
  * scheme or type text plus the route and endpoint ids - never the endpoint URI, its userinfo, a query token or CR/LF.
- * {@link #getMessage()} is the log detail, including the stage 2 WARN line ({@code DueDeliverySend}); the stage 2
+ * {@link #getMessage()} is the log detail, including the stage 2 WARN line ({@code RouteInstanceSendDispatch}); the stage 2
  * dead-letter itself records no reason text.
  */
 public class RouteBuildRefusedException extends RuntimeException {

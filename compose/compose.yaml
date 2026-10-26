@@ -29,7 +29,7 @@ services:
       KEYCLOAK_DB_USERNAME: ${KEYCLOAK_DB_USERNAME:?set KEYCLOAK_DB_USERNAME}
       KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${IPASS_PG_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
@@ -66,7 +66,7 @@ services:
       PLATFORM_ADMIN_CLIENT_SECRET: ${PLATFORM_ADMIN_CLIENT_SECRET:?set PLATFORM_ADMIN_CLIENT_SECRET}
       OPERATOR_AGENT_CLIENT_SECRET: ${OPERATOR_AGENT_CLIENT_SECRET:?set OPERATOR_AGENT_CLIENT_SECRET}
     ports:
-      - "8180:8080"
+      - "127.0.0.1:${IPASS_KEYCLOAK_PORT:-8180}:8080"
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
       - ./keycloak/themes:/opt/keycloak/themes:ro
@@ -92,7 +92,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       TZ: Etc/UTC
     ports:
-      - "127.0.0.1:9092:9092"
+      - "127.0.0.1:${IPASS_KAFKA_PORT:-9092}:9092"
     networks:
       - work
       - operations
@@ -121,7 +121,7 @@ services:
       DYNAMIC_CONFIG_ENABLED: "false"
       TZ: Etc/UTC
     ports:
-      - "127.0.0.1:8090:8080"
+      - "127.0.0.1:${IPASS_KAFKA_UI_PORT:-8090}:8080"
     networks:
       - operations
 
@@ -139,8 +139,8 @@ services:
       ANONYMOUS_LOGIN: "false"
       TZ: Etc/UTC
     ports:
-      - "127.0.0.1:61616:61616"
-      - "127.0.0.1:8161:8161"
+      - "127.0.0.1:${IPASS_ARTEMIS_PORT:-61616}:61616"
+      - "127.0.0.1:${IPASS_ARTEMIS_CONSOLE_PORT:-8161}:8161"
     healthcheck:
       test: ["CMD-SHELL", "/var/lib/artemis-instance/bin/artemis check node --up --user \"$${ARTEMIS_USER}\" --password \"$${ARTEMIS_PASSWORD}\""]
       interval: 10s
@@ -156,7 +156,7 @@ services:
     environment:
       TZ: Etc/UTC
     ports:
-      - "127.0.0.1:8089:8080"
+      - "127.0.0.1:${IPASS_WIREMOCK_PORT:-8089}:8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/__admin/health"]
       interval: 5s

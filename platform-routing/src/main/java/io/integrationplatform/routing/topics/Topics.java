@@ -22,6 +22,14 @@ public final class Topics {
      */
     public static final String POISON = "platform.poison";
 
+    /**
+     * Partitions per work topic (ADR-005 Decision 6; T181). It is also the ceiling for the stage consumer loop count
+     * ({@code platform.routing.stage1.concurrency}, {@code ...stage2.concurrency}): a loop beyond the partition count
+     * would sit idle. Nothing in the application creates the topics (auto-create is off), so whoever creates them -
+     * the E18 harness, a deployment - uses this figure.
+     */
+    public static final int WORK_TOPIC_PARTITIONS = 12;
+
     private Topics() {
     }
 }

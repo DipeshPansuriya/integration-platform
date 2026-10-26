@@ -38,6 +38,17 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
     /** Exchange property: the classified outcome of the last performed call. */
     static final String LAST_OUTCOME = "stage2.lastOutcome";
 
+    /**
+     * Exchange property (T188): layer 1's explicit final outcome - {@code Boolean.TRUE} only when a try succeeded and its
+     * SUCCESS attempt row was written, {@code Boolean.FALSE} on every other exit (transient-exhausted, permanent,
+     * ambiguous, circuit-open). The dispatch marks DELIVERED on this flag, not on the absence of Camel's caught exception.
+     */
+    public static final String LAYER_ONE_SUCCEEDED = "stage2.layerOneSucceeded";
+
+    /** Exchange property: how long the open circuit refuses calls (set only by a breaker refusal). */
+    public static final String CIRCUIT_RETRY_AFTER = "stage2.circuitRetryAfter";
+    public static final String CIRCUIT_DEFERRED = "stage2.circuitDeferred";
+
     private static final Logger log = LoggerFactory.getLogger(LayerOneRouteBuilder.class);
 
     private final TargetCall targetCall;
@@ -62,6 +73,11 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
 
     @Override
     public void configure() {
+        // E10 T96: a call the breaker refused is not a call - no redelivery, no attempt row, one deferral
+        onException(TargetFaultException.CircuitOpenException.class)
+                .maximumRedeliveries(0)
+                .handled(true)
+                .process(this::deferCircuitOpen);
         // only a TRANSIENT call failure redelivers (ADR-010 section 5); the wait cap is delay time only
         onException(TargetFaultException.TransientFaultException.class)
                 .maximumRedeliveries(waits.maxRedeliveries())
@@ -89,12 +105,24 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
         Objects.requireNonNull(send, "a stage-2 send body is required");
         int tryNumber = tryNumber(exchange);
         exchange.setProperty(LAST_TRY, tryNumber);
+        exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.FALSE); // a try is a failure until it records its SUCCESS
         Instant started = clock.get();
         try {
             targetCall.call(send);
             attempts.record(send.deliveryId(), 1, OutcomeClass.SUCCESS, started, clock.get(),
                     "layer-1 try " + tryNumber + ": success");
             log.info("stage 2: delivery {} - layer-1 try {}: SUCCESS", send.deliveryId(), tryNumber);
+            // B32: Camel leaves the earlier try's exception on the exchange after a redelivery. Since T188 the dispatch
+            // decides on LAYER_ONE_SUCCEEDED (RouteInstanceSendDispatch), not on this property; the removal stays only so
+            // the exchange does not keep reporting a caught exception for a try that succeeded
+            exchange.removeProperty(Exchange.EXCEPTION_CAUGHT);
+            // T188: say it explicitly - the dispatch decides on this flag, not on the absence of the caught exception
+            exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.TRUE);
+        } catch (TargetFaultException.CircuitOpenException open) {
+            exchange.setProperty(CIRCUIT_RETRY_AFTER, open.retryAfter());
+            log.info("stage 2: delivery {} - layer-1 try {}: refused by the open circuit, nothing sent",
+                    send.deliveryId(), tryNumber);
+            throw open; // no attempt row: the call never left the process
         } catch (TargetFaultException fault) {
             exchange.setProperty(LAST_OUTCOME, fault.outcomeClass());
             attempts.record(send.deliveryId(), 1, fault.outcomeClass(), started, clock.get(),
@@ -104,8 +132,25 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
         }
     }
 
+    /** The breaker refused the call: the delivery waits until the breaker may let a trial call through. */
+    private void deferCircuitOpen(Exchange exchange) {
+        deferCircuitOpenFor(exchange, outcomeHandoff, clock);
+    }
+
+    static void deferCircuitOpenFor(Exchange exchange, Stage2OutcomeHandoff handoff, Supplier<Instant> clock) {
+        Stage2Send send = exchange.getIn().getBody(Stage2Send.class);
+        exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.FALSE);
+        java.time.Duration retryAfter = exchange.getProperty(CIRCUIT_RETRY_AFTER, java.time.Duration.class);
+        if (retryAfter == null) { // T191: never fail the deferral for a missing wait - the floor of CircuitOpenException
+            retryAfter = java.time.Duration.ofSeconds(1);
+        }
+        handoff.deferCircuitOpen(send.deliveryId(), send.claimToken(), clock.get().plus(retryAfter));
+        exchange.setProperty(CIRCUIT_DEFERRED, Boolean.TRUE); // the explicit signal the dispatch reads
+    }
+
     /** Layer 1 ended without success: the exchange goes to the outcome path, exactly once. */
     private void handOver(Exchange exchange) {
+        exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.FALSE);
         Stage2Send send = exchange.getIn().getBody(Stage2Send.class);
         Integer lastTry = exchange.getProperty(LAST_TRY, Integer.class);
         OutcomeClass lastOutcome = exchange.getProperty(LAST_OUTCOME, OutcomeClass.class);

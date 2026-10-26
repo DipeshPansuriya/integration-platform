@@ -50,6 +50,7 @@ final class E11IntakeMatrix implements LaneMatrix {
     /** The dot-path business-key rule the intake placeholder extractor accepts, and the payload's key value. */
     private static final String BUSINESS_KEY = "orderId";
     private static final String ORDER_ID = "tden-intake-278";
+    private static final String BULK_ORDER_ID = "tden-intake-bulk-115";
 
     static UUID interfaceId(SeededTenant tenant) {
         return LaneMatrix.laneId(tenant, "e11-interface");
@@ -86,23 +87,39 @@ final class E11IntakeMatrix implements LaneMatrix {
                         202,
                         // the four-family acceptance write (IntakeService.accept + outbox append + INTAKE timing),
                         // scoped by the lane's business key so F10's ROUTED row never enters the count
-                        new WriteProbe(s -> "SELECT (SELECT count(*) FROM public.message WHERE tenant_id = '"
-                                + s.a().id() + "' AND business_key = '" + ORDER_ID + "')"
-                                + " || '|' || (SELECT count(*) FROM public.payload p WHERE p.tenant_id = '"
-                                + s.a().id() + "' AND p.message_id IN (SELECT id FROM public.message"
-                                + " WHERE tenant_id = '" + s.a().id() + "' AND business_key = '" + ORDER_ID + "'))"
-                                + " || '|' || (SELECT count(*) FROM public.outbox o WHERE o.aggregate_id IN"
-                                + " (SELECT id FROM public.message WHERE tenant_id = '" + s.a().id()
-                                + "' AND business_key = '" + ORDER_ID + "'))"
-                                + " || '|' || (SELECT count(*) FROM public.message_stage_timing t WHERE t.tenant_id = '"
-                                + s.a().id() + "' AND t.stage = 'INTAKE' AND t.message_id IN"
-                                + " (SELECT id FROM public.message WHERE tenant_id = '" + s.a().id()
-                                + "' AND business_key = '" + ORDER_ID + "'))",
-                                "0|0|0|0", "1|1|1|1"),
+                        intakeProbe(ORDER_ID),
                         // per request: the pinned version label (the pin check answers it) and a fresh nonce,
                         // so the legitimate call, every forgery leg and the 401 leg are all distinct acceptances
                         s -> Map.of("X-Source-Contract-Version", PINNED_LABEL,
+                                "Idempotency-Key", "tden-" + UUID.randomUUID())),
+                // T115 bulk intake: a one-element batch, its own business key so its write never counts in the
+                // single-intake probe (and the reverse); same pin, same fresh nonce per request
+                new Entry("POST", INTAKE + ":bulk", true,
+                        s -> "/api/v1/interfaces/" + interfaceCode(s.a()) + "/messages:bulk",
+                        s -> "/api/v1/interfaces/" + interfaceCode(s.b()) + "/messages:bulk",
+                        s -> "[{\"" + BUSINESS_KEY + "\":\"" + BULK_ORDER_ID + "\"}]",
+                        s -> List.of(),
+                        202,
+                        intakeProbe(BULK_ORDER_ID),
+                        s -> Map.of("X-Source-Contract-Version", PINNED_LABEL,
                                 "Idempotency-Key", "tden-" + UUID.randomUUID())));
+    }
+
+    /** The four-family acceptance write for one business key: message, payload, outbox, INTAKE timing. */
+    private static WriteProbe intakeProbe(String key) {
+        return new WriteProbe(s -> "SELECT (SELECT count(*) FROM public.message WHERE tenant_id = '"
+                                + s.a().id() + "' AND business_key = '" + key + "')"
+                                + " || '|' || (SELECT count(*) FROM public.payload p WHERE p.tenant_id = '"
+                                + s.a().id() + "' AND p.message_id IN (SELECT id FROM public.message"
+                                + " WHERE tenant_id = '" + s.a().id() + "' AND business_key = '" + key + "'))"
+                                + " || '|' || (SELECT count(*) FROM public.outbox o WHERE o.aggregate_id IN"
+                                + " (SELECT id FROM public.message WHERE tenant_id = '" + s.a().id()
+                                + "' AND business_key = '" + key + "'))"
+                                + " || '|' || (SELECT count(*) FROM public.message_stage_timing t WHERE t.tenant_id = '"
+                                + s.a().id() + "' AND t.stage = 'INTAKE' AND t.message_id IN"
+                                + " (SELECT id FROM public.message WHERE tenant_id = '" + s.a().id()
+                                + "' AND business_key = '" + key + "'))",
+                                "0|0|0|0", "1|1|1|1");
     }
 
     @Override
@@ -110,20 +127,22 @@ final class E11IntakeMatrix implements LaneMatrix {
         // deepest first, and while F10 has not yet cleared the parent messages: the lane's message rows (the
         // legitimate acceptance's whole family, the id is random so only the business key names them) and then
         // the lane's config rows - the cv only after its interface_version stops referencing it (composite FK).
-        update(owner, "DELETE FROM public.payload WHERE tenant_id = ?::uuid AND message_id IN"
-                        + " (SELECT id FROM public.message WHERE tenant_id = ?::uuid AND business_key = ?)",
-                tenant.id().toString(), tenant.id().toString(), ORDER_ID);
-        update(owner, "DELETE FROM public.message_stage_timing WHERE tenant_id = ?::uuid AND stage = 'INTAKE'"
-                        + " AND message_id IN (SELECT id FROM public.message WHERE tenant_id = ?::uuid"
-                        + " AND business_key = ?)",
-                tenant.id().toString(), tenant.id().toString(), ORDER_ID);
-        // outbox carries its own tenant_id (V2_0_1__outbox.sql:11), so this delete follows the payload/stage
-        // double-scope: outer tenant_id = ?::uuid, subquery tenant_id = ?::uuid - three binds, three values.
-        update(owner, "DELETE FROM public.outbox WHERE tenant_id = ?::uuid AND aggregate_id IN"
-                        + " (SELECT id FROM public.message WHERE tenant_id = ?::uuid AND business_key = ?)",
-                tenant.id().toString(), tenant.id().toString(), ORDER_ID);
-        update(owner, "DELETE FROM public.message WHERE tenant_id = ?::uuid AND business_key = ?",
-                tenant.id().toString(), ORDER_ID);
+        for (String key : List.of(ORDER_ID, BULK_ORDER_ID)) {
+            update(owner, "DELETE FROM public.payload WHERE tenant_id = ?::uuid AND message_id IN"
+                            + " (SELECT id FROM public.message WHERE tenant_id = ?::uuid AND business_key = ?)",
+                    tenant.id().toString(), tenant.id().toString(), key);
+            update(owner, "DELETE FROM public.message_stage_timing WHERE tenant_id = ?::uuid AND stage = 'INTAKE'"
+                            + " AND message_id IN (SELECT id FROM public.message WHERE tenant_id = ?::uuid"
+                            + " AND business_key = ?)",
+                    tenant.id().toString(), tenant.id().toString(), key);
+            // outbox carries its own tenant_id (V2_0_1__outbox.sql:11), so this delete follows the payload/stage
+            // double-scope: outer tenant_id = ?::uuid, subquery tenant_id = ?::uuid - three binds, three values.
+            update(owner, "DELETE FROM public.outbox WHERE tenant_id = ?::uuid AND aggregate_id IN"
+                            + " (SELECT id FROM public.message WHERE tenant_id = ?::uuid AND business_key = ?)",
+                    tenant.id().toString(), tenant.id().toString(), key);
+            update(owner, "DELETE FROM public.message WHERE tenant_id = ?::uuid AND business_key = ?",
+                    tenant.id().toString(), key);
+        }
         update(owner, "DELETE FROM public.interface_version WHERE id = ?::uuid",
                 versionId(tenant).toString());
         update(owner, "DELETE FROM public.interface WHERE id = ?::uuid", interfaceId(tenant).toString());

@@ -4,9 +4,11 @@ import io.integrationplatform.config.flow.application.FlowBundle;
 import io.integrationplatform.delivery.port.Stage1Deliveries;
 import io.integrationplatform.delivery.port.Stage1Delivery;
 import io.integrationplatform.routing.stage.StageConsumer;
+import io.integrationplatform.routing.stage.UnroutableWorkException;
 import io.integrationplatform.routing.stage.WorkKind;
 import io.integrationplatform.routing.stage.WorkRecord;
 import io.integrationplatform.tenancy.WorkerTenantBinding;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,13 +39,20 @@ public final class Stage1FanOut implements StageConsumer.Handler {
     private final TransactionOperations transactions;
     private final JdbcStage1Reads reads;
     private final Stage1Deliveries deliveries;
+    private final RoutingStepRecorder recorder;
 
     public Stage1FanOut(WorkerTenantBinding binding, TransactionOperations transactions, JdbcStage1Reads reads,
             Stage1Deliveries deliveries) {
+        this(binding, transactions, reads, deliveries, RoutingStepRecorder.NOOP);
+    }
+
+    public Stage1FanOut(WorkerTenantBinding binding, TransactionOperations transactions, JdbcStage1Reads reads,
+            Stage1Deliveries deliveries, RoutingStepRecorder recorder) {
         this.binding = Objects.requireNonNull(binding, "binding");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.reads = Objects.requireNonNull(reads, "reads");
         this.deliveries = Objects.requireNonNull(deliveries, "deliveries");
+        this.recorder = Objects.requireNonNull(recorder, "recorder");
     }
 
     @Override
@@ -55,25 +64,34 @@ public final class Stage1FanOut implements StageConsumer.Handler {
     }
 
     private void route(UUID messageId) {
+        long loadStart = System.nanoTime();
         JdbcStage1Reads.PinnedMessage message = reads.message(messageId).orElse(null);
         if (message == null || !"ACCEPTED".equals(message.state())) {
+            recorder.record(messageId, RoutingStep.LOAD, Duration.ofNanos(System.nanoTime() - loadStart));
             return; // routed already (a re-delivered record): acknowledged, no effect
         }
+        recorder.record(messageId, RoutingStep.LOAD, Duration.ofNanos(System.nanoTime() - loadStart));
+        long evaluateStart = System.nanoTime();
         String snapshot = reads.snapshotOf(message.interfaceVersionId()).orElseThrow(() -> new IllegalStateException(
                 "message " + messageId + " pins interface version " + message.interfaceVersionId()
                         + ", which this tenant cannot read"));
         List<Stage1Delivery> planned = plan(message, FlowBundle.parse(snapshot));
+        recorder.record(messageId, RoutingStep.EVALUATE_CONDITIONS, Duration.ofNanos(System.nanoTime() - evaluateStart));
+        long createStart = System.nanoTime();
         deliveries.insertPerRoute(planned);
         deliveries.markMessageRouted(messageId);
+        recorder.record(messageId, RoutingStep.CREATE_DELIVERIES, Duration.ofNanos(System.nanoTime() - createStart));
         log.info("stage 1: message {} routed into {} deliveries", messageId, planned.size());
     }
 
     /** One delivery per ACTIVE, unconditional route of the pinned snapshot, pinning that route's mapping version. */
     static List<Stage1Delivery> plan(JdbcStage1Reads.PinnedMessage message, FlowBundle.Parsed snapshot) {
-        Map<String, String> mappingVersionByRoute = new HashMap<>();
+        // the mapping version and its target contract version are read from the SAME snapshot mapping, so the pair
+        // is the one the message was accepted under - the operator replay/retry pins both (BS-10)
+        Map<String, FlowBundle.SnapshotMapping> mappingByRoute = new HashMap<>();
         for (FlowBundle.SnapshotMapping mapping : snapshot.mappings()) {
             if (mapping.mappingVersionId() != null) {
-                mappingVersionByRoute.putIfAbsent(mapping.routeId(), mapping.mappingVersionId());
+                mappingByRoute.putIfAbsent(mapping.routeId(), mapping);
             }
         }
         List<Stage1Delivery> planned = new ArrayList<>();
@@ -86,10 +104,20 @@ public final class Stage1FanOut implements StageConsumer.Handler {
                         + " yet, the route is not matched", route.id(), message.id());
                 continue;
             }
-            String mappingVersion = mappingVersionByRoute.get(route.id());
+            FlowBundle.SnapshotMapping pinned = mappingByRoute.get(route.id());
+            if (pinned != null && pinned.targetContractVersionId() == null) {
+                // T172: a flow snapshot published before e0b51120 carries no target contract id; a delivery pinning a
+                // mapping version without its contract could never be replayed (BS-10) - refuse, never write a NULL pin
+                throw new UnroutableWorkException("route " + route.id() + " of message " + message.id()
+                        + " pins mapping version " + pinned.mappingVersionId() + " but the flow snapshot carries no"
+                        + " target contract version id (published before the bundle gained it): republish the flow and re-accept the message");
+            }
             planned.add(new Stage1Delivery(message.id(), UUID.fromString(route.id()), message.acceptedAt(),
                     UUID.fromString(route.targetEndpointId()),
-                    mappingVersion == null ? null : UUID.fromString(mappingVersion), null));
+                    pinned == null ? null : UUID.fromString(pinned.mappingVersionId()),
+                    pinned == null || pinned.targetContractVersionId() == null ? null
+                            : UUID.fromString(pinned.targetContractVersionId()),
+                    null, message.interfaceId(), message.businessKey(), message.keySeq()));
         }
         return planned;
     }

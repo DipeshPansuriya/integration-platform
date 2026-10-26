@@ -65,6 +65,20 @@ public final class JdbcDeliveryReconcileStore extends TenantScopedRepository imp
     }
 
     @Override
+    public List<UUID> lockUnhanded(Instant unchangedBefore, int limit) {
+        // T-180 (ADR-010 s6): a hand-off lost between the state change and its outbox row is re-handed
+        return query("select u.id from (select d.id, d.tenant_id from public.delivery d"
+                        + " where d.tenant_id = :tenant_id::uuid"
+                        + " and d.state in ('PENDING', 'DUE') and d.updated_at <= :cutoff"
+                        + " and not exists (select 1 from public.outbox o where o.tenant_id = d.tenant_id"
+                        + " and o.aggregate_id = d.id and o.published_at is null)"
+                        + " order by d.updated_at, d.id limit :limit for update of d skip locked) u",
+                null,
+                Map.of("cutoff", OffsetDateTime.ofInstant(unchangedBefore, ZoneOffset.UTC), "limit", limit),
+                (rs, n) -> UUID.fromString(rs.getString(1)));
+    }
+
+    @Override
     public boolean release(UUID deliveryId) {
         return repository.release(deliveryId, Instant.now());
     }

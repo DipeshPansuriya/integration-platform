@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/xsd/maven-4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.integrationplatform</groupId>
+    <artifactId>integration-platform-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>platform-audit</artifactId>
+  <name>platform-audit</name>
+  <description>E12 seam (low-conflict): append-only audit events, the tenant activity view and logging contract surface - public contracts/read APIs only; implementation stays in platform-app until the lane fills this module. Skeleton mirrors platform-transform ADR-010/E7 seam style.</description>
+
+  <!-- Low-conflict contract surface only: platform-domain supplies domain.audit.AuditEvent, which ActivityEntry.from maps. No Spring, no core. -->
+  <dependencies>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-domain</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+</project>

@@ -4,6 +4,7 @@ import io.integrationplatform.tenancy.internal.principal.PrincipalTenantResolver
 import io.integrationplatform.tenancy.internal.principal.RequestTenantContext;
 import io.integrationplatform.tenancy.port.ClientBootstrap;
 import io.integrationplatform.tenancy.port.LoginBootstrap;
+import io.integrationplatform.tenancy.port.SchedulerRegistry;
 import io.integrationplatform.tenancy.port.TenantDenialRecorder;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
@@ -82,7 +83,8 @@ class TenancySecurityConfiguration {
 
     @Bean
     SecurityFilterChain tenancySecurityFilterChain(HttpSecurity http, LoginBootstrap loginBootstrap,
-            ObjectProvider<ClientBootstrap> clientBootstrap, TenantDenialRecorder tenantDenialRecorder,
+            ObjectProvider<ClientBootstrap> clientBootstrap, ObjectProvider<SchedulerRegistry> schedulerRegistry,
+            TenantDenialRecorder tenantDenialRecorder,
             RequestTenantContext requestTenantContext) throws Exception {
         AuthenticationEntryPoint entryPoint =
                 new NoIdentityEntryPoint(new BearerTokenAuthenticationEntryPoint(), tenantDenialRecorder);
@@ -90,7 +92,10 @@ class TenancySecurityConfiguration {
                         // R1: the error dispatch of a request that already passed (or failed) this chain keeps its
                         // status; re-authorising it turned every 5xx into a 401. A direct GET /error stays denied.
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers("/actuator/health").permitAll()
+                        // L19: exactly these three, anonymously and status-only (show-details and show-components
+                        // stay unset); no /actuator/health/** wildcard - the rest of /actuator falls to denyAll.
+                        .requestMatchers("/actuator/health", "/actuator/health/readiness",
+                                "/actuator/health/liveness").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         // The springdoc document the console's typed client is generated against (E3 T-158/T-094,
                         // wave-0 glue): metadata, not tenant data - reachable to an authenticated caller only,
@@ -105,7 +110,7 @@ class TenancySecurityConfiguration {
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(entryPoint))
                 // Humans first, then source systems (E4 T-098); no ClientBootstrap bean means humans only.
                 .addFilterAfter(new PrincipalTenantResolver(loginBootstrap, clientBootstrap.getIfAvailable(),
-                                tenantDenialRecorder),
+                                schedulerRegistry.getIfAvailable(), tenantDenialRecorder),
                         BearerTokenAuthenticationFilter.class)
                 .addFilterAfter(new TenantForgeryFilter(requestTenantContext, tenantDenialRecorder),
                         PrincipalTenantResolver.class)

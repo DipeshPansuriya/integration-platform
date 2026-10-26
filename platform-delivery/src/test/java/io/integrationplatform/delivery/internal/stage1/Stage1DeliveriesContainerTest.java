@@ -44,6 +44,7 @@ class Stage1DeliveriesContainerTest {
     private final UUID TARGET_B = UUID.randomUUID();
     private final UUID MAP3 = UUID.randomUUID();
     private final UUID MAP7 = UUID.randomUUID();
+    private static final UUID INTERFACE = UUID.randomUUID();
 
     private final DeliveryTestDatabase db = DeliveryTestDatabase.get();
     private HikariDataSource pool;
@@ -64,7 +65,14 @@ class Stage1DeliveriesContainerTest {
 
     private static Stage1Delivery stage1Delivery(UUID messageId, UUID routeId, UUID targetId,
             UUID mappingVersionId) {
-        return new Stage1Delivery(messageId, routeId, DAY, targetId, mappingVersionId, "tenant|interface|K");
+        return new Stage1Delivery(messageId, routeId, DAY, targetId, mappingVersionId, contractOf(mappingVersionId),
+                "tenant|interface|K", INTERFACE, "K", 7L);
+    }
+
+    /** The target contract version pinned beside a mapping version (BS-10): any stable value per mapping version. */
+    private static UUID contractOf(UUID mappingVersionId) {
+        return mappingVersionId == null ? null
+                : UUID.nameUUIDFromBytes(("contract-of-" + mappingVersionId).getBytes());
     }
 
     private JdbcStage1Deliveries stage1(UUID tenant) {
@@ -73,7 +81,8 @@ class Stage1DeliveriesContainerTest {
 
     private List<Map<String, Object>> deliveryRows(UUID tenant, UUID messageId) {
         return tx.inTenantTx(tenant, () -> jdbc.sql(
-                        "select state, created_at, message_id, route_id, mapping_version_id, target_id"
+                        "select state, created_at, message_id, route_id, mapping_version_id, target_id,"
+                                + " interface_id, business_key, key_seq, contract_version_id"
                                 + " from public.delivery where message_id = :message_id::uuid order by route_id")
                 .param("message_id", messageId.toString())
                 .query((rs, n) -> Map.<String, Object>of(
@@ -82,7 +91,11 @@ class Stage1DeliveriesContainerTest {
                         "message_id", String.valueOf(rs.getObject(3)),
                         "route_id", String.valueOf(rs.getObject(4)),
                         "mapping_version_id", String.valueOf(rs.getObject(5)),
-                        "target_id", String.valueOf(rs.getObject(6))))
+                        "target_id", String.valueOf(rs.getObject(6)),
+                        "interface_id", String.valueOf(rs.getObject(7)),
+                        "business_key", String.valueOf(rs.getObject(8)),
+                        "key_seq", String.valueOf(rs.getObject(9)),
+                        "contract_version_id", String.valueOf(rs.getObject(10))))
                 .list());
     }
 
@@ -114,12 +127,19 @@ class Stage1DeliveriesContainerTest {
             assertThat(row).containsEntry("state", "PENDING")
                     .containsEntry("message_id", MESSAGE.toString());
             assertThat(row).containsEntry("created_at", java.sql.Timestamp.from(DAY)); // the message's accepted day - ADR-014
+            // the message's ordering scope rides on every delivery (ADR-011 Decision 6): without it the due-claim's
+            // earlier-delivery clause and the best-effort hold compare NULLs and never match (E9 reopen)
+            assertThat(row).containsEntry("interface_id", INTERFACE.toString())
+                    .containsEntry("business_key", "K")
+                    .containsEntry("key_seq", "7");
         });
         assertThat(rows).anySatisfy(row -> assertThat(row).containsEntry("route_id", ROUTE_A.toString())
                 .containsEntry("mapping_version_id", MAP3.toString())
+                .containsEntry("contract_version_id", contractOf(MAP3).toString()) // BS-10: operator replay needs it
                 .containsEntry("target_id", DeliveryTestDatabase.TARGET_ID.toString()));
         assertThat(rows).anySatisfy(row -> assertThat(row).containsEntry("route_id", ROUTE_B.toString())
                 .containsEntry("mapping_version_id", MAP7.toString())
+                .containsEntry("contract_version_id", contractOf(MAP7).toString())
                 .containsEntry("target_id", TARGET_B.toString()));
     }
 
@@ -181,6 +201,28 @@ class Stage1DeliveriesContainerTest {
                 .containsEntry("published_at", "null") // published_at stays unset until the relay marks it
                 .containsEntry("contract_version_id", "null"));
         assertThat((int) rows.get(0).get("key_bucket")).isBetween(0, 63); // ADR-005 Decision 11
+    }
+
+    @Test
+    void aMappingPinWithoutAContractPinIsRefusedByTheRepositoryAndByTheDatabaseCheck() {
+        Stage1Delivery unpinned = new Stage1Delivery(MESSAGE, ROUTE_A, DAY, UUID.randomUUID(), MAP3, null,
+                "tenant|interface|K", INTERFACE, "K", 7L);
+
+        assertThatThrownBy(() -> tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> stage1(DeliveryTestDatabase.TENANT_A).insertPerRoute(List.of(unpinned))))
+                .hasStackTraceContaining("without a contract version");
+
+        // the CHECK (V2_4_1370) refuses the same pair written around the repository
+        assertThatThrownBy(() -> tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> jdbc.sql(
+                        "insert into public.delivery (id, tenant_id, state, created_at, updated_at, target_id,"
+                                + " mapping_version_id, message_id, route_id) values (gen_random_uuid(),"
+                                + " current_setting('app.tenant_id')::uuid, 'PENDING', :at, :at, gen_random_uuid(),"
+                                + " :mapping::uuid, gen_random_uuid(), gen_random_uuid())")
+                .param("at", java.sql.Timestamp.from(DAY)).param("mapping", MAP3.toString()).update()))
+                .hasStackTraceContaining("delivery_contract_pin_check");
+        // a route without a mapping needs no contract pin at insert
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> stage1(DeliveryTestDatabase.TENANT_A)
+                .insertPerRoute(List.of(stage1Delivery(MESSAGE, ROUTE_B, UUID.randomUUID(), null))))).isEqualTo(1);
     }
 
     @Test

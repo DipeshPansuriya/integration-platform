@@ -40,6 +40,14 @@ public final class ConfigAuditActions {
     public static final String CREDENTIAL_SOURCE_ROTATED = "CREDENTIAL_SOURCE_ROTATED";
     public static final String CREDENTIAL_SOURCE_REVOKED = "CREDENTIAL_SOURCE_REVOKED";
     public static final String CREDENTIAL_TARGET_SAVED = "CREDENTIAL_TARGET_SAVED";
+    /** A system create/update changed the delivery address of its endpoint (hosts only, never the URL). */
+    public static final String SYSTEM_DESTINATION_CHANGED = "SYSTEM_DESTINATION_CHANGED";
+    /** E16 F3: a DB target table is requested, approved by a different approver, or revoked. */
+    public static final String DB_TABLE_REQUESTED = "DB_TABLE_REQUESTED";
+    public static final String DB_TABLE_APPROVED = "DB_TABLE_APPROVED";
+    public static final String DB_TABLE_REVOKED = "DB_TABLE_REVOKED";
+    /** L19: an approval refused after authorisation and state checks (wide or unverifiable account, target changed). */
+    public static final String DB_TABLE_APPROVAL_REFUSED = "DB_TABLE_APPROVAL_REFUSED";
 
     private ConfigAuditActions() {
     }

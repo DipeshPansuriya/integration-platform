@@ -25,6 +25,13 @@ public interface DeliveryReconcileStore {
      */
     List<UUID> lockReleasableHeld(int limit);
 
+    /**
+     * {@code PENDING}/{@code DUE} deliveries of the bound tenant unchanged since {@code unchangedBefore} with no
+     * unpublished outbox row - a hand-off lost between the state change and its outbox row (T-180) - locked
+     * {@code FOR UPDATE SKIP LOCKED}, oldest first.
+     */
+    List<UUID> lockUnhanded(Instant unchangedBefore, int limit);
+
     /** {@code HELD -> DUE} with the {@code RELEASE} event; {@code false} when the row is no longer held. */
     boolean release(UUID deliveryId);
 
@@ -38,6 +45,11 @@ public interface DeliveryReconcileStore {
 
             @Override
             public List<UUID> lockReleasableHeld(int limit) {
+                return List.of();
+            }
+
+            @Override
+            public List<UUID> lockUnhanded(Instant unchangedBefore, int limit) {
                 return List.of();
             }
 

@@ -81,6 +81,8 @@ class ApiOperationRulesCompletenessTest {
                 // read like the message timeline - same operation, no new one in RolePolicy
                 Map.entry("GET /api/v1/activity", Operation.READ_MESSAGE_TIMELINE),
                 Map.entry("GET /api/v1/activity/{eventId}", Operation.READ_MESSAGE_TIMELINE),
+                // row327 E13 narrow report façade: tenant-scoped read of its tracked delivery details
+                Map.entry("GET /api/v1/reports/facade/{trackingId}", Operation.READ_MESSAGE_TIMELINE),
                 Map.entry("POST /api/v1/admin/contracts/versions", Operation.EDIT_CONFIGURATION),
                 Map.entry("GET /api/v1/admin/contracts/versions/{versionId}", Operation.READ_CONFIGURATION),
                 Map.entry("POST /api/v1/admin/contracts/versions/{versionId}/submit", Operation.SUBMIT_FOR_APPROVAL)));

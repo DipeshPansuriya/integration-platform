@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -78,6 +79,18 @@ public class MessageTrackingService {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
+    /** T156: read-only users see lastError; enough for a status line plus a diagnostic, not a whole target body. */
+    static final int LAST_ERROR_MAX = 512;
+
+    /**
+     * T156: personal data and secrets the per-message masking cannot know (a target echoing an email or a token).
+     * shortcut: emails, bearer/basic tokens and key=value secrets only; extend if a target leaks another shape.
+     */
+    private static final Pattern FREE_TEXT_SECRETS = Pattern.compile(
+            "[\\w.+-]+@[\\w-]+(\\.[\\w-]+)+"
+                    + "|(?i)(?<=\\b(?:bearer|basic)\\s)\\S+"
+                    + "|(?i)(?<=\\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key)\\s?[=:]\\s?)[^\\s,;&\"']+");
+
     private final JdbcMessageTrackingStore store;
 
     public MessageTrackingService(JdbcMessageTrackingStore store) {
@@ -89,21 +102,29 @@ public class MessageTrackingService {
     public Optional<Timeline> timeline(UUID trackingId) {
         return store.message(trackingId).map(message -> {
             List<JdbcMessageTrackingStore.StageRow> rows = store.stages(trackingId).stream()
-                    .sorted(Comparator.comparing(JdbcMessageTrackingStore.StageRow::startedAt)
+                    .sorted(Comparator.comparing(JdbcMessageTrackingStore.StageRow::startedAt,
+                                    Comparator.nullsLast(Comparator.<Instant>naturalOrder()))
                             .thenComparing(row -> pipelineIndex(row.stage())))
                     .toList();
             List<StageTime> stages = new ArrayList<>();
             Instant previousEnd = null;
             Instant latest = null;
             for (JdbcMessageTrackingStore.StageRow row : rows) {
-                Instant end = row.finishedAt() != null ? row.finishedAt() : row.startedAt();
-                stages.add(new StageTime(row.stage(), row.startedAt().toString(), text(row.finishedAt()),
-                        row.finishedAt() == null ? null : millis(row.startedAt(), row.finishedAt()),
-                        previousEnd == null ? null : millis(previousEnd, row.startedAt())));
-                previousEnd = end;
-                latest = latest == null || end.isAfter(latest) ? end : latest;
+                Instant end = row.finishedAt() != null ? row.finishedAt()
+                        : row.startedAt() != null ? row.startedAt() : null;
+                stages.add(new StageTime(row.stage(),
+                        row.startedAt() == null ? null : row.startedAt().toString(), text(row.finishedAt()),
+                        row.startedAt() == null || row.finishedAt() == null ? null
+                                : millis(row.startedAt(), row.finishedAt()),
+                        previousEnd == null || row.startedAt() == null ? null
+                                : millis(previousEnd, row.startedAt())));
+                if (end != null) {
+                    previousEnd = end;
+                    latest = latest == null || end.isAfter(latest) ? end : latest;
+                }
             }
-            Long total = rows.isEmpty() ? null : millis(rows.get(0).startedAt(), latest);
+            Instant firstStart = rows.isEmpty() ? null : rows.get(0).startedAt();
+            Long total = firstStart == null || latest == null ? null : millis(firstStart, latest);
             List<JdbcMessageTrackingStore.DeliveryAttemptRow> deliveryRows = store.deliveries(trackingId);
             return new Timeline(message.id(), message.flowId(), message.state(), text(message.acceptedAt()), stages,
                     total, failingStage(message.state(), deliveryRows), deliveryTimes(deliveryRows));
@@ -160,7 +181,8 @@ public class MessageTrackingService {
                                 Comparator.nullsLast(Comparator.<String>naturalOrder()))
                         .thenComparing(JdbcMessageTrackingStore.DeliveryAttemptRow::deliveryId))
                 .map(row -> new DeliveryTime(row.deliveryId(), row.targetId(),
-                        row.attemptId() == null ? null : millis(row.startedAt(), row.finishedAt()),
+                        row.attemptId() == null || row.startedAt() == null || row.finishedAt() == null ? null
+                                : millis(row.startedAt(), row.finishedAt()),
                         row.attemptId() == null ? null : row.outcomeClass(),
                         DeliveryState.valueOf(row.state())))
                 .toList();
@@ -174,7 +196,8 @@ public class MessageTrackingService {
         if (b.attemptId() == null) {
             return a;
         }
-        int byFinish = a.finishedAt().compareTo(b.finishedAt());
+        int byFinish = Comparator.<Instant>nullsLast(Comparator.naturalOrder()).compare(a.finishedAt(),
+                b.finishedAt());
         if (byFinish != 0) {
             return byFinish > 0 ? a : b;
         }
@@ -191,7 +214,9 @@ public class MessageTrackingService {
                 .map(s -> MaskedFields.redact(text, MaskedFields.valuesOf(JSON.readTree(s.bodyJson()),
                         MaskedFields.fromJson(s.maskedFieldsJson()))))
                 .orElse(text);
-        return MaskedFields.scrub(redacted);
+        String scrubbed = FREE_TEXT_SECRETS.matcher(MaskedFields.scrub(redacted)).replaceAll(MaskedFields.MARKER);
+        // cap after redaction so a cut can never leave half a secret unmatched
+        return scrubbed.length() <= LAST_ERROR_MAX ? scrubbed : scrubbed.substring(0, LAST_ERROR_MAX - 3) + "...";
     }
 
     private static int pipelineIndex(String stage) {

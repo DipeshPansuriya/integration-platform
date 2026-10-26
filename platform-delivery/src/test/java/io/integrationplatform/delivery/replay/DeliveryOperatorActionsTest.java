@@ -33,7 +33,9 @@ import org.springframework.transaction.support.TransactionOperations;
  *   <li>retry moves a RETRY_WAIT delivery to DUE now, the same way;</li>
  *   <li>each action publishes exactly one audit event: actor, tenant, delivery id and the pinned versions;</li>
  *   <li>a delivery the bound tenant cannot see (another tenant's) is NOT_FOUND and nothing changes;</li>
- *   <li>the wrong source state, or a delivery without both pins, changes nothing and audits nothing;</li>
+ *   <li>the wrong source state, or a mapped delivery without its contract pin, changes nothing and audits nothing;</li>
+ *   <li>a route WITHOUT a mapping is replayable (T172, Dipesh 2026-10-22): its contract pin comes from the target
+ *       endpoint's active contract, written onto the delivery; none active means NOT_PINNED;</li>
  *   <li>with no tenant bound nothing runs.</li>
  * </ol>
  */
@@ -46,10 +48,12 @@ class DeliveryOperatorActionsTest {
     private final FakeStore store = new FakeStore();
     private final List<OutboxEntry> outbox = new ArrayList<>();
     private final List<Object> published = new ArrayList<>();
+    /** The active contract version of a target endpoint (the replay pin for a route without a mapping). */
+    private final Map<UUID, UUID> targets = new HashMap<>();
     private final DeliveryOperatorActions actions = actions(() -> Optional.of(TENANT));
 
     private DeliveryOperatorActions actions(TenantContext tenants) {
-        return new DeliveryOperatorActions(store, entry -> {
+        return new DeliveryOperatorActions(store, target -> Optional.ofNullable(targets.get(target)), entry -> {
             outbox.add(entry);
             return outbox.size();
         }, published::add, tenants, TransactionOperations.withoutTransaction(), Clock.fixed(NOW, ZoneOffset.UTC));
@@ -137,15 +141,52 @@ class DeliveryOperatorActionsTest {
     }
 
     @Test
-    void aDeliveryWithoutBothPinsIsRefusedAndNothingChanges() {
+    void aDeliveryWithAMappingButNoContractPinIsRefusedAndNothingChanges() {
         UUID noContract = UUID.randomUUID();
-        UUID noMapping = UUID.randomUUID();
-        store.put(noContract, DeliveryState.DEAD_LETTERED, UUID.randomUUID(), null);
-        store.put(noMapping, DeliveryState.RETRY_WAIT, null, UUID.randomUUID());
+        UUID target = UUID.randomUUID();
+        store.put(noContract, DeliveryState.DEAD_LETTERED, UUID.randomUUID(), null, target);
+        targets.put(target, UUID.randomUUID()); // an active contract exists, but a mapped delivery is never re-pinned
 
         assertThat(actions.replay(noContract, ACTOR).outcome()).isEqualTo(Outcome.NOT_PINNED);
-        assertThat(actions.retry(noMapping, ACTOR).outcome()).isEqualTo(Outcome.NOT_PINNED);
         assertThat(store.state(noContract)).isEqualTo(DeliveryState.DEAD_LETTERED);
+        assertThat(store.pins).isEmpty();
+        assertNothingChanged();
+    }
+
+    @Test
+    void replayOfARouteWithoutAMappingPinsTheTargetsActiveContractAndMovesToDue() {
+        UUID id = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        UUID active = UUID.randomUUID();
+        store.put(id, DeliveryState.DEAD_LETTERED, null, null, target);
+        targets.put(target, active);
+
+        Result result = actions.replay(id, ACTOR);
+
+        assertThat(result).isEqualTo(new Result(Outcome.MOVED_TO_DUE, id, DeliveryState.DUE, null, active));
+        assertThat(store.pins).containsExactly(id + "=" + active);
+        assertThat(outbox).containsExactly(
+                new OutboxEntry(OutboxTopic.DELIVERY_DUE, id, "delivery:" + id, null, null, active));
+        assertThat(published).containsExactly(AuditActions.operatorReplay(ACTOR, TENANT, id, null, active, NOW));
+    }
+
+    @Test
+    void aMappinglessDeliveryThatAlreadyHasAContractReplaysWithoutResolvingAgain() {
+        UUID id = UUID.randomUUID();
+        UUID pinned = UUID.randomUUID();
+        store.put(id, DeliveryState.RETRY_WAIT, null, pinned, UUID.randomUUID());
+
+        assertThat(actions.retry(id, ACTOR).contractVersionId()).isEqualTo(pinned);
+        assertThat(store.pins).isEmpty();
+    }
+
+    @Test
+    void aRouteWithoutAMappingAndWithoutAnActiveContractIsRefusedAndNothingChanges() {
+        UUID id = UUID.randomUUID();
+        store.put(id, DeliveryState.DEAD_LETTERED, null, null, UUID.randomUUID());
+
+        assertThat(actions.replay(id, ACTOR).outcome()).isEqualTo(Outcome.NOT_PINNED);
+        assertThat(store.pins).isEmpty();
         assertNothingChanged();
     }
 
@@ -172,10 +213,27 @@ class DeliveryOperatorActionsTest {
 
         private final Map<UUID, Target> rows = new HashMap<>();
         private final List<String> moves = new ArrayList<>();
+        private final List<String> pins = new ArrayList<>();
         private int locks;
 
         void put(UUID id, DeliveryState state, UUID mapping, UUID contract) {
-            rows.put(id, new Target(id, state, mapping, contract));
+            put(id, state, mapping, contract, null);
+        }
+
+        void put(UUID id, DeliveryState state, UUID mapping, UUID contract, UUID target) {
+            rows.put(id, new Target(id, state, mapping, contract, target));
+        }
+
+        @Override
+        public boolean pinContract(UUID deliveryId, UUID contractVersionId) {
+            Target row = rows.get(deliveryId);
+            if (row == null || row.contractVersionId() != null) {
+                return false;
+            }
+            rows.put(deliveryId, new Target(deliveryId, row.state(), row.mappingVersionId(), contractVersionId,
+                    row.targetEndpointId()));
+            pins.add(deliveryId + "=" + contractVersionId);
+            return true;
         }
 
         DeliveryState state(UUID id) {
@@ -203,7 +261,8 @@ class DeliveryOperatorActionsTest {
             if (row == null || row.state() != from) {
                 return false;
             }
-            rows.put(id, new Target(id, DeliveryState.DUE, row.mappingVersionId(), row.contractVersionId()));
+            rows.put(id, new Target(id, DeliveryState.DUE, row.mappingVersionId(), row.contractVersionId(),
+                    row.targetEndpointId()));
             moves.add(kind + " " + id + " @" + at);
             return true;
         }

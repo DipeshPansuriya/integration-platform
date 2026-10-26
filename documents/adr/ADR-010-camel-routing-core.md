@@ -134,6 +134,34 @@ creates N deliveries for N matched routes, not 2N (test).
   `DUE`; the rest stay in `RETRY_WAIT` for the next run, so a full target is not flooded with
   records it would only defer again.
 - A claim that ends in `HELD` or finds a duplicate (0 rows) returns the permit at once.
+- **Addendum 2026-10-22 - slot-free re-drive (E18 drain defect, T-153).** The backoff above never
+  applies on its own: only the `DELIVERY_RETRY` job re-drives a deferred delivery (60 s cadence,
+  the cap above per run), so a deferral cost at least one job period - drain times of 11 s, 54 s
+  and 260 s on the same code, all of it tail. Now, **when a send ends and its permit is about to
+  return, the same bulkhead thread, still under the delivery's tenant binding, re-drives ONE
+  bulkhead-deferred `RETRY_WAIT` delivery of the same target** (`bulkhead_deferrals > 0`, oldest
+  `next_attempt_at` first, `FOR UPDATE SKIP LOCKED`, the backoff time ignored: the wait was for this
+  slot): `RETRY_WAIT -> DUE` through the same conditional update as the job, and its `DELIVERY_DUE`
+  outbox row in one transaction. One freed permit moves at most one row, so the per-target cap
+  holds and there is no loop: a re-driven record runs again only by taking a permit like any
+  other. A failing re-drive is logged and swallowed and never fails the finished send. Ordering
+  (HELD at the claim), idempotency (claim token, duplicate detection) and tenant isolation (the
+  re-drive runs under the bound tenant; RLS scopes the select) are unchanged. **The retry job
+  remains the safety net** (a missed re-drive, a crash between the send and the re-drive, an
+  instance restart); the 1 s to 30 s backoff is now the backstop wait, not the normal path.
+  Test: `DeliveryDueDispatchTest` (full bulkhead, deferral, slot freed, re-driven at once) and
+  `JdbcBulkheadRedriveContainerTest` (the real tables).
+  **Consequences of the addendum (T-177 follow-ups, Varun F2/F3/F5/F6):**
+  - **The backoff no longer sheds load against a slow partner.** The 1 s to 30 s `BULKHEAD_FULL`
+    backoff used to space the retries of a deferred delivery; the slot-free re-drive ignores it, so a
+    slow or hanging target is no longer relieved by waiting. Only the **per-target bulkhead** (the
+    permit cap, a re-driven record must still win a permit) and the **circuit breaker** protect it.
+  - **No re-drive chain on an open breaker.** A send that ended as `CIRCUIT_DEFER` (nothing was
+    sent) does not re-drive; the retry job stays the only path until the breaker lets a call through.
+  - **HELD and duplicate claims hand the turn on**, at most 8 in a row per target (reset by a real
+    send); beyond that the retry job takes the tail.
+  - **Operability:** the re-drive writes `REDRIVE` with the detail `slot-free` (the job writes none);
+    a failed re-drive logs one WARN line without a stack trace (stack at DEBUG).
 - The pool is per instance: the effective limit for a target is pool size x instances.
 - **Gate:** with target A answering only after its 10 s timeout, target B delivers the same
   number of messages in the same wall-clock time as with target A idle (500 deliveries to B,
@@ -198,7 +226,9 @@ leaves live, cached routes behind (finding F14). Decision:
 
 **Layer 1 - Camel in-attempt redelivery (seconds).** Camel's error handler redelivers only
 **transient** failures (table in section 5): at most 2 redeliveries, 500 ms initial delay,
-doubling, with jitter. **The 5 s cap is delay time only** - the sum of the waits between tries
+doubling, with jitter. Of the HTTP 408/500/502/504 family, only codes from a target that
+**declares idempotent receive** (an `Idempotency-Key` rides every try, ADR-011 Decision 1) are
+layer-1 eligible; without the declaration they are `AMBIGUOUS` and never redelivered. **The 5 s cap is delay time only** - the sum of the waits between tries
 never passes 5 s; each try's own duration is bounded by the target timeout. A redelivery is
 also skipped when it would pass the remaining synchronous budget, or when the target sent a
 `Retry-After` longer than the remaining layer-1 delay. Each try - the first and each redelivery -
@@ -242,14 +272,14 @@ events, not attempts.
 
 This table is the **default**. A target's error dictionary may override the class of a status
 code or error code for that target (for example, a target documenting that its 500 means "not
-processed" may mark it `TRANSIENT`); an override can never make 401, 403 or a validation error
-retryable.
+processed" may mark it `TRANSIENT`); an override can never make 401 or 403 retryable. (Request
+validation failure is a `PERMANENT` row of this table, not a retry-class override.)
 
 | Class | Examples | Layer 1 | Layer 2 |
 |---|---|---|---|
 | `SUCCESS` | HTTP 2xx; JMS send acknowledged; DB commit; file renamed into place | - | `DELIVERED` |
 | `TRANSIENT` | connection refused or reset **before the request was sent**; HTTP 429 and 503 (honouring `Retry-After`); HTTP **408, 500, 502, 504 from a target that declares idempotent receive**; broker unavailable; DB serialization failure or deadlock (40001, 40P01); target folder temporarily unavailable | redeliver | `RETRY_WAIT` |
-| `AMBIGUOUS` | a timeout after the request was sent; a connection lost while awaiting the reply; HTTP **408, 500, 502, 504 from a target that does not declare idempotent receive** (the request may have been processed); a DB commit outcome unknown | **never redeliver** | `RETRY_WAIT` only if the target declares idempotent receive (ADR-011); otherwise `DEAD_LETTERED` with reason `AMBIGUOUS_TIMEOUT` for an operator decision |
+| `AMBIGUOUS` | a timeout after the request was sent; a connection lost while awaiting the reply; HTTP **408, 500, 502, 504 from a target that does not declare idempotent receive** (the request may have been processed) — **no other 408/500/502/504 case is AMBIGUOUS: with the declaration the codes are `TRANSIENT` (row above), so layer 2 is `RETRY_WAIT` and never this row's `AMBIGUOUS_TIMEOUT` dead-letter**; a DB commit outcome unknown | **never redeliver** | `DEAD_LETTERED` with reason `AMBIGUOUS_TIMEOUT` for an operator decision |
 | `PERMANENT` | HTTP 400, 404, 409, 422; **401, 403**; mapping or contract failure; destination refused by the destination check (section 8); **target credential authentication-tag mismatch** (ADR-007) | never | `DEAD_LETTERED` |
 
 A timeout is treated as ambiguous, never as failed (`ws/_specs/project-plan.md:115`).
@@ -258,8 +288,29 @@ A timeout is treated as ambiguous, never as failed (`ws/_specs/project-plan.md:1
 decrypted, before any call leaves the process (ADR-007 Decision 7). It is not an outcome class:
 **no attempt row is written and no attempt is used up**; the delivery gets a `KEY_UNAVAILABLE`
 delivery event and moves `SENDING` -> `RETRY_WAIT` (conditional on the claim token) with the
-bulkhead-full backoff of section 2; an alert fires and the instance fails its readiness check
-(section 9 item 4), so an instance that holds the key sends it.
+bulkhead-full backoff of section 2 — its wait is that same series (1 s doubling to a 30 s cap,
+full jitter; the numbers, not the mechanics: section 2's deferral updates rows `WHERE status IN
+('PENDING','DUE')` and this delivery is `SENDING`, so it moves conditional on the claim token
+and counts its own `key_unavailable_deferrals`, reset by a send that completes). A missing key
+is a deployment fault fixed by the alert and the readiness gate below, never an unbounded
+silent spin: an alert fires and the instance fails its readiness check (section 9 item 4), so
+an instance that holds the key sends it.
+
+**Addendum 2026-10-20 - E10 scenario-authoring settles A1-A3** (backlog.md:2685, :2774, :2790;
+no second mechanism anywhere):
+
+- **A1, "policy ceiling"** is the same route `retry_policy` ceiling as the section-4 layer-2
+  bullet (team default 1 h, configuration): `next_attempt_at = min(now + backoff, ceiling)`;
+  a `Retry-After` past the remaining ceiling is **not** a dead-letter - the row simply becomes
+  due at the ceiling.
+- **A2, the `KEY_UNAVAILABLE` wait** is exactly section 2's series - 1 s doubling to the 30 s
+  cap, full jitter - reused as the *one* number; only the counter is distinct
+  (`key_unavailable_deferrals`, per T-200). There is no 10-minute backoff and no second
+  backoff in this ADR.
+- **A3, "an alert fires"** is asserted as the Micrometer counter
+  `platform.delivery.key_unavailable` (+1 per event, the named metric of section 8's set) plus
+  the readiness-DOWN check; the paging rule itself lives in the deployment's observability
+  stack, not in the acceptance criterion.
 
 ### 6. Delivery states (closed register; phase 2 implements it, illegal transitions are rejected)
 
@@ -274,7 +325,10 @@ bulkhead-full backoff of section 2; an alert fires and the instance fails its re
 | `SENDING` | `RETRY_WAIT` | the target credential key is not on this instance (section 5) - no call, no attempt, a `KEY_UNAVAILABLE` event |
 | `SENDING` | `RETRY_WAIT` or `DEAD_LETTERED` (as `AMBIGUOUS`) | a stale claim: claimed longer than **3 x the target timeout + the layer-1 delay cap (5 s) + 60 s** (instance crash mid-call), found by the delivery-retry job |
 | `RETRY_WAIT` | `DUE` | `next_attempt_at` reached (delivery-retry job); after a bulkhead-full deferral, at most `max_concurrent_sends` x the configured instance count per target per run (section 2) |
-| `RETRY_WAIT` | `DUE` | circuit half-open time reached after a circuit-open deferral - **at most the breaker's trial-call count per target** per half-open window (Resilience4j `permittedNumberOfCallsInHalfOpenState`, default 3); the rest wait until the breaker closes |
+| `RETRY_WAIT` | `DUE` | circuit half-open time reached after a circuit-open deferral — **at most the breaker's trial-call count per target** (`half_open_trial_calls`, the target's settings field, ADR-011 Decision 1; Resilience4j `permittedNumberOfCallsInHalfOpenState`) per half-open window; the rest wait until the breaker closes — **and if the breaker re-opens before it closes, the next delivery-retry pass re-drives at most the trial-call count again** (A4: **every `RETRY_WAIT` -> `DUE` move in this table is the delivery-retry job's**, whether
+the trigger is the half-open timer or the pass itself - so the backlog scenario's event
+assertion is the same rows-whatever-moved set on both paths; otherwise the remainder waits
+forever on a target that never flips to CLOSED) |
 | `DEAD_LETTERED` | `DUE` | operator replay - audited; uses the versions pinned when the message arrived |
 
 Terminal: `DELIVERED`. `DEAD_LETTERED` is terminal until an operator replays it.
@@ -324,6 +378,11 @@ The resilient-integration rule's five controls, plus a bulkhead (challenge B1):
 | Circuit breaker | One Resilience4j breaker per target endpoint; open -> no call, the delivery waits in `RETRY_WAIT` until half-open time; at half-open at most the trial-call count is re-driven per target |
 | Fallback | The Delivery state machine: `RETRY_WAIT` or `DEAD_LETTERED`; nothing is ever dropped silently |
 | Observability | Micrometer metrics per target (attempts by outcome, latency histogram, breaker state, bulkhead in use and `BULKHEAD_FULL` count); an OpenTelemetry span per call (`camel-opentelemetry2`); structured log line with tenant, message and delivery ids |
+
+**Metric note (2026-10-20, E10):** the per-target metric set above **is** the bulkhead-in-use
+gauge and the `BULKHEAD_FULL` counter — required of every adapter, and counted for E10's
+target scope as six controls, the bulkhead being the sixth of section 8 (built in E9,
+T-177/T-198).
 | **Bulkhead** | One bounded pool per target endpoint per instance (`max_concurrent_sends`, default 4, queue 0); full -> a `BULKHEAD_FULL` event and `RETRY_WAIT`, no call made (section 2) |
 
 **Outbound destinations - one check for every target type (challenge S-c).** The same check runs
@@ -416,12 +475,34 @@ is `platform-config/src/main/java/io/integrationplatform/config/destination/`,
   unit exit 0, `-Pcontainer` exit 0 (merge `a2c76ff`).
 - **What it gives up.** Under `showcase`, a listed name that resolves to loopback can still reach
   any service on that host that listens on a **listed** port. The port pin narrows this from every
-  port to the listed ones, but the "platform's own hosts" refusal list of this section is not yet
-  in code, so a listed port shared with a platform service is not caught. A showcase-local port
+  port to the listed ones, and the "platform's own hosts" refusal list of this section is in code
+  since `8215ebc` (`DestinationGuard.java:76-106`, `:173-177`), so a listed port shared with a
+  platform service is refused. A showcase-local port
   must therefore be the test destination's own port, a showcase-local host a name that points
   only at the test destination, and a showcase run never holds real tenant data.
 - **Review.** karan-security, through kavita-release-manager (T137, ledger row 323), reviewed the
   change before it landed: T137 PASS (merge `a2c76ff`).
+
+#### Amendment 2026-10-19 - global outbound allow-list (T-202, row 327)
+
+- **Context.** The allow-list is per tenant only, so a tenant administrator decides alone where
+  the platform may connect. An operator needs an outer bound per deployment.
+- **Options.** (A) Keep the per-tenant list only: no new setting, but no operator bound.
+  (B) Global list only: one bound, but it removes the tenant's own narrowing. (C) Both, the
+  effective list being the intersection. [Decided] **C.**
+- **Decision.** A global allow-list from an environment variable is the outer bound; the
+  effective list for a target is global ∩ tenant. An empty or missing global list **fails closed**
+  (every destination refused), never open. The platform's own hosts (the instance's PostgreSQL,
+  Kafka and Keycloak) are refused as targets **even when allow-listed**: the egress manifest
+  allows them for the platform's own connections only. A FILE target path is confined with
+  `ConfinedPath.under` (`ConfinedPath.java:25-45`); `..` and symlink escapes are refused.
+- **Gates (counts), each a conformance test.** Empty global list: N of N destinations refused. A
+  host on the tenant list but not on the global list: refused, 1 of 1. A platform host on both
+  lists: refused, 1 of 1. FILE escapes: 2 of 2 refused (`..`, symlink). A host on both lists and
+  not a platform host: allowed, 1 of 1.
+- **What it gives up.** One more setting per deployment, and a deployment that forgets it sends
+  nothing until it is set.
+- **Revisit if** an operator needs per-tenant overrides of the global bound.
 
 ### 9. Nothing stays stuck (challenge B4)
 

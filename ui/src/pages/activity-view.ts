@@ -51,6 +51,20 @@ export function activityQuery(filter: ActivityFilter): Record<string, string | n
   return query;
 }
 
+export type ActivityTone = 'success' | 'danger' | 'neutral';
+
+/**
+ * The badge tone for an action name. The action set is open-ended (ConfigAuditActions grows), so only a
+ * completed lifecycle step (..._APPROVED / ..._PUBLISHED) is success, a failure or revocation
+ * (..._FAILED / ..._REJECTED / ..._REVOKED / ..._DENIED) is danger, and anything else - including a
+ * value never seen before - is neutral.
+ */
+export function activityTone(action: string): ActivityTone {
+  if (/(?:FAILED|REJECTED|REVOKED|DENIED)$/i.test(action)) return 'danger';
+  if (/(?:APPROVED|PUBLISHED)$/i.test(action)) return 'success';
+  return 'neutral';
+}
+
 export function pagerState(page: number, hasMore: boolean): { previous: boolean; next: boolean } {
   return { previous: page > 0, next: hasMore };
 }

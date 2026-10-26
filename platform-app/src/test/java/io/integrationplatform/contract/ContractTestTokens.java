@@ -43,16 +43,24 @@ final class ContractTestTokens {
 
     /** A 5-minute access token for (test issuer, subject) with the platform audience. */
     String accessToken(String subject) {
+        return accessToken(subject, null);
+    }
+
+    /** As above, with an {@code azp} (client id) claim when {@code clientId} is not null - a machine credential's token. */
+    String accessToken(String subject, String clientId) {
         Instant now = Instant.now();
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+        JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder()
                 .issuer(PlatformTestWiring.OIDC_ISSUER.toString())
                 .subject(subject)
                 .audience(PlatformTestWiring.OIDC_AUDIENCE)
                 .issueTime(Date.from(now))
                 .notBeforeTime(Date.from(now.minusSeconds(5)))
                 .expirationTime(Date.from(now.plus(Duration.ofMinutes(5))))
-                .jwtID(UUID.randomUUID().toString())
-                .build();
+                .jwtID(UUID.randomUUID().toString());
+        if (clientId != null) {
+            builder.claim("azp", clientId);
+        }
+        JWTClaimsSet claims = builder.build();
         try {
             SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(),
                     claims);

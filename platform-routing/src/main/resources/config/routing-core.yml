@@ -11,13 +11,19 @@ routing:
     # Comma-separated names; exec:, file: and anything unlisted is refused at build.
     allowed-schemes: ${ROUTING_CORE_ALLOWED_SCHEMES}
     # Routing stays inside its 1 s budget (E9-F1-S3): the synchronous routing step's budget, measured by
-    # T-122's performance test.
+    # T-122's performance test (platform-app e9/perf/RoutingBudgetPerformanceContainerTest).
     budget: ${ROUTING_CORE_BUDGET}
     stage2:
       bulkhead:
         # Each target's sends run in that target's own bounded pool (T-177, ADR-010 section 2): the per-target
         # cap (the delivery table's max_concurrent_sends per target is seeded from this at wiring time).
         max-concurrent-sends: ${TARGET_BULKHEAD_MAX_CONCURRENT_SENDS}
+        # T72/T-199 (ADR-010 section 2): the delivery-retry trigger re-drives at most max-concurrent-sends x the
+        # instance count bulkhead-deferred deliveries per target per run. instance-count (property
+        # routing.core.stage2.bulkhead.instance-count, env ROUTING_CORE_STAGE2_BULKHEAD_INSTANCE_COUNT) is the number of
+        # running platform instances: OPTIONAL, default 1 when unset (set it to the real count when scaled out), at
+        # least 1 or the start fails. It carries no line here: R07 keeps this file value-free and an unset name would
+        # fail the import. The default lives in DeliveryRetryTriggerConfiguration.
         # A full bulkhead defers, never blocks (E9-F1-S4): the pool's queue the permit hand-off bounds.
         queue-capacity: ${TARGET_BULKHEAD_QUEUE_CAPACITY}
       layer-one:

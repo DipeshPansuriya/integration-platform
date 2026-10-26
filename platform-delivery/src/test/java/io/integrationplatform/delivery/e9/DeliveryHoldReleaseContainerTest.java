@@ -9,6 +9,7 @@ import io.integrationplatform.delivery.DeliveryClaimService.Outcome;
 import io.integrationplatform.delivery.DeliveryEventType;
 import io.integrationplatform.domain.delivery.DeliveryState;
 import io.integrationplatform.delivery.DeliveryTestDatabase;
+import io.integrationplatform.delivery.internal.JdbcDeliveryReconcileStore;
 import io.integrationplatform.delivery.internal.JdbcDeliveryRepository;
 import io.integrationplatform.delivery.internal.ordering.JdbcOrderedStateChange;
 import io.integrationplatform.domain.delivery.OutcomeClass;
@@ -290,5 +291,50 @@ class DeliveryHoldReleaseContainerTest {
                 .isEqualTo(Outcome.HELD);
         assertThat(state(successor)).isEqualTo(DeliveryState.HELD);
         assertThat(eventCount(successor, DeliveryEventType.HELD)).isEqualTo(1);
+    }
+
+    @Test
+    void aHoldSurvivesAConsumerRebalanceAndIsReleasedOnceWhenThePredecessorIsFinal() {
+        // T-165 (B4): the rebalanced consumer re-reads the same record - the row stays HELD, the reconcile sweep
+        // never releases it while the predecessor is non-final, and the final state releases it exactly once
+        Instant base = DAY.plus(8, ChronoUnit.HOURS);
+        UUID predecessor = newDelivery(DeliveryTestDatabase.TENANT_A, DeliveryTestDatabase.TARGET_ID,
+                "rebalance-key", 1L, base);
+        UUID successor = newDelivery(DeliveryTestDatabase.TENANT_A, DeliveryTestDatabase.TARGET_ID,
+                "rebalance-key", 2L, base);
+        UUID token = sending(predecessor, base);
+        toRetryWait(predecessor, token, base.plusSeconds(60), base);
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> bareClaimService().claim("rebalance-key", successor, UUID.randomUUID(), base.plusSeconds(2))))
+                .isEqualTo(Outcome.HELD);
+
+        // the rebalance: a fresh consumer (new service instance) gets the same record again
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> bareClaimService().claim("rebalance-key", successor, UUID.randomUUID(), base.plusSeconds(3))))
+                .isNotEqualTo(Outcome.CLAIMED);
+        assertThat(state(successor)).isEqualTo(DeliveryState.HELD);
+        assertThat(eventCount(successor, DeliveryEventType.HELD)).as("held once, not twice").isEqualTo(1);
+        for (int pass = 0; pass < 2; pass++) {
+            assertThat(reconcileReleasable()).as("predecessor non-final: never releasable").doesNotContain(successor);
+        }
+        assertThat(eventCount(successor, DeliveryEventType.RELEASE)).isZero();
+        assertThat(dueOutboxRows(successor)).isEmpty();
+
+        UUID finalToken = reClaim(predecessor, base.plusSeconds(61));
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> repository().markDelivered(predecessor, finalToken, base.plusSeconds(62)))).isTrue();
+        assertThat(state(successor)).isEqualTo(DeliveryState.DUE);
+        assertThat(eventCount(successor, DeliveryEventType.RELEASE)).isEqualTo(1);
+        assertThat(dueOutboxRows(successor)).hasSize(1);
+
+        assertThat(reconcileReleasable()).as("already released: not HELD any more").doesNotContain(successor);
+        assertThat(eventCount(successor, DeliveryEventType.RELEASE)).isEqualTo(1);
+        assertThat(dueOutboxRows(successor)).hasSize(1);
+    }
+
+    private List<UUID> reconcileReleasable() {
+        return tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> new JdbcDeliveryReconcileStore(jdbc, DeliveryTestDatabase.tenant(DeliveryTestDatabase.TENANT_A))
+                        .lockReleasableHeld(50));
     }
 }

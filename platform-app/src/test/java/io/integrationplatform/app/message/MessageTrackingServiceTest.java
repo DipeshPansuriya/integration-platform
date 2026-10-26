@@ -164,6 +164,25 @@ class MessageTrackingServiceTest {
     }
 
     @Test
+    void allFourStagesComeBackInPipelineOrderWhateverOrderTheStoreReturnsThem() {
+        UUID id = message("ROUTED");
+        when(store.stages(id)).thenReturn(List.of(
+                new JdbcMessageTrackingStore.StageRow("DELIVER", T0.plusMillis(300), T0.plusMillis(340)),
+                new JdbcMessageTrackingStore.StageRow("TRANSFORM", T0.plusMillis(200), T0.plusMillis(230)),
+                new JdbcMessageTrackingStore.StageRow("INTAKE", T0, T0.plusMillis(40)),
+                new JdbcMessageTrackingStore.StageRow("ROUTE", T0.plusMillis(100), T0.plusMillis(120))));
+
+        MessageTrackingService.Timeline timeline = read(id);
+
+        assertThat(timeline.stages()).extracting(MessageTrackingService.StageTime::stage)
+                .containsExactly("INTAKE", "ROUTE", "TRANSFORM", "DELIVER");
+        assertThat(timeline.stages()).extracting(MessageTrackingService.StageTime::durationMs)
+                .containsExactly(40L, 20L, 30L, 40L);
+        assertThat(timeline.stages()).extracting(MessageTrackingService.StageTime::sincePreviousMs)
+                .containsExactly(null, 60L, 80L, 70L);
+    }
+
+    @Test
     void aMessageWithNoDeliveryHasNoEntries() {
         assertThat(read(message("ROUTE_FAILED")).deliveries()).isEmpty();
     }
@@ -218,5 +237,29 @@ class MessageTrackingServiceTest {
                 .extracting(MessageTrackingService.Failure::trackingId, MessageTrackingService.Failure::deliveryId,
                         MessageTrackingService.Failure::lastError)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple(null, "d-1", "no route"));
+    }
+    // ------------------------------------------------------------------ T156: lastError reaches read-only users
+
+    private String lastErrorOf(String attemptDetail) {
+        when(store.deadLetters(any(), any(), any())).thenReturn(List.of(new JdbcMessageTrackingStore.DeadLetterRow(
+                "d-1", null, UUID.randomUUID().toString(), TARGET_1, "PERMANENT", attemptDetail, "PERMANENT", T0)));
+        when(store.maskedSources(any())).thenReturn(java.util.Map.of());
+        return service.failures(null, null).get(0).lastError();
+    }
+
+    @Test
+    void aLongTargetAnswerIsCapped() {
+        String lastError = lastErrorOf("HTTP 500 " + "x".repeat(5000));
+
+        assertThat(lastError).startsWith("HTTP 500 xxx").hasSizeLessThanOrEqualTo(512);
+    }
+
+    @Test
+    void anEmailOrSecretInTheTargetAnswerIsNotReturned() {
+        String lastError = lastErrorOf("HTTP 401 user jane.doe@example.com Authorization: Bearer eyJabc.def-ghi"
+                + " password=hunter2 api_key: K3yV4lue");
+
+        assertThat(lastError).startsWith("HTTP 401 user ")
+                .doesNotContain("jane.doe@example.com", "eyJabc.def-ghi", "hunter2", "K3yV4lue");
     }
 }

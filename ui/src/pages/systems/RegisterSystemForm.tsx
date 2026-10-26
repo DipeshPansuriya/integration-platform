@@ -1,10 +1,12 @@
-// T-159 (E5 lane D): register a system of type API, DB, MQ or File with its type-specific
+// T-159 (E5 lane D): register a system of type API, DB, MQ, File or Kafka with its type-specific
 // settings (E5-F1-S1). The API validates every save and names every problem; this form shows
 // them all and never pre-filters what it sends.
 
 import { useState, type FormEvent } from 'react';
-import { registerSystem, settingsFromForm } from '../../api/systems';
-import { SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
+import { clientSettingsErrors, registerSystem, settingsFromForm } from '../../api/systems';
+import { ERRORS_ID, SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
+import { topFieldHasError } from './systems-view';
+import { useDrawerSaved } from '../../ui/Drawer';
 
 export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promise<void> }) {
   const [code, setCode] = useState('');
@@ -15,6 +17,7 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
   const [errors, setErrors] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const markSaved = useDrawerSaved(); // row 372 M4: only an accepted save lifts the drawer's discard guard
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -23,6 +26,12 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
     setErrors([]);
     try {
       const typed = type.trim() !== '';
+      // the one shape the client mirrors (KAFKA): same words as the server, no round trip
+      const local = clientSettingsErrors(type, values);
+      if (local.length > 0) {
+        setErrors(local);
+        return;
+      }
       const result = await registerSystem({
         code: code.trim(),
         name: name.trim(),
@@ -34,6 +43,7 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
         setErrors(result.errors?.length ? result.errors : [`The API refused the save (HTTP ${result.status}).`]);
         return;
       }
+      markSaved();
       setSaved(true);
       setCode('');
       setName('');
@@ -46,17 +56,39 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
 
   return (
     <form data-form="register-system" onSubmit={onSubmit}>
+      <p className="systems-muted" data-required-legend>
+        Required fields are marked *
+      </p>
       <label>
-        Code
-        <input id="sys-field-code" data-field="system-code" value={code} onChange={(e) => setCode(e.target.value)} />
+        Code *
+        <input
+          id="sys-field-code"
+          data-field="system-code"
+          value={code}
+          aria-required
+          aria-invalid={topFieldHasError(errors, 'code') || undefined}
+          aria-describedby={topFieldHasError(errors, 'code') ? ERRORS_ID : undefined}
+          onChange={(e) => setCode(e.target.value)}
+        />
       </label>
       <label>
-        Name
-        <input id="sys-field-name" data-field="system-name" value={name} onChange={(e) => setName(e.target.value)} />
+        Name *
+        <input
+          id="sys-field-name"
+          data-field="system-name"
+          value={name}
+          aria-required
+          aria-invalid={topFieldHasError(errors, 'name') || undefined}
+          aria-describedby={topFieldHasError(errors, 'name') ? ERRORS_ID : undefined}
+          onChange={(e) => setName(e.target.value)}
+        />
       </label>
       <label>
-        Direction
+        Direction *
         <select
+          aria-required
+          aria-invalid={topFieldHasError(errors, 'direction') || undefined}
+          aria-describedby={topFieldHasError(errors, 'direction') ? ERRORS_ID : undefined}
           id="sys-field-direction"
           data-field="system-direction"
           value={direction}
@@ -66,8 +98,8 @@ export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promi
           <option value="INBOUND">Inbound (source)</option>
         </select>
       </label>
-      <TypeField value={type} onChange={setType} />
-      <SettingsFields type={type} values={values} onChange={(field, value) => setValues((v) => ({ ...v, [field]: value }))} />
+      <TypeField value={type} onChange={setType} errors={errors} />
+      <SettingsFields type={type} values={values} onChange={(field, value) => setValues((v) => ({ ...v, [field]: value }))} errors={errors} />
       <button type="submit" data-action="register-system" disabled={busy}>
         Register system
       </button>
