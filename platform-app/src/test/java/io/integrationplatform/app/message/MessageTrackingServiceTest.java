@@ -131,6 +131,28 @@ class MessageTrackingServiceTest {
                 new MessageTrackingService.DeliveryTime("d-1", TARGET_1, null, null, DeliveryState.PENDING));
     }
 
+    // ------------------------------------------------------------------ row 323 B25: an unfinished attempt must not NPE the timeline
+
+    @Test
+    void aStartedAttemptNotYetAnsweredHasNoDurationYet() {
+        UUID id = message("ROUTED",
+                row("d-1", TARGET_1, "RETRY_WAIT", 4L, T0.plusSeconds(1), null, "TRANSIENT"));
+
+        assertThat(read(id).deliveries()).containsExactly(
+                new MessageTrackingService.DeliveryTime("d-1", TARGET_1, null, "TRANSIENT", DeliveryState.RETRY_WAIT));
+    }
+
+    @Test
+    void aFinishedAttemptOutranksAnUnfinishedOneOfTheSameDelivery() {
+        // the store's NULLS-FIRST shape, mirrored: the unfinished attempt arrives first
+        UUID id = message("ROUTED",
+                row("d-1", TARGET_1, "DELIVERED", 8L, T0, null, "TRANSIENT"),
+                row("d-1", TARGET_1, "DELIVERED", 9L, T0.plusSeconds(60), T0.plusSeconds(60).plusMillis(412), "SUCCESS"));
+
+        assertThat(read(id).deliveries()).containsExactly(
+                new MessageTrackingService.DeliveryTime("d-1", TARGET_1, 412L, "SUCCESS", DeliveryState.DELIVERED));
+    }
+
     @Test
     void everyDeliveryOfAFanOutGetsItsOwnEntryOrderedByTarget() {
         UUID id = message("ROUTED",
