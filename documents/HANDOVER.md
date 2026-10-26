@@ -242,7 +242,7 @@ while their code is on `main` and passed the gates in section 4.7. Both views ar
 | E14 | Job scheduler for AI agents | 16% (1/6) | Job admin API `/api/v1/admin/jobs` exists (`JobAdminController.java:32`) |
 | E15 | End-to-end suite, Release 1 cut | 31% (5/16), flagged blocked | Release 1 verdict GO on 2026-10-24 (section 4.7) |
 
-Tracker source: `hub track show ipass/integration-platform`, run 2026-10-26; the overall tracker reads
+Tracker source: the project tracker (`track show` for this project), run 2026-10-26; the overall tracker reads
 "F 12/21, T 103/203, 13 open defects". Paths in the table above are abbreviated; the full controller paths are in
 section 6.
 
@@ -1000,3 +1000,132 @@ Hand back each task in four parts:
 - **Limits:** what you could not run or check, with each unchecked claim marked "not verified".
 
 Every test claim states the command, the counts and the commit.
+
+## 13. Open items and risks
+
+### 13.1 Ranked list
+
+The list is ranked by risk to tenants and to an external exposure first, then by risk to Release 1 closure, then by
+Release 2 work. "Tnnn" and "Bnnn" are project tracker items (section 14).
+
+| # | Item | Why it matters | Owner role | Next step |
+|---|---|---|---|---|
+| 1 | **R1/F7 Kafka plaintext** (standing conditional High) and the **per-environment probes P1-P9** | Any external exposure without them reopens the High or leaves deployed config unproven | Project owner / operator, with the security reviewer | Run P1-P9 per environment and record the plaintext switch value before each promotion (`ws/_reports/2026-10-23-security-statement-refresh.md:139-147`) |
+| 2 | **Release 1 security statement is not a pass** | No "secure" claim can go outward | Security reviewer | Recompute the case map from filed runs at one release commit; close the audit legs; re-run the gate at the tip |
+| 3 | **M2: Kafbat in front of a plaintext, ACL-less broker; the Kafka login layer** | Wide internal reach behind one login | Architect, then security reviewer | Design SASL/SCRAM plus ACL (Describe/Read only for Kafbat) and its own network before real tenant traffic (`ws/_reports/2026-10-25-t219-ops-security.md:116`) |
+| 4 | **T220: master realm admin OTP** | The master admin is single-factor (console reachable over SSH only) | Project owner (needs an authenticator at hand) | SSH tunnel plus a temporary frontend URL, pg dump first, about 20 minutes (runbook `:76`) |
+| 5 | **Operator users for the ops address** | None exist, so the operator login end to end (and the L5 token check) is untested | Project owner | Create named users in realm `platform` with role `ops-operator` and required action `CONFIGURE_TOTP`; enrol in person |
+| 6 | **N4: case-sensitive blocks in `edge.conf`** (Low) | Case-altered paths fall through to the GET-only catch-all | Developer (kit), security reviewer | Case-insensitive matching at the next edge change, bundled with M2; add case variants to `test/edge-ops.sh` (`ws/_reports/2026-10-26-t219-ops-security-recheck2.md:94-96`) |
+| 7 | **T207: 405/406/404 raised before a controller is chosen bypass `ConfigApiExceptionHandler`** (`@RestControllerAdvice basePackages=io.integrationplatform.config`) | Inconsistent error bodies app-wide | Architect (design call), then developer | Decide: widen or drop `basePackages` app-wide; test 405/406/type-mismatch (tracker T207, T196) |
+| 8 | **Open P1 defects**: B33, B35 (scheduler schema permission in one stack), B36 / T206 (BS-11 probe data), T195 (`CIRCUIT_DEFERRED` not copied back by `LayerOneRouteTemplate`), T199 (approval holds a connection while dialling a partner DB; MQ system saved without a contract), T201, T202, T205 | Release 1 hygiene; T195 and T199 are product defects | Developer, QA | Work them test-first on branches (tracker, 2026-10-26) |
+| 9 | **Tracker lag**: many items "in review" whose code is merged; E16 and E18 at 0% while their gates passed | Misleading status for planning | Project owner / delivery lead | Close each against its evidence or reopen it |
+| 10 | **Docs status notes frozen at 2026-10-16** (`PRD.md` section 10, `architecture.md` section 9, the ADR index status table) | Agents read "not wired" for wired code | Architect | Refresh against `main` in one docs PR |
+| 11 | **Release 2 re-estimate and schedule** | The dates in section 5.4 are stale | Architect with the development lead; project owner approves | Re-plan E16 to E18 closure from current state |
+| 12 | **Throughput**: one consumer loop per stage gave about 15-22 records per second; T181 (N loops, 12 partitions) merged; T179 design in review | The plan's 50 msg/s plus a 10x burst is unproven | Architect, developer | Load test after the T181 merge (`ws/_documents/2026-10-22-design-throughput-ceiling.md`) |
+| 13 | **Not-covered test gaps accepted for Release 1** (eight items) | Known holes in proof | QA | `ws/_reports/2026-10-24-release1-verdict-and-proof.md:55-64` |
+| 14 | **Secrets hygiene on the server**: `.env.kc-admin` in the stack directory; no edge access log | Credential at rest; no forensic trail | Project owner | Move it to the credential store; decide on an access log (runbook `:79-80`) |
+| 15 | **Orphan source credential** from the 2026-10-26 live check (secret discarded unseen) | Unused but valid credential | Project owner | Revoke it (planning-workspace memory m-d93433) |
+
+### 13.2 Product questions still open with the owner
+
+These are from the planning workspace open-issues list, product items only. Tooling items specific to the planning
+workspace are left out.
+
+- OQ-02 and OQ-08 remain as Release 2 volume inputs (ordering is answered; peak and payload figures are to be
+  confirmed at load).
+- OQ-09 is answered (best-effort); the recommendation stays on record.
+- The wording clash on onboarding duration ("under 2 hours" versus "under 1 working day").
+- Promises with no owning feature: RTO 1 hour, source-callback timeout, onboarding duration, pipeline runtime.
+- OQ-03 (tracking shape), OQ-05 (sandbox) and OQ-07 (lookup immediacy).
+- Scheduler inputs: which job types, and how the AI agents connect and get alerted (ADR-012 answered the first part).
+- The development compose credentials rule: rotate before any shared environment.
+- The queue-manager product, and File versus SFTP (section 3.5).
+- The three owner decisions in the operator dashboards ADR (`ws/_documents/2026-10-25-adr-operator-dashboards.md:153`).
+
+### 13.3 Not verified in this document
+
+1. The live hosted image tags. The app tag is reported as `4e0730a6` (memory) and as `8ead16cc` (runbook, same day).
+2. The `e2e-ui` unit test count: 45 in its README versus 84 in the 2026-10-25 report.
+3. The production Kafka partition count after the T181 merge.
+4. Node and npm version requirements.
+5. The e2e-full UI leg, `test:mocked`, `test:container` and perf suite results.
+6. Multi-target fan-out and the Kafka-plane audit step as complete features.
+7. Whether the Windows directory-junction convention for `node_modules` in worktrees applies to this repository.
+8. Any test result on `5b9a6c36`. No suite was re-run for this document; every count is from the dated report cited.
+9. The deployed value of `kafka-allow-plaintext` in any environment.
+10. The L5 audience token check on `ops-kafbat` (needs a login).
+
+## 14. Glossary
+
+| Term | Meaning |
+|---|---|
+| Tenant | A platform account; every tenant-owned row belongs to exactly one |
+| Customer | The party behind a registered source system, identified from the calling credential |
+| System | A registered source or target system; target types API, MQ-CSV, Kafka topic, DB, File |
+| Interface | A contracted exchange from a source; its code is in the intake path and immutable once published |
+| Contract / contract version | A JSON Schema (optionally imported from OpenAPI) and its immutable approved versions |
+| Route | Interface-to-target wiring, with an optional condition |
+| Mapping / mapping version | The JSONata transformation for one interface-target pair; versions are immutable and pinned on deliveries |
+| Flow | An interface with its routes and mappings, published as one bundle |
+| Message | One accepted record from a source |
+| Delivery | One message's journey to one target; a persisted state machine (`PENDING`, `DUE`, `HELD`, `SENDING`, `RETRY_WAIT`, `DELIVERED`, `DEAD_LETTERED`; the full register is in ADR-010) |
+| Attempt | One call to a target; append-only |
+| Business key | The value that defines ordering and identity of a record |
+| Outbox | A table written in the intake transaction; the relay publishes from it to Kafka |
+| Stage 1 / stage 2 | Routing consumers: stage 1 creates deliveries, stage 2 claims and sends them |
+| Poison topic | `platform.poison`, for unreadable records; never retried |
+| Five controls | Timeout, transient-only retry, circuit breaker, fallback, metrics and trace (R13) |
+| Bulkhead | A per-target concurrency limit; when it is full, the delivery is deferred without a call |
+| RLS | PostgreSQL row-level security, the second tenant wall |
+| Definer functions | The four `SECURITY DEFINER` functions allowed to cross the tenant boundary (T5) |
+| BFF | Backend-for-frontend: the console's login is held by the backend; the browser has only a `SESSION` cookie |
+| `OPERATOR_AGENT` | The no-tenant machine principal used by AI agents for jobs |
+| KEK | The key-encryption key for target credentials (`PLATFORM_CREDENTIAL_KEK_*`), kept outside the database |
+| Kafbat | The open-source Kafka web UI used read-only on the ops address |
+| Edge | The nginx container in the hosted kit that holds the path allow-list and rate limits |
+| E0 to E19 | Backlog epics (plan phases); the mapping to tracker features F1 to F21 is in `ws/_specs/backlog.md` "Epic map" |
+| T-NNN | A backlog task id |
+| Tnnn / Bnnn / Fnn (no hyphen) | Project tracker items, defects and features; they differ from backlog T-NNN ids |
+| BS-nn / SC-nn / S1-A1 | Base-suite scenarios, Release 1 scenarios, security gate cases |
+| P1 to P9 | The per-environment security probes (section 4.6) |
+| R01 to R21 | Engineering rules in `rule.md`. Not to be confused with R1/F7 or R2/R3, which are security finding ids |
+| `ws/` | The planning workspace outside this repository (`documents/README.md`) |
+
+## 15. Source index
+
+| Source | What it proves here |
+|---|---|
+| `AGENTS.md` | Stack versions, module rules, build flags, the lock location, working rules |
+| `pom.xml` | Module list (`:22-44`), Java 25, Boot 4.1.1, Camel 4.22.1, the `container` and `e2e-full` profiles (`:315-345`) |
+| `documents/PRD.md` | Purpose, worked example, roles, FR-01 to FR-19, out of scope, owner-held facts; build status frozen at 2026-10-16 |
+| `documents/architecture.md` | Modules, data model, message path, tenant controls, deployment view, cross-cutting rules |
+| `documents/rule.md` | R01 to R21 |
+| `documents/adr/README.md` and ADR-001 to ADR-018 | Decisions, closed registers, status frozen at 2026-10-16 |
+| `documents/e2e-full.md`, `build-checks/e2e-full-required.txt` | The project-close gate and its 10 required scenarios |
+| `documents/e2e-ui-inventory.md`, `e2e-ui/README.md` | The move of Playwright suites into `e2e-ui/`; script names and unit counts |
+| `documents/README.md` | The `ws/` reference convention; the frozen status baseline |
+| [deployment.md](deployment.md) | Operational deployment detail (written on a parallel branch; linked, not duplicated) |
+| `deploy/hostinger/README.md`, `deploy/hostinger/seed/NESTED-APPOINTMENT.md`, `deploy/hostinger/kafka/create-topics.sh` | Hosted kit contents, ops address rules, edge recreate rule, the showcase flow and data, topics |
+| `compose/compose.yaml`, `compose/keycloak/platform-realm.json` | Local stack image pins; realm `platform` and its clients |
+| `ui/package.json`, `e2e-ui/package.json`, `ui/src/pages/` | Console stack, test scripts, screens |
+| Controllers under `platform-*/src/main/java` (cited in section 6) | API endpoints in the walkthrough |
+| `platform-tenancy/.../Role.java`, `RolePolicy.java` | Roles and caller kinds |
+| `git ls-files`, `git log`, `git ls-remote --tags origin`, `git grep "@Test"` (run 2026-10-26 on `5b9a6c36`) | File counts, PR flow, the `release-1` tag at `0b4cbf04`, test source counts |
+| Project tracker (`track show`, 2026-10-26) | Epic and item states, open defects, T207, T220 |
+| `ws/_specs/project-plan.md` | Approved scope, Release 1 and Release 2 phases, sizes, risks, out of scope |
+| `ws/_specs/backlog.md` | Epic map E0 to E19, definition of done |
+| `ws/_specs/release-base-plan-20261013.md` | Base-version definition, roadmap waves, dates (stale) |
+| `ws/_documents/showcase-features-requirements-20261022.md` | Final showcase timeline (build complete 23 October, ceiling 26 October) |
+| `ws/_documents/2026-10-22-release1-security-statement-and-risk-acceptance.md` | Accepted conditions A/B/C, R1/F7 acceptance, known gaps, `main` push guard |
+| `ws/_reports/2026-10-23-security-statement-refresh.md` | The "lane runs plus review" wording; probes P1 to P9 |
+| `ws/_reports/2026-10-24-release1-verdict-and-proof.md` | Release 1 verdict, proof table, not-covered list, "do not quote" note |
+| `ws/_reports/2026-10-24-g5-main-container.md`, `2026-10-24-g7-ui-gates-0b4cbf04.md` | Container, e2e-full and arch-test results; UI gate results |
+| `ws/_reports/2026-10-25-t215-nested-live.md` | Nested appointment live proof |
+| `ws/_reports/2026-10-25-hosted-queue-counts.md` | No messages processed on the hosted app as of 25 October |
+| `ws/_reports/2026-10-25-t219-ops-security.md`, `...-recheck.md`, `2026-10-26-t219-ops-security-recheck2.md`, `2026-10-26-t219-review-recheck2.md` | Ops-address findings H1, M1, M2, N1, N2, N4, L5 |
+| `ws/_documents/2026-10-26-hosted-deployment-runbook.md` | Hosted links, stack, identity, backups, security status table |
+| `ws/_documents/2026-10-24-adr-hostinger-hosting.md` | Hosting topology; env-only configuration; K1; BFF same-origin facts |
+| `ws/_documents/2026-10-25-adr-operator-dashboards.md` | Proposed operator dashboards and the platform-operator principal |
+| `ws/_documents/2026-10-24-demo-runbook.md` | Demo story, lock slots, ports, Windows notes |
+| `ws/_documents/2026-10-22-design-throughput-ceiling.md` | Throughput ceiling and the N-loops design |
+| Planning-workspace memory entries m-d93433, m-3b79e5, m-4e0714, m-07ca89, m-dc5a12, m-802f1c | Hosted deploy of 26 October; retry/replay rule; File = shared folder; outbound guard rule; matrix gate trap; migration rename |
