@@ -2,15 +2,19 @@
 
 Source: ADR-H-IPASS-01 (hub: `_personal/_project_ipass/integration-platform/_documents/2026-10-24-adr-hostinger-hosting.md`) and the house guide `host-an-app-on-hostinger-vps.md`. This is a showcase/staging copy with fictional data only. `${IPASS_DOMAIN}` is a placeholder until the domain is named; hostnames are `ipass.${IPASS_DOMAIN}` and `auth.${IPASS_DOMAIN}`. No secret appears in this file or in git. Every production step below needs Dipesh's approval at the permission prompt.
 
+**The whole picture** (links, what is not public and how to reach it, services and image pins, redeploy and rollback by backup directory, the ops address and operator accounts, security status and known gaps) is in [`documents/deployment.md`](../../documents/deployment.md). This README is the operator quick-start: file list, first-install runbook, update, rotation, tests.
+
 ## What is in this folder
 
 | File | Purpose |
 |---|---|
-| `compose.yaml` | The production stack: `edge` (the only service on the shared `web` network), app, ui, keycloak, postgres, kafka (+ `kafka-init`), `pg-backup`, one-shot `pg-restore-test`. No test tooling |
+| `compose.yaml` | The production stack: `edge` (the only service on the shared `web` network), app, ui, keycloak, postgres, kafka (+ `kafka-init`), `kafbat` (read-only operator view, T219), `pg-backup`, one-shot `pg-restore-test`. No test tooling |
 | `edge/edge.conf` | The edge proxy path allow-list (actuator, `/v3`, Keycloak `/admin` and the master realm answer 404). Login and token paths are rate limited: about 10 requests/min per client, burst 5, 429 beyond that (the client is the last `X-Forwarded-For` entry, the one Traefik appends - a spoofed first entry is ignored). |
 | `test/edge-ratelimit.sh` | Behaviour proof of that rate limit in nginx (build PC, Docker lock) |
+| `test/edge-ops.sh`, `test/ops-setup-stub.sh` | Behaviour proof of the ops and auth edge rules in nginx, and of `ops-setup-kcadm.sh` against a stub kcadm |
 | `demo/compose.demo.yaml` | Opt-in override: WireMock demo destination + the showcase profile. Never part of `compose.yaml` |
-| `keycloak/` | `compose.bootstrap-admin.yaml` (first start only), `retire-bootstrap-admin.sh`, `Dockerfile` |
+| `keycloak/` | `compose.bootstrap-admin.yaml` (first start only), `retire-bootstrap-admin.sh`, `Dockerfile`; `ops-setup.sh` + `ops-setup-kcadm.sh` (role `ops-operator`, client `ops-kafbat`, flow `ops-browser`; safe to re-run) |
+| `kafbat/kafbat-roles.yml` | The Kafbat RBAC role: view-only, no message permission |
 | `rotate-secret.sh` | Rotates one secret at a time (database roles, realm client secrets) |
 | `env.example` | Variable NAMES only |
 | `bootstrap-env.sh` | Generates every secret on the server into a root-only `.env` (and the Keycloak bootstrap admin into `.env.bootstrap-admin`); prints fingerprints only; never overwrites |
@@ -59,6 +63,7 @@ Scan the source tree and the three images (gitleaks, plus a vulnerability scan; 
 1. `cp -p .env .env.bak-$(date -u +%Y%m%dT%H%M%SZ)` and the same for `compose.yaml`; run a manual dump (step 14).
 2. Change the `IMAGE_TAG` line only; `docker compose pull && docker compose up -d` for this project only.
 3. Verify as in steps 9 and 12.
+3a. After changing `edge/edge.conf` (or `kafbat/kafbat-roles.yml`), **force-recreate** that service (`up -d --force-recreate --no-deps edge`): they are single-file bind mounts, a reload keeps the old file.
 4. **Roll back**: restore the backup files and the previous tag, `docker compose up -d` once. A release whose Flyway migration already ran cannot roll back the schema: restore the pre-change dump instead. If the same step fails twice, stop and find out why before a third try.
 
 ## Rotation
@@ -83,34 +88,16 @@ The host's Traefik does read the socket (ADR Decision 5 point 8). A read-only mo
 
 - Offline: `bash deploy/hostinger/test/test-scripts.sh` (dry runs, secret hygiene, compose controls). Run it from any directory; needs `bash` (it re-runs itself under bash and leaves POSIX mode if started as `sh`), `openssl`, `awk`, `sed`, `grep`, `mktemp` and `git` on PATH, and stops with `MISSING PREREQUISITE: <tool>` otherwise. No Docker, `pg_dump` or `psql` is needed.
 - Rate limit proof: `NGINX_TEST_TAG=<tag of a local ipass/ui image> bash deploy/hostinger/test/edge-ratelimit.sh` (one stub upstream + the real `edge/edge.conf` in nginx; takes the Docker lock, exits 2 without starting if a live owner holds it).
+- Ops / auth edge rules: `NGINX_TEST_TAG=<tag> bash deploy/hostinger/test/edge-ops.sh` (slotted Docker lock `.docker-suite.lock-N`); `bash deploy/hostinger/test/ops-setup-stub.sh` (no Docker). `test-scripts.sh` runs both when `NGINX_TEST_TAG` names a local `ipass/ui` image.
 - Whole stack: `IMAGE_TAG=<sc> bash deploy/hostinger/test/smoke.sh` (also asserts the edge allow-list, the web-network membership, the K1 refusal C1, a live DB password rotation) with local images `ipass/<name>:<sc>` - takes the PC-wide docker-suite lock, uses dummy secrets in a temp file, deletes everything afterwards.
 
-## Operator address ops.<domain> (T219)
+## Operator address ops.<domain> (T219) - quick start
 
-Everything on `ops.<domain>` is behind a Keycloak login; nothing is anonymous. Same edge, Traefik router `ipass-ops`.
+`https://ops.<domain>/kafka/` = Kafbat, read-only, no message bodies, behind a Keycloak login (realm `platform`, role `ops-operator`, client `ops-kafbat`, flow `ops-browser` with a one-time code). The Keycloak admin console and the master realm are **not** served on ops (404); admin work is `kcadm.sh` in the container over SSH. Full description, operator-account steps, first-login behaviour, security status: [`documents/deployment.md`](../../documents/deployment.md) section 7.
 
-| URL | What | Gate |
-|---|---|---|
-| `/kafka/` | Kafbat, read-only: topic names, partitions, offsets, consumer groups, counts. No message bodies | Keycloak realm `platform`, client `ops-kafbat`, role `ops-operator`, OTP (flow `ops-browser`) |
-
-That is the whole list. The Keycloak admin console and the master realm are **not** served on ops (404; so are `/admin`, `/realms/*`, `/resources`, `/js`, `/v3`, swagger, every `/actuator`). Postgres, raw Kafka 9092 and WireMock publish nothing. The auth host still 404s `/admin` and `/realms/master`.
-
-Why no message bodies: the cluster `readOnly` flag stops writes only. Reads are held back by two layers - the RBAC role (`kafbat/kafbat-roles.yml`, no message permission) and the edge (404 for the messages / smartfilters / serdes API paths, GET only). Both sit in front of an unauthenticated PLAINTEXT broker on the internal network; a broker-side ACL is the follow-up.
-
-**Existing install:** run `./keycloak/ops-setup.sh` FIRST, before any other `docker compose` command - `compose.yaml` now requires `OPS_KAFBAT_CLIENT_SECRET`, which the script generates in `.env` when it is missing (fingerprint printed, value never). It creates the role, the client and the flow, verifies the flow on every run (rebuilds it if it drifted) and binds it to the client only after it verified. It needs the named master admin: `KC_ADMIN_USERNAME` / `KC_ADMIN_PASSWORD` in the environment, or `./.env.kc-admin` (mode 600; create once with `umask 077; printf 'KC_ADMIN_USERNAME=%s
-KC_ADMIN_PASSWORD=%s
-' "$name" "$pw" > .env.kc-admin`), else it asks (password read silently). Then `docker compose up -d kafbat edge`. DNS: one A record `ops`.
-
-Operators: create the named users in realm `platform` yourself, assign role `ops-operator`, add the required action `CONFIGURE_TOTP` and enrol them in person (a first login without it lets whoever knows the password enrol the authenticator).
-
-**Keycloak admin console - SSH tunnel only.** It is on no public host. Admin work is done with `kcadm.sh` inside the container (what the scripts here do: `docker compose exec keycloak /opt/keycloak/bin/kcadm.sh ...`). A browser console over a tunnel (`ssh -L 18080:<keycloak container ip>:8080 root@<server>`, open `http://localhost:18080/admin/master/console/`) does NOT complete its login by default: with strict hostname the master realm redirects to `https://auth.<domain>/realms/master`, which is 404 on purpose. Do not set the master realm Frontend URL to make it work without a decision (see the T219 report).
-
-**After ANY change to `edge/edge.conf`, recreate the edge** (`docker compose up -d --force-recreate --no-deps edge`); `nginx -s reload` is not enough, because the file is a single-file bind mount and replacing it on disk leaves the running container on the old inode. The same holds for any other single-file mount (`kafbat/kafbat-roles.yml`).
-
-**One-time, on a server where the master realm Frontend URL was ever set (an earlier T219 step did): clear it** (`kcadm.sh update realms/master -s attributes.frontendUrl=` inside the container, logged in with the named admin) and check that `kcadm` still logs in; it should return to the auth host issuer.
-
-The edge refuses, on ops, any path containing `%`, `;`, a backslash, `//` or a dot segment (`.` or `..`, also directly before a query string) (so a Kafbat topic name that needs URL-encoding is 404 there by design), and forwards the request URI to Kafbat unchanged.
-
-Note: a re-run of `ops-setup.sh` always ends with the `ops-kafbat` client ENABLED (it is disabled only while the flow is rebuilt) - do not re-run it if you disabled the client on purpose.
-
-Rollback: restore `compose.yaml`, `edge/edge.conf` and `.env` from the backup directory taken before the change, `docker compose up -d --remove-orphans` (this also removes the kafbat container when the restored compose has no such service). The Keycloak role, client and flow may stay (inert without the kafbat container); the `ops` DNS record may stay.
+- **First time / existing install:** run `./keycloak/ops-setup.sh` FIRST, before any other `docker compose` command - `compose.yaml` requires `OPS_KAFBAT_CLIENT_SECRET`, which the script generates in `.env` when missing (fingerprint printed, value never). It needs the named master admin: `KC_ADMIN_USERNAME` / `KC_ADMIN_PASSWORD` in the environment, or `./.env.kc-admin` (mode 600; create once with `umask 077; printf 'KC_ADMIN_USERNAME=%s\nKC_ADMIN_PASSWORD=%s\n' "$name" "$pw" > .env.kc-admin`), else it asks (password read silently). It creates the role, the client and the flow, re-verifies the flow on every run (rebuilds it if it drifted), binds it only after it verified, and always ends with the client ENABLED. Then `docker compose up -d kafbat edge`. DNS: one A record `ops`. Creates no user.
+- **After ANY change to `edge/edge.conf`, recreate the edge** (`docker compose up -d --force-recreate --no-deps edge`); `nginx -s reload` is not enough, because the file is a single-file bind mount and replacing it on disk leaves the running container on the old inode.
+- **Operators:** the owner creates the named users in realm `platform`, assigns `ops-operator`, adds the required action `CONFIGURE_TOTP` and enrols them in person.
+- **Master realm Frontend URL:** on a server where it was ever set (an earlier T219 step did), clear it once (`kcadm.sh update realms/master -s attributes.frontendUrl=` inside the container, named admin) and check that `kcadm` still logs in.
+- The edge refuses, on ops, any path containing `%`, `;`, a backslash, `//` or a dot segment (`.` or `..`, also directly before a query string), so a Kafbat topic name that needs URL-encoding is 404 there by design; the request URI is forwarded to Kafbat unchanged.
+- **Rollback:** restore `compose.yaml`, `edge/edge.conf` and `.env` from the backup directory taken before the change, `docker compose up -d --remove-orphans` (this also removes the kafbat container when the restored compose has no such service), and force-recreate the edge. The Keycloak role, client and flow may stay (inert without kafbat); the `ops` DNS record may stay.
