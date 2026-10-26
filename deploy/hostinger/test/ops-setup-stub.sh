@@ -24,15 +24,16 @@ case "$verb $path" in
  "get roles/ops-operator") echo "r-1"; exit 0;;
  "create roles") echo ops-operator > "$S/roles"; exit 0;;
  "get clients") [ -e "$S/get-clients-fails" ] && { echo "HTTP 500" >&2; exit 1; }; [ -s "$S/clients" ] && echo c-1; exit 0;;
- "create clients") echo c-1 > "$S/clients"; printf 'ds-1,platform-api-audience
+ "create clients") case "$args" in *enabled=false*) echo false > "$S/enabled";; *) echo true > "$S/enabled";; esac; echo c-1 > "$S/clients"; printf 'ds-1,platform-api-audience
 ds-2,profile
 ds-3,roles
 ' > "$S/dscopes"; echo c-1; exit 0;;
  "get clients/c-1/default-client-scopes") [ -e "$S/dscopes-get-fails" ] && exit 1; cat "$S/dscopes" 2>/dev/null; exit 0;;
  "delete clients/c-1/default-client-scopes/"*) id="${path##*/}"; grep -v "^$id," "$S/dscopes" > "$S/ds.n"; mv "$S/ds.n" "$S/dscopes"; exit 0;;
  "update clients/c-1")
+   case "$args" in *enabled=true*) echo true > "$S/enabled";; *enabled=false*) echo false > "$S/enabled";; esac
    case "$args" in *authenticationFlowBindingOverrides.browser=*) b="${args##*authenticationFlowBindingOverrides.browser=}"; b="${b%% *}"; echo "$b" > "$S/bind";; esac; exit 0;;
- "get clients/c-1") echo "{ \"authenticationFlowBindingOverrides\" : { \"browser\" : \"$(cat "$S/bind" 2>/dev/null)\" } }"; exit 0;;
+ "get clients/c-1") echo "{ \"enabled\" : $(cat "$S/enabled" 2>/dev/null || echo true), \"authenticationFlowBindingOverrides\" : { \"browser\" : \"$(cat "$S/bind" 2>/dev/null)\" } }"; exit 0;;
  "get clients/c-1/scope-mappings/realm") cat "$S/mappings" 2>/dev/null; exit 0;;
  "create clients/c-1/scope-mappings/realm") echo ops-operator > "$S/mappings"; exit 0;;
  "get clients/c-1/protocol-mappers/models") cat "$S/mappers" 2>/dev/null; exit 0;;
@@ -51,7 +52,7 @@ ds-3,roles
  "update authentication/flows/"*"/executions")
    id="$(echo "$args" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"; rq="$(echo "$args" | sed -n 's/.*"requirement":"\([^"]*\)".*/\1/p')"
    awk -F'|' -v OFS='|' -v id="$id" -v rq="$rq" '$2==id{$5=rq}1' "$S/execs" > "$S/execs.n" && mv "$S/execs.n" "$S/execs"; exit 0;;
- "get authentication/flows/"*"/executions")
+ "get authentication/flows/"*"/executions") [ -e "$S/exec-get-fails" ] && exit 1
    fl="${path#authentication/flows/}"; fl="${fl%%/*}"
    # depth-first listing of the subtree under $fl
    walk() { awk -F'|' -v p="$1" '$1==p{print $3}' "$S/execs" | while read -r nm; do :; done; }
@@ -96,6 +97,8 @@ grep -q "$OUT" /dev/null 2>/dev/null; ! grep -qE "(^| )(p|s)( |$)" <<<"$OUT" && 
 
 grep -q "^delete clients/c-1/default-client-scopes/ds-1 " "$c" && [ "$(grep -c "^delete clients/c-1/default-client-scopes/" "$c")" -eq 1 ] && ! grep -q platform-api-audience "$S1/dscopes" && grep -q "^ds-2,profile" "$S1/dscopes" && grep -q "^ds-3,roles" "$S1/dscopes" && ok "fresh: platform-api-audience is removed from the client's default scopes, nothing else" || bad "fresh: default scope handling"
 
+grep -q "create clients.*enabled=false" "$c" && [ "$(cat "$S1/enabled")" = true ] && [ "$(grep -n 'enabled=true' "$c" | tail -1 | cut -d: -f1)" -gt "$(grep -n 'authenticationFlowBindingOverrides.browser=f-' "$c" | tail -1 | cut -d: -f1)" ] && ok "fresh: client is created DISABLED and enabled only after the flow is bound" || bad "fresh: fail-closed enable order"
+
 # 2. re-run on the verified state changes nothing
 cp -r "$S1" "$T/rerun"; S2="$T/rerun"; : > "$S2/calls"; run "$S2"
 [ $RC -eq 0 ] && grep -q "present and verified" <<<"$OUT" && ok "re-run: flow is verified and reported present" || bad "re-run: $OUT"
@@ -109,6 +112,12 @@ grep -q "provider=auth-otp-form" "$S3/calls" && ok "half-built: the OTP step is 
 u=$(grep -n 'authenticationFlowBindingOverrides.browser= ' "$S3/calls" | head -1 | cut -d: -f1); [ -z "$u" ] && u=$(grep -n 'authenticationFlowBindingOverrides.browser=$' "$S3/calls" | head -1 | cut -d: -f1)
 bindl=$(grep -n 'authenticationFlowBindingOverrides.browser=f-' "$S3/calls" | tail -1 | cut -d: -f1)
 [ -n "$u" ] && [ -n "$bindl" ] && [ "$u" -lt "$bindl" ] && ok "half-built: unbound first, bound again only at the end" || bad "half-built: unbind/bind order ($u/$bindl)"
+
+d1=$(grep -n 'enabled=false' "$S3/calls" | head -1 | cut -d: -f1); d2=$(grep -n '^deleted' "$S3/calls" | head -1 | cut -d: -f1)
+[ -n "$d1" ] && [ -n "$d2" ] && [ "$d1" -lt "$d2" ] && ok "half-built: the client is disabled BEFORE the flow is unbound and deleted" || bad "half-built: fail-closed order ($d1/$d2)"
+# 3b. a kcadm error while verifying is an error, not drift: stop, change nothing
+cp -r "$S1" "$T/vfail"; S6="$T/vfail"; : > "$S6/calls"; touch "$S6/exec-get-fails"; run "$S6"
+[ $RC -ne 0 ] && grep -q "kcadm error" <<<"$OUT" && ! grep -q "^deleted\|enabled=false\|create authentication/flows " "$S6/calls" && ok "a kcadm error during verification stops the run (no delete, no disable, no rebuild)" || bad "verify error treated as drift (rc=$RC)"
 
 # 4. a flow whose role gate is NOT negated is also rejected (the inverted-gate mutation)
 cp -r "$S1" "$T/inv"; S4="$T/inv"; : > "$S4/calls"; sed -i 's/negate=true/negate=false/' "$S4"/cfg-*; run "$S4"

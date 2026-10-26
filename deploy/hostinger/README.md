@@ -105,4 +105,10 @@ Operators: create the named users in realm `platform` yourself, assign role `ops
 
 **Keycloak admin console - SSH tunnel only.** It is on no public host. Admin work is done with `kcadm.sh` inside the container (what the scripts here do: `docker compose exec keycloak /opt/keycloak/bin/kcadm.sh ...`). A browser console over a tunnel (`ssh -L 18080:<keycloak container ip>:8080 root@<server>`, open `http://localhost:18080/admin/master/console/`) does NOT complete its login by default: with strict hostname the master realm redirects to `https://auth.<domain>/realms/master`, which is 404 on purpose. Do not set the master realm Frontend URL to make it work without a decision (see the T219 report).
 
-Rollback: restore `compose.yaml`, `edge/edge.conf` and `.env` from the backup directory taken before the change, `docker compose up -d --remove-orphans`, `docker rm -f ipass-kafbat-1`. The Keycloak role, client and flow may stay (inert without the kafbat container); the `ops` DNS record may stay.
+**After ANY change to `edge/edge.conf`, recreate the edge** (`docker compose up -d --force-recreate --no-deps edge`); `nginx -s reload` is not enough, because the file is a single-file bind mount and replacing it on disk leaves the running container on the old inode. The same holds for any other single-file mount (`kafbat/kafbat-roles.yml`).
+
+**One-time, on a server where the master realm Frontend URL was ever set (an earlier T219 step did): clear it** (`kcadm.sh update realms/master -s attributes.frontendUrl=` inside the container, logged in with the named admin) and check that `kcadm` still logs in; it should return to the auth host issuer.
+
+The edge refuses, on ops, any path containing `%`, `;`, a backslash, `//` or a dot segment (so a Kafbat topic name that needs URL-encoding is 404 there by design), and forwards the request URI to Kafbat unchanged.
+
+Rollback: restore `compose.yaml`, `edge/edge.conf` and `.env` from the backup directory taken before the change, `docker compose up -d --remove-orphans`, `docker compose -f compose.yaml -f demo/compose.demo.yaml rm -sf kafbat` (the project's own service name, not a hard-coded container name). The Keycloak role, client and flow may stay (inert without the kafbat container); the `ops` DNS record may stay.

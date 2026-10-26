@@ -26,7 +26,7 @@ ROLE_ID="$(list get roles/ops-operator -r $R --fields id --format csv --noquotes
 CID="$(list get clients -r $R -q clientId=ops-kafbat --fields id --format csv --noquotes | sed -n 1p)"
 if [ -z "$CID" ]; then
   CID="$("$K" create clients -r $R -i \
-    -s clientId=ops-kafbat -s name='Operator Kafka view (Kafbat)' -s enabled=true -s protocol=openid-connect \
+    -s clientId=ops-kafbat -s name='Operator Kafka view (Kafbat)' -s enabled=false -s protocol=openid-connect \
     -s publicClient=false -s standardFlowEnabled=true -s implicitFlowEnabled=false -s directAccessGrantsEnabled=false \
     -s serviceAccountsEnabled=false -s fullScopeAllowed=false -s clientAuthenticatorType=client-secret \
     -s "secret=$OPS_KAFBAT_CLIENT_SECRET" -s "rootUrl=https://ops.${IPASS_DOMAIN}" \
@@ -74,7 +74,7 @@ flow_id() { # the container has no awk: bash only
 # is NEGATED (deny anyone WITHOUT ops-operator)
 verify_flow() {
   local rows nm prov rq lv cfg condcfg="" seen="" l1="" line
-  rows="$(list get authentication/flows/ops-browser/executions -r $R --fields displayName,providerId,requirement,level,authenticationConfig --format csv --noquotes)" || return 1
+  rows="$(list get authentication/flows/ops-browser/executions -r $R --fields displayName,providerId,requirement,level,authenticationConfig --format csv --noquotes)" || return 2   # 2 = kcadm error, 1 = drift
   while IFS=, read -r nm prov rq lv cfg; do
     [ -n "$nm$prov$rq$lv" ] || continue
     seen+="$nm|$prov|$rq|$lv"$'
@@ -86,7 +86,7 @@ verify_flow() {
 '     'Condition - user role|conditional-user-role|REQUIRED|2'     'Deny access|deny-access-authenticator|REQUIRED|2'     'OTP Form|auth-otp-form|REQUIRED|1'     'Username Password Form|auth-username-password-form|REQUIRED|1'     'ops-browser-forms||REQUIRED|0'     'ops-role-gate||CONDITIONAL|1' | LC_ALL=C sort)" ] || return 1
   [ "$l1" = "auth-username-password-formUsername Password Form ops-role-gate auth-otp-formOTP Form " ] || return 1
   [ -n "$condcfg" ] || return 1
-  line="$(list get "authentication/config/$condcfg" -r $R | tr -d ' ')" || return 1
+  line="$(list get "authentication/config/$condcfg" -r $R | tr -d ' ')" || return 2
   grep '"condUserRole":"ops-operator"' >/dev/null <<<"$line" || return 1
   grep '"negate":"true"' >/dev/null <<<"$line" || return 1
 }
@@ -121,20 +121,28 @@ build_flow() {
 }
 
 FID="$(flow_id)"
-if [ -n "$FID" ] && verify_flow; then
+vrc=0
+if [ -n "$FID" ]; then verify_flow || vrc=$?; fi
+[ "$vrc" -ne 2 ] || { echo "kcadm error while verifying the flow - stopping, nothing was changed" >&2; exit 1; }   # an error is not drift
+if [ -n "$FID" ] && [ "$vrc" -eq 0 ]; then
   echo "flow ops-browser present and verified"
 else
+  # fail closed: nobody can log in through this client while its flow is unbound or being rebuilt
+  "$K" update "clients/$CID" -r $R -s enabled=false >/dev/null
   if [ -n "$FID" ]; then
-    echo "flow ops-browser present but NOT as expected - unbinding, deleting, rebuilding"
+    echo "flow ops-browser present but NOT as expected - client disabled, unbinding, deleting, rebuilding"
     "$K" update "clients/$CID" -r $R -s 'authenticationFlowBindingOverrides.browser=' >/dev/null
     "$K" delete "authentication/flows/$FID" -r $R >/dev/null
   fi
   build_flow
-  verify_flow || { echo "flow ops-browser failed verification after the build - NOT bound to the client" >&2; exit 1; }
+  rc=0; verify_flow || rc=$?
+  [ "$rc" -eq 0 ] || { echo "flow ops-browser failed verification after the build - NOT bound, client stays DISABLED" >&2; exit 1; }
   FID="$(flow_id)"
   echo "flow ops-browser built and verified"
 fi
-# bind only now, after the flow verified
+# bind only now, after the flow verified, then (and only then) enable the client
 "$K" update "clients/$CID" -r $R -s "authenticationFlowBindingOverrides.browser=$FID" >/dev/null
-list get "clients/$CID" -r $R | tr -d ' ' | grep "\"browser\":\"$FID\"" >/dev/null || { echo "binding did not stick" >&2; exit 1; }
-echo "flow bound to client ops-kafbat only"
+list get "clients/$CID" -r $R | tr -d ' ' | grep "\"browser\":\"$FID\"" >/dev/null || { echo "binding did not stick - client stays as it is" >&2; exit 1; }
+"$K" update "clients/$CID" -r $R -s enabled=true >/dev/null
+list get "clients/$CID" -r $R | tr -d ' ' | grep '"enabled":true' >/dev/null || { echo "client could not be enabled" >&2; exit 1; }
+echo "flow bound to client ops-kafbat only; client enabled"
