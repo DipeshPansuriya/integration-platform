@@ -2,7 +2,9 @@ package io.integrationplatform.delivery.internal.deferral;
 
 import io.integrationplatform.delivery.internal.ordering.JdbcOrderedStateChange;
 import io.integrationplatform.delivery.port.BulkheadDeferrals;
+import io.integrationplatform.delivery.port.BulkheadRedrive;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
+import io.integrationplatform.ingest.port.OutboxWriter;
 import io.integrationplatform.tenancy.TenantContext;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
@@ -33,6 +35,13 @@ class DeliveryBulkheadBeansConfiguration {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         return new JdbcBulkheadDeferrals(jdbcClient, tenant, transactions,
                 new JdbcOrderedStateChange(jdbcClient, tenant, transactions));
+    }
+
+    @Bean
+    BulkheadRedrive bulkheadRedrive(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts,
+            PlatformTransactionManager transactionManager, OutboxWriter outboxWriter) {
+        return new JdbcBulkheadRedrive(jdbcClient, boundAtCall(tenantContexts),
+                new TransactionTemplate(transactionManager), outboxWriter);
     }
 
     private static TenantContext boundAtCall(ObjectProvider<TenantContext> tenantContexts) {

@@ -39,15 +39,18 @@ public final class DeliveryOperatorActions {
     }
 
     private final OperatorActionStore store;
+    private final ActiveTargetContracts activeContracts;
     private final OutboxWriter outbox;
     private final ApplicationEventPublisher events;
     private final TenantContext tenants;
     private final TransactionOperations transactions;
     private final Clock clock;
 
-    public DeliveryOperatorActions(OperatorActionStore store, OutboxWriter outbox, ApplicationEventPublisher events,
+    public DeliveryOperatorActions(OperatorActionStore store, ActiveTargetContracts activeContracts,
+            OutboxWriter outbox, ApplicationEventPublisher events,
             TenantContext tenants, TransactionOperations transactions, Clock clock) {
         this.store = Objects.requireNonNull(store, "store");
+        this.activeContracts = Objects.requireNonNull(activeContracts, "activeContracts");
         this.outbox = Objects.requireNonNull(outbox, "outbox");
         this.events = Objects.requireNonNull(events, "events");
         this.tenants = Objects.requireNonNull(tenants, "tenants");
@@ -78,8 +81,16 @@ public final class DeliveryOperatorActions {
             if (target.state() != from) {
                 return refused(Outcome.WRONG_STATE, target);
             }
-            if (target.mappingVersionId() == null || target.contractVersionId() == null) {
-                return refused(Outcome.NOT_PINNED, target);
+            if (target.contractVersionId() == null) {
+                // a mapped delivery without its contract pin is never guessed (the stage-1 guard and the CHECK make it
+                // impossible); only a route WITHOUT a mapping resolves the target endpoint's active contract (T172)
+                UUID resolved = target.mappingVersionId() != null || target.targetEndpointId() == null ? null
+                        : activeContracts.activeContractVersionOf(target.targetEndpointId()).orElse(null);
+                if (resolved == null || !store.pinContract(deliveryId, resolved)) {
+                    return refused(Outcome.NOT_PINNED, target);
+                }
+                target = new OperatorActionStore.Target(deliveryId, target.state(), null, resolved,
+                        target.targetEndpointId());
             }
             Instant at = clock.instant();
             boolean moved = replay ? store.replay(deliveryId, at) : store.retryNow(deliveryId, at);

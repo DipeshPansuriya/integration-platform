@@ -118,13 +118,15 @@ class MemoryBudgetContainerTest extends E18Base {
             sampler.interrupt();
         }
         long drainSeconds = (System.nanoTime() - drainStart) / 1_000_000_000L;
+        long bulkheadFullDeferrals = ownerLong("select count(*) from public.delivery_event where tenant_id ="
+                + " ?::uuid and type = 'BULKHEAD_FULL'", tenant.id()); // F: reported, never budgeted
         long retained = usedMiB(true) - baseline;
 
         MemoryBudget.Measurement measured = new MemoryBudget.Measurement(heapPeak.get(), Math.max(0, retained),
                 poolPendingPeak.get(), poolActivePeak.get(), poolMax, backlogPeak.get(), drainSeconds);
         String line = "memory: load " + MESSAGES + " msgs / " + POSTERS + " posters, baseline " + baseline + " MiB, "
                 + measured + ", budget " + budget + ", -Xmx " + Runtime.getRuntime().maxMemory() / (1024 * 1024)
-                + " MiB";
+                + " MiB, BULKHEAD_FULL deferrals " + bulkheadFullDeferrals;
         java.nio.file.Path notes = E18Outcomes.FILE.resolveSibling("notes.txt");
         Files.createDirectories(notes.getParent());
         Files.writeString(notes, line + System.lineSeparator(), StandardCharsets.UTF_8, StandardOpenOption.CREATE,

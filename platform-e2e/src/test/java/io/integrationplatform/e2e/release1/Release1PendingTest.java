@@ -62,9 +62,11 @@ class Release1PendingTest {
 
     @Test
     void theRealFlagsHaveEveryItemOnMainSoNoScenarioIsSilentlyGated() {
-        // re-measured 22-Oct against main b6106af2: the MQ adapter (T98) and the compose e2e profile (T143) landed;
-        // a scenario is no longer disabled - it runs, or fails loudly on a missing e2e env / TBD name (E2eNames)
-        assertThat(Release1Pending.ON_MAIN).containsEntry("T98", true).containsEntry("T143", true);
+        // re-measured 22-Oct: the MQ adapter (T98), the compose e2e profile (T143), bulk intake (T115), the daily
+        // report (T120) and the report screen (T121, App.tsx renders DeliveryReport) are on main; a scenario is no
+        // longer disabled - it runs, or fails loudly on a missing e2e env / TBD name (E2eNames)
+        assertThat(Release1Pending.ON_MAIN).containsEntry("T98", true).containsEntry("T143", true)
+                .containsEntry("T115", true).containsEntry("T120", true).containsEntry("T121", true);
         for (Release1Scenario scenario : Release1Scenario.values()) {
             assertThat(Release1Pending.waitsOn(scenario.waitsOn())).as(scenario.id()).isEmpty();
         }
@@ -81,12 +83,12 @@ class Release1PendingTest {
 
     @Test
     void anElementWaitingOnAnUnmergedItemIsDisabledWithTheItemNamed() throws NoSuchMethodException {
-        // explicit flags: every real flag is true since the 22-Oct re-measure, so the gate is proven on a false one
+        // explicit flags: every real flag is true since the 22-Oct re-measure, so the gate is proven on a false one (T121 is the item the fixtures wait on)
         ConditionEvaluationResult result = WaitsOnCondition.evaluate(
-                Optional.of(Fixture.class.getDeclaredMethod("gated").getAnnotation(WaitsOn.class)), Map.of("T98", false));
+                Optional.of(Fixture.class.getDeclaredMethod("gated").getAnnotation(WaitsOn.class)), Map.of("T121", false));
 
         assertThat(result.isDisabled()).isTrue();
-        assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T98"));
+        assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T121"));
     }
 
     @Test
@@ -94,16 +96,16 @@ class Release1PendingTest {
         Method gated = Fixture.class.getDeclaredMethod("gated");
 
         assertThat(WaitsOnCondition.evaluate(Optional.of(gated.getAnnotation(WaitsOn.class)),
-                Map.of("T98", true)).isDisabled()).isFalse();
+                Map.of("T121", true)).isDisabled()).isFalse();
     }
 
     @Test
     void aClassLevelWaitsOnGatesTheWholeClass() {
         ConditionEvaluationResult result = WaitsOnCondition.evaluate(
-                Optional.of(GatedFixture.class.getAnnotation(WaitsOn.class)), Map.of("T143", false));
+                Optional.of(GatedFixture.class.getAnnotation(WaitsOn.class)), Map.of("T121", false));
 
         assertThat(result.isDisabled()).isTrue();
-        assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T143"));
+        assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T121"));
     }
 
     // --- the name registry ---
@@ -133,11 +135,9 @@ class Release1PendingTest {
     }
 
     @Test
-    void theOneNameNotInSourceStaysANamedTbdWithItsReason() {
-        // the MQ queue is a registry setting the scenario's seed creates (MqSettings.java:7), not a server constant
-        assertThat(E2eNames.NAMES.get("mqTargetQueue")).startsWith("TBD(T98").contains("MqSettings");
-        assertThatThrownBy(() -> E2eNames.nameOf("mqTargetQueue")).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("T98");
+    void theMqQueueIsTheOneTheRunnerSeedsNotATbd() {
+        // main resolved the queue (the T174b runner seeds target B with it); E2eNamesRuntimeTest pins the same value
+        assertThat(E2eNames.nameOf("mqTargetQueue")).isEqualTo("r1.orders.mq").doesNotContain("TBD(");
     }
 
     @Test
@@ -168,12 +168,12 @@ class Release1PendingTest {
         void ungated() {
         }
 
-        @WaitsOn("T98")
+        @WaitsOn("T121")
         void gated() {
         }
     }
 
-    @WaitsOn("T143")
+    @WaitsOn("T121")
     static class GatedFixture {
     }
 }

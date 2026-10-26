@@ -22,8 +22,10 @@ import tools.jackson.databind.JsonNode;
  *   <tr><td>API</td><td>baseUrl (http/https address with a host, no user info)</td>
  *       <td>timeoutMs (100-300000), followRedirects (boolean, default false), errorDictionary (T-182:
  *       status 100-599 to TRANSIENT, AMBIGUOUS or PERMANENT; never a retryable class for 400, 401, 403, 422)</td></tr>
- *   <tr><td>DB</td><td>host, port (1-65535), database, user (E16 C3: the restricted account)</td><td>table, approvedTables (plain identifiers; E16)</td></tr>
- *   <tr><td>MQ</td><td>host, port (1-65535), queue</td><td>-</td></tr>
+ *   <tr><td>DB</td><td>host, port (1-65535), database, user (E16 C3: the restricted account)</td><td>table (plain identifier; E16).
+ *       The approved tables are NOT a setting (E16 F3): a save carrying {@code approvedTables} is refused
+ *       {@value #FIELD_NOT_ALLOWED}; they are requested and approved through the approved-tables API</td></tr>
+ *   <tr><td>MQ</td><td>host, port (1-65535), queue</td><td>contract (T176: MQ-CSV layout, at most 200 columns)</td></tr>
  *   <tr><td>FILE</td><td>rootPath</td><td>fileNamePattern (plain name; {deliveryId}, {ext}; E16)</td></tr>
  *   <tr><td>KAFKA</td><td>bootstrapServers (host:port list), topic (never a platform topic)</td>
  *       <td>securityProtocol (PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL; absent = {@value #KAFKA_DEFAULT_PROTOCOL} at
@@ -42,6 +44,16 @@ public final class SystemSettings {
     public static final List<String> TYPES = List.of("API", "DB", "MQ", "FILE", "KAFKA");
 
     static final int MAX_TEXT = 2048;
+
+    /** E16 F3: the refusal code of a settings key that moved out of the settings (a save carrying it is 400). */
+    public static final String FIELD_NOT_ALLOWED = "FIELD_NOT_ALLOWED";
+
+    private static final String APPROVED_TABLES = "approvedTables";
+
+    /** E16 F3: whether {@code name} is a plain SQL identifier (a DB target's table name). */
+    public static boolean isIdentifier(String name) {
+        return name != null && IDENTIFIER.matcher(name).matches();
+    }
 
     /** E16: the protocol a KAFKA system without {@code securityProtocol} is dialled with - TLS, never clear text. */
     public static final String KAFKA_DEFAULT_PROTOCOL = "SSL";
@@ -70,8 +82,6 @@ public final class SystemSettings {
         TEXT, PORT, HTTP_URL, TIMEOUT_MS, BOOLEAN, TRIAL_CALLS, ERROR_DICTIONARY,
         /** E16: a plain SQL identifier (the DB target's account and table). */
         IDENTIFIER,
-        /** E16: an array of plain SQL identifiers (the DB target's approved tables). */
-        IDENTIFIER_LIST,
         /** E16: comma-separated host:port list (the Kafka target's bootstrap servers). */
         BOOTSTRAP_SERVERS,
         /** E16: a Kafka topic that is not one of the platform's own (T-184 SF-2). */
@@ -87,8 +97,16 @@ public final class SystemSettings {
         /** E16: the SASL user name (the password is the vault's KAFKA_TOPIC credential, never a setting). */
         KAFKA_USER,
         /** E16: a truststore file name - no path separator, so it cannot leave the operator's directory. */
-        TRUSTSTORE_NAME
+        TRUSTSTORE_NAME,
+        /** T176: the MQ-CSV target's typed, bounded CSV layout (read by the routing module's CsvContractSettings). */
+        CSV_CONTRACT
     }
+
+    /** T176: at most this many columns in an MQ-CSV contract. */
+    static final int MAX_CONTRACT_COLUMNS = 200;
+
+    private static final Set<String> CONTRACT_KEYS = Set.of("columns", "delimiter", "quote", "quoteAll", "encoding",
+            "lineEnding", "header");
 
     private static final java.util.regex.Pattern IDENTIFIER = java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z_0-9]{0,62}");
 
@@ -119,13 +137,12 @@ public final class SystemSettings {
                 new Field("errorDictionary", Kind.ERROR_DICTIONARY, false), TRIAL_CALLS));
         schemas.put("DB", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
                 new Field("database", Kind.TEXT, true), new Field("user", Kind.IDENTIFIER, true),
-                new Field("table", Kind.IDENTIFIER, false), new Field("approvedTables", Kind.IDENTIFIER_LIST, false),
-                TRIAL_CALLS));
+                new Field("table", Kind.IDENTIFIER, false), TRIAL_CALLS));
         List<Field> dbWithTls = new ArrayList<>(schemas.get("DB")); // F5: optional encrypted-only sslmode
         dbWithTls.add(new Field("sslmode", Kind.SSL_MODE, false));
         schemas.put("DB", List.copyOf(dbWithTls));
         schemas.put("MQ", List.of(new Field("host", Kind.TEXT, true), new Field("port", Kind.PORT, true),
-                new Field("queue", Kind.TEXT, true), TRIAL_CALLS));
+                new Field("queue", Kind.TEXT, true), new Field("contract", Kind.CSV_CONTRACT, false), TRIAL_CALLS));
         schemas.put("FILE", List.of(new Field("rootPath", Kind.TEXT, true),
                 new Field("fileNamePattern", Kind.FILE_NAME_PATTERN, false), TRIAL_CALLS));
         schemas.put("KAFKA", List.of(new Field("bootstrapServers", Kind.BOOTSTRAP_SERVERS, true),
@@ -182,6 +199,10 @@ public final class SystemSettings {
                 errors.addAll(dictionaryProblems(value));
                 continue;
             }
+            if (field.kind() == Kind.CSV_CONTRACT) {
+                errors.addAll(csvContractProblems(value));
+                continue;
+            }
             String problem = problem(field.kind(), value);
             if (problem == null && typeName.equals("DB")) {
                 problem = dbTextProblem(field.name(), value); // F2: host and database become parts of a JDBC URL
@@ -200,7 +221,11 @@ public final class SystemSettings {
             }
         }
         for (String name : settings.propertyNames()) {
-            if (schema.stream().noneMatch(field -> field.name().equals(name))) {
+            if (typeName.equals("DB") && name.equals(APPROVED_TABLES)) {
+                errors.add("settings." + APPROVED_TABLES + " is not allowed (" + FIELD_NOT_ALLOWED + "): the tables a"
+                        + " DB target may write to are requested and approved at"
+                        + " /api/v1/admin/systems/{systemId}/approved-tables, never listed in the settings");
+            } else if (schema.stream().noneMatch(field -> field.name().equals(name))) {
                 errors.add("settings." + clip(name) + " is not a known " + typeName + " setting");
             }
         }
@@ -230,7 +255,6 @@ public final class SystemSettings {
             case HTTP_URL -> httpUrlProblem(value);
             case IDENTIFIER -> value.isString() && IDENTIFIER.matcher(value.stringValue()).matches() ? null
                     : "must be a plain identifier (letters, digits, underscore)";
-            case IDENTIFIER_LIST -> identifierListProblem(value);
             case SSL_MODE -> value.isString() && DB_SSL_MODES.contains(value.stringValue()) ? null
                     : "must be one of " + String.join(", ", DB_SSL_MODES);
             case BOOTSTRAP_SERVERS -> bootstrapServersProblem(value);
@@ -243,11 +267,112 @@ public final class SystemSettings {
             case TRUSTSTORE_NAME -> value.isString() && TRUSTSTORE_NAME.matcher(value.stringValue()).matches() ? null
                     : "must be a file name (letters, digits, . _ -), never a path";
             case KAFKA_TOPIC -> value.isString()
-                    ? io.integrationplatform.config.destination.SystemTopicRefusal.topicProblem(value.stringValue())
-                            .map(SystemSettings::clip).orElse(null)
+                    ? io.integrationplatform.config.destination.SystemTopicRefusal.topicProblem(value.stringValue()).orElse(null)
                     : "must be a topic name";
             case FILE_NAME_PATTERN -> fileNamePatternProblem(value);
+            case CSV_CONTRACT -> throw new IllegalStateException("validated by csvContractProblems");
         };
+    }
+
+    /** T176: the MQ-CSV layout, every field required (as the reader requires them); plain column names, bounded. */
+    private static List<String> csvContractProblems(JsonNode contract) {
+        if (!contract.isObject()) {
+            return List.of("settings.contract must be a JSON object");
+        }
+        List<String> errors = new ArrayList<>();
+        JsonNode columns = contract.get("columns");
+        if (absent(columns) || !columns.isArray() || columns.isEmpty() || columns.size() > MAX_CONTRACT_COLUMNS) {
+            errors.add("settings.contract.columns must be a list of 1 to " + MAX_CONTRACT_COLUMNS + " columns");
+        } else {
+            java.util.Map<String, Integer> firstSeen = new java.util.HashMap<>();
+            for (int i = 0; i < columns.size(); i++) {
+                JsonNode column = columns.get(i);
+                String at = "settings.contract.columns[" + i + "]";
+                JsonNode name = column.get("name");
+                JsonNode type = column.get("type");
+                if (!column.isObject() || column.size() != 2) {
+                    errors.add(at + " must be an object with exactly name and type");
+                    continue;
+                }
+                if (absent(name) || !name.isString() || !IDENTIFIER.matcher(name.stringValue()).matches()) {
+                    errors.add(at + ".name must be a plain identifier (letters, digits, underscore)");
+                } else {
+                    // T189 (T176): the CSV header and the column mapping are by name - a repeated name is ambiguous
+                    Integer first = firstSeen.putIfAbsent(name.stringValue().toLowerCase(Locale.ROOT), i);
+                    if (first != null) {
+                        errors.add(at + ".name is a duplicate of settings.contract.columns[" + first
+                                + "].name (column names must be unique, ignoring case)");
+                    }
+                }
+                if (absent(type) || !type.isString() || !List.of("TEXT", "NUMBER")
+                        .contains(type.stringValue().toUpperCase(Locale.ROOT))) {
+                    errors.add(at + ".type must be TEXT or NUMBER");
+                }
+            }
+        }
+        String delimiter = oneChar(contract, "delimiter", errors);
+        String quote = oneChar(contract, "quote", errors);
+        if (delimiter != null && delimiter.equals(quote)) {
+            errors.add("settings.contract.delimiter and settings.contract.quote must differ");
+        }
+        for (String flag : List.of("quoteAll", "header")) {
+            if (absent(contract.get(flag)) || !contract.get(flag).isBoolean()) {
+                errors.add("settings.contract." + flag + " must be true or false");
+            }
+        }
+        JsonNode encoding = contract.get("encoding");
+        if (absent(encoding) || !encoding.isString() || !charsetKnown(encoding.stringValue())) {
+            errors.add("settings.contract.encoding must be a known character set name (for example UTF-8)");
+        }
+        JsonNode lineEnding = contract.get("lineEnding");
+        if (absent(lineEnding) || !lineEnding.isString()
+                || !List.of("LF", "CRLF").contains(lineEnding.stringValue().toUpperCase(Locale.ROOT))) {
+            errors.add("settings.contract.lineEnding must be LF or CRLF");
+        }
+        for (String key : contract.propertyNames()) {
+            if (!CONTRACT_KEYS.contains(key)) {
+                errors.add("settings.contract." + clip(key) + " is not a known contract setting");
+            }
+        }
+        return errors;
+    }
+
+    private static String oneChar(JsonNode contract, String name, List<String> errors) {
+        JsonNode value = contract.get(name);
+        if (absent(value) || !value.isString() || value.stringValue().length() != 1
+                || value.stringValue().indexOf(10) >= 0 || value.stringValue().indexOf(13) >= 0) {
+            errors.add("settings.contract." + name + " must be one character (not a line break)");
+            return null;
+        }
+        return value.stringValue();
+    }
+
+    private static boolean charsetKnown(String name) {
+        try {
+            // T176-2: isSupported is true for decode-only charsets (ISO-2022-CN); the send needs an encoder
+            return name.length() <= 40 && java.nio.charset.Charset.isSupported(name)
+                    && java.nio.charset.Charset.forName(name).canEncode();
+        } catch (java.nio.charset.IllegalCharsetNameException illegal) {
+            return false;
+        }
+    }
+
+    /**
+     * T178c-1: a STORED FILE row saved before the {@code {deliveryId}} rule (never rewritten). True only for a FILE
+     * system whose settings carry a non-blank text pattern without the placeholder; an absent or blank pattern uses
+     * the delivery-id default name, and unreadable settings are not flagged here (the send refuses those itself).
+     */
+    public static boolean storedFilePatternLacksDeliveryId(String type, String settingsJson) {
+        if (type == null || !type.equalsIgnoreCase("FILE") || settingsJson == null) {
+            return false;
+        }
+        try {
+            JsonNode field = new tools.jackson.databind.json.JsonMapper().readTree(settingsJson).get("fileNamePattern");
+            return field != null && field.isString() && !field.stringValue().isBlank()
+                    && !field.stringValue().contains("{deliveryId}");
+        } catch (tools.jackson.core.JacksonException unreadable) {
+            return false;
+        }
     }
 
     private static String fileNamePatternProblem(JsonNode value) {
@@ -261,6 +386,9 @@ public final class SystemSettings {
         boolean plain = !name.isBlank() && name.length() <= 128 && !name.equals(".") && !name.equals("..")
                 && bare.indexOf('/') < 0 && bare.indexOf('\\') < 0 && bare.indexOf(':') < 0
                 && bare.indexOf('{') < 0 && bare.indexOf('}') < 0;
+        if (plain && !name.contains("{deliveryId}")) { // T178c: a taken name is PERMANENT, so a fixed name delivers once
+            return "must contain {deliveryId}: a file name that repeats would dead-letter every delivery after the first";
+        }
         return plain ? null : expected;
     }
 
@@ -313,18 +441,6 @@ public final class SystemSettings {
         return errors;
     }
 
-    private static String identifierListProblem(JsonNode value) {
-        String expected = "must be an array of plain identifiers (letters, digits, underscore)";
-        if (!value.isArray() || value.size() > 64) {
-            return expected;
-        }
-        for (JsonNode entry : value) {
-            if (!entry.isString() || !IDENTIFIER.matcher(entry.stringValue()).matches()) {
-                return expected;
-            }
-        }
-        return null;
-    }
 
     private static String bootstrapServersProblem(JsonNode value) {
         String expected = "must be a comma-separated list of host:port, port 1 to 65535";

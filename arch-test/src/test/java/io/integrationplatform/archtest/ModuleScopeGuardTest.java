@@ -115,6 +115,39 @@ class ModuleScopeGuardTest {
                         "platform-tenancy/src/main/resources/db/migration/V9_9_9__tenant_b.sql");
     }
 
+    @Test
+    void theInstalledPackagesAreNotWalkedButTheShippedBundleAndTheConsoleSourceAre(@TempDir Path root) throws IOException {
+        // B31/B31-1: ui/node_modules is installed, never our source (walking it took minutes); ui/dist is the shipped
+        // bundle - a marker that enters only at build time must still be seen there.
+        for (String generated : List.of("ui/node_modules/dep/index.js", "ui/dist/main.js")) {
+            Path file = root.resolve(generated);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, "var seed = 'e2e-seed';");
+        }
+        Path source = root.resolve("ui/src/app.ts");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, "const seed = 'e2e-seed';");
+
+        assertThat(ModuleScopeGuard.productionFilesNaming(root, List.of(), ModuleScopeGuard.SEED_MARKERS))
+                .containsExactly("ui/dist/main.js", "ui/src/app.ts");
+    }
+
+    @Test
+    void aDistOrNodeModulesFolderOutsideTheConsoleCannotHideAProductionFile(@TempDir Path root) throws IOException {
+        // T189 (B31 follow-up): the skip is for the console (ui/) only - a package or folder named dist/node_modules
+        // under a module's src/main, compose or build-checks is production source and must still be read.
+        for (String hidden : List.of("platform-x/src/main/java/dist/Seeded.java", "platform-x/src/main/resources/node_modules/a.txt",
+                "compose/dist/seed.yml", "build-checks/node_modules/check.sh")) {
+            Path file = root.resolve(hidden);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, "x = 'e2e-seed';");
+        }
+
+        assertThat(ModuleScopeGuard.productionFilesNaming(root, List.of("platform-x"), ModuleScopeGuard.SEED_MARKERS))
+                .containsExactly("build-checks/node_modules/check.sh", "compose/dist/seed.yml",
+                        "platform-x/src/main/java/dist/Seeded.java", "platform-x/src/main/resources/node_modules/a.txt");
+    }
+
     private static void writePom(Path root, String module, String dependency) throws IOException {
         Files.createDirectories(root.resolve(module));
         Files.writeString(root.resolve(module).resolve("pom.xml"), "<project><artifactId>" + module + "</artifactId>"

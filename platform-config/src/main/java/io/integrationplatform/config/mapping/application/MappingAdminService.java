@@ -19,6 +19,10 @@ import tools.jackson.databind.JsonNode;
  */
 public class MappingAdminService {
 
+    /** T171 S5-A1: server-side size limits of a mapping save (values to be confirmed by the owner; generous by design). */
+    static final int MAX_EXPRESSION_CHARS = 100_000;
+    static final int MAX_FIELD_MAPPINGS_CHARS = 1_000_000;
+
     private final JdbcMappingRepository mappings;
     private final ApplicationEventPublisher events;
     private final TenantContext tenants;
@@ -36,10 +40,11 @@ public class MappingAdminService {
 
     @Transactional(readOnly = true)
     public java.util.Map<String, Object> read(String routeId) {
+        String key = routeKey(routeId);
         JdbcMappingRepository.LiveMapping live =
-                mappings.findMappingOfRoute(routeId).orElseThrow(ConfigApiException::notFound);
+                mappings.findMappingOfRoute(key).orElseThrow(ConfigApiException::notFound);
         return ConfigApiException.body(
-                "routeId", routeId,
+                "routeId", key,
                 "mappingId", live.id(),
                 "fieldMappings", tools.jackson.databind.json.JsonMapper.builder().build()
                         .readTree(MappingContent.canonicalFieldMappings(live.fieldMappingsJson())),
@@ -51,15 +56,29 @@ public class MappingAdminService {
 
     @Transactional
     public java.util.Map<String, Object> save(String routeId, JsonNode body, java.util.UUID actorId) {
+        // T196: the one canonical key (UUID.fromString is lenient, Postgres ::uuid is not) serves every use below
+        String key = routeKey(routeId);
         JdbcMappingRepository.LiveMapping live =
-                mappings.findMappingOfRoute(routeId).orElseThrow(ConfigApiException::notFound);
+                mappings.findMappingOfRoute(key).orElseThrow(ConfigApiException::notFound);
 
         JsonNode linksNode = body.path("fieldMappings");
+        // T171 S5-A1 server-side limits: links are an array of bounded size, text without a null character
+        if (!linksNode.isMissingNode() && !linksNode.isArray()) {
+            throw ConfigApiException.validation("fieldMappings must be an array of links");
+        }
+        String linksText = linksNode.toString();
+        if (linksText.length() > MAX_FIELD_MAPPINGS_CHARS) {
+            throw ConfigApiException.validation("fieldMappings is longer than " + MAX_FIELD_MAPPINGS_CHARS
+                    + " characters");
+        }
+        if (containsNul(linksNode)) {
+            throw ConfigApiException.validation("fieldMappings must not contain a null character");
+        }
         String fieldMappingsJson = MappingContent.canonicalFieldMappings(
                 linksNode.isMissingNode() ? "[]" : linksNode.toString());
         String compiledExpression = requiredText(body, "compiledExpression");
-        String source = textOrNull(body.path("sourceContractVersionId"));
-        String target = textOrNull(body.path("targetContractVersionId"));
+        String source = uuidOrNull("sourceContractVersionId", body.path("sourceContractVersionId"));
+        String target = uuidOrNull("targetContractVersionId", body.path("targetContractVersionId"));
         boolean bound = source != null || target != null;
 
         if (bound && (source == null || target == null)) {
@@ -71,10 +90,10 @@ public class MappingAdminService {
                     "field links require the mapping's bound source and target contract versions");
         }
         if (target != null) {
-            validateBindings(routeId, fieldMappingsJson, source, target);
+            validateBindings(fieldMappingsJson, source, target);
         }
 
-        mappings.updateMappingOfRoute(routeId, fieldMappingsJson, compiledExpression, source, target);
+        mappings.updateMappingOfRoute(key, fieldMappingsJson, compiledExpression, source, target);
 
         String versionId = null;
         int version = 0;
@@ -97,12 +116,12 @@ public class MappingAdminService {
         }
         // E12-F2-S1: one audit event per completed save - the mapping version before and after, never the content
         events.publishEvent(ConfigAuditActions.event(ConfigAuditActions.MAPPING_SAVED, tenants.requireTenantId(),
-                actorId, java.util.List.of(ConfigAuditActions.target("route", routeId),
+                actorId, java.util.List.of(ConfigAuditActions.target("route", key),
                         ConfigAuditActions.target("mapping", live.id())),
                 ConfigAuditActions.state("mappingVersionId", live.mappingVersionId()),
                 ConfigAuditActions.state("mappingVersionId", versionId)));
         return ConfigApiException.body(
-                "routeId", routeId,
+                "routeId", key,
                 "mappingId", live.id(),
                 "fieldMappings", tools.jackson.databind.json.JsonMapper.builder().build()
                         .readTree(fieldMappingsJson),
@@ -113,7 +132,7 @@ public class MappingAdminService {
                 "mappingVersion", version == 0 ? null : version);
     }
 
-    private void validateBindings(String routeId, String fieldMappingsJson, String source, String target) {
+    private void validateBindings(String fieldMappingsJson, String source, String target) {
         JdbcMappingRepository.ContractVersionFacts sourceFacts =
                 mappings.findContractVersionFacts(source).orElseThrow(ConfigApiException::notFound);
         JdbcMappingRepository.ContractVersionFacts targetFacts =
@@ -141,12 +160,63 @@ public class MappingAdminService {
         }
     }
 
+    /** T196 N1: a NUL in any string value or field name of the parsed tree (not a look at the serialized text). */
+    private static boolean containsNul(JsonNode node) {
+        if (node.isString()) {
+            return node.stringValue().indexOf((char) 0) >= 0;
+        }
+        if (node.isObject()) {
+            for (java.util.Map.Entry<String, JsonNode> field : node.properties()) {
+                if (field.getKey().indexOf((char) 0) >= 0 || containsNul(field.getValue())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        for (JsonNode child : node) {
+            if (containsNul(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static String requiredText(JsonNode body, String field) {
         String text = textOrNull(body.path(field));
         if (text == null || text.isBlank()) {
             throw ConfigApiException.validation("the mandatory " + field + " is missing");
         }
+        if (text.length() > MAX_EXPRESSION_CHARS) {
+            throw ConfigApiException.validation(field + " is longer than " + MAX_EXPRESSION_CHARS + " characters");
+        }
+        if (text.indexOf((char) 0) >= 0) {
+            throw ConfigApiException.validation(field + " must not contain a null character");
+        }
         return text;
+    }
+
+    /** T171 S5-A1: a route id that is not a UUID names no route (404), never a database cast error. */
+    private static String routeKey(String routeId) {
+        try {
+            return java.util.UUID.fromString(routeId).toString();
+        } catch (IllegalArgumentException | NullPointerException notAUuid) {
+            throw ConfigApiException.notFound();
+        }
+    }
+
+    /** T171 S5-A1: a contract-version id is a canonical UUID or a 400 - the SQL casts it with {@code ::uuid}. */
+    private static String uuidOrNull(String field, JsonNode node) {
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (!node.isString()) { // an object, array, number or boolean is not an id
+            throw ConfigApiException.validation(field + " must be a UUID");
+        }
+        try {
+            return java.util.UUID.fromString(node.stringValue()).toString();
+        } catch (IllegalArgumentException notAUuid) {
+            throw ConfigApiException.validation(field + " must be a UUID");
+        }
     }
 
     private static String textOrNull(JsonNode node) {

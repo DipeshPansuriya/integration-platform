@@ -88,8 +88,45 @@ final class E18TargetStub {
         }
     }
 
+    /** Holds every answer for this long (0 = none): lets a test keep a send in flight. */
+    private volatile long answerDelayMs;
+
+    void delayAnswers(long millis) {
+        this.answerDelayMs = millis;
+    }
+
+    /** L14: while held, every request waits on the gate (up to 60 s) - a deterministic "send in flight" with no timing guess. */
+    private volatile java.util.concurrent.CountDownLatch gate;
+
+    void holdAnswers() {
+        this.gate = new java.util.concurrent.CountDownLatch(1);
+    }
+
+    /** Lets every held (and later) request answer. */
+    void releaseAnswers() {
+        java.util.concurrent.CountDownLatch held = this.gate;
+        if (held != null) {
+            held.countDown();
+        }
+    }
+
     private void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
+            java.util.concurrent.CountDownLatch held = gate;
+            if (held != null) {
+                try {
+                    held.await(60, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            if (answerDelayMs > 0) {
+                try {
+                    Thread.sleep(answerDelayMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             String path = exchange.getRequestURI().getPath();
             String body;
             try (InputStream in = exchange.getRequestBody()) {

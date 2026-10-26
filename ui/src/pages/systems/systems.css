@@ -10,7 +10,7 @@
   flex-wrap: wrap;
   padding-bottom: var(--space-4);
 }
-.systems-page .systems-head h2 {
+.systems-page .systems-head h1 {
   margin: 0;
 }
 
@@ -139,6 +139,20 @@
 }
 
 :is(.systems-page, .drawer-body) :focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* B29 C1: the empty state carries its one next action */
+.systems-page .systems-empty p {
+  margin: 0 0 var(--space-3);
+}
+
+/* B29 batch 2: the truncated settings text is a tab stop; focused, it shows whole (keyboard users get the tooltip's text) */
+.systems-page .systems-settings .systems-settings-text:focus {
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }

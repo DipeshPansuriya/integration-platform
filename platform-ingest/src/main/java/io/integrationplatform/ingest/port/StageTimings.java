@@ -31,7 +31,8 @@ public interface StageTimings {
      * final move: {@code DELIVERED}, or {@code DEAD_LETTERED} - a failure records on DELIVER, finished at the
      * failure. The table keeps one row per message and stage while a message fans out to many deliveries, each
      * retried and replayable, so the row is written by the final move that leaves none of the message's deliveries
-     * open. It starts at the message's first delivery attempt (at {@code finishedAt} when no call was made) and
+     * open. It starts at the message's first delivery attempt (at {@code finishedAt} when no call was made) but not
+     * before the message's TRANSFORM stage finished (BS-09: the order is INTAKE, ROUTE, TRANSFORM, DELIVER), and
      * never after {@code finishedAt}. An open sibling, a delivery without a stage-1 message, a row already written
      * (a replayed dead letter) or a delivery the bound tenant cannot see records nothing and never raises: the
      * delivery's own move must not fail on its timing. Every final move holds the message row lock first (the one

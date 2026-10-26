@@ -6,7 +6,8 @@
 
 import { useEffect, useState } from 'react';
 import { readContractVersion, schemaFields, type ContractVersion } from '../../api/contracts';
-import { fieldDiff } from './contracts-view';
+import { refusalWords } from '../../ui/refusal-words';
+import { fieldDiff, statusBadge } from './contracts-view';
 
 export type Compared = { id: string; key: string };
 
@@ -24,12 +25,21 @@ function Pane({ compared, loaded, other }: { compared: Compared; loaded: Loaded 
     <section className="contracts-pane" data-compare-pane={compared.key}>
       <h4 className="contracts-pane-head">{title}</h4>
       <div className="contracts-pane-body">
-        {loaded?.refused != null && <p role="alert">The API refused reading this version (HTTP {loaded.refused}).</p>}
+        {!loaded && (
+          <p className="contracts-muted-cell" role="status" data-compare-loading>
+            Loading this version...
+          </p>
+        )}
+        {loaded?.refused != null && (
+          <p role="alert" className="contracts-pane-error" data-refusal={`compare-refused-${loaded.refused}`}>
+            {refusalWords(loaded.refused, 'this version')}
+          </p>
+        )}
         {version && (
           <>
             <dl className="contracts-meta">
               <dt>Status</dt>
-              <dd data-compare-status>{version.status}</dd>
+              <dd data-compare-status>{statusBadge(version.status).word}</dd>
               {version.changeNote && (
                 <>
                   <dt>Change note</dt>

@@ -103,6 +103,18 @@
       <scope>runtime</scope>
     </dependency>
 
+    <!-- T208/O1: the advice tests run the real tenancy chain over MockMvc (webmvc slice, spring-security-test jwt()). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
     <!-- Test scope for the start proof (container group, R03); spring-boot-starter-test comes from the parent. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

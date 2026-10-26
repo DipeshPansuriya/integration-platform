@@ -11,7 +11,11 @@
   flex-wrap: wrap;
   padding-bottom: var(--space-4);
 }
-.mapping-page .mapping-head h2 {
+.mapping-page .mapping-head a {
+  display: inline-block;
+  line-height: 28px; /* row 372 F2: a hit target of at least 28px */
+}
+.mapping-page .mapping-head h1 {
   margin: 0;
 }
 .mapping-page .mapping-lede,

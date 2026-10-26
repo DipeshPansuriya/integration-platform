@@ -23,6 +23,9 @@ public final class SystemValidationException extends ConfigApiException {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("error", String.join("; ", errors));
         body.put("errors", List.copyOf(errors));
+        if (errors.stream().anyMatch(error -> error.contains(SystemSettings.FIELD_NOT_ALLOWED))) {
+            body.put("refusal", SystemSettings.FIELD_NOT_ALLOWED); // E16 F3: an old client learns the field moved
+        }
         return body;
     }
 }

@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -38,7 +37,8 @@ public class FlowRoutesQuery {
     @Transactional(readOnly = true)
     public Map<String, Object> routes(String flowId, String versionId) {
         // A malformed id names no visible row - same answer as an unknown one, and no cast error from the database.
-        if (!isUuid(flowId) || (versionId != null && !isUuid(versionId))) {
+        if (!FlowAdminService.isCanonicalUuid(flowId)
+                || (versionId != null && !FlowAdminService.isCanonicalUuid(versionId))) {
             throw ConfigApiException.notFound();
         }
         flows.findInterface(flowId).orElseThrow(ConfigApiException::notFound);
@@ -77,14 +77,5 @@ public class FlowRoutesQuery {
                 "version", version.version(),
                 "versionStatus", version.status(),
                 "routes", routes);
-    }
-
-    private static boolean isUuid(String value) {
-        try {
-            UUID.fromString(value);
-            return value.length() == 36;
-        } catch (IllegalArgumentException | NullPointerException e) {
-            return false;
-        }
     }
 }

@@ -74,13 +74,13 @@ class JdbcDbTargetsTest {
     @Test
     void theRowMapsToTheSettingsAndTheRestrictedAccountPassword() throws Exception {
         when(row.getString("v")).thenReturn("{\"host\":\"db.example\",\"port\":5432,\"database\":\"orders\","
-                + "\"user\":\"restricted\",\"table\":\"orders_in\",\"approvedTables\":[\"orders_in\"]}");
+                + "\"user\":\"restricted\",\"table\":\"orders_in\"}");
 
         Optional<DbTargets.DbTarget> target = targets(id -> Optional.of("db-pass".toCharArray()))
                 .byEndpointId(ENDPOINT_ID);
 
         assertThat(target.get().settings()).isEqualTo(new DbSettings("db.example", 5432, "orders", "restricted",
-                "orders_in", List.of("orders_in")));
+                "orders_in"));
         assertThat(target.get().password()).isEqualTo("db-pass".toCharArray());
     }
 

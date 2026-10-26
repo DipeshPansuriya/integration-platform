@@ -145,6 +145,19 @@ class TenantFilterRuleTest {
     }
 
     @Test
+    void theTargetDbProbeIsANamedExemptionThatExistsAndNeverTouchesThePlatformDataSource() {
+        JavaClasses production = TenantFilterRule.importProductionClasses();
+
+        assertThat(production.contain(TenantFilterRule.TARGET_DB_PROBE))
+                .as("the exempt class still exists (a rename must not leave a dead exemption)").isTrue();
+        assertThat(production.get(TenantFilterRule.TARGET_DB_PROBE).getDirectDependenciesFromSelf().stream()
+                .map(dependency -> dependency.getTargetClass().getName()))
+                .as("JdbcDbPrivilegeProbe must open its own driver connection, not a platform DataSource or Spring JDBC type")
+                .noneMatch(name -> name.equals("javax.sql.DataSource") || name.startsWith("org.springframework.jdbc.")
+                        || name.startsWith("org.springframework.data."));
+    }
+
+    @Test
     void theTargetDbSenderNeverTouchesThePlatformDataSource() {
         JavaClasses production = TenantFilterRule.importProductionClasses();
 

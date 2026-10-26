@@ -48,3 +48,22 @@ export function actionAnswerText(kind: ActionKind, answer: OperatorAnswer): stri
   }
   return `${not}: the server answered ${answer.status}.`;
 }
+
+
+export type PressStep = 'ignore' | 'ask' | 'send';
+
+/** One press: busy/done ignore it; a button that needs confirming asks first, then the next press sends. */
+export function pressStep(s: { confirm: boolean; asking: boolean; busy: boolean; done: boolean }): PressStep {
+  if (s.busy || s.done) return 'ignore';
+  return s.confirm && !s.asking ? 'ask' : 'send';
+}
+
+export function confirmLabel(action: Pick<OperatorAction, 'kind'>): string {
+  return `Confirm ${action.kind}`;
+}
+
+export function confirmPrompt(action: Pick<OperatorAction, 'kind'>): string {
+  return action.kind === 'replay'
+    ? 'Replay sends this delivery to its target again, with its pinned versions.'
+    : 'Retry sends this delivery to its target again now, with its pinned versions.';
+}

@@ -40,7 +40,7 @@ import tools.jackson.databind.JsonNode;
 /**
  * E4-F1-S1 "Log in before seeing anything" (T-097) end to end: the real application, PostgreSQL and the pinned Keycloak
  * with realm {@code platform} imported from the compose realm file. Every login goes through the realm's real login
- * form ({@link ConsoleBrowser}); the console's browser twin is the Playwright suite in {@code ui/tests/screens}.
+ * form ({@link ConsoleBrowser}); the console's browser twin is the Playwright suite in {@code e2e-ui/tests/screens}.
  * Also ADR-007 Decision 1: no access token ever reaches the browser, the session cookie is HttpOnly + Secure +
  * SameSite=Lax and a state-changing session request without the CSRF header is refused. Container group (R03).
  */
