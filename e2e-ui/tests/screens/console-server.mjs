@@ -64,13 +64,13 @@ export async function startConsole(baseUrlOfBackend, sessions = {}) {
     root: CONSOLE_ROOT,
     preview: {
       host: '127.0.0.1', // vite binds ::1 only by default; everything here speaks 127.0.0.1
-      port: 4173,
+      port: Number(process.env.IPASS_UI_CONSOLE_PORT) || 4173, // L22: bootBackend claims it (4173 when free)
       strictPort: true,
       proxy: Object.fromEntries(BACKEND_ROUTES.map((prefix) => [prefix, route]))
     }
   });
   return {
-    url: 'http://127.0.0.1:4173',
+    url: `http://127.0.0.1:${Number(process.env.IPASS_UI_CONSOLE_PORT) || 4173}`,
     async close() {
       await server.httpServer.close();
       await new Promise((resolve) => setTimeout(resolve, 50));

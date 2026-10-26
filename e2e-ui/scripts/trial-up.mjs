@@ -36,7 +36,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import bootBackend, { CONSOLE_ORIGIN, UI } from './boot-backend.mjs';
+import bootBackend, { consoleOrigin, UI } from './boot-backend.mjs';
 import { startConsole } from '../tests/screens/console-server.mjs';
 
 export const TRIAL_PASSWORD_ENV = 'IPASS_TRIAL_PASSWORD';
@@ -158,9 +158,9 @@ export async function startTrial({ env = process.env, print = (line) => console.
     }, LOCK_REFRESH_MS);
     const seeded = await seed(boot.call);
     consoleServer = await startConsole(boot.baseUrl, {}); // no harness sessions: no browser request can borrow one
-    for (const line of signInBanner({ consoleUrl: CONSOLE_ORIGIN, username: TRIAL_USERNAME, credential })) print(line);
+    for (const line of signInBanner({ consoleUrl: consoleOrigin(), username: TRIAL_USERNAME, credential })) print(line);
     return {
-      consoleUrl: CONSOLE_ORIGIN,
+      consoleUrl: consoleOrigin(),
       backendUrl: boot.baseUrl,
       username: TRIAL_USERNAME,
       sourceSystem: SOURCE.code,

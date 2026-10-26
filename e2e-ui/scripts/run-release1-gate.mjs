@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { artemisName, claimExceptionPort, claimPort, runId } from './lib/isolation.mjs';
 import { startArtemis } from './release1/artemis.mjs';
 import { seedRefOrder } from './release1/seed-ref-order.mjs';
 import { SLOT_NAMES, acquireSlot } from './release1/slot.mjs';
@@ -28,9 +29,10 @@ const logFile = process.argv[2];
 if (!logFile) throw new Error('usage: run-release1-gate.mjs <log-file>');
 const log = (message) => fs.appendFileSync(logFile, `${new Date().toISOString()} ${message}\n`);
 
-const MQ_PORT = 61616;
+const MQ_PORT_PREFERRED = 61616; // L22: the preferred host port; a busy or claimed one is swapped for a free one per run
 const MQ_QUEUE = 'r1.orders.mq';
-const ARTEMIS_NAME = 't174c-artemis';
+const RUN_ID = runId();
+const ARTEMIS_NAME = artemisName(RUN_ID); // L22: unique per run - never collides with, or removes, another run's broker
 const HOLDER = 'aditya t174c';
 
 // the slot root is the main clone's parent, as boot-backend.mjs and check-container-exclusion.sh derive it
@@ -43,12 +45,13 @@ let backend;
 let artemis;
 try {
   // boot-backend takes its own lock at this path: a private one inside our slot, never a shared one
-  const inner = path.join(os.tmpdir(), 't174c-inner.lock');
-  fs.rmSync(inner, { recursive: true, force: true });
+  const inner = path.join(os.tmpdir(), `t174c-inner-${RUN_ID}.lock`);
   process.env.DOCKER_SUITE_LOCK = inner;
   const { default: bootBackend, psql } = await import('./boot-backend.mjs');
 
-  spawnSync('docker', ['rm', '-f', ARTEMIS_NAME], { encoding: 'utf8' });
+  await claimExceptionPort(process.env); // L22: before the settings are read
+  const mq = await claimPort(MQ_PORT_PREFERRED);
+  const MQ_PORT = mq.port;
   artemis = await startArtemis({ name: ARTEMIS_NAME, port: MQ_PORT, queue: MQ_QUEUE, user: `r1-${crypto.randomUUID()}`, password: crypto.randomUUID(), base: process.env });
   log(`artemis ${ARTEMIS_NAME} up on 127.0.0.1:${MQ_PORT}, queue ${MQ_QUEUE} created`);
 

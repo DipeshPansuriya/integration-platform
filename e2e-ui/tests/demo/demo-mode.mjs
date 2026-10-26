@@ -23,5 +23,6 @@ export function demoLaunchOptions(vars = process.env) {
   if (!Number.isInteger(slowMo) || slowMo < 0 || slowMo > 5000) {
     throw new Error(`E2E_DEMO_SLOWMO_MS must be a whole number of milliseconds from 0 to 5000, got ${raw}`);
   }
-  return { headless: false, slowMo, args: ['--window-size=1400,900'] };
+  // E2E_DEMO_HEADLESS=1: the SAME slowMo and pauses with no window - the dress rehearsal's way to measure how long a visible run takes
+  return { headless: vars.E2E_DEMO_HEADLESS === '1', slowMo, args: ['--window-size=1400,900'] };
 }
