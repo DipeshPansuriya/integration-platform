@@ -19,6 +19,18 @@ public interface DecisionEngine {
     JsonNode evaluate(String jdm, JsonNode input);
 
     /**
+     * Compiles a decision model once so it can be evaluated many times (the evaluation cache holds the result). The
+     * compiled decision is immutable and safe to share between threads.
+     */
+    CompiledDecision compile(String jdm);
+
+    /** A decision model compiled by the engine. */
+    interface CompiledDecision {
+
+        JsonNode evaluate(JsonNode input);
+    }
+
+    /**
      * Where a decision model is malformed and why.
      *
      * @param node   the decision node's id, or null when the model as a whole is unreadable

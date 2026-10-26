@@ -62,6 +62,10 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
             + "     where te.id = r.target_endpoint_id) as system_code"
             + " from public.route r";
 
+    private static final String READ_ENDPOINT_SYSTEMS = "select 0 as sequence,"
+            + " (select s.code from public.system s where s.id = te.system_id) as system_code"
+            + " from public.target_endpoint te";
+
     private static final String READ_ROUTES = "select r.id::text as id, r.sequence, r.condition,"
             + " r.is_primary, r.status, r.target_endpoint_id::text as target_endpoint_id from public.route r";
 
@@ -227,6 +231,18 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
     public List<DestinationRow> findDestinations(String interfaceId) {
         return query(READ_DESTINATIONS, "r.interface_id = :interface_id::uuid",
                 Params.of("interface_id", interfaceId), DESTINATION_ROW);
+    }
+
+    /**
+     * V6: the systems behind a set of target endpoints (the destinations of a version SNAPSHOT, whose routes may not
+     * be live rows yet). The sequence is not meaningful here. Unknown ids and other tenants' endpoints return nothing.
+     */
+    public List<DestinationRow> findDestinationsOfEndpoints(java.util.Collection<String> endpointIds) {
+        if (endpointIds.isEmpty()) {
+            return List.of();
+        }
+        return query(READ_ENDPOINT_SYSTEMS, "te.id = any(string_to_array(:ids, ',')::uuid[])",
+                Params.of("ids", String.join(",", endpointIds)), DESTINATION_ROW);
     }
 
     public List<RouteRow> findRoutes(String interfaceId) {

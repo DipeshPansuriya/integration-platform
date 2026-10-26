@@ -86,7 +86,31 @@ class JdbcOperatorActionStoreContainerTest {
         UUID id = insert(DeliveryTestDatabase.TENANT_A, "DEAD_LETTERED", "PERMANENT");
         Target target = tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
                 () -> store(DeliveryTestDatabase.TENANT_A).lockForAction(id).orElseThrow());
-        assertThat(target).isEqualTo(new Target(id, DeliveryState.DEAD_LETTERED, mapping, contract));
+        assertThat(target).isEqualTo(new Target(id, DeliveryState.DEAD_LETTERED, mapping, contract,
+                DeliveryTestDatabase.TARGET_ID));
+    }
+
+    @Test
+    void pinContractWritesTheContractOfAMappinglessDeliveryOnceAndNeverOverwritesIt() {
+        UUID id = UUID.randomUUID();
+        tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> jdbc.sql("insert into public.delivery (id, tenant_id,"
+                        + " state, created_at, updated_at, target_id, dead_letter_class) values (:id::uuid,"
+                        + " current_setting('app.tenant_id')::uuid, 'DEAD_LETTERED', :at, :at, :target::uuid,"
+                        + " 'PERMANENT')")
+                .param("id", id.toString()).param("at", java.sql.Timestamp.from(TODAY))
+                .param("target", DeliveryTestDatabase.TARGET_ID.toString()).update());
+        UUID active = UUID.randomUUID();
+
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> store(DeliveryTestDatabase.TENANT_A)
+                .pinContract(id, active))).isTrue();
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> store(DeliveryTestDatabase.TENANT_A)
+                .pinContract(id, UUID.randomUUID()))).isFalse();
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> store(DeliveryTestDatabase.TENANT_A).lockForAction(id).orElseThrow()))
+                .isEqualTo(new Target(id, DeliveryState.DEAD_LETTERED, null, active, DeliveryTestDatabase.TARGET_ID));
+        // another tenant cannot pin it
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_B, () -> store(DeliveryTestDatabase.TENANT_B)
+                .pinContract(id, UUID.randomUUID()))).isFalse();
     }
 
     @Test

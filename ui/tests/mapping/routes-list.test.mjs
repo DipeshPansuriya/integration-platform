@@ -4,7 +4,7 @@
 // /api/v1/admin/flows/{flowId}/routes ONCE (no N+1) and shows each route by its target system and
 // endpoint with an "Open mapping" link to #/mappings/<routeId> (the route id the designer reads with
 // GET /api/v1/admin/routes/{routeId}/mapping). Named empty and error states, nothing hidden.
-// The screen side is ui/tests/screens/mapping-designer.docker.spec.mjs.
+// The screen side is e2e-ui/tests/screens/mapping-designer.docker.spec.mjs.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';

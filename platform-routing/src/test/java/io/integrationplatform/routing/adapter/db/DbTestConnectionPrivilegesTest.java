@@ -67,6 +67,30 @@ class DbTestConnectionPrivilegesTest {
     }
 
     @Test
+    @DisplayName("S2: a WIDE account (more than INSERT and SELECT) is flagged explicitly in the response detail")
+    void aWideAccountIsFlagged() throws Exception {
+        when(privileges.probe(eq(systemId), any(DbSettings.class), any(), any(Duration.class)))
+                .thenReturn(List.of("DELETE", "INSERT", "SCHEMA_CREATE", "SELECT", "SUPERUSER"));
+
+        var answer = connection(List.of(PORT)).test(systemId, SETTINGS);
+
+        assertThat(answer.get("result")).isEqualTo("SUCCESS"); // report only: refusal at approve time is not here
+        assertThat((String) answer.get("detail")).contains("WIDE ACCOUNT").contains("DELETE").contains("SCHEMA_CREATE")
+                .contains("SUPERUSER");
+    }
+
+    @Test
+    @DisplayName("S2: the narrow account (INSERT, SELECT) and an account with nothing are not flagged WIDE")
+    void aNarrowAccountIsNotFlagged() throws Exception {
+        when(privileges.probe(eq(systemId), any(DbSettings.class), any(), any(Duration.class)))
+                .thenReturn(List.of("INSERT", "SELECT"));
+        assertThat((String) connection(List.of(PORT)).test(systemId, SETTINGS).get("detail")).doesNotContain("WIDE");
+
+        when(privileges.probe(eq(systemId), any(DbSettings.class), any(), any(Duration.class))).thenReturn(List.of());
+        assertThat((String) connection(List.of(PORT)).test(systemId, SETTINGS).get("detail")).doesNotContain("WIDE");
+    }
+
+    @Test
     @DisplayName("a target that names no table reports no privileges but still answers SUCCESS")
     void aTargetWithoutTableReportsNoPrivileges() throws Exception {
         when(privileges.probe(eq(systemId), any(DbSettings.class), any(), any(Duration.class)))

@@ -25,6 +25,10 @@ public final class JdbcRuleSetRepository extends TenantScopedRepository {
     public record RuleSetRow(String id, String flowId, String kind, String name, String content) {
     }
 
+    /** A rule set read together with the fingerprint of its stored content (the evaluation cache's validity check). */
+    public record Fingerprinted(RuleSetRow row, String fingerprint) {
+    }
+
     private record Listed(Timestamp createdAt, RuleSetRow row) {
     }
 
@@ -34,6 +38,12 @@ public final class JdbcRuleSetRepository extends TenantScopedRepository {
 
     private static final String READ = "select r.id::text as id, r.interface_id::text as flow_id, r.kind, r.name,"
             + " r.content_text, r.created_at from public.rule_set r";
+
+    /** md5 of the content exactly as stored: it changes whenever the stored text changes, by any writer. */
+    private static final String FINGERPRINT = "select md5(r.content_text) as fingerprint from public.rule_set r";
+
+    private static final String READ_FINGERPRINTED = "select r.id::text as id, r.interface_id::text as flow_id, r.kind,"
+            + " r.name, r.content_text, r.created_at, md5(r.content_text) as fingerprint from public.rule_set r";
 
     private static final String INSERT = "with ins as ("
             + "insert into public.rule_set (tenant_id, interface_id, kind, name, content, content_text, author_id)"
@@ -55,6 +65,9 @@ public final class JdbcRuleSetRepository extends TenantScopedRepository {
             new RuleSetRow(rs.getString("id"), rs.getString("flow_id"), rs.getString("kind"), rs.getString("name"),
                     rs.getString("content_text")));
 
+    private static final RowMapper<Fingerprinted> FINGERPRINTED = (rs, n) -> new Fingerprinted(
+            ROW.mapRow(rs, n).row(), rs.getString("fingerprint"));
+
     private static final RowMapper<String> FIRST_COLUMN = (rs, n) -> rs.getString(1);
 
     public JdbcRuleSetRepository(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts) {
@@ -70,6 +83,21 @@ public final class JdbcRuleSetRepository extends TenantScopedRepository {
     public Optional<RuleSetRow> find(UUID ruleSetId) {
         return query(READ, "r.id = :id::uuid", Map.of("id", ruleSetId.toString()), ROW).stream()
                 .findFirst().map(Listed::row);
+    }
+
+    /**
+     * The fingerprint of the stored content alone - one narrow row, no content transferred. Empty when the bound tenant
+     * cannot see the id.
+     */
+    public Optional<String> fingerprint(UUID ruleSetId) {
+        return query(FINGERPRINT, "r.id = :id::uuid", Map.of("id", ruleSetId.toString()),
+                (rs, n) -> rs.getString("fingerprint")).stream().findFirst();
+    }
+
+    /** The rule set and the fingerprint of the very content read, in one statement (so the two never disagree). */
+    public Optional<Fingerprinted> findFingerprinted(UUID ruleSetId) {
+        return query(READ_FINGERPRINTED, "r.id = :id::uuid", Map.of("id", ruleSetId.toString()), FINGERPRINTED)
+                .stream().findFirst();
     }
 
     /** The flow's rule sets in authoring order. */

@@ -83,7 +83,7 @@ public final class DbTargetCall implements TargetCall {
 
     @Override
     public void call(Stage2Send send) {
-        CircuitBreaker breaker = breakers.circuitBreaker("db:" + send.targetEndpointId(), BREAKER);
+        CircuitBreaker breaker = io.integrationplatform.routing.stage2.BreakerOpenWait.watch(breakers.circuitBreaker("db:" + send.targetEndpointId(), BREAKER));
         if (!breaker.tryAcquirePermission()) {
             throw TargetFaultException.CircuitOpenException.of(breaker, send.targetEndpointId());
         }
@@ -96,6 +96,12 @@ public final class DbTargetCall implements TargetCall {
             try {
                 resolved = outbound.resolve(send);
             } catch (RuntimeException badSettings) {
+                if (io.integrationplatform.routing.stage2.PlatformReadFaults.isTransient(badSettings)) {
+                    // T190: the platform's own pool/database blip, not the target's settings: retry, never dead-letter
+                    breaker.releasePermission();
+                    throw new TargetFaultException.TransientFaultException("the platform database could not be read for"
+                            + " target endpoint " + send.targetEndpointId() + "; the send is retried");
+                }
                 // a thrown resolve must release the breaker permit and be metered; a malformed settings row is a
                 // permanent target fault, never a target fault of the broker kind
                 outcome = OutcomeClass.PERMANENT;
@@ -139,7 +145,9 @@ public final class DbTargetCall implements TargetCall {
                     outcome = OutcomeClass.PERMANENT;
                     breaker.onSuccess(System.nanoTime() - started, TimeUnit.NANOSECONDS);
                     throw new TargetFaultException(outcome, "the target database of target endpoint "
-                            + send.targetEndpointId() + " refused the send (" + state + ")");
+                            + send.targetEndpointId() + " refused the send (" + state + ")"
+                            + ("42501".equals(state) ? ": the restricted account lacks a privilege - it needs INSERT and "
+                                    + "SELECT on the target table (the delivery-id pre-state check reads it)" : ""));
                 }
                 if ("08006".equals(state)) {
                     breaker.onError(System.nanoTime() - started, TimeUnit.NANOSECONDS, refused);

@@ -8,8 +8,8 @@ import java.util.UUID;
 
 /**
  * E13 (facade slice): read adapter that fills {@link ReportDataProvider} from the real
- * {@link MessageTrackingService}. No service redesign - only translates its read calls. Missing
- * messages surface as an empty {@link Optional} (NotFoundException or absent row), never as an exception.
+ * {@link MessageTrackingService}. No service redesign - only translates its read calls. A missing
+ * message surfaces as an empty {@link Optional} (absent row); a read fault on the timeline propagates.
  */
 public final class MessageTrackingReportDataProvider implements ReportDataProvider {
 
@@ -24,12 +24,9 @@ public final class MessageTrackingReportDataProvider implements ReportDataProvid
         if (trackingId == null) {
             return Optional.empty();
         }
-        try {
-            return service.timeline(trackingId);
-        } catch (RuntimeException ex) {
-            // missing-row / not-found lookups must never break the facade read path
-            return Optional.empty();
-        }
+        // not-found is an empty Optional from the service; any exception is a real fault and must surface (a 500, never a
+        // false "no timeline" that the facade controller would record as a forged-tenant denial)
+        return service.timeline(trackingId);
     }
 
     @Override

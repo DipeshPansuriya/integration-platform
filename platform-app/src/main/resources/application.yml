@@ -1,6 +1,12 @@
 spring:
   application:
     name: integration-platform
+  # Karan M1 (row 372): the admin API is JSON-only; Boot's FormContentFilter would read a form-encoded PUT/PATCH/DELETE
+  # body in full BEFORE authentication and before AdminRequestSizeFilter (AdminFormPutNotBufferedTest).
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
   # E1 seam: each lane's settings live in its own file in platform-tenancy (no two lanes edit one file).
   # tenancy-security.yml - lane B (OIDC resource server); tenancy-database.yml - lane C (Flyway owner, app role);
   # tenancy-console.yml - E4 lane D (console login as a backend for frontend, sessions in PostgreSQL).
@@ -27,6 +33,8 @@ spring:
       # E14 seam (arjun-fullstack, F8): scheduler.yml arrives with lane B's T-056 (platform-app owns the runtime
       # wiring, ADR-012 section 2) - the db-scheduler task-table name (schema scheduler), enabled flag, poll interval.
       - optional:classpath:config/scheduler.yml
+      # T204 (L4): migrations fail fast on a lock wait (init-sql lock_timeout) instead of queueing behind a long transaction.
+      - optional:classpath:config/flyway-lock-timeout.yml
   # R07: connection settings come only from environment variable names; no value, no default.
   datasource:
     url: ${DB_URL}
@@ -50,6 +58,12 @@ spring:
   # one lock order (ADR-014's 40001/40P01 in-place retries stay well inside).
   transaction:
     default-timeout: 30
+
+# L15 (security gate S5-A1): the admin API (/api/v1/admin/**) refuses a request body over this many bytes with a 413,
+# before it is read into memory. Default 2 MB; intake (/api/v1/interfaces/**) is not covered (own shape and bulk caps).
+platform:
+  admin-api:
+    max-request-body-bytes: ${ADMIN_API_MAX_REQUEST_BODY_BYTES:2097152}
 
 management:
   endpoints:

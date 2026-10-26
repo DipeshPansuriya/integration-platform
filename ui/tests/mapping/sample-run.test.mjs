@@ -4,7 +4,7 @@
 // client ({"sample": ...}); nothing transforms in the browser. Every refusal is shown, none hidden:
 // a sample that is not JSON and an unsaved drawing are refused before any call; a server refusal
 // (400/403/404) shows the server's own message; a 200 with ERROR or MAPPING_TIMEOUT is an error state
-// carrying the engine's text. The screen side is ui/tests/screens/mapping-designer.docker.spec.mjs.
+// carrying the engine's text. The screen side is e2e-ui/tests/screens/mapping-designer.docker.spec.mjs.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';

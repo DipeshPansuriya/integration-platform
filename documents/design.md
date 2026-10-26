@@ -117,10 +117,10 @@ These are functional constraints, not visual rules; they follow from "no functio
 
 | Statement | Grade | Source |
 |---|---|---|
-| The screen tests and the page-load measurement find elements by `data-*` attributes. The rule, kept generic so it cannot go stale: **every `data-*` attribute used in `ui/tests/screens/*.spec.mjs` and `ui/tests/perf/pages.json`**. Measured on main 8c6f193, 2026-10-16: 66 distinct attributes across the 12 screen specs and the 6 measured pages (e.g. `data-nav`, `data-page`, `data-action`, `data-systems-loaded`, `data-contracts-loaded`, `data-mapping-loaded`, `data-queue-loaded`, `data-system-row`, `data-decision-table`, `data-session-tenant`, `data-test-panel-run`); the first command in the source column lists them all | [Verified] | `git grep -ohE 'data-[a-z][a-z0-9-]*' main -- 'ui/tests/screens/*.spec.mjs' ui/tests/perf/pages.json \| sort -u` (66 lines with `\| wc -l`); `git ls-tree --name-only main ui/tests/screens/ \| grep -c '\.spec\.mjs$'` = 12; `ui/tests/perf/pages.json:4-9` |
+| The screen tests and the page-load measurement find elements by `data-*` attributes. The rule, kept generic so it cannot go stale: **every `data-*` attribute used in `e2e-ui/tests/screens/*.spec.mjs` and `e2e-ui/tests/perf/pages.json`**. Measured on main 8c6f193, 2026-10-16: 66 distinct attributes across the 12 screen specs and the 6 measured pages (e.g. `data-nav`, `data-page`, `data-action`, `data-systems-loaded`, `data-contracts-loaded`, `data-mapping-loaded`, `data-queue-loaded`, `data-system-row`, `data-decision-table`, `data-session-tenant`, `data-test-panel-run`); the first command in the source column lists them all | [Verified] | `git grep -ohE 'data-[a-z][a-z0-9-]*' main -- 'e2e-ui/tests/screens/*.spec.mjs' e2e-ui/tests/perf/pages.json \| sort -u` (66 lines with `\| wc -l`); `git ls-tree --name-only main e2e-ui/tests/screens/ \| grep -c '\.spec\.mjs$'` = 12; `e2e-ui/tests/perf/pages.json:4-9` |
 | A restyle therefore keeps every attribute that command lists, and every visible text a test asserts, unchanged | [Inferred] | the row above plus `ws/_specs/project-plan.md`, phase "Look-and-feel redesign" |
 | Every API refusal stays visible, never hidden, and the not-found text keeps giving no hint of another tenant's data | [Verified] | `ui/src/pages/Versions.tsx:4-5`; `ui/src/pages/FlowDefinition.tsx:277-278` |
-| Hash routes stay, so every admin screen remains directly loadable for the page-load figure | [Verified] | `ui/src/App.tsx:1-2`; `ui/tests/perf/pages.json:2` |
+| Hash routes stay, so every admin screen remains directly loadable for the page-load figure | [Verified] | `ui/src/App.tsx:1-2`; `e2e-ui/tests/perf/pages.json:2` |
 | Figure: admin page load p95 under 1.5 s | [Verified] | `PRD.md:158`; `ws/_specs/project-plan.md`, phase "Flow configuration: source to destination" (figure owned) and the "Figures by phase" table |
 | Last measured 117 / 103 / 120 ms (home, flow definition, versions) by the E3 judge on 2026-10-07; not re-run for this file | [Inferred] | m-a16de7 (hub workspace `_memory/shared.md` by entry id - the file rotates, so no line ref survives) |
 
@@ -136,8 +136,8 @@ These are functional constraints, not visual rules; they follow from "no functio
 ## 4. Screens built after E3, and what is still to come
 
 Measured on main 8c6f193, 2026-10-16. The shell parses each route at `ui/src/App.tsx:91-109` and
-renders its page at `ui/src/App.tsx:355-372`; every built screen has its own spec in `ui/tests/screens/`
-(`git ls-tree --name-only main ui/tests/screens/`).
+renders its page at `ui/src/App.tsx:355-372`; every built screen has its own spec in `e2e-ui/tests/screens/`
+(`git ls-tree --name-only main e2e-ui/tests/screens/`).
 
 | Screen | Route | Requirement | Page file and shell wiring | Screen spec | Grade |
 |---|---|---|---|---|---|

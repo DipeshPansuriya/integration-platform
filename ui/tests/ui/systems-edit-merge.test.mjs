@@ -129,3 +129,11 @@ test('the edit form sends the merged payload and shows the extras read-only (no 
 test('the register form still sends only the form fields (nothing stored to merge)', () => {
   assert.match(read('pages/systems/RegisterSystemForm.tsx'), /settingsFromForm\(/);
 });
+
+test('DB: a stale stored approvedTables key is dropped before sending (F3 refuses it with FIELD_NOT_ALLOWED); other keys stay', () => {
+  const stale = { ...STORED.DB, approvedTables: ['orders'] };
+  const sent = edit('DB', untouched('DB'), stale);
+  assert.equal('approvedTables' in sent, false);
+  assert.deepEqual(sent, STORED.DB);
+  assert.deepEqual(stale.approvedTables, ['orders'], 'the stored object is never mutated');
+});

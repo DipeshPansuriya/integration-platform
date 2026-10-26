@@ -71,6 +71,32 @@ class IntakeStore extends TenantScopedRepository {
     }
 
     /**
+     * B37: the pinned (APPROVED) source contract version's JSON Schema, as text. A contract version is immutable
+     * (T-018), so the caller caches the compiled schema under the version id and reads this only on a miss.
+     */
+    Optional<String> contractSchema(UUID sourceContractVersionId) {
+        List<String> schemas = query("select cv.json_schema_draft_2020_12::text as schema_text from public.contract_version cv",
+                "cv.id = :id::uuid and cv.status = 'APPROVED'", Map.of("id", sourceContractVersionId.toString()),
+                (rs, rowNum) -> rs.getString("schema_text"));
+        return schemas.stream().findFirst();
+    }
+
+    /**
+     * B37: the interface's VALIDATION rule sets in their stable order (creation, then id) - one read per request,
+     * never per record. Rule sets are editable, so this is not cached.
+     */
+    List<UUID> validationRuleSetIds(UUID interfaceId) {
+        record Row(UUID id, java.time.Instant createdAt) {
+        }
+        return query("select rs.id, rs.created_at from public.rule_set rs",
+                "rs.interface_id = :interface_id::uuid and rs.kind = 'VALIDATION'",
+                Map.of("interface_id", interfaceId.toString()),
+                (rs, rowNum) -> new Row(UUID.fromString(rs.getString("id")), rs.getTimestamp("created_at").toInstant()))
+                .stream().sorted(java.util.Comparator.comparing(Row::createdAt).thenComparing(Row::id))
+                .map(Row::id).toList();
+    }
+
+    /**
      * The acceptance write: message + payload in ONE statement. {@code now()} is transaction-start stable, so the
      * message and its payload share the exact {@code accepted_at} the message and payload partitions pair on
      * (ADR-014). The base's appended tenant predicate filters the RETURNING row: exactly one row id comes back for

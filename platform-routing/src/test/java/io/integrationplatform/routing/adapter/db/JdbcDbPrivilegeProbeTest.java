@@ -26,14 +26,30 @@ class JdbcDbPrivilegeProbeTest {
     private static final char[] SECRET = "pw".toCharArray();
 
     @Test
-    @DisplayName("the catalogue question is fully parameterised - no name ever enters the SQL text")
-    void theCatalogueQuestionIsFullyParameterised() {
+    @DisplayName("S2: the probe asks for the EFFECTIVE privileges (roles, PUBLIC, superuser, schema CREATE) - fully parameterised")
+    void theProbeAsksForEffectivePrivileges() {
         assertThat(JdbcDbPrivilegeProbe.PRIVILEGES_SQL)
-                .contains("information_schema.table_privileges")
-                .contains("grantee = ?").contains("table_schema = ?").contains("table_name = ?")
-                .contains("privilege_type")
+                .contains("has_table_privilege(current_user").contains("to_regclass(?)")
+                .contains("has_any_column_privilege(current_user, to_regclass(?), 'UPDATE')")
+                .contains("has_any_column_privilege(current_user, to_regclass(?), 'REFERENCES')")
+                .contains("TABLE_MISSING")
+                .contains("'INSERT'").contains("'SELECT'").contains("'UPDATE'").contains("'DELETE'")
+                .contains("'TRUNCATE'").contains("'TRIGGER'").contains("rolbypassrls").contains("rolsuper").contains("pg_roles")
+                .contains("has_schema_privilege(current_user, ?, 'CREATE')")
+                .contains("pg_write_all_data").contains("pg_has_role")
+                .doesNotContain("information_schema").doesNotContain("grantee")
                 .doesNotContain("orders_in").doesNotContain("restricted");
         assertThat(JdbcDbPrivilegeProbe.DEFAULT_SCHEMA).isEqualTo("public");
+    }
+
+    @Test
+    @DisplayName("S3: the account Properties pin currentSchema=public, for the send and for the probe alike")
+    void theSchemaIsPinned() {
+        Properties account = JdbcDbSender.accountProperties("restricted", SECRET, InetAddress.getLoopbackAddress(),
+                "require", Duration.ofSeconds(5), null);
+
+        assertThat(account.getProperty("currentSchema")).isEqualTo("public");
+        assertThat(account.getProperty("currentSchema")).isEqualTo(JdbcDbPrivilegeProbe.DEFAULT_SCHEMA);
     }
 
     @Test

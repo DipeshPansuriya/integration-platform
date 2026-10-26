@@ -1,5 +1,13 @@
 package io.integrationplatform.app.report;
 
+import io.integrationplatform.tenancy.TenantContext;
+import io.integrationplatform.tenancy.port.DeniedTenantAttempt;
+import io.integrationplatform.tenancy.port.TenantDenialRecorder;
+import jakarta.servlet.http.HttpServletRequest;
+import java.time.Instant;
+import java.util.Objects;
+import java.util.Optional;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,7 +20,8 @@ import java.util.UUID;
 
 /**
  * Small controller adapter: exposes the aggregated report through a single endpoint, delegating all work to the facade.
- * No business logic lives here.
+ * Besides the 404 answer it records the one PATH_ID denial a tracking id the bound tenant cannot see earns; no other
+ * business logic lives here.
  */
 @RestController
 @RequestMapping("/api/v1/reports/facade")
@@ -20,20 +29,40 @@ public class ReportFacadeController {
 
     private final ReportFacade facade;
 
-    public ReportFacadeController(ReportFacade facade) {
-        this.facade = facade;
+    private final ObjectProvider<TenantDenialRecorder> recorders;
+    private final ObjectProvider<TenantContext> tenantContexts;
+
+    public ReportFacadeController(ReportFacade facade, ObjectProvider<TenantDenialRecorder> recorders,
+            ObjectProvider<TenantContext> tenantContexts) {
+        this.facade = Objects.requireNonNull(facade, "facade");
+        this.recorders = Objects.requireNonNull(recorders, "recorders");
+        this.tenantContexts = Objects.requireNonNull(tenantContexts, "tenantContexts");
     }
 
     @GetMapping("/{trackingId}")
     public ResponseEntity<ReportFacade.Report> report(@PathVariable("trackingId") UUID trackingId,
             @RequestParam(value = "flowId", required = false) UUID flowId,
             @RequestParam(value = "day", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate day) {
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate day, HttpServletRequest request) {
         ReportFacade.Report report = facade.report(trackingId, flowId, day);
         // a tracking id the bound tenant cannot see behaves like the timeline endpoint: 404, never a 200 with null
         if (report == null || report.timeline() == null) {
+            // forged-tenant triage 2026-10-22: the denied attempt is recorded like MessageTrackingController does;
+            // status and (empty) body are unchanged, so a foreign id and an unknown id stay indistinguishable
+            recordPathIdDenial(request);
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(report);
+    }
+
+    /** The one denied-attempt record a path-named foreign row earns: bound tenant, method and the raw request path (which carries the id; the recorder neutralises it). */
+    private void recordPathIdDenial(HttpServletRequest request) {
+        TenantDenialRecorder recorder = recorders.getIfAvailable();
+        if (recorder == null) {
+            return;
+        }
+        UUID bound = tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId().orElse(null);
+        recorder.record(new DeniedTenantAttempt(bound, DeniedTenantAttempt.Channel.PATH_ID, request.getMethod(),
+                request.getRequestURI(), Instant.now()));
     }
 }

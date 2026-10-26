@@ -38,3 +38,16 @@ export function fieldDiff(mine: FieldLike[], other: FieldLike[] | undefined): Re
   }
   return diff;
 }
+
+/** A row action's accessible name carries the contract/version key, so every row's button differs (B29 C2). */
+export const rowActionLabel = (verb: string, key: string) => `${verb} ${key}`;
+
+const ROLE_WORDS: Record<string, string> = {
+  SOURCE_REQUEST: 'Source request',
+  SOURCE_RESPONSE: 'Source response',
+  TARGET_REQUEST: 'Target request',
+  TARGET_RESPONSE: 'Target response'
+};
+
+/** The role as words; an unknown role shows as the API named it (B29 C6). */
+export const roleWord = (role: string) => ROLE_WORDS[role] ?? role;

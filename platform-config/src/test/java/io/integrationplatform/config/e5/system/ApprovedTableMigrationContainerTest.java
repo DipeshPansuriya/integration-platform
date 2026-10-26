@@ -49,6 +49,7 @@ class ApprovedTableMigrationContainerTest {
     private final UUID dbSystemA = UUID.randomUUID();
     private final UUID apiSystemA = UUID.randomUUID();
     private final UUID dbSystemB = UUID.randomUUID();
+    private final UUID dbSystemRepointed = UUID.randomUUID();
     private final UUID requester = UUID.randomUUID();
     private final UUID approver = UUID.randomUUID();
 
@@ -75,10 +76,19 @@ class ApprovedTableMigrationContainerTest {
                     + "\"user\":\"ipass_orders\",\"table\":\"orders_in\","
                     + "\"approvedTables\":[\"orders_in\",\"Orders_IN\",\"users\",\"bad name\"]}");
             system(owner, tenantA, apiSystemA, "API", "{\"baseUrl\":\"https://api.example/v1\"}");
+            system(owner, tenantB, dbSystemRepointed, "DB", "{\"host\":\"db.c.example\",\"port\":5432,\"database\":\"c\","
+                    + "\"user\":\"ipass_c\",\"approvedTables\":[\"c_in\"]}");
             system(owner, tenantB, dbSystemB, "DB", "{\"host\":\"db.b.example\",\"port\":5432,\"database\":\"b\","
                     + "\"user\":\"ipass_b\",\"approvedTables\":[\"b_in\"]}");
         }
 
+        // S5 upgrade case: V2_4_1330 backfills a row bound to the OLD four-field hash, then the system is repointed
+        // BEFORE V2_4_1340 runs - that row is stale (REFUSED_TARGET_CHANGED) and the re-hash must not revive it
+        flyway(locations).target("2.4.1330").load().migrate();
+        try (Connection owner = owner(); Statement sql = owner.createStatement()) {
+            sql.executeUpdate("UPDATE public.system SET settings = jsonb_set(settings, '{host}', '\"db.moved.example\"')"
+                    + " WHERE id = '" + dbSystemRepointed + "'");
+        }
         flyway(locations).load().migrate();
 
         appUser = "app_login_" + Long.toUnsignedString(RANDOM.nextLong(), 36);
@@ -267,6 +277,75 @@ class ApprovedTableMigrationContainerTest {
         }
         assertThat(scalar("select status from public.db_target_approved_table where id = ?::uuid", id))
                 .isEqualTo("PENDING_APPROVAL");
+    }
+
+    @Test
+    @DisplayName("S5 (V2_4_1340): sslmode is part of the target fingerprint - weakening TLS invalidates an approval; absent and empty agree")
+    void sslmodeIsPartOfTheFingerprint() throws Exception {
+        String base = "{\"host\":\"h\",\"port\":5432,\"database\":\"d\",\"user\":\"u\"";
+        String full = scalar("select public.db_target_fingerprint(?::jsonb)", base + ",\"sslmode\":\"verify-full\"}");
+        String weaker = scalar("select public.db_target_fingerprint(?::jsonb)", base + ",\"sslmode\":\"require\"}");
+        assertThat(full).isNotEqualTo(weaker);
+        assertThat(scalar("select public.db_target_fingerprint(?::jsonb)", base + "}"))
+                .isEqualTo(scalar("select public.db_target_fingerprint(?::jsonb)", base + ",\"sslmode\":null}"));
+        // the rows written by the V2_4_1330 backfill (old four-field hash) were re-hashed by this migration
+        assertThat(scalar("select count(*) from public.db_target_approved_table a join public.system s on s.id = a.system_id"
+                + " where a.requested_by = 'migration' and a.system_id <> '" + dbSystemRepointed
+                + "' and a.target_hash <> public.db_target_fingerprint(s.settings)"))
+                .isEqualTo("0");
+    }
+
+    @Test
+    @DisplayName("S5 upgrade: a row made stale by a repoint BEFORE V2_4_1340 stays stale - the re-hash never revives it")
+    void aRepointedRowStaysStaleAcrossTheUpgrade() throws Exception {
+        String id = scalar("select id::text from public.db_target_approved_table where system_id = ?::uuid",
+                dbSystemRepointed.toString());
+        assertThat(id).isNotNull();
+        assertThat(scalar("select a.target_hash = public.db_target_fingerprint(s.settings)"
+                + " from public.db_target_approved_table a join public.system s on s.id = a.system_id"
+                + " where a.id = ?::uuid", id)).isEqualTo("f");
+        assertThat(decide(tenantB, approver, id, "APPROVE")).isEqualTo("REFUSED_TARGET_CHANGED");
+    }
+
+    @Test
+    @DisplayName("S1 (V2_4_1340): the app role can only INSERT a PENDING_APPROVAL row - an APPROVED or REVOKED row, or any decider, is refused (42501)")
+    void anInsertIsAlwaysPending() throws Exception {
+        // status, decided_by, decided_at (sql), revoked_by
+        String[][] forged = {
+            {"APPROVED", "y", "now()", null},   // already approved by a made-up decider: the S1 exploit
+            {"APPROVED", "y", "null", null},
+            {"REVOKED", "y", "now()", "z"},
+            {"PENDING_APPROVAL", "y", "null", null},
+            {"PENDING_APPROVAL", null, "null", "z"},
+            {"PENDING_APPROVAL", null, "now()", null},
+        };
+        int n = 0;
+        for (String[] f : forged) {
+            String table = "forged_" + n++;
+            try (Connection app = app(tenantA, null);
+                    PreparedStatement insert = app.prepareStatement("insert into public.db_target_approved_table"
+                            + " (tenant_id, system_id, table_name, status, requested_by, decided_by, decided_at,"
+                            + " revoked_by, target_hash) values (current_setting('app.tenant_id')::uuid, ?::uuid, ?, ?,"
+                            + " 'x', ?, " + f[2] + ", ?, (select public.db_target_fingerprint(s.settings)"
+                            + " from public.system s where s.id = ?::uuid))")) {
+                insert.setString(1, dbSystemA.toString());
+                insert.setString(2, table);
+                insert.setString(3, f[0]);
+                insert.setString(4, f[1]);
+                insert.setString(5, f[3]);
+                insert.setString(6, dbSystemA.toString());
+                assertThatThrownBy(insert::executeUpdate).as(java.util.Arrays.toString(f))
+                        .isInstanceOf(SQLException.class)
+                        .extracting(e -> ((SQLException) e).getSQLState()).isEqualTo("42501");
+            }
+        }
+        assertThat(scalar("select count(*) from public.db_target_approved_table where table_name like 'forged%'"))
+                .isEqualTo("0");
+        // the legitimate request still works, and the definer function is still the way to APPROVED
+        String id = request(tenantA, dbSystemA, "still_pending", requester);
+        assertThat(decide(tenantA, approver, id, "APPROVE")).isEqualTo("APPROVED");
+        assertThat(scalar("select status from public.db_target_approved_table where id = ?::uuid", id))
+                .isEqualTo("APPROVED");
     }
 
     // ---------------------------------------------------------------------------------------------- task 3

@@ -27,7 +27,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
 /**
  * T-139 (E13-C3/C4): the tenant delivery report (GET /api/v1/reports/delivery?day=) reads the daily aggregate and
@@ -104,8 +103,52 @@ class DeliveryReportContainerTest {
         assertThat(mine(controller(TENANT_B).report(TODAY).getBody())).isEmpty();
         TenantContext none = Optional::empty;
         DeliveryReportController unbound = new DeliveryReportController(
-                new JdbcDeliveryDailyAggregateStore(jdbc, none), new DataSourceTransactionManager(pool));
+                new JdbcDeliveryDailyAggregateStore(jdbc, none), stamping(none));
         assertThatThrownBy(() -> unbound.report(TODAY)).isInstanceOf(RuntimeException.class);
+    }
+
+    /** T185 (SC-08): deliveries happened, no roll-up row stored yet - the report of that day still lists them. */
+    @Test
+    @DisplayName("A day with no stored roll-up is computed from the delivery rows, per tenant")
+    void aDayWithoutStoredRollupIsComputedOnDemand() {
+        // other tests of this shared database refresh today; start from a day with no stored roll-up
+        tx.inTenantTx(TENANT_A, () -> jdbc.sql("delete from public.delivery_daily_aggregate where day = :d")
+                .param("d", TODAY).update());
+        seed(); // no refresh: the nightly job only rolls up yesterday, so today has no stored row
+
+        List<DailyCounts> report = mine(controller(TENANT_A).report(TODAY).getBody());
+
+        assertEqualsRaw(report);
+        assertThat(sum(report, DailyCounts::successes)).isEqualTo(2);
+        assertThat(sum(report, DailyCounts::failuresTransient)).isEqualTo(1);
+        assertThat(sum(report, DailyCounts::failuresAmbiguous)).isEqualTo(1);
+        assertThat(sum(report, DailyCounts::failuresPermanent)).isEqualTo(1);
+        assertThat(sum(report, DailyCounts::retriedThenSucceeded)).isEqualTo(1);
+        assertThat(sum(report, DailyCounts::stillStuck)).isEqualTo(1);
+        assertThat(mine(controller(TENANT_B).report(TODAY).getBody())).isEmpty();
+        long stored = tx.inTenantTx(TENANT_A, () -> store(TENANT_A).aggregated(TODAY)).stream()
+                .filter(c -> iface.equals(c.interfaceId())).count();
+        assertThat(stored).as("the on-demand read does not write").isZero();
+    }
+
+    /** T187: the on-demand day count of one tenant descends a tenant-leading (tenant_id, created_at) index. */
+    @Test
+    @DisplayName("The tenant's day count uses the (tenant_id, created_at) partition index")
+    void theDayCountUsesTheTenantLeadingIndex() {
+        long partitionIndexes = jdbc.sql("select count(*) from pg_inherits i join pg_class p on p.oid = i.inhparent"
+                + " where p.relname = 'delivery_tenant_created_idx'").query(Long.class).single();
+        assertThat(partitionIndexes).as("the parent index is attached on the day partitions").isPositive();
+
+        List<String> plan = tx.inTenantTx(TENANT_A, () -> {
+            jdbc.sql("set local enable_seqscan = off").update(); // tiny test table: make the planner's choice visible
+            return jdbc.sql("explain select * from (select d.tenant_id, count(*) n from public.delivery d"
+                            + " where d.created_at >= :from and d.created_at < :to group by d.tenant_id) s"
+                            + " where tenant_id = :tenant")
+                    .param("from", TODAY.atStartOfDay().atOffset(ZoneOffset.UTC))
+                    .param("to", TODAY.plusDays(1).atStartOfDay().atOffset(ZoneOffset.UTC))
+                    .param("tenant", TENANT_A).query(String.class).list();
+        });
+        assertThat(String.join("\n", plan)).contains("tenant_id_created_at_idx");
     }
 
     private void assertEqualsRaw(List<DailyCounts> report) {
@@ -156,7 +199,25 @@ class DeliveryReportContainerTest {
     }
 
     private DeliveryReportController controller(UUID tenant) {
-        return new DeliveryReportController(store(tenant), new DataSourceTransactionManager(pool));
+        return new DeliveryReportController(store(tenant), stamping(DeliveryTestDatabase.tenant(tenant)));
+    }
+
+    /** Like the product's TenantStampingTransactionManager (R11): stamps app.tenant_id local to each transaction. */
+    private org.springframework.jdbc.support.JdbcTransactionManager stamping(TenantContext tenant) {
+        return new org.springframework.jdbc.support.JdbcTransactionManager(pool) {
+            @Override
+            protected void prepareTransactionalConnection(java.sql.Connection connection,
+                    org.springframework.transaction.TransactionDefinition definition) throws java.sql.SQLException {
+                super.prepareTransactionalConnection(connection, definition);
+                Optional<UUID> id = tenant.currentTenantId();
+                if (id.isPresent()) {
+                    try (var stamp = connection.prepareStatement("select set_config('app.tenant_id', ?, true)")) {
+                        stamp.setString(1, id.get().toString());
+                        stamp.execute();
+                    }
+                }
+            }
+        };
     }
 
     private List<DailyCounts> mine(List<DailyCounts> all) {

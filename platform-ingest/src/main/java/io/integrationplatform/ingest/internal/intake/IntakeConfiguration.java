@@ -1,10 +1,13 @@
 package io.integrationplatform.ingest.internal.intake;
 
 import io.integrationplatform.ingest.adapter.in.CorrelationFilter;
+import io.integrationplatform.config.rule.api.RuleEvaluationPort;
 import io.integrationplatform.ingest.port.IntakeTransaction;
 import io.integrationplatform.ingest.port.OutboxWriter;
 import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.ingest.internal.timing.JdbcStageTimingWriter;
+import io.integrationplatform.ingest.validation.ContractSchemaCheck;
+import io.integrationplatform.ingest.validation.PayloadValidationService;
 import io.integrationplatform.tenancy.TenantContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,8 +23,18 @@ public class IntakeConfiguration {
 
     @Bean
     IntakeTransaction intakeTransaction(JdbcClient jdbcClient, TenantContext tenantContext, OutboxWriter outbox,
-            StageTimings timings) {
-        return new IntakeService(jdbcClient, tenantContext, outbox, timings);
+            StageTimings timings, PayloadValidationService payloadValidation) {
+        return new IntakeService(jdbcClient, tenantContext, outbox, timings, payloadValidation);
+    }
+
+    /**
+     * B37 (E6-F2-S1, T-027): the contract-then-rules validation the intake runs on every record. The schema check
+     * is one shared instance so its compiled-schema cache (per tenant and contract version) is shared by all requests;
+     * the rules go through the configuration module's public port - the same engine the test panel uses.
+     */
+    @Bean
+    PayloadValidationService payloadValidationService(RuleEvaluationPort rules) {
+        return new PayloadValidationService(new ContractSchemaCheck(), rules);
     }
 
     /** T-063 (row 278 T107): every request runs in its journey - Boot registers this filter for all URLs. */

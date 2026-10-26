@@ -43,12 +43,17 @@ class JdbcDbSenderInsertTest {
         final PreparedStatement check = mock(PreparedStatement.class);
         final PreparedStatement insert = mock(PreparedStatement.class);
         final ResultSet found = mock(ResultSet.class);
+        /** T178b: the transaction-scoped advisory lock and its lock_timeout setting. */
+        final PreparedStatement lock = mock(PreparedStatement.class);
 
         Stubs(boolean alreadyStored) throws Exception {
             when(found.next()).thenReturn(alreadyStored);
             when(check.executeQuery()).thenReturn(found);
-            when(connection.prepareStatement(anyString())).thenAnswer((Answer<PreparedStatement>) invocation ->
-                    invocation.getArgument(0, String.class).startsWith("SELECT") ? check : insert);
+            when(connection.prepareStatement(anyString())).thenAnswer((Answer<PreparedStatement>) invocation -> {
+                String sql = invocation.getArgument(0, String.class);
+                return sql.contains("pg_advisory_xact_lock") || sql.contains("lock_timeout") ? lock
+                        : sql.startsWith("SELECT") ? check : insert;
+            });
         }
     }
 
@@ -59,11 +64,11 @@ class JdbcDbSenderInsertTest {
         new JdbcDbSender(Duration.ofSeconds(5)).insert(stubs.connection, message(), DELIVERY);
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        verify(stubs.connection, times(2)).prepareStatement(sql.capture());
-        assertThat(sql.getAllValues().get(0)).as("the pre-state check, delivery id a parameter")
+        verify(stubs.connection, times(4)).prepareStatement(sql.capture()); // lock_timeout, advisory lock, check, insert
+        assertThat(sql.getAllValues().get(2)).as("the pre-state check, delivery id a parameter")
                 .isEqualTo(JdbcDbSender.selectDelivery("orders_in"));
         verify(stubs.check).setObject(1, DELIVERY);
-        assertThat(sql.getAllValues().get(1)).as("no ON CONFLICT: every row of the delivery is stored")
+        assertThat(sql.getAllValues().get(3)).as("no ON CONFLICT: every row of the delivery is stored")
                 .isEqualTo(JdbcDbSender.insert(message())).doesNotContain("ON CONFLICT");
         verify(stubs.insert, times(2)).executeUpdate();
         verify(stubs.insert, times(2)).setObject(3, DELIVERY); // columns + the delivery id slot, per row
@@ -79,5 +84,30 @@ class JdbcDbSenderInsertTest {
         verify(stubs.connection, times(1)).prepareStatement(JdbcDbSender.selectDelivery("orders_in"));
         verify(stubs.connection, never()).prepareStatement(startsWith("INSERT"));
         verify(stubs.connection).commit();
+    }
+
+    @Test
+    void theAdvisoryLockOnTheDeliveryIdIsTheFirstStatementAndItIsBoundedByALockTimeout() throws Exception {
+        Stubs stubs = new Stubs(false);
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(stubs.connection);
+
+        new JdbcDbSender(Duration.ofSeconds(5)).insert(stubs.connection, message(), DELIVERY);
+
+        order.verify(stubs.connection).setAutoCommit(false);
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        order.verify(stubs.connection, times(4)).prepareStatement(sql.capture());
+        assertThat(sql.getAllValues().getFirst()).contains("lock_timeout");
+        assertThat(sql.getAllValues().get(1)).contains("pg_advisory_xact_lock").contains("hashtextextended");
+        assertThat(sql.getAllValues().get(2)).as("the pre-state check comes after the lock").startsWith("SELECT");
+        verify(stubs.lock).setString(1, DELIVERY.toString());
+    }
+
+    @Test
+    void theLockWaitIsOneSecondUnderTheConfiguredTimeoutAndNeverBelow500ms() {
+        // T189: derived, not the former hard-coded 4000 ms
+        assertThat(new JdbcDbSender(Duration.ofSeconds(5)).lockTimeoutMillis()).isEqualTo(4000);
+        assertThat(new JdbcDbSender(Duration.ofSeconds(30)).lockTimeoutMillis()).isEqualTo(29000);
+        assertThat(new JdbcDbSender(Duration.ofSeconds(1)).lockTimeoutMillis()).isEqualTo(500);
+        assertThat(new JdbcDbSender(Duration.ofMillis(100)).lockTimeoutMillis()).isEqualTo(500);
     }
 }
