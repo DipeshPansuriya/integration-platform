@@ -25,6 +25,7 @@
 // boot-backend.mjs; the docker-suite lock guarantees it is this run's container).
 
 import { execFileSync } from 'node:child_process';
+import { suitePgContainer } from './suite-pg.mjs';
 import { expect, test } from '@playwright/test';
 import { consoleUrl } from './boot-state.mjs';
 
@@ -81,9 +82,7 @@ const must = (answer, what) => {
 
 /** The suite's own pinned postgres (boot-backend names it ipass-ui-t41-pg-*) asked read-only for route ids. */
 function routeIdsOfInterface(interfaceId) {
-  const names = execFileSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8' })
-    .split('\n').filter((name) => name.startsWith('ipass-ui-t41-pg-'));
-  if (names.length !== 1) throw new Error(`exactly one booted suite postgres expected, saw: ${names.join(', ')}`);
+  const names = [suitePgContainer()]; // L22: this run's postgres (IPASS_UI_PG_CONTAINER), else the single running one
   const rows = execFileSync('docker', ['exec', names[0], 'psql', '-U', 'owner', '-d', 'platform', '-t', '-A',
     '-c', `select r.sequence, m.route_id::text from public.route r join public.mapping m on m.route_id = r.id`
       + ` where r.interface_id = '${interfaceId}' order by r.sequence`], { encoding: 'utf8' });

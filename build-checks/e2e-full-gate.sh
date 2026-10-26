@@ -59,15 +59,27 @@ export MAVEN_OPTS="${MAVEN_OPTS:--Xmx768m}"
 
 # R06: the one PC-wide Docker lock beside the main checkout (also from a worktree). Waits, never takes over.
 common="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
-lock="${DOCKER_SUITE_LOCK:-$(dirname "$(dirname "$common")")/.docker-suite.lock}"
+# L22: first free of the four slots (.docker-suite.lock, -1, -2, -3) so this gate can overlap a UI suite, the Release 1
+# gate or a -Pcontainer Maven suite; DOCKER_SUITE_LOCK, when set, is the only candidate. Same protocol per slot:
+# mkdir = take, owner file = who, a held slot is never touched, release removes only the slot this run took.
+slot_base="$(dirname "$(dirname "$common")")/.docker-suite.lock"
+if [ -n "${DOCKER_SUITE_LOCK:-}" ]; then slots=("$DOCKER_SUITE_LOCK"); else slots=("$slot_base" "$slot_base-1" "$slot_base-2" "$slot_base-3"); fi
+lock="${slots[0]}"
+take_slot() {
+  local s
+  for s in "${slots[@]}"; do
+    if mkdir "$s" 2>/dev/null; then lock="$s"; return 0; fi
+  done
+  return 1
+}
 have_lock=0
 release() { [ "$have_lock" = 1 ] && rm -rf "$lock"; have_lock=0; }
 trap release EXIT
 trap 'exit 130' INT TERM
 waited=0
-until mkdir "$lock" 2>/dev/null; do
+until take_slot; do
   if [ "$waited" -ge "${E2E_FULL_LOCK_WAIT_SECONDS:-4500}" ]; then
-    echo "gate: the Docker lock stayed held for ${waited} s ($(cat "$lock/owner" 2>/dev/null)) - not run"
+    echo "gate: every Docker slot stayed held for ${waited} s (${slots[*]}; first: $(cat "${slots[0]}/owner" 2>/dev/null)) - not run"
     exit 2
   fi
   sleep 60
