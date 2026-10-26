@@ -1,0 +1,30 @@
+# Showcase demo destination - an explicit opt-in, never part of compose.yaml:
+#   docker compose -f compose.yaml -f demo/compose.demo.yaml up -d
+# WireMock is an internal-only HTTP stub on the internal work network (ADR-H-IPASS-01 "Needs decision" 2): no Traefik label,
+# no published port, one allow-listed host. The same override switches the app's showcase profile and the showcase-only
+# destination exception on. Remove the extra -f and re-create to take all of it away.
+services:
+  platform-app:
+    environment:
+      SPRING_PROFILES_ACTIVE: ${IPASS_PROFILES:-showcase}
+      PLATFORM_CONFIG_DESTINATIONS_ALLOWEDHOSTS: ${IPASS_DESTINATION_HOSTS:-wiremock}
+      PLATFORM_CONFIG_DESTINATIONS_SHOWCASELOCALHOSTS: ${IPASS_SHOWCASE_LOCAL_HOSTS:-wiremock}
+      PLATFORM_CONFIG_DESTINATIONS_SHOWCASELOCALPORTS: ${IPASS_SHOWCASE_LOCAL_PORTS:-8089}
+
+  wiremock:
+    image: wiremock/wiremock:3.13.1@sha256:d61e7720f89483fdef5366843b58d1dfd06bcce5828179c9f2f54de5c28354b0
+    restart: unless-stopped
+    command: ["--port", "8089", "--disable-banner"]   # not 8080: the guard refuses the app's own port
+    networks: [ipass-work]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8089/__admin/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 15s
+    mem_limit: 128m
+    cpus: 0.2
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: ${IPASS_LOG_DRIVER:-journald}

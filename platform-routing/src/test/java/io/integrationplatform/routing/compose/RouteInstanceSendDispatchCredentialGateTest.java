@@ -103,6 +103,8 @@ class RouteInstanceSendDispatchCredentialGateTest {
 
         Exchange done = mock(Exchange.class);
         ProducerTemplate producer = mock(ProducerTemplate.class);
+        when(done.getProperty(io.integrationplatform.routing.stage2.LayerOneRouteBuilder.LAYER_ONE_SUCCEEDED, Boolean.class))
+                .thenReturn(Boolean.TRUE); // layer 1's explicit outcome (T188)
         when(producer.send(anyString(), any(Processor.class))).thenReturn(done);
         SendOutcomes outcomes = mock(SendOutcomes.class);
         RouteInstanceSendDispatch stage2 = dispatcher(route, endpoint, delivery, token, store, credentialed, meters,
@@ -129,7 +131,7 @@ class RouteInstanceSendDispatchCredentialGateTest {
         RouteInstance instance = mock(RouteInstance.class);
         when(instance.consumerUri()).thenReturn("direct:gate");
         RouteInstanceFactory routes = mock(RouteInstanceFactory.class);
-        when(routes.ensure(row)).thenReturn(instance);
+        when(routes.ensure(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(row))).thenReturn(instance);
         return new RouteInstanceSendDispatch(TransactionOperations.withoutTransaction(), deliveries, tenants,
                 (t, i) -> List.of(row), routes, producer, outcomes, () -> NOW, credentialed);
     }

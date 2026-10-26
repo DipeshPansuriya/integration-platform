@@ -26,6 +26,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "traceId": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -50,6 +53,78 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "BulkIntakeRejection": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/BulkIntakeResult"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "results"
+        ],
+        "type": "object"
+      },
+      "BulkIntakeResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/BulkIntakeResult"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "type": "object"
+      },
+      "BulkIntakeResult": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "index": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ACCEPTED",
+              "REJECTED"
+            ],
+            "type": "string"
+          },
+          "trackingId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/Violation"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "index",
+          "status"
+        ],
         "type": "object"
       },
       "ConfigErrorBody": {
@@ -250,6 +325,47 @@
         },
         "type": "object"
       },
+      "DailyCounts": {
+        "properties": {
+          "failuresAmbiguous": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "failuresPermanent": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "failuresTransient": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "interfaceId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "retriedThenSucceeded": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "retriesMade": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stillStuck": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "successes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "targetId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "DeliveryConflict": {
         "properties": {
           "error": {
@@ -334,6 +450,97 @@
             "type": "string"
           },
           "trackingId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "IntakeErrorBody": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "violations": {
+            "description": "Every violation of a record that broke its contract or rules; never a submitted value or a submitted property name",
+            "items": {
+              "$ref": "#/components/schemas/Violation"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "JobDefinitionRow": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "jobType": {
+            "type": "string"
+          },
+          "lateThresholdSeconds": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxRunSeconds": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "parameters": {
+            "type": "string"
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "pausedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "scheduleKind": {
+            "type": "string"
+          },
+          "stateChangedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "JobSummary": {
+        "properties": {
+          "jobId": {
+            "type": "string"
+          },
+          "jobType": {
+            "type": "string"
+          },
+          "lastRunAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "nextRunAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "pausedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "stateChangedAt": {
+            "format": "date-time",
             "type": "string"
           }
         },
@@ -483,6 +690,30 @@
         },
         "type": "object"
       },
+      "Report": {
+        "properties": {
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/Failure"
+            },
+            "type": "array"
+          },
+          "stageTimings": {
+            "items": {
+              "$ref": "#/components/schemas/StageTime"
+            },
+            "type": "array"
+          },
+          "timeline": {
+            "$ref": "#/components/schemas/Timeline"
+          },
+          "trackingId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Result": {
         "properties": {
           "contractVersionId": {
@@ -611,6 +842,35 @@
           }
         },
         "type": "object"
+      },
+      "Violation": {
+        "properties": {
+          "code": {
+            "description": "SCHEMA_<KEYWORD> for a schema violation, the rule row's code for a rule violation",
+            "type": "string"
+          },
+          "field": {
+            "description": "Dotted path with [index] for array items, $ for the root; an undeclared property is reported as its parent",
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "SCHEMA",
+              "RULE"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "field",
+          "message",
+          "source"
+        ],
+        "type": "object"
       }
     }
   },
@@ -622,7 +882,7 @@
   "paths": {
     "/api/v1/activity": {
       "get": {
-        "operationId": "list_1",
+        "operationId": "list_3",
         "parameters": [
           {
             "in": "query",
@@ -1141,7 +1401,7 @@
     },
     "/api/v1/admin/flows": {
       "get": {
-        "operationId": "list",
+        "operationId": "list_1",
         "responses": {
           "200": {
             "content": {
@@ -1364,7 +1624,7 @@
     },
     "/api/v1/admin/flows/{flowId}/approve": {
       "post": {
-        "operationId": "approve",
+        "operationId": "approve_1",
         "parameters": [
           {
             "in": "path",
@@ -1812,6 +2072,162 @@
         },
         "tags": [
           "flow-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/jobs": {
+      "get": {
+        "operationId": "list_2",
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/JobDefinitionRow"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "job-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/jobs/summaries": {
+      "get": {
+        "operationId": "summaries",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/JobSummary"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "job-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/jobs/{jobType}": {
+      "get": {
+        "operationId": "inspect",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "job-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/jobs/{jobType}/pause": {
+      "post": {
+        "operationId": "pause",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "job-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/jobs/{jobType}/resume": {
+      "post": {
+        "operationId": "resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "job-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/jobs/{jobType}/run": {
+      "post": {
+        "operationId": "runNow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "job-admin-controller"
         ]
       }
     },
@@ -2991,6 +3407,157 @@
         ]
       }
     },
+    "/api/v1/admin/systems/{systemId}/approved-tables": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "systemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "approved-table-admin-controller"
+        ]
+      },
+      "post": {
+        "operationId": "request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "systemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "approved-table-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/systems/{systemId}/approved-tables/{id}/approve": {
+      "post": {
+        "operationId": "approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "systemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "approved-table-admin-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/systems/{systemId}/approved-tables/{id}/revoke": {
+      "post": {
+        "operationId": "revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "systemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "approved-table-admin-controller"
+        ]
+      }
+    },
     "/api/v1/admin/systems/{systemId}/source-credentials": {
       "get": {
         "operationId": "listSourceCredentials",
@@ -3402,16 +3969,160 @@
           "required": true
         },
         "responses": {
-          "202": {
+          "200": {
             "content": {
               "*/*": {
                 "schema": {
-                  "additionalProperties": {},
                   "type": "object"
                 }
               }
             },
-            "description": "Accepted: the message is recorded; the body carries the tracking id"
+            "description": "SYNC interface answered within 10 s: the body is the target's answer mapped to the source's response contract"
+          },
+          "202": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted: the message is recorded; the body carries the tracking id (SYNC past 10 s: status PENDING)"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A required header is missing or the JSON body is malformed"
+          },
+          "403": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden: intake is source-only - a human or non-source caller is refused"
+          },
+          "404": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The interface is unknown or unpublished"
+          },
+          "413": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The payload exceeds the 1 MB cap"
+          },
+          "415": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The Content-Type is missing or not application/json"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeErrorBody"
+                }
+              }
+            },
+            "description": "The source contract version is off-pin, a business key is unresolved, the record breaks the source contract or its validation rules (PAYLOAD_VALIDATION_FAILED, every violation listed), or the Idempotency-Key was reused with another body"
+          },
+          "503": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The intake transaction could not commit (Retry-After when an ordering key is busy); no tracking id"
+          }
+        },
+        "tags": [
+          "intake-controller"
+        ]
+      }
+    },
+    "/api/v1/interfaces/{interfaceCode}/messages:bulk": {
+      "post": {
+        "operationId": "submitBulk",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interfaceCode",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Content-Type",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MediaType"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Source-Contract-Version",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "format": "byte",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkIntakeResponse"
+                }
+              }
+            },
+            "description": "Accepted: one ordered result per record (ACCEPTED with a tracking id, or REJECTED with a code)"
           },
           "400": {
             "content": {
@@ -3422,7 +4133,7 @@
                 }
               }
             },
-            "description": "A required header is missing or the JSON body is malformed"
+            "description": "A required header is missing, the body is malformed JSON, or not a non-empty array"
           },
           "403": {
             "content": {
@@ -3455,7 +4166,7 @@
                 }
               }
             },
-            "description": "The payload exceeds the 1 MB cap"
+            "description": "The batch exceeds the record-count or byte cap (named in the body)"
           },
           "415": {
             "content": {
@@ -3470,14 +4181,13 @@
           },
           "422": {
             "content": {
-              "*/*": {
+              "application/json": {
                 "schema": {
-                  "additionalProperties": {},
-                  "type": "object"
+                  "$ref": "#/components/schemas/BulkIntakeRejection"
                 }
               }
             },
-            "description": "The source contract version is off-pin or a business key is unresolved"
+            "description": "Every record was rejected (ALL_RECORDS_REJECTED, one result per record with its violations), the version is off-pin, or the Idempotency-Key was reused with another body"
           },
           "503": {
             "content": {
@@ -3488,7 +4198,7 @@
                 }
               }
             },
-            "description": "The intake transaction could not commit; no tracking id"
+            "description": "The intake transaction could not commit (Retry-After when an ordering key is busy)"
           }
         },
         "tags": [
@@ -3515,12 +4225,95 @@
           "me-controller"
         ]
       }
+    },
+    "/api/v1/reports/delivery": {
+      "get": {
+        "operationId": "report_1",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DailyCounts"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "delivery-report-controller"
+        ]
+      }
+    },
+    "/api/v1/reports/facade/{trackingId}": {
+      "get": {
+        "operationId": "report",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trackingId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "flowId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "report-facade-controller"
+        ]
+      }
     }
   },
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:52397"
+      "url": "http://127.0.0.1:60063"
     }
   ]
 }

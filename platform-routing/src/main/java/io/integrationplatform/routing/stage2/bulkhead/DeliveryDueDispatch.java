@@ -50,17 +50,22 @@ import org.springframework.transaction.support.TransactionOperations;
  */
 public final class DeliveryDueDispatch implements io.integrationplatform.routing.stage.StageConsumer.Handler {
 
+    private static final Logger LOG = LoggerFactory.getLogger(DeliveryDueDispatch.class);
+    /** F3: HELD/duplicate claims in a row (per target) that may each hand the turn to the next deferred candidate. */
+    static final int HELD_CHAIN_CAP = 8;
+
     private final WorkerTenantBinding binding;
     private final TransactionOperations transactions;
     private final DeliveryBulkheadFacts facts;
     private final BulkheadRegistry bulkheads;
     private final Stage2Claim claims;
-    private static final Logger LOG = LoggerFactory.getLogger(DeliveryDueDispatch.class);
-
     private final BulkheadDeferrals deferrals;
     private final BulkheadRedrive redrive;
     /** F1: targets this instance deferred a delivery for since their last empty re-drive scan (cross-instance: the job). */
     private final java.util.Set<UUID> deferredHere = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** F3: consecutive HELD/duplicate claims per target since the last real send (sticky at the cap). */
+    private final java.util.concurrent.ConcurrentHashMap<UUID, Integer> heldInARow =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private final Stage2SendDispatch sends;
     private final TargetEndpointViews targets;
     private final Supplier<Instant> clock;
@@ -114,8 +119,10 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
             UUID claimToken = UUID.randomUUID();
             DeliveryClaimService.Outcome outcome = claims.claim(delivery.orderingKey(), deliveryId, claimToken);
             if (outcome != DeliveryClaimService.Outcome.CLAIMED) {
+                chainAfterHeld(delivery.targetEndpointId());
                 return; // HELD or duplicate: acknowledged; the permit returns in the finally
             }
+            heldInARow.remove(delivery.targetEndpointId()); // a real send: the next HELD run starts at zero
             Stage2Send send = new Stage2Send(deliveryId, claimToken, delivery.orderingKey(),
                     delivery.targetEndpointId(), idempotent);
             Runnable task = () -> {
@@ -147,15 +154,42 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
      * never fail the finished send; the retry job remains the safety net.
      */
     private void sendThenRedrive(Stage2Send send, UUID targetEndpointId) {
+        boolean circuitDeferred = false;
         try {
-            sends.dispatch(send);
+            circuitDeferred = sends.dispatch(send);
         } finally {
-            try {
-                redriveIfDeferredHere(targetEndpointId);
-            } catch (RuntimeException failed) {
-                LOG.warn("slot-free re-drive for target {} failed; the delivery retry job will pick up the"
-                        + " deferred delivery", targetEndpointId, failed);
+            if (!circuitDeferred) { // F2: an open breaker is not a freed slot of a healthy target - the job stays the net
+                safeRedrive(targetEndpointId, "after a finished send", BulkheadRedrive.Cause.SLOT_FREE);
             }
+        }
+    }
+
+    /**
+     * F3: a HELD or duplicate claim produced no send, so nothing would re-drive the next deferred delivery and the
+     * tail would fall to the 60 s job. Hand the turn on, at most {@link #HELD_CHAIN_CAP} in a row per target;
+     * only a claim that would actually re-drive (a local deferral waits) counts toward the cap.
+     */
+    private void chainAfterHeld(UUID targetEndpointId) {
+        if (!deferredHere.contains(targetEndpointId)) {
+            return; // T190-1: nothing deferred here means no re-drive would run; a no-op must not spend the cap
+        }
+        // sticky (ADR-010): once the cap is reached the chain stays off until a real send resets the count; the
+        // counter is clamped so it cannot grow without bound while the target stays HELD
+        int run = heldInARow.merge(targetEndpointId, 1, (count, one) -> Math.min(count + one, HELD_CHAIN_CAP + 1));
+        if (run > HELD_CHAIN_CAP) {
+            return; // cap reached: the retry job takes the rest
+        }
+        safeRedrive(targetEndpointId, "after a HELD/duplicate claim", BulkheadRedrive.Cause.HELD_CHAIN);
+    }
+
+    /** A failing re-drive never fails the caller: WARN without a stack trace, the stack at DEBUG. */
+    private void safeRedrive(UUID targetEndpointId, String when, BulkheadRedrive.Cause cause) {
+        try {
+            redriveIfDeferredHere(targetEndpointId, cause);
+        } catch (RuntimeException failed) {
+            LOG.warn("slot-free re-drive {} for target {} failed ({}); the delivery retry job will pick up the"
+                    + " deferred delivery", when, targetEndpointId, failed.toString());
+            LOG.debug("slot-free re-drive failure detail", failed);
         }
     }
 
@@ -165,13 +199,16 @@ public final class DeliveryDueDispatch implements io.integrationplatform.routing
      * kept; a scan that moved a row (more may wait) or failed puts it back. A deferral made by another instance is the
      * retry job's to find (it stays the safety net).
      */
-    private void redriveIfDeferredHere(UUID targetEndpointId) {
+    private void redriveIfDeferredHere(UUID targetEndpointId, BulkheadRedrive.Cause cause) {
         if (!deferredHere.remove(targetEndpointId)) {
             return;
         }
+        if (cause == BulkheadRedrive.Cause.SLOT_FREE) {
+            heldInARow.remove(targetEndpointId); // T190: a freed slot re-drives a deferral - what was counted before it no longer binds
+        }
         boolean moreMayWait = true; // a failing scan keeps the flag
         try {
-            moreMayWait = redrive.redriveOneDeferred(targetEndpointId);
+            moreMayWait = redrive.redriveOneDeferred(targetEndpointId, cause);
         } finally {
             if (moreMayWait) {
                 deferredHere.add(targetEndpointId);

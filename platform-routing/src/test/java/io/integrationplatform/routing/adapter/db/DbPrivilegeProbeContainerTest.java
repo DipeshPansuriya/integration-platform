@@ -100,6 +100,13 @@ class DbPrivilegeProbeContainerTest {
             sql.execute("GRANT CREATE ON SCHEMA public TO wide");
             sql.execute("CREATE ROLE bulk LOGIN PASSWORD '" + RESTRICTED_PASSWORD + "' NOSUPERUSER");
             sql.execute("GRANT pg_write_all_data TO bulk");
+            // T189-1: column-level grants only - has_table_privilege ignores them
+            sql.execute("CREATE ROLE colupd LOGIN PASSWORD '" + RESTRICTED_PASSWORD + "' NOSUPERUSER");
+            sql.execute("GRANT SELECT, INSERT ON orders_in TO colupd");
+            sql.execute("GRANT UPDATE (awb) ON orders_in TO colupd");
+            sql.execute("CREATE ROLE colref LOGIN PASSWORD '" + RESTRICTED_PASSWORD + "' NOSUPERUSER");
+            sql.execute("GRANT SELECT, INSERT ON orders_in TO colref");
+            sql.execute("GRANT REFERENCES (id) ON orders_in TO colref");
             // S3: an account with a schema of its own that shadows public.orders_in through its role search_path
             sql.execute("CREATE ROLE shadowed LOGIN PASSWORD '" + RESTRICTED_PASSWORD + "' NOSUPERUSER");
             sql.execute("CREATE SCHEMA shadowed AUTHORIZATION shadowed");
@@ -168,7 +175,7 @@ class DbPrivilegeProbeContainerTest {
         List<String> grants = probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("wide", "orders_in",
                 TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), pinnedAddress(), Duration.ofSeconds(5));
 
-        assertThat(grants).containsExactly("DELETE", "INSERT", "SCHEMA_CREATE", "SELECT", "UPDATE");
+        assertThat(grants).containsExactly("ANY_SCHEMA_CREATE", "DELETE", "INSERT", "SCHEMA_CREATE", "SELECT", "UPDATE");
     }
 
     @Test
@@ -187,11 +194,48 @@ class DbPrivilegeProbeContainerTest {
     }
 
     @Test
-    @DisplayName("S2: a table that does not exist reads as no privilege, not a database error")
-    void aMissingTableReadsAsNone() throws Exception {
-        assertThat(probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("no_such_table",
+    @DisplayName("T189-2: a table that does not resolve is a refused probe (TABLE_NOT_FOUND), never an empty 'narrow' list")
+    void aMissingTableIsRefused() {
+        assertThatThrownBy(() -> probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("no_such_table",
                 TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), pinnedAddress(), Duration.ofSeconds(5)))
-                .isEmpty();
+                .isInstanceOfSatisfying(DbPrivilegeProbe.ProbeRefused.class,
+                        e -> assertThat(e.reason).isEqualTo("TABLE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("T189-2: the approve-time width verdict for a missing table is DB_ACCOUNT_UNVERIFIED (fail closed)")
+    void aMissingTableIsUnverifiedAtApproval() {
+        int port = TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT);
+        DbTestConnection connection = new DbTestConnection(guard(), (host, p, timeout) -> { },
+                probe(RESTRICTED_PASSWORD.toCharArray()), List.of(port), Duration.ofSeconds(5));
+        String json = "{\"host\":\"" + TARGET.getHost() + "\",\"port\":" + port + ",\"database\":\""
+                + TARGET.getDatabaseName() + "\",\"user\":\"restricted\",\"table\":\"no_such_table\"}";
+
+        assertThat(connection.accountWidthRefusal(systemId, json)).hasValueSatisfying(
+                refusal -> assertThat(refusal).startsWith("DB_ACCOUNT_UNVERIFIED").contains("TABLE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("T189-1: a column-level UPDATE grant is reported, and the approval refuses the account as WIDE")
+    void aColumnLevelUpdateMakesTheAccountWide() throws Exception {
+        int port = TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT);
+        assertThat(probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("colupd", "orders_in", port),
+                pinnedAddress(), Duration.ofSeconds(5))).containsExactly("INSERT", "SELECT", "UPDATE");
+        DbTestConnection connection = new DbTestConnection(guard(), (host, p, timeout) -> { },
+                probe(RESTRICTED_PASSWORD.toCharArray()), List.of(port), Duration.ofSeconds(5));
+        String json = "{\"host\":\"" + TARGET.getHost() + "\",\"port\":" + port + ",\"database\":\""
+                + TARGET.getDatabaseName() + "\",\"user\":\"colupd\",\"table\":\"orders_in\"}";
+
+        assertThat(connection.accountWidthRefusal(systemId, json)).hasValueSatisfying(
+                refusal -> assertThat(refusal).startsWith("DB_ACCOUNT_TOO_WIDE").contains("UPDATE"));
+    }
+
+    @Test
+    @DisplayName("T189-1: a column-level REFERENCES grant is reported too (anything beyond INSERT and SELECT is wide)")
+    void aColumnLevelReferencesIsReported() throws Exception {
+        assertThat(probe(RESTRICTED_PASSWORD.toCharArray()).probe(systemId, settings("colref", "orders_in",
+                TARGET.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)), pinnedAddress(), Duration.ofSeconds(5)))
+                .containsExactly("INSERT", "REFERENCES", "SELECT");
     }
 
     @Test

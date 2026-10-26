@@ -215,5 +215,5 @@ criteria pass; none is declared met here.
 | FR-15 | Retry and dead letter built, not wired; replay **planned** (SQL only) | `platform-delivery/src/main/java/io/integrationplatform/delivery/internal/JdbcDeliveryRepository.java:202` |
 | FR-16 | **Planned** | - |
 | FR-17 | Built: queue dashboard and its summary API | `platform-app/src/main/java/io/integrationplatform/app/queue/QueueSummaryController.java:51`; `ui/src/pages/QueueDashboard.tsx:14` |
-| FR-18 | Screen suites exist (12 specs in `ui/tests/screens/`); the `platform-e2e` module is **planned** | `pom.xml:23-38` |
+| FR-18 | Screen suites exist (12 specs in `e2e-ui/tests/screens/`); the `platform-e2e` module is **planned** | `pom.xml:23-38` |
 | FR-19 | **Planned** (last phase) | [design.md](design.md) section 1 |

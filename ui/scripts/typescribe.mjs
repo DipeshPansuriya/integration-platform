@@ -2,7 +2,7 @@
 // never hand-edited. openapi-typescript (a pure type emitter, no runtime codegen) reads the
 // document fetched from a really running platform-app and writes ui/src/api/openapi.d.ts.
 // The committed generated output must always equal what the live document generates - proved by
-// the drift test (ui/tests/openapi-contract.docker.test.mjs). No secret value, only names (R07).
+// the drift test (e2e-ui/tests/openapi-contract.docker.test.mjs). No secret value, only names (R07).
 
 import fs from 'node:fs';
 import path from 'node:path';

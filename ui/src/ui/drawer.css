@@ -89,3 +89,20 @@
     animation: none;
   }
 }
+
+/* B29 C3: the inline "Discard changes?" confirm under the drawer head (tokens only) */
+.drawer-discard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-warn-text);
+  background: var(--color-warn-bg);
+  color: var(--color-warn-text);
+}
+.drawer-discard p {
+  flex: 1 1 100%;
+  margin: 0;
+  font-weight: 500;
+}

@@ -4,6 +4,7 @@
 // validation error listed in `errors` (and joined in `error`); 404 is the tenant-isolation answer.
 
 import { api } from './client';
+import { refusalWords } from './refusal-words';
 import type { ApiAnswer } from './flows';
 
 /** An answer whose refusal also carries every listed error (systems `errors`, contract import `parserErrors`). */
@@ -14,8 +15,10 @@ export function listedAnswer<T>(data: T | undefined, error: unknown, response: R
   if (response.ok && data !== undefined) return { ok: true, data };
   const body = (error ?? {}) as { error?: string; refusal?: string; errors?: unknown; parserErrors?: unknown };
   const listed = Array.isArray(body.errors) ? body.errors : Array.isArray(body.parserErrors) ? body.parserErrors : null;
-  const errors = listed ? listed.map(String) : body.error ? [body.error] : [];
-  return { ok: false, status: response.status, error: body.error, refusal: body.refusal, errors };
+  const errors = (listed ? listed.map(String) : body.error ? [body.error] : []).map(refusalWords);
+  // T178a-3: a DB_ACCOUNT_* approval refusal reads in plain words; any other text is untouched
+  const words = (text: string | undefined) => (typeof text === 'string' ? refusalWords(text) : text);
+  return { ok: false, status: response.status, error: words(body.error), refusal: words(body.refusal), errors };
 }
 
 /** The closed register of system types (SystemSettings.TYPES), with each type's settings fields. */
@@ -55,7 +58,8 @@ export const TYPE_LABELS: Record<SystemType, string> = { API: 'API', DB: 'DB', M
 
 /** A line of guidance shown under a type's settings; Kafka's credential is a reference, never typed into this form. */
 const NOTES_BY_TYPE: Partial<Record<SystemType, string>> = {
-  KAFKA: 'The SASL or TLS password is a credential of type KAFKA_TOPIC, stored separately. It is never entered here.'
+  KAFKA: 'The SASL or TLS password is a credential of type KAFKA_TOPIC, stored separately. It is never entered here.',
+  MQ: 'No contract: sends the plain transformed body. A contract (columns, delimiter, quote, encoding, line ending, header) in the settings sends a CSV file instead; this form does not edit one.'
 };
 
 export function settingsNoteOf(type: string): string | undefined {

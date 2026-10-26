@@ -1,5 +1,6 @@
 package io.integrationplatform.delivery.internal.replay;
 
+import io.integrationplatform.delivery.replay.ActiveTargetContracts;
 import io.integrationplatform.delivery.replay.DeliveryOperatorActions;
 import io.integrationplatform.ingest.port.OutboxWriter;
 import io.integrationplatform.tenancy.TenantContext;
@@ -25,11 +26,15 @@ class OperatorActionConfiguration {
     @Bean
     DeliveryOperatorActions deliveryOperatorActions(JdbcClient jdbcClient,
             ObjectProvider<TenantContext> tenantContexts, ObjectProvider<OutboxWriter> outboxWriters,
+            ObjectProvider<ActiveTargetContracts> activeContractProviders,
             ApplicationEventPublisher events, PlatformTransactionManager transactionManager) {
         TenantContext tenant = () -> Optional.ofNullable(tenantContexts.getIfAvailable())
                 .flatMap(TenantContext::currentTenantId);
+        // an absent adapter resolves nothing: the mappingless delivery stays refused as not pinned (fail closed)
+        ActiveTargetContracts activeContracts = target -> activeContractProviders
+                .getIfAvailable(() -> unused -> Optional.empty()).activeContractVersionOf(target);
         OutboxWriter outbox = entry -> outboxWriters.getObject().append(entry);
-        return new DeliveryOperatorActions(new JdbcOperatorActionStore(jdbcClient, tenant), outbox, events, tenant,
+        return new DeliveryOperatorActions(new JdbcOperatorActionStore(jdbcClient, tenant), activeContracts, outbox, events, tenant,
                 new TransactionTemplate(transactionManager), Clock.systemUTC());
     }
 }

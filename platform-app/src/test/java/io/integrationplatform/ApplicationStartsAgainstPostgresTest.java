@@ -12,11 +12,15 @@ import java.sql.Statement;
 import java.time.Duration;
 import javax.sql.DataSource;
 import org.apache.camel.CamelContext;
+import io.integrationplatform.app.scheduler.GrantAppRoleFlywayCallback;
+import org.flywaydb.core.api.callback.Callback;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -56,6 +60,9 @@ class ApplicationStartsAgainstPostgresTest {
     @Autowired
     private DataSource dataSource;
 
+    @Autowired
+    private org.springframework.context.ApplicationContext context;
+
     @Test
     void healthEndpointReportsUp() throws Exception { // no token: health stays open (lane B chain)
         HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
@@ -86,6 +93,23 @@ class ApplicationStartsAgainstPostgresTest {
             assertThat(rs.getString(1)).isEqualTo(login.username()).isNotEqualTo(POSTGRES.getUsername());
             assertThat(rs.getBoolean(2)).as("superuser").isFalse();
             assertThat(rs.getBoolean(3)).as("bypassrls").isFalse();
+        }
+    }
+
+    /** Row 393 (Karan m-aec16c): the K1 guard was never created; the app that just started passed it, as a restricted login. */
+    @Test
+    void theK1DatabaseRoleGuardIsInTheRealContextExactlyOnce() throws Exception {
+        Class<?> guard = Class.forName("io.integrationplatform.tenancy.internal.persistence.DatabaseRoleGuard");
+        assertThat(context.getBeanNamesForType(guard)).hasSize(1);
+    }
+
+    /** T198: ready now includes the job register, so the login joins ipaas_app before the scheduler starts. */
+    @TestConfiguration(proxyBeanMethods = false)
+    static class GrantAppRoleWiring {
+
+        @Bean
+        Callback grantAppRoleFlywayCallback() {
+            return new GrantAppRoleFlywayCallback(POSTGRES, login);
         }
     }
 }

@@ -53,13 +53,12 @@ public class TargetFaultException extends RuntimeException {
             return retryAfter;
         }
 
-        /** The refusal of {@code breaker}: its message names the state, the wait is the configured open-state wait. */
+        /** The refusal of {@code breaker}: its message names the state, the wait is the breaker's remaining open time (T191). */
         public static CircuitOpenException of(io.github.resilience4j.circuitbreaker.CircuitBreaker breaker,
                 Object targetEndpointId) {
             return new CircuitOpenException("the breaker of target endpoint " + targetEndpointId + " is "
                     + breaker.getState().name().toLowerCase(java.util.Locale.ROOT) + " - nothing sent; the delivery waits",
-                    java.time.Duration.ofMillis(
-                    breaker.getCircuitBreakerConfig().getWaitIntervalFunctionInOpenState().apply(1)));
+                    BreakerOpenWait.remaining(breaker, java.time.Instant.now()));
         }
     }
 }

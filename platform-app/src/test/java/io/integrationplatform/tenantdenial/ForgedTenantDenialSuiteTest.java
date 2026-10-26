@@ -435,18 +435,18 @@ class ForgedTenantDenialSuiteTest {
         if (forgery == Forgery.BODY_FIELD || foreignCustomer != null) {
             // a bulk endpoint takes a JSON array: the forged field goes into every record, as the server-side
             // scanners read them (a single object is the one-record case)
-            JsonNode forged = JSON.readTree(body);
-            List<JsonNode> records = forged.isArray() ? forged.valueStream().toList() : List.of(forged);
+            JsonNode tree = JSON.readTree(body);
+            List<JsonNode> records = tree.isArray() ? tree.valueStream().toList() : List.of(tree);
             for (JsonNode record : records) {
-                ObjectNode object = (ObjectNode) record;
+                ObjectNode forged = (ObjectNode) record;
                 if (forgery == Forgery.BODY_FIELD) {
-                    object.put(Forgery.TENANT_FIELD, foreignTenant);
+                    forged.put(Forgery.TENANT_FIELD, foreignTenant);
                 }
                 if (foreignCustomer != null) {
-                    object.put(SourceForgery.CUSTOMER_FIELD, foreignCustomer);
+                    forged.put(SourceForgery.CUSTOMER_FIELD, foreignCustomer);
                 }
             }
-            body = JSON.writeValueAsString(forged);
+            body = JSON.writeValueAsString(tree);
         }
 
         HttpRequest.Builder request = HttpRequest.newBuilder(BACKEND.resolve(path))

@@ -49,6 +49,8 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
     private final ObservationRegistry observations;
     private final java.util.function.BooleanSupplier ready;
     private volatile boolean running;
+    /** Set by the ready event: from then on a context restart (Spring's test-cache pause/resume) may start the loop. */
+    private volatile boolean readyOnce;
     private volatile Thread thread;
     private volatile KafkaConsumer<byte[], byte[]> consumer;
 
@@ -68,12 +70,16 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
 
     @Override
     public void onApplicationEvent(ApplicationReadyEvent ready) {
+        readyOnce = true;
         start();
     }
 
     @Override
     public boolean isAutoStartup() {
-        return false; // started by onApplicationEvent(ApplicationReadyEvent); stopped by the lifecycle as usual
+        // false until the application was ready once: the first start is onApplicationEvent(ApplicationReadyEvent), after
+        // Camel. A context restart after a pause (Spring's test context cache) starts only auto-startup beans, so once
+        // the loop has run it must say true or a resumed context has no stage consumers and stage 1 / 2 stop
+        return readyOnce;
     }
 
     @Override

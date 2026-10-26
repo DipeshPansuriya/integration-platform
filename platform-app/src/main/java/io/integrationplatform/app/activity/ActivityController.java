@@ -90,7 +90,7 @@ public class ActivityController {
         return ResponseEntity.status(404).body(Map.of("error", "not found"));
     }
 
-    /** The one denied-attempt record a path-named foreign row earns: bound tenant, method, path - never the id. */
+    /** The one denied-attempt record a path-named foreign row earns: bound tenant, method and the raw request path (which carries the id; the recorder neutralises it). */
     private void recordPathIdDenial(HttpServletRequest request) {
         TenantDenialRecorder recorder = recorders.getIfAvailable();
         if (recorder == null) {
