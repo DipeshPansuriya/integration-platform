@@ -109,6 +109,8 @@ Operators: create the named users in realm `platform` yourself, assign role `ops
 
 **One-time, on a server where the master realm Frontend URL was ever set (an earlier T219 step did): clear it** (`kcadm.sh update realms/master -s attributes.frontendUrl=` inside the container, logged in with the named admin) and check that `kcadm` still logs in; it should return to the auth host issuer.
 
-The edge refuses, on ops, any path containing `%`, `;`, a backslash, `//` or a dot segment (so a Kafbat topic name that needs URL-encoding is 404 there by design), and forwards the request URI to Kafbat unchanged.
+The edge refuses, on ops, any path containing `%`, `;`, a backslash, `//` or a dot segment (`.` or `..`, also directly before a query string) (so a Kafbat topic name that needs URL-encoding is 404 there by design), and forwards the request URI to Kafbat unchanged.
 
-Rollback: restore `compose.yaml`, `edge/edge.conf` and `.env` from the backup directory taken before the change, `docker compose up -d --remove-orphans`, `docker compose -f compose.yaml -f demo/compose.demo.yaml rm -sf kafbat` (the project's own service name, not a hard-coded container name). The Keycloak role, client and flow may stay (inert without the kafbat container); the `ops` DNS record may stay.
+Note: a re-run of `ops-setup.sh` always ends with the `ops-kafbat` client ENABLED (it is disabled only while the flow is rebuilt) - do not re-run it if you disabled the client on purpose.
+
+Rollback: restore `compose.yaml`, `edge/edge.conf` and `.env` from the backup directory taken before the change, `docker compose up -d --remove-orphans` (this also removes the kafbat container when the restored compose has no such service). The Keycloak role, client and flow may stay (inert without the kafbat container); the `ops` DNS record may stay.

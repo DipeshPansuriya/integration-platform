@@ -97,7 +97,7 @@ grep -q "$OUT" /dev/null 2>/dev/null; ! grep -qE "(^| )(p|s)( |$)" <<<"$OUT" && 
 
 grep -q "^delete clients/c-1/default-client-scopes/ds-1 " "$c" && [ "$(grep -c "^delete clients/c-1/default-client-scopes/" "$c")" -eq 1 ] && ! grep -q platform-api-audience "$S1/dscopes" && grep -q "^ds-2,profile" "$S1/dscopes" && grep -q "^ds-3,roles" "$S1/dscopes" && ok "fresh: platform-api-audience is removed from the client's default scopes, nothing else" || bad "fresh: default scope handling"
 
-grep -q "create clients.*enabled=false" "$c" && [ "$(cat "$S1/enabled")" = true ] && [ "$(grep -n 'enabled=true' "$c" | tail -1 | cut -d: -f1)" -gt "$(grep -n 'authenticationFlowBindingOverrides.browser=f-' "$c" | tail -1 | cut -d: -f1)" ] && ok "fresh: client is created DISABLED and enabled only after the flow is bound" || bad "fresh: fail-closed enable order"
+grep -q "create clients.*enabled=false" "$c" && [ "$(cat "$S1/enabled")" = true ] && [ "$(grep -n 'enabled=true' "$c" | head -1 | cut -d: -f1)" -gt "$(grep -n 'authenticationFlowBindingOverrides.browser=f-' "$c" | tail -1 | cut -d: -f1)" ] && ok "fresh: client is created DISABLED and enabled only after the flow is bound" || bad "fresh: fail-closed enable order"
 
 # 2. re-run on the verified state changes nothing
 cp -r "$S1" "$T/rerun"; S2="$T/rerun"; : > "$S2/calls"; run "$S2"
