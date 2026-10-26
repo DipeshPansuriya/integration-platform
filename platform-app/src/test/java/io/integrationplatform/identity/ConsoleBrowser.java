@@ -94,6 +94,14 @@ public final class ConsoleBrowser {
         return send(method, backend.resolve(path), headers, jsonBody);
     }
 
+    /** A console call whose body carries the given (non-JSON) content type: session cookie and the CSRF header. */
+    public Exchange apiAs(String method, String path, String contentType, String body) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Type", contentType);
+        cookie("XSRF-TOKEN").ifPresent(token -> headers.put("X-XSRF-TOKEN", token));
+        return send(method, backend.resolve(path), headers, body);
+    }
+
     /** A GET of a backend path, redirects not followed. */
     public Exchange get(String path) {
         return send("GET", backend.resolve(path), Map.of(), null);

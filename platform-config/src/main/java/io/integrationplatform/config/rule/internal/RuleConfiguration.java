@@ -39,8 +39,11 @@ class RuleConfiguration {
     }
 
     @Bean
-    RuleEvaluationPort ruleEvaluationPort(JdbcRuleSetRepository ruleSets, DecisionEngine engine) {
-        return new RuleEvaluationService(ruleSets, engine);
+    RuleEvaluationPort ruleEvaluationPort(JdbcRuleSetRepository ruleSets, DecisionEngine engine,
+            ObjectProvider<TenantContext> tenantContexts) {
+        // L7: the compiled-decision cache is keyed by the bound tenant; none bound falls back fail-closed
+        return new RuleEvaluationService(ruleSets, engine,
+                tenantContexts.getIfAvailable(() -> java.util.Optional::empty));
     }
 
     /** E7 lane B1 (T-163): the lookup-entry edit path; the publisher arrives as the application context itself. */

@@ -92,7 +92,10 @@ class TenancySecurityConfiguration {
                         // R1: the error dispatch of a request that already passed (or failed) this chain keeps its
                         // status; re-authorising it turned every 5xx into a 401. A direct GET /error stays denied.
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers("/actuator/health").permitAll()
+                        // L19: exactly these three, anonymously and status-only (show-details and show-components
+                        // stay unset); no /actuator/health/** wildcard - the rest of /actuator falls to denyAll.
+                        .requestMatchers("/actuator/health", "/actuator/health/readiness",
+                                "/actuator/health/liveness").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         // The springdoc document the console's typed client is generated against (E3 T-158/T-094,
                         // wave-0 glue): metadata, not tenant data - reachable to an authenticated caller only,

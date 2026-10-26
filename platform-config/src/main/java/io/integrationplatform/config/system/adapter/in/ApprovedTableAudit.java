@@ -42,6 +42,15 @@ final class ApprovedTableAudit {
         if (refusal != null) {
             return String.valueOf(refusal);
         }
+        if (refused.httpStatus() == 409 && refused.body().get("error") instanceof String text) {
+            // L19: the width refusals carry no refusal key; their closed token is the text's prefix, never the text
+            if (text.startsWith("DB_ACCOUNT_TOO_WIDE")) {
+                return "DB_ACCOUNT_TOO_WIDE";
+            }
+            if (text.startsWith("DB_ACCOUNT_UNVERIFIED")) {
+                return "DB_ACCOUNT_UNVERIFIED";
+            }
+        }
         return switch (refused.httpStatus()) {
             case 400 -> "INVALID";
             case 404 -> "NOT_FOUND";

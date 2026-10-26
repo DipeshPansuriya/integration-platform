@@ -4,7 +4,9 @@
 
 import { useState, type FormEvent } from 'react';
 import { clientSettingsErrors, extraSettingsOf, formFromSettings, settingsForEdit, updateSystem, type SystemView } from '../../api/systems';
-import { SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
+import { ERRORS_ID, SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
+import { topFieldHasError } from './systems-view';
+import { useDrawerSaved } from '../../ui/Drawer';
 
 export function EditSystemForm({ system, onSaved }: { system: SystemView; onSaved: () => Promise<void> }) {
   const [name, setName] = useState(system.name);
@@ -13,6 +15,7 @@ export function EditSystemForm({ system, onSaved }: { system: SystemView; onSave
   const [errors, setErrors] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const markSaved = useDrawerSaved(); // row 372 M4: only an accepted save lifts the drawer's discard guard
 
   const extras = extraSettingsOf(type, system.settings, system.type);
 
@@ -40,6 +43,7 @@ export function EditSystemForm({ system, onSaved }: { system: SystemView; onSave
         else setErrors(result.errors?.length ? result.errors : [`The API refused the save (HTTP ${result.status}).`]);
         return;
       }
+      markSaved();
       setSaved(true);
       await onSaved();
     } finally {
@@ -49,11 +53,22 @@ export function EditSystemForm({ system, onSaved }: { system: SystemView; onSave
 
   return (
     <form data-form="edit-system" data-system-id={system.id} onSubmit={onSubmit}>
+      <p className="systems-muted" data-required-legend>
+        Required fields are marked *
+      </p>
       <label>
-        Name
-        <input id="sys-field-name" data-field="system-name" value={name} onChange={(e) => setName(e.target.value)} />
+        Name *
+        <input
+          id="sys-field-name"
+          data-field="system-name"
+          value={name}
+          aria-required
+          aria-invalid={topFieldHasError(errors, 'name') || undefined}
+          aria-describedby={topFieldHasError(errors, 'name') ? ERRORS_ID : undefined}
+          onChange={(e) => setName(e.target.value)}
+        />
       </label>
-      <TypeField value={type} onChange={setType} />
+      <TypeField value={type} onChange={setType} errors={errors} />
       <SettingsFields type={type} values={values} onChange={(field, value) => setValues((v) => ({ ...v, [field]: value }))} errors={errors} />
       {extras.length > 0 && (
         <section data-extra-settings aria-label="Other stored settings">

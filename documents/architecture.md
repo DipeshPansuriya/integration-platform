@@ -57,6 +57,7 @@ adapters and the routing -> config edge follow ADR-015, job definitions ADR-012.
 | `arch-test` | test | ArchUnit and Spring Modulith verification rules | - |
 | `platform-e2e` | test | End-to-end suites on real containers plus a browser journey | - |
 | `ui/` | - | The React console, served as static files, calling only the admin API | Hold an access token (ADR-007) |
+| `e2e-ui/` | - | Test-only: the console's Playwright suites and runner scripts; no product code | Ship in the console bundle |
 
 The rule from the deleted design stands: configuration is written only by the control plane and
 read only by the data plane, and the data plane reads only published, immutable versions.
@@ -254,6 +255,7 @@ but are not connected. Connecting them is the E11 composition step; no `app/comp
 | `arch-test` | yes | ArchUnit only (6 rule classes); no Spring Modulith dependency in any `pom.xml` | `pom.xml:37`; `arch-test/src/test/java/io/integrationplatform/archtest/` |
 | `platform-e2e` | **no** | planned | `pom.xml:23-38` |
 | `ui/` | not a Maven module | runs: the console of [design.md](design.md) | `ui/src/App.tsx:65-89` |
+| `e2e-ui/` | not a Maven module | test-only: the console's Playwright suites and runners (L29, moved out of `ui/`); drives a booted backend and the BUILT `ui/` | `e2e-ui/package.json` |
 
 Data model (section 3) differences today, measured by searching every `*.sql` migration on main: there is **no**
 `ordering_key`, `retry_policy`, `daily_aggregate` or `audit_event` table yet [TBD - the owning phases];

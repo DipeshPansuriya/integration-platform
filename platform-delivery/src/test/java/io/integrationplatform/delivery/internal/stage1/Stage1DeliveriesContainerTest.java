@@ -204,6 +204,28 @@ class Stage1DeliveriesContainerTest {
     }
 
     @Test
+    void aMappingPinWithoutAContractPinIsRefusedByTheRepositoryAndByTheDatabaseCheck() {
+        Stage1Delivery unpinned = new Stage1Delivery(MESSAGE, ROUTE_A, DAY, UUID.randomUUID(), MAP3, null,
+                "tenant|interface|K", INTERFACE, "K", 7L);
+
+        assertThatThrownBy(() -> tx.inTenantTx(DeliveryTestDatabase.TENANT_A,
+                () -> stage1(DeliveryTestDatabase.TENANT_A).insertPerRoute(List.of(unpinned))))
+                .hasStackTraceContaining("without a contract version");
+
+        // the CHECK (V2_4_1370) refuses the same pair written around the repository
+        assertThatThrownBy(() -> tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> jdbc.sql(
+                        "insert into public.delivery (id, tenant_id, state, created_at, updated_at, target_id,"
+                                + " mapping_version_id, message_id, route_id) values (gen_random_uuid(),"
+                                + " current_setting('app.tenant_id')::uuid, 'PENDING', :at, :at, gen_random_uuid(),"
+                                + " :mapping::uuid, gen_random_uuid(), gen_random_uuid())")
+                .param("at", java.sql.Timestamp.from(DAY)).param("mapping", MAP3.toString()).update()))
+                .hasStackTraceContaining("delivery_contract_pin_check");
+        // a route without a mapping needs no contract pin at insert
+        assertThat(tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> stage1(DeliveryTestDatabase.TENANT_A)
+                .insertPerRoute(List.of(stage1Delivery(MESSAGE, ROUTE_B, UUID.randomUUID(), null))))).isEqualTo(1);
+    }
+
+    @Test
     void theUniqueTripleIsADatabaseConstraintThatRejectsADuplicateRawInsert() {
         // ADR-014 section 2, verbatim: the index exists with the settled name
         String indexDef = tx.inTenantTx(DeliveryTestDatabase.TENANT_A, () -> jdbc.sql(

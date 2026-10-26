@@ -185,6 +185,16 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
             String path = "/api/v1/admin/systems/" + systemId + "/approved-tables";
             String configurator = adminUserToken(tenantId, "CONFIGURATOR");
             String approver = adminUserToken(tenantId, "APPROVER");
+            // RolePolicy MANAGE_TARGET_CREDENTIAL is TENANT_ADMIN only (E5 T-103): saving the secret is not a CONFIGURATOR operation
+            String tenantAdmin = adminUserToken(tenantId, "TENANT_ADMIN");
+
+            // T178a: the approval probes the restricted account with ITS vault password (fail closed: no credential =
+            // DB_ACCOUNT_UNVERIFIED), so the partner account's password is stored through the real credential API first
+            String endpointId = ownerString("select id from public.target_endpoint where tenant_id = ?::uuid"
+                    + " and system_id = ?::uuid", tenantId, systemId);
+            HttpResponse<String> stored = adminPut("/api/v1/admin/target-endpoints/" + endpointId + "/credentials",
+                    tenantAdmin, "{\"fields\":{\"accountPassword\":\"" + PARTNER_ACCOUNT_PASSWORD + "\"}}");
+            assertThat(stored.statusCode()).as("store the partner account password: %s", stored.body()).isEqualTo(200);
 
             HttpResponse<String> requested = adminCall(path, configurator, "{\"table\":\"partner_orders\"}");
             assertThat(requested.statusCode()).as("request: %s", requested.body()).isEqualTo(201);
@@ -233,15 +243,34 @@ class AllTargetTypesJourneyContainerTest extends E18Base {
                 HttpResponse.BodyHandlers.ofString());
     }
 
+    private HttpResponse<String> adminPut(String path, String token, String body) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(backend().resolve(path)).timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token).header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** The partner's restricted account (T178a): INSERT and SELECT on the one table, nothing else, no superuser. */
+    private static final String PARTNER_ACCOUNT = "e18_partner";
+    private static final String PARTNER_ACCOUNT_PASSWORD = "e18-partner-" + UUID.randomUUID().toString().substring(0, 8);
+
     @Test
     @DisplayName("DB: one row lands in the partner's approved table")
     void dbTargetJourney() throws Exception {
         try (Connection partner = java.sql.DriverManager.getConnection(TARGET_DB.getJdbcUrl(),
                 TARGET_DB.getUsername(), TARGET_DB.getPassword()); Statement create = partner.createStatement()) {
             create.execute("create table if not exists partner_orders (order_no text, customer text, total numeric, delivery_id uuid unique)");
+            // the container's own account is a Postgres superuser: the approval now REFUSES that (DB_ACCOUNT_TOO_WIDE),
+            // so the journey runs as the narrow account a real partner would hand the platform
+            create.execute("do $$ begin if not exists (select 1 from pg_roles where rolname = '" + PARTNER_ACCOUNT
+                    + "') then create role " + PARTNER_ACCOUNT + " login password '" + PARTNER_ACCOUNT_PASSWORD
+                    + "' nosuperuser nocreatedb nocreaterole noinherit; end if; end $$");
+            create.execute("revoke all on partner_orders from " + PARTNER_ACCOUNT);
+            create.execute("grant insert, select on partner_orders to " + PARTNER_ACCOUNT);
         }
         String settings = "{\"host\":\"db.e18.test\",\"port\":" + TARGET_DB.getMappedPort(5432) + ",\"database\":\""
-                + TARGET_DB.getDatabaseName() + "\",\"user\":\"" + TARGET_DB.getUsername()
+                + TARGET_DB.getDatabaseName() + "\",\"user\":\"" + PARTNER_ACCOUNT
                 + "\",\"table\":\"partner_orders\"}";
         // E16 F3: the settings no longer carry approvedTables (the API refuses the key, FIELD_NOT_ALLOWED); the table
         // is requested by one user and approved by another, as an APPROVED row bound to the system's fingerprint

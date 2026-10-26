@@ -15,6 +15,7 @@ import {
   flowCounts,
   greetingFor,
   recentVersions,
+  retryBannerShown,
   statusBadge,
   systemsByDirection,
   tileName,
@@ -77,6 +78,7 @@ const QUICK_ACTIONS = [
 
 export function Dashboard({ user }: { user?: string }) {
   const [lists, setLists] = useState<Lists | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   const load = useCallback(async () => {
     setLists(null);
@@ -108,10 +110,20 @@ export function Dashboard({ user }: { user?: string }) {
         </div>
       </header>
 
-      {failed && (
+      {retryBannerShown(failed, retrying) && (
         <div className="dashboard-alert" role="alert">
-          <span>Some counts could not be loaded.</span>
-          <button type="button" className="btn" data-action="retry-counts" onClick={() => void load()}>
+          <span>{retrying ? 'Retrying...' : 'Some counts could not be loaded.'}</span>
+          <button
+            type="button"
+            className="btn"
+            data-action="retry-counts"
+            aria-disabled={retrying}
+            onClick={() => {
+              if (retrying) return;
+              setRetrying(true);
+              void load().finally(() => setRetrying(false));
+            }}
+          >
             Retry
           </button>
         </div>
@@ -171,7 +183,7 @@ export function Dashboard({ user }: { user?: string }) {
                 return (
                   <tr key={flow.id} data-recent-flow={flow.id}>
                     <td>
-                      <a href="#/versions">{flow.name || flow.code}</a>
+                      <a href={`#/versions/${flow.id}`}>{flow.name || flow.code}</a>
                     </td>
                     <td className="dashboard-code">{flow.code}</td>
                     <td>
