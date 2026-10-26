@@ -39,7 +39,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 @DisplayName("E18-F1-S3 the suite has a measured memory budget (T-153)")
 class MemoryBudgetContainerTest extends E18Base {
 
-    private static final int MESSAGES = 200;
+    /** T181: -De18.messages=N raises the load for a throughput measurement; the default stays the 200 of T-153. */
+    private static final int MESSAGES = Integer.getInteger("e18.messages", 200);
     private static final int POSTERS = 4;
 
     @Autowired
@@ -92,6 +93,7 @@ class MemoryBudgetContainerTest extends E18Base {
         sampler.start();
 
         long drainStart;
+        long postStart = System.nanoTime();
         try {
             ExecutorService posters = Executors.newFixedThreadPool(POSTERS);
             List<Future<?>> done = new ArrayList<>();
@@ -121,12 +123,16 @@ class MemoryBudgetContainerTest extends E18Base {
         long bulkheadFullDeferrals = ownerLong("select count(*) from public.delivery_event where tenant_id ="
                 + " ?::uuid and type = 'BULKHEAD_FULL'", tenant.id()); // F: reported, never budgeted
         long retained = usedMiB(true) - baseline;
+        double totalSeconds = Math.max(1, (System.nanoTime() - postStart) / 1_000_000_000d);
 
         MemoryBudget.Measurement measured = new MemoryBudget.Measurement(heapPeak.get(), Math.max(0, retained),
                 poolPendingPeak.get(), poolActivePeak.get(), poolMax, backlogPeak.get(), drainSeconds);
         String line = "memory: load " + MESSAGES + " msgs / " + POSTERS + " posters, baseline " + baseline + " MiB, "
                 + measured + ", budget " + budget + ", -Xmx " + Runtime.getRuntime().maxMemory() / (1024 * 1024)
-                + " MiB, BULKHEAD_FULL deferrals " + bulkheadFullDeferrals;
+                + " MiB, BULKHEAD_FULL deferrals " + bulkheadFullDeferrals + ", loops "
+                + System.getProperty("e18.loops", "1") + ", end-to-end " + String.format("%.1f", MESSAGES / totalSeconds)
+                + " msgs/s over " + String.format("%.1f", totalSeconds) + " s, drain-only "
+                + String.format("%.1f", MESSAGES / (double) Math.max(1, drainSeconds)) + " msgs/s";
         java.nio.file.Path notes = E18Outcomes.FILE.resolveSibling("notes.txt");
         Files.createDirectories(notes.getParent());
         Files.writeString(notes, line + System.lineSeparator(), StandardCharsets.UTF_8, StandardOpenOption.CREATE,
@@ -135,7 +141,9 @@ class MemoryBudgetContainerTest extends E18Base {
 
         assertThat(PARTNER.acceptedKeysOn(path)).as("every message delivered exactly once under load")
                 .hasSize(MESSAGES).doesNotHaveDuplicates();
-        budget.enforce(measured);
+        if (!Boolean.getBoolean("e18.measure")) { // -De18.measure=true: a throughput run, reported not budgeted
+            budget.enforce(measured);
+        }
     }
 
     private void postWith(String token, String body) throws Exception {

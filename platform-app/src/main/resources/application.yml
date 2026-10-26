@@ -44,12 +44,13 @@ spring:
     # HikariPool-1 total=10 active=10 exhausted, other calls hung 30 s then failed (_reports/
     # row306-demo-smoke-20261012.txt:92-95, CWE-400/770 availability risk). The smallest sane sizing: Postgres
     # default max_connections=100 keeps the headroom for the owner login, the sessions, the admin tooling and
-    # further instances; 10 per instance is the figure the platform already runs on - pinned so a Boot upgrade
-    # cannot change it quietly. The 30 s borrow patience and the 60 s leak report (Karan's P-1 figure, below the
+    # further instances; T181 (stage throughput ceiling): 20 per instance, so N consumer loops per stage
+    # (platform.routing.stage1/2.concurrency, default 1) are not starved - 4 instances x 20 = 80 of the 100, the
+    # PoolSafetyDefaultsTest cap; pinned so a Boot upgrade cannot change it quietly. The 30 s borrow patience and the 60 s leak report (Karan's P-1 figure, below the
     # borrow patience) are safety figures, not deploy-time parameters, so they carry values here (the
     # tenancy-console.yml precedent: fixed figures that must not be configurable away).
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: 20
       connection-timeout: 30000
       leak-detection-threshold: 60000
   # T65 (Karan P-1): the platform default transaction timeout is unbounded; pinned to 30 s so a long-borrow

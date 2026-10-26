@@ -8,6 +8,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import java.time.Duration;
+import io.integrationplatform.routing.topics.Topics;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +34,10 @@ import org.springframework.context.SmartLifecycle;
  * its routes - and a group that has no committed offset yet starts at the earliest record: both stages are
  * idempotent (stage 1's {@code ACCEPTED -> ROUTED} guard and UNIQUE triple, stage 2's claim), so re-reading retained
  * work is harmless while skipping it would lose it.
+ *
+ * <p>T181: {@code concurrency} loops (default 1) run in the same consumer group, each on its own thread with its own
+ * Kafka consumer and its own database breaker; Kafka spreads the partitions over them, so a partition still has one
+ * reader and the per-key order is unchanged. The count never exceeds the work topics' partition count.
  */
 final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<ApplicationReadyEvent> {
 
@@ -48,15 +54,23 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
     private final MeterRegistry meters;
     private final ObservationRegistry observations;
     private final java.util.function.BooleanSupplier ready;
+    private final int concurrency;
     private volatile boolean running;
     /** Set by the ready event: from then on a context restart (Spring's test-cache pause/resume) may start the loop. */
     private volatile boolean readyOnce;
-    private volatile Thread thread;
-    private volatile KafkaConsumer<byte[], byte[]> consumer;
+    private final List<Thread> threads = new ArrayList<>();
+    private final List<KafkaConsumer<byte[], byte[]>> consumers = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     StageConsumerLoop(String bootstrapServers, String group, String topic, StageConsumer.ProtectedRows rows,
             StageConsumer.Handler handler, StageConsumer.PoisonSink poison, MeterRegistry meters,
             ObservationRegistry observations, java.util.function.BooleanSupplier ready) {
+        this(bootstrapServers, group, topic, rows, handler, poison, meters, observations, ready, 1);
+    }
+
+    StageConsumerLoop(String bootstrapServers, String group, String topic, StageConsumer.ProtectedRows rows,
+            StageConsumer.Handler handler, StageConsumer.PoisonSink poison, MeterRegistry meters,
+            ObservationRegistry observations, java.util.function.BooleanSupplier ready, int concurrency) {
+        this.concurrency = checkedConcurrency(group, concurrency);
         this.bootstrapServers = Objects.requireNonNull(bootstrapServers, "bootstrapServers");
         this.group = Objects.requireNonNull(group, "group");
         this.topic = Objects.requireNonNull(topic, "topic");
@@ -88,20 +102,41 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
             return;
         }
         running = true;
-        thread = Thread.ofPlatform().daemon().name("stage-" + group).start(this::drainUntilStopped);
+        for (int index = 1; index <= concurrency; index++) {
+            int loop = index;
+            threads.add(Thread.ofPlatform().daemon().name(threadName(group, loop, concurrency))
+                    .start(() -> drainUntilStopped(loop)));
+        }
+    }
+
+    /** The thread name: {@code stage-<group>} for the one loop (as before), {@code stage-<group>-<n>} with several. */
+    static String threadName(String group, int index, int loops) {
+        return loops == 1 ? "stage-" + group : "stage-" + group + "-" + index;
+    }
+
+    /** The configured loop count, 1 to the work topics' partition count - a loop beyond it would sit idle. */
+    static int checkedConcurrency(String group, int concurrency) {
+        if (concurrency < 1 || concurrency > Topics.WORK_TOPIC_PARTITIONS) {
+            throw new IllegalArgumentException("stage consumer " + group + ": concurrency " + concurrency
+                    + " is outside 1.." + Topics.WORK_TOPIC_PARTITIONS + " (the work topics' partition count)");
+        }
+        return concurrency;
     }
 
     @Override
     public void stop() {
         running = false;
-        KafkaConsumer<byte[], byte[]> polling = consumer;
-        if (polling != null) {
+        for (KafkaConsumer<byte[], byte[]> polling : consumers) {
             polling.wakeup();
         }
-        Thread draining = thread;
-        if (draining != null) {
+        List<Thread> draining;
+        synchronized (this) {
+            draining = List.copyOf(threads);
+            threads.clear();
+        }
+        for (Thread thread : draining) {
             try {
-                draining.join(Duration.ofSeconds(15));
+                thread.join(Duration.ofSeconds(15));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -113,15 +148,17 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
         return running;
     }
 
-    private void drainUntilStopped() {
+    private void drainUntilStopped(int loop) {
         Map<String, Object> config = new HashMap<>(StageConsumer.consumerConfig(bootstrapServers, group));
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        List<KafkaConsumer<byte[], byte[]>> mine = new ArrayList<>(1);
         try (KafkaConsumer<byte[], byte[]> kafka = new KafkaConsumer<>(config)) {
-            consumer = kafka;
+            mine.add(kafka);
+            consumers.add(kafka);
             kafka.subscribe(List.of(topic));
             StageConsumer stage = new StageConsumer(kafka, new WorkRecordParser(), rows, handler, poison,
                     StageConsumerLoop::backoff, POLL, Clock.systemUTC(), Thread::sleep,
-                    StageSettings.defaults(group), meters, observations, StageAlerts.LOG, ready);
+                    StageSettings.forLoop(group, loop, concurrency), meters, observations, StageAlerts.LOG, ready);
             while (running) {
                 try {
                     stage.drainOnce();
@@ -144,7 +181,7 @@ final class StageConsumerLoop implements SmartLifecycle, ApplicationListener<App
         } catch (WakeupException stopping) {
             // stop() woke the consumer while it was subscribing or closing
         } finally {
-            consumer = null;
+            consumers.removeAll(mine);
         }
     }
 
