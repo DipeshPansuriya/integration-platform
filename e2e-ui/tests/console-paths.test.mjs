@@ -91,3 +91,11 @@ test('every openapi-contract.docker.test.mjs imports lib-console-paths.mjs and u
   assert.ok(contracts.length > 0, 'control: at least one openapi-contract.docker.test.mjs exists');
   for (const file of contracts) assert.deepEqual(contractProblems(fs.readFileSync(file, 'utf8'), file), [], path.relative(E2E_UI, file));
 });
+
+test('every test file named in package.json "test" exists on disk (T224: a merge once dropped five)', () => {
+  const script = JSON.parse(fs.readFileSync(path.join(E2E_UI, 'package.json'), 'utf8')).scripts.test;
+  const named = script.split(/\s+/).filter((token) => /\.test\.mjs$/.test(token));
+  assert.ok(named.length >= 10, 'the test script names its files');
+  const missing = named.filter((file) => !fs.existsSync(path.join(E2E_UI, file)));
+  assert.deepEqual(missing, []);
+});

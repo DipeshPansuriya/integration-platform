@@ -5,7 +5,7 @@
   "type": "module",
   "description": "The console's end-to-end suites (L29): Playwright specs, base-suite, security, Release 1 journey, trial and perf runners. They drive a booted backend and the BUILT console in ../ui; product code and product unit tests stay in ../ui.",
   "scripts": {
-    "test": "node --test tests/slow-page-negative.test.mjs tests/security/unit/record-traffic.test.mjs tests/ui/keycloak-theme.test.mjs tests/trial/trial-password.test.mjs tests/trial/trial-build.test.mjs tests/trial/jvm-lookup.test.mjs tests/screens/unit/screen-hosts.test.mjs tests/screens/unit/isolation.test.mjs tests/release1/unit/pending-parity.test.mjs tests/release1/unit/journey-runner.test.mjs tests/release1/unit/nested-appointment-seed.test.mjs tests/release1/unit/nested-hosted-driver.test.mjs tests/release1/unit/nested-hosted-guards.test.mjs",
+    "test": "node --test tests/console-paths.test.mjs tests/slow-page-negative.test.mjs tests/security/unit/record-traffic.test.mjs tests/ui/keycloak-theme.test.mjs tests/trial/trial-password.test.mjs tests/trial/trial-build.test.mjs tests/trial/jvm-lookup.test.mjs tests/screens/unit/screen-hosts.test.mjs tests/screens/unit/isolation.test.mjs tests/release1/unit/pending-parity.test.mjs tests/release1/unit/journey-runner.test.mjs tests/release1/unit/nested-appointment-seed.test.mjs tests/release1/unit/nested-hosted-driver.test.mjs tests/release1/unit/nested-hosted-guards.test.mjs",
     "test:release1-journey": "node scripts/run-release1-journey.mjs",
     "test:container": "node --test tests/openapi-contract.docker.test.mjs",
     "test:trial": "node --import ../ui/tests/rules/ts-resolve.mjs --test tests/trial/console-marker.test.mjs tests/trial/trial-up.docker.test.mjs",
