@@ -13,6 +13,7 @@
 // wrapper that carries the jdm-editor --grl-* overrides (rules-editor.css, 01-tokens s4.1). A refused
 // cell is shown above its own table; the save row links to it.
 
+import { homeListState, homeLoadError } from './rules-home-view';
 import { useEffect, useMemo, useState } from 'react';
 import { listFlows, type FlowSummary } from '../api/flows';
 import type { EditableTable } from './DecisionTableEditorAdapter';
@@ -36,20 +37,36 @@ function RulesHome() {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState('');
   const [creating, setCreating] = useState(false);
+  // A9: a failed fetch is an error with Retry, not an empty list.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const shown = kindFilter ? ruleSets.filter((ruleSet) => ruleSet.kind === kindFilter) : ruleSets;
 
   useEffect(() => {
     void listFlows().then((result) => {
-      if (!result.ok) return;
+      const failed = homeLoadError('flows', result);
+      if (failed || !result.ok) {
+        setLoadError(failed);
+        return;
+      }
+      setLoadError(null);
       setFlows(result.data);
       setFlowId((current) => current || (result.data[0]?.id ?? ''));
-    });
-  }, []);
+    }).catch(() => setLoadError(homeLoadError('flows', { ok: false, status: 0 })));
+  }, [attempt]);
 
   useEffect(() => {
     if (!flowId) return;
-    void listRuleSets(flowId).then((result) => setRuleSets(result.ok ? result.data : []));
-  }, [flowId]);
+    void listRuleSets(flowId).then((result) => {
+      const failed = homeLoadError('rule sets', result);
+      if (failed || !result.ok) {
+        setLoadError(failed);
+        return;
+      }
+      setLoadError(null);
+      setRuleSets(result.data);
+    }).catch(() => setLoadError(homeLoadError('rule sets', { ok: false, status: 0 })));
+  }, [flowId, attempt]);
 
   async function create() {
     setRefusal(null);
@@ -65,7 +82,7 @@ function RulesHome() {
     <div data-page="rules-home">
       <div className="rules-home">
         <div className="rules-head">
-          <h2>Rules</h2>
+          <h1>Rules</h1>
           <button
             type="button"
             className="btn btn-primary"
@@ -127,7 +144,14 @@ function RulesHome() {
             </select>
           </label>
         </div>
-        {shown.length === 0 ? (
+        {loadError !== null ? (
+          <div className="rules-alert" role="alert" data-load-error="rules-home">
+            <p>{loadError}</p>
+            <button type="button" className="btn" data-action="retry-load" onClick={() => setAttempt((n) => n + 1)}>
+              Retry
+            </button>
+          </div>
+        ) : homeListState({ error: loadError, total: ruleSets.length, shown: shown.length }) !== 'rows' ? (
           <p className="rules-empty">{ruleSets.length === 0 ? 'No rule sets on this flow yet.' : 'No rule sets of this kind on this flow.'}</p>
         ) : (
           <table className="table">
@@ -172,6 +196,8 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
   const [tables, setTables] = useState<EditableTable[]>([]);
   const [name, setName] = useState('');
   const [saved, setSaved] = useState(false);
+  // A9: edits not yet saved - the browser asks before a reload or tab close, and the test panel says what it runs.
+  const [dirty, setDirty] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
 
   useEffect(() => {
@@ -187,9 +213,17 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
     });
   }, [adapter, ruleSetId]);
 
+  useEffect(() => {
+    if (!dirty) return;
+    const onUnload = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, [dirty]);
+
   function onTableChange(nodeId: string, table: unknown) {
     adapter.updateTable(nodeId, table);
     setSaved(false);
+    setDirty(true);
   }
 
   async function save() {
@@ -197,8 +231,10 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
     setRefusal(null);
     await adapter.settle(); // the editor's last edit must reach the adapter before it is saved
     const result = await saveRuleSet(ruleSetId, name, adapter.toZen());
-    if (result.ok) setSaved(true);
-    else if (result.status === 404) setLoad({ state: 'not-found' });
+    if (result.ok) {
+      setSaved(true);
+      setDirty(false);
+    } else if (result.status === 404) setLoad({ state: 'not-found' });
     else setRefusal(result);
   }
 
@@ -224,7 +260,7 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
       <div className="rules-editor rules-layout">
         <div className="rules-main">
           <div className="rules-head">
-            <h2>{kindBadge(kind).word}</h2>
+            <h1>{kindBadge(kind).word}</h1>
           </div>
           <section className="rules-card" aria-label="Rule set settings">
             <div className="rules-settings">
@@ -236,12 +272,18 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
                   onChange={(e) => {
                     setName(e.target.value);
                     setSaved(false);
+                    setDirty(true);
                   }}
                 />
               </label>
               <button type="button" className="btn btn-primary" data-action="save-rule-set" onClick={() => void save()}>
                 Save
               </button>
+              {dirty && !saved && (
+                <span className="rules-muted" data-unsaved="true">
+                  Unsaved changes
+                </span>
+              )}
               {saved && (
                 <span className="rules-saved" role="status" data-saved="true">
                   Saved.
@@ -257,6 +299,11 @@ function RuleSetEditor({ ruleSetId }: { ruleSetId: string }) {
               </p>
             )}
           </section>
+          {dirty && (
+            <p className="rules-muted" role="status" data-test-panel-note="true">
+              You have unsaved edits: the test panel runs the last saved version. Save first to test them.
+            </p>
+          )}
           {refusal && !anchored && <SaveRefusal refusal={refusal} />}
           {tables.map((t) => (
             <div key={t.nodeId} className="rules-card rules-table-card">

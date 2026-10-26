@@ -55,6 +55,17 @@
       <artifactId>platform-scheduler</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- E12/E13 seam (arjun-fullstack): the audit and tracking modules in ArchUnit scope like every production module (R08). -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-audit</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-tracking</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>

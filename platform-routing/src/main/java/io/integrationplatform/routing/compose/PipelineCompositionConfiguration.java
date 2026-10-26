@@ -14,11 +14,14 @@ import io.integrationplatform.routing.adapter.kafkatopic.KafkaTopicTargetCall;
 import io.integrationplatform.routing.adapter.mq.JdbcMqTargets;
 import io.integrationplatform.routing.adapter.mq.MqTargetCall;
 import io.integrationplatform.routing.claim.DeliveryClaimHandler;
+import io.integrationplatform.routing.stage1.MicrometerRoutingStepRecorder;
 import io.integrationplatform.routing.stage1.RoutingStepRecorder;
 import io.integrationplatform.routing.poison.PoisonTopic;
 import io.integrationplatform.routing.stage.StageConsumer;
 import io.integrationplatform.routing.stage1.JdbcStage1Reads;
 import io.integrationplatform.routing.stage1.Stage1FanOut;
+import io.integrationplatform.routing.stage1.Stage1Reconciler;
+import io.integrationplatform.delivery.port.UnroutedMessageSweep;
 import io.integrationplatform.routing.stage2.LayerOneRouteBuilder;
 import io.integrationplatform.routing.stage2.LayerOneWaits;
 import io.integrationplatform.routing.stage2.Stage2AttemptWriter;
@@ -38,6 +41,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
+import io.integrationplatform.domain.delivery.OutcomeClass;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -56,6 +61,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -91,13 +97,24 @@ class PipelineCompositionConfiguration {
     @Bean
     TargetCallRegistry targetCallRegistry(MqTargetCall mqTargetCall,
             @Qualifier("apiTargetCall") TargetCall apiTargetCall,
-            ObjectProvider<KafkaTopicTargetCall> kafkaTarget) {
+            ObjectProvider<KafkaTopicTargetCall> kafkaTarget,
+            ObjectProvider<io.integrationplatform.routing.adapter.db.DbTargetCall> dbTarget,
+            ObjectProvider<io.integrationplatform.routing.adapter.file.FileTargetCall> fileTarget) {
         TargetCallRegistry targetCalls = new TargetCallRegistry();
         targetCalls.register("MQ", mqTargetCall);
         targetCalls.register("API", apiTargetCall);
         KafkaTopicTargetCall kafka = kafkaTarget.getIfAvailable();
         if (kafka != null) {
             targetCalls.register("KAFKA", kafka); // key = the stored system.type; never present with the gate off
+        }
+        // E16 (T-149, T-150): DB and FILE the same way - registered only when their adapter gate built the call
+        io.integrationplatform.routing.adapter.db.DbTargetCall db = dbTarget.getIfAvailable();
+        if (db != null) {
+            targetCalls.register("DB", db);
+        }
+        io.integrationplatform.routing.adapter.file.FileTargetCall file = fileTarget.getIfAvailable();
+        if (file != null) {
+            targetCalls.register("FILE", file);
         }
         return targetCalls;
     }
@@ -106,24 +123,44 @@ class PipelineCompositionConfiguration {
 
     /**
      * The ONE layer-1 route (T-119) with the API adapter as its target call (ADR-015, {@code ApiAdapterConfiguration}).
-     * The call runs inside one tenant-stamped transaction: the adapter's endpoint view and the transform body read
-     * the tenant's rows on it (R08/R11) - the shape the E10 container proof composes. Attempt rows and the outcome
-     * hand-off each commit in their own short transaction, as the recorder path does.
+     * The call runs in no transaction (T71, T175): each adapter reads the tenant's rows (R08/R11) in its own short
+     * tenant-stamped transaction before it dials the target. The type lookup, attempt rows and the outcome hand-off
+     * each commit in their own short transaction, as the recorder path does.
      */
     @Bean
     LayerOneRouteBuilder layerOneRoute(TargetCallRegistry targetCalls,
             JdbcMqTargets mqTargets, SendOutcomes outcomes, PlatformTransactionManager transactionManager) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         // row 327: picked by the stored system.type; an unknown type is refused PERMANENT, never dropped
-        TargetCall byType = TargetCall.byType(mqTargets::typeOf, targetCalls.calls());
-        TargetCall inTenantTransaction = send -> transactions.executeWithoutResult(status -> byType.call(send));
+        // T71/T175: a call that leaves the process must not hold a pooled connection while it waits on the
+        // target. Every adapter (API, MQ, KAFKA, DB, FILE) opens its own short tenant-stamped reads, so no type is
+        // wrapped in a whole-call transaction here.
+        java.util.Map<String, TargetCall> perType = routedCalls(targetCalls.calls());
+        TargetCall inTenantTransaction = TargetCall.byType(
+                endpointId -> transactions.execute(status -> mqTargets.typeOf(endpointId)), perType);
         Stage2AttemptWriter attempts = (deliveryId, layer, outcome, startedAt, finishedAt, detail) ->
                 transactions.executeWithoutResult(status ->
                         outcomes.recordAttempt(deliveryId, layer, outcome, startedAt, finishedAt, detail));
-        Stage2OutcomeHandoff handoff = (deliveryId, claimToken, attemptsSoFar, outcome, idempotent) ->
+        Stage2OutcomeHandoff handoff = new Stage2OutcomeHandoff() {
+            @Override
+            public void handOffAfterLayerOne(UUID deliveryId, UUID claimToken, int attemptsSoFar,
+                    OutcomeClass outcome, boolean idempotent) {
                 transactions.executeWithoutResult(status ->
                         outcomes.recordFailure(deliveryId, claimToken, attemptsSoFar, outcome, idempotent));
+            }
+
+            @Override
+            public void deferCircuitOpen(UUID deliveryId, UUID claimToken, Instant nextAttemptAt) {
+                transactions.executeWithoutResult(status ->
+                        outcomes.deferCircuitOpen(deliveryId, claimToken, nextAttemptAt));
+            }
+        };
         return new LayerOneRouteBuilder(inTenantTransaction, attempts, handoff, LayerOneWaits.defaults());
+    }
+
+    /** T175: the calls reach the router as composed - no type is wrapped in a whole-call transaction. */
+    static java.util.Map<String, TargetCall> routedCalls(java.util.Map<String, TargetCall> calls) {
+        return new java.util.LinkedHashMap<>(calls);
     }
 
     @Bean
@@ -180,6 +217,30 @@ class PipelineCompositionConfiguration {
                 recorder.getIfAvailable(() -> RoutingStepRecorder.NOOP));
     }
 
+    /**
+     * T72 (T-180 routing leg): the production caller of {@link Stage1Reconciler#sweepOnce}. Typed as the delivery
+     * module's {@link UnroutedMessageSweep} port, which the delivery-retry trigger takes: a message stuck
+     * {@code ACCEPTED} for {@link #RECONCILE_STUCK_AFTER} (the delivery leg's own threshold) is handed back to
+     * stage 1 on the next {@code DELIVERY_RETRY} run.
+     */
+    @Bean
+    UnroutedMessageSweep stage1Reconciler(WorkerTenantBinding binding, PlatformTransactionManager transactionManager,
+            JdbcClient jdbcClient, TenantContext tenantContext, Stage1FanOut stage1FanOut) {
+        return new Stage1Reconciler(binding, new TransactionTemplate(transactionManager),
+                new JdbcStage1Reads(jdbcClient, tenantContext), stage1FanOut, RECONCILE_STUCK_AFTER, Instant::now);
+    }
+
+    // ponytail: 5 minutes, the same figure as the delivery leg's unhanded threshold; a property when an operator needs it
+    static final Duration RECONCILE_STUCK_AFTER = Duration.ofMinutes(5);
+
+    /** The default recorder; a context that supplies its own RoutingStepRecorder (a test or ops probe) wins. */
+    @Bean
+    @ConditionalOnMissingBean(RoutingStepRecorder.class)
+    RoutingStepRecorder routingStepRecorder(ObjectProvider<MeterRegistry> meters) {
+        MeterRegistry registry = meters.getIfAvailable();
+        return registry == null ? RoutingStepRecorder.NOOP : new MicrometerRoutingStepRecorder(registry);
+    }
+
     @Bean(destroyMethod = "shutdown")
     BulkheadRegistry stage2Bulkheads(Environment environment) {
         return new BulkheadRegistry(stage2BulkheadSettings(environment));
@@ -208,7 +269,8 @@ class PipelineCompositionConfiguration {
     @Bean
     DeliveryDueDispatch deliveryDueDispatch(WorkerTenantBinding binding, PlatformTransactionManager transactionManager,
             JdbcClient jdbcClient, TenantContext tenantContext, DeliveryClaimService claimService,
-            DeliveryBulkheadFacts bulkheadFacts, BulkheadDeferrals deferrals, BulkheadRegistry stage2Bulkheads,
+            DeliveryBulkheadFacts bulkheadFacts, BulkheadDeferrals deferrals,
+            io.integrationplatform.delivery.port.BulkheadRedrive bulkheadRedrive, BulkheadRegistry stage2Bulkheads,
             RouteConfigReader routeConfigReader, RouteInstanceFactory routeInstanceFactory,
             TargetEndpointViews targetEndpointViews, ProducerTemplate producerTemplate, SendOutcomes outcomes,
             org.springframework.beans.factory.ObjectProvider<io.integrationplatform.routing.credential.CredentialedDelivery> credentialed) {
@@ -217,7 +279,8 @@ class PipelineCompositionConfiguration {
                 new JdbcDueDeliveries(jdbcClient, tenantContext), tenantContext, routeConfigReader,
                 routeInstanceFactory, producerTemplate, outcomes, Instant::now, credentialed.getIfAvailable());
         return new DeliveryDueDispatch(binding, transactions, bulkheadFacts, stage2Bulkheads,
-                new DeliveryClaimHandler(transactions, claimService)::claim, deferrals, sends, targetEndpointViews,
+                new DeliveryClaimHandler(transactions, claimService)::claim, deferrals, bulkheadRedrive, sends,
+                targetEndpointViews,
                 Instant::now, () -> ThreadLocalRandom.current().nextDouble());
     }
 
@@ -246,29 +309,29 @@ class PipelineCompositionConfiguration {
 
     @Bean
     StageConsumerLoop stage1Consumer(@Value("${platform.routing.kafka.bootstrap-servers}") String bootstrap,
-            ProtectedWorkRows protectedWorkRows, Stage1FanOut stage1FanOut, Producer<byte[], byte[]> poisonProducer,
+            @Value("${platform.routing.stage1.concurrency:1}") int concurrency, ProtectedWorkRows protectedWorkRows, Stage1FanOut stage1FanOut, Producer<byte[], byte[]> poisonProducer,
             ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
             ObjectProvider<InstanceKeyReadiness> keyReadiness) {
         return loop(bootstrap, "platform-stage1", Topics.MESSAGE_ACCEPTED, protectedWorkRows, stage1FanOut,
-                poisonProducer, meters, observations, keyReadiness);
+                poisonProducer, meters, observations, keyReadiness, concurrency);
     }
 
     @Bean
     StageConsumerLoop stage2Consumer(@Value("${platform.routing.kafka.bootstrap-servers}") String bootstrap,
-            ProtectedWorkRows protectedWorkRows, DeliveryDueDispatch deliveryDueDispatch,
+            @Value("${platform.routing.stage2.concurrency:1}") int concurrency, ProtectedWorkRows protectedWorkRows, DeliveryDueDispatch deliveryDueDispatch,
             Producer<byte[], byte[]> poisonProducer, ObjectProvider<MeterRegistry> meters,
             ObjectProvider<ObservationRegistry> observations, ObjectProvider<InstanceKeyReadiness> keyReadiness) {
         return loop(bootstrap, "platform-stage2", Topics.DELIVERY_DUE, protectedWorkRows, deliveryDueDispatch,
-                poisonProducer, meters, observations, keyReadiness);
+                poisonProducer, meters, observations, keyReadiness, concurrency);
     }
 
     private static StageConsumerLoop loop(String bootstrap, String group, String topic,
             StageConsumer.ProtectedRows rows, StageConsumer.Handler handler, Producer<byte[], byte[]> poisonProducer,
             ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
-            ObjectProvider<InstanceKeyReadiness> keyReadiness) {
+            ObjectProvider<InstanceKeyReadiness> keyReadiness, int concurrency) {
         return new StageConsumerLoop(bootstrap, group, topic, rows, handler, new PoisonTopic(poisonProducer),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
-                observations.getIfAvailable(() -> ObservationRegistry.NOOP), ready(keyReadiness));
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP), ready(keyReadiness), concurrency);
     }
 
     /** T-201: the delivery retry pass asks the same key readiness as the stage consumers. */

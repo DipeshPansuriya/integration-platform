@@ -4,7 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import static org.mockito.Mockito.mock;
+
+import io.integrationplatform.delivery.port.UnroutedMessageSweep;
+import io.integrationplatform.routing.stage1.Stage1FanOut;
+import io.integrationplatform.tenancy.TenantContext;
+import io.integrationplatform.tenancy.WorkerTenantBinding;
 import java.time.Duration;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
@@ -43,5 +51,15 @@ class PipelineCompositionConfigurationTest {
         assertThatCode(() -> config.stage2Bulkheads(new MockEnvironment()).shutdown()).doesNotThrowAnyException();
         assertThatThrownBy(() -> config.stage2Bulkheads(new MockEnvironment().withProperty(MAX_SENDS, "0")))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("T72: the stage-1 reconciler is a bean typed as the delivery sweep port, so the retry trigger finds it")
+    void stage1ReconcilerIsTheSweepPortBean() {
+        UnroutedMessageSweep sweep = new PipelineCompositionConfiguration().stage1Reconciler(new WorkerTenantBinding(),
+                mock(PlatformTransactionManager.class), mock(JdbcClient.class), mock(TenantContext.class),
+                mock(Stage1FanOut.class));
+
+        assertThat(sweep).isNotNull();
     }
 }

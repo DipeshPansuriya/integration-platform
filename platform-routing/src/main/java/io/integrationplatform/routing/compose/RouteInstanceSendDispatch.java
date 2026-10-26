@@ -3,6 +3,7 @@ package io.integrationplatform.routing.compose;
 import io.integrationplatform.delivery.port.SendOutcomes;
 import io.integrationplatform.domain.delivery.OutcomeClass;
 import io.integrationplatform.routing.credential.CredentialedDelivery;
+import io.integrationplatform.routing.stage2.LayerOneRouteBuilder;
 import io.integrationplatform.routing.stage2.Stage2Send;
 import io.integrationplatform.routing.stage2.bulkhead.Stage2SendDispatch;
 import io.integrationplatform.routing.templates.RouteBuildRefusedException;
@@ -65,13 +66,13 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
     }
 
     @Override
-    public void dispatch(Stage2Send send) {
+    public boolean dispatch(Stage2Send send) {
         UUID tenantId = tenantContext.requireTenantId();
         Optional<JdbcDueDeliveries.DueDelivery> claimed =
                 transactions.execute(status -> deliveries.claimed(send.deliveryId()));
         if (claimed == null || claimed.isEmpty()) {
             log.warn("stage 2: delivery {} - no longer SENDING under this claim; nothing sent", send.deliveryId());
-            return;
+            return false;
         }
         JdbcDueDeliveries.DueDelivery due = claimed.get();
         RouteConfigRow row = due.interfaceId() == null || due.routeId() == null ? null
@@ -79,16 +80,16 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
                         .filter(candidate -> candidate.routeId().equals(due.routeId())).findFirst().orElse(null));
         if (row == null) {
             dropWithoutRoute(send, "route " + due.routeId() + " is not an ACTIVE route of its interface any more");
-            return;
+            return false;
         }
         RouteInstance instance;
         try {
-            instance = routes.ensure(row);
+            instance = routes.ensure(tenantId, row);
         } catch (RouteBuildRefusedException refused) {
             log.warn("stage 2: delivery {} - its route instance was refused: {}", send.deliveryId(),
                     refused.getMessage());
             recordPermanent(send);
-            return;
+            return false;
         }
         routes.touch(instance, clock.get());
         Exchange done = credentialed == null ? producer.send(instance.consumerUri(),
@@ -97,16 +98,19 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
                         opened -> producer.send(instance.consumerUri(), e -> e.getIn().setBody(send)))
                         .value();
         if (done == null) {
-            return; // the store already moved the delivery - no call left the process, no attempt row written
+            return false; // the store already moved the delivery - no call left the process, no attempt row written
         }
         if (done.getException() != null) {
             log.error("stage 2: delivery {} - the send ended outside layer 1's classified outcomes; it stays "
                     + "SENDING for the reconciler", send.deliveryId(), done.getException());
-            return;
+            return false;
         }
-        if (done.getProperty(Exchange.EXCEPTION_CAUGHT) == null) {
+        // T188: layer 1's explicit outcome decides; the exception guard above stays the second line, so no failure is hidden
+        if (Boolean.TRUE.equals(done.getProperty(LayerOneRouteBuilder.LAYER_ONE_SUCCEEDED, Boolean.class))) {
             transactions.executeWithoutResult(status -> outcomes.markDelivered(send.deliveryId(), send.claimToken()));
         }
+        // T191: layer 1 states a CIRCUIT_DEFER explicitly (CIRCUIT_DEFERRED), once the deferral is handed over
+        return Boolean.TRUE.equals(done.getProperty(LayerOneRouteBuilder.CIRCUIT_DEFERRED, Boolean.class));
     }
 
     private void dropWithoutRoute(Stage2Send send, String reason) {

@@ -132,6 +132,15 @@ export function targetRefusal(graph: MappingGraph, targetSchema: FieldSchema | n
 export type MutatorResult = { graph: MappingGraph; refusal: string | null };
 
 /** An element is added: a link drawn between a source field and a field the target contract has. */
+/** L28 G1: the next link id - one past the highest `link-N` in use, so deleting a middle link never makes a new id collide. */
+function nextLinkId(links: MappingLink[]): string {
+  const highest = links.reduce((top, link) => {
+    const match = /^link-(\d+)$/.exec(link.id);
+    return match ? Math.max(top, Number(match[1])) : top;
+  }, -1);
+  return `link-${highest + 1}`;
+}
+
 export function addLink(graph: MappingGraph, source: string, target: string): MutatorResult {
   if (!graph.targetFields.includes(target)) {
     return { graph, refusal: REFUSAL(target) };
@@ -139,10 +148,35 @@ export function addLink(graph: MappingGraph, source: string, target: string): Mu
   return {
     graph: {
       ...graph,
-      links: [...graph.links, { id: `link-${graph.links.length}`, source, target }]
+      links: [...graph.links, { id: nextLinkId(graph.links), source, target }]
     },
     refusal: null
   };
+}
+
+/**
+ * L28: "Auto-map matching names" - links every source field whose path the target contract also has
+ * (exact, case-sensitive path). A target that already has a link (from any source) is skipped, so no
+ * target gets a second feed; `added` counts only the links actually created. Never removes or changes
+ * a drawn link, and never mutates its input.
+ */
+export function autoMatchLinks(graph: MappingGraph): { graph: MappingGraph; added: number } {
+  let next = graph;
+  let added = 0;
+  for (const source of graph.sourceFields) {
+    if (next.links.some((link) => link.target === source)) continue;
+    const result = addLink(next, source, source);
+    if (result.refusal) continue;
+    next = result.graph;
+    added += 1;
+  }
+  return { graph: next, added };
+}
+
+/** L28 A1: the sentence the designer announces (polite live region) after Auto-map. */
+export function autoMapMessage(added: number): string {
+  if (added === 0) return 'No matching field names to link.';
+  return added === 1 ? 'Linked 1 matching field.' : `Linked ${added} matching fields.`;
 }
 
 /** A link changed: retarget (or re-source) one drawn link; refused paths are not applied. */

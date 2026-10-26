@@ -39,6 +39,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.junit.jupiter.Container;
@@ -76,6 +77,7 @@ import tools.jackson.databind.node.ObjectNode;
 @Tag("container")
 @Testcontainers
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
+@ActiveProfiles({"showcase", "test"}) // showcase: the partner host names resolve to loopback on exact ports; test: the partner Postgres has no TLS (as E18Base)
 @Import(T094TypedClientContractContainerTest.SuiteDecoder.class)
 class T094TypedClientContractContainerTest {
 
@@ -94,12 +96,45 @@ class T094TypedClientContractContainerTest {
     private static final AtomicInteger SEEDED = new AtomicInteger();
     private static RestrictedLogin login;
 
+    /**
+     * L23: the fixture follows the role matrix. The job admin routes are OPERATOR_AGENT-only (JobEndpointRoles; plan
+     * S4-A5 (iv): a tenant admin holds no job operation in R1), so those calls carry an operator-agent token (an
+     * (issuer, azp) registered in scheduler.operator_credential, no human binding); every other call carries the
+     * seeded tenant admin's token.
+     */
+    private static final String JOBS_PREFIX = "/api/v1/admin/jobs";
+    private static final String AGENT_CLIENT = "t094-operator-agent";
+    /** Seeded by migration V2_2_1420 (scheduler.job_definition). */
+    private static final String JOB_TYPE = "DELIVERY_RETRY";
+    private static final String DAY = java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(1).toString();
+    private static final UUID SYSTEM_ID = UUID.nameUUIDFromBytes("t094-system".getBytes(StandardCharsets.UTF_8));
+    private static final UUID PENDING_ROW_ID = UUID.nameUUIDFromBytes("t094-pending".getBytes(StandardCharsets.UTF_8));
+    private static final UUID APPROVED_ROW_ID =
+            UUID.nameUUIDFromBytes("t094-approved".getBytes(StandardCharsets.UTF_8));
+    private static final UUID ENDPOINT_ID = UUID.nameUUIDFromBytes("t094-endpoint".getBytes(StandardCharsets.UTF_8));
+    private static final UUID TRACKING_ID = UUID.nameUUIDFromBytes("t094-message".getBytes(StandardCharsets.UTF_8));
+    private static final String NARROW_ACCOUNT = "t094_narrow";
+    private static final String NARROW_PASSWORD = "t094-" + UUID.randomUUID().toString().substring(0, 8);
+    /** The partner DB system's settings: the suite's own Postgres, reached as the narrow account (set at seed time, once the port is mapped). */
+    private static String dbSettings;
+    private static final String KEK = java.util.Base64.getEncoder().encodeToString(
+            new java.security.SecureRandom().generateSeed(32));
+
     /** The seeded app user's subject: the identity every exercised call is bound by (the credential carries the tenant). */
     private static String seededSubject;
 
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
         login = PlatformTestWiring.register(registry, POSTGRES);
+        // L23 harness (the E18Base set, for the one partner DB): the approval probes the partner account with its vault password
+        registry.add("PLATFORM_CREDENTIAL_KEK_K1", () -> KEK);
+        registry.add("PLATFORM_CREDENTIAL_KEK_ACTIVE", () -> "K1");
+        registry.add("platform.config.destinations.allowed-hosts", () -> "*.t094.test");
+        registry.add("platform.config.destinations.showcase-local-hosts", () -> "db.t094.test");
+        registry.add("platform.config.destinations.showcase-local-ports", () -> String.valueOf(POSTGRES.getMappedPort(5432)));
+        registry.add("platform.config.destinations.db-sslmode", () -> "disable");
+        registry.add("platform.config.destinations.db-allowed-ports", () -> String.valueOf(POSTGRES.getMappedPort(5432)));
+        registry.add("IPASS_DB_TARGET_ENABLED", () -> "true");
     }
 
     /** The suite's tokens are verified against the in-memory key; the configured issuer is never contacted. */
@@ -110,6 +145,24 @@ class T094TypedClientContractContainerTest {
         @Primary
         JwtDecoder typedClientSuiteJwtDecoder() {
             return TOKENS.decoder();
+        }
+
+        /** {@code *.t094.test} resolves to loopback; the guard's showcase exception (exact host, exact port) decides whether that is allowed. */
+        @Bean
+        @Primary
+        io.integrationplatform.config.destination.HostResolver partnerNames() {
+            return host -> {
+                if (host.endsWith(".t094.test")) {
+                    return java.util.List.of(java.net.InetAddress.getByAddress(host, new byte[] {127, 0, 0, 1}));
+                }
+                throw new java.net.UnknownHostException(host);
+            };
+        }
+
+        /** The login joins ipaas_app between Flyway and the scheduler start, as a deployment does. */
+        @Bean
+        org.flywaydb.core.api.callback.Callback grantAppRoleFlywayCallback() {
+            return new io.integrationplatform.app.scheduler.GrantAppRoleFlywayCallback(POSTGRES, login);
         }
     }
 
@@ -150,8 +203,73 @@ class T094TypedClientContractContainerTest {
                 grant.setString(2, userId.toString());
                 grant.executeUpdate();
             }
+            seedOperatorAgentAndRows(owner, tenantId);
         }
         PlatformTestWiring.grantApplicationRole(POSTGRES, login);
+        storePartnerAccountPassword();
+    }
+
+    /** T178a: the approval reads the partner account's password from the vault - stored through the real credential API (TENANT_ADMIN). */
+    private void storePartnerAccountPassword() {
+        try {
+            HttpResponse<String> stored = http("PUT", "http://localhost:" + port + "/api/v1/admin/target-endpoints/"
+                    + ENDPOINT_ID + "/credentials", TOKENS.accessToken(seededSubject),
+                    Optional.of("{\"fields\":{\"accountPassword\":\"" + NARROW_PASSWORD + "\"}}"));
+            assertThat(stored.statusCode()).as("store the partner account password: %s", stored.body()).isEqualTo(200);
+        } catch (IOException | InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** L23: the operator-agent binding plus one DB system with a pending and an approved table, and one tracked message. */
+    private static void seedOperatorAgentAndRows(Connection owner, UUID tenantId) throws SQLException {
+        execute(owner, "INSERT INTO scheduler.operator_credential (issuer, client_id, status) VALUES (?, ?, 'ACTIVE')",
+                PlatformTestWiring.OIDC_ISSUER.toString(), AGENT_CLIENT);
+        execute(owner, "INSERT INTO public.system (id, tenant_id, code, name, direction) "
+                + "VALUES (?::uuid, ?::uuid, 't094-db', 't094 DB', 'TARGET')", SYSTEM_ID.toString(), tenantId.toString());
+        dbSettings = "{\"host\":\"db.t094.test\",\"port\":" + POSTGRES.getMappedPort(5432) + ",\"database\":\""
+                + POSTGRES.getDatabaseName() + "\",\"user\":\"" + NARROW_ACCOUNT + "\",\"table\":\"t094_pending\"}";
+        execute(owner, "UPDATE public.system SET type = 'DB', settings = ?::jsonb WHERE id = ?::uuid",
+                dbSettings, SYSTEM_ID.toString());
+        // the partner's narrow account (T178a): INSERT and SELECT on the one requested table, nothing else
+        execute(owner, "CREATE TABLE public.t094_pending (order_no text)");
+        execute(owner, "CREATE ROLE " + NARROW_ACCOUNT + " LOGIN PASSWORD '" + NARROW_PASSWORD
+                + "' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT");
+        execute(owner, "REVOKE ALL ON public.t094_pending FROM " + NARROW_ACCOUNT);
+        execute(owner, "GRANT INSERT, SELECT ON public.t094_pending TO " + NARROW_ACCOUNT);
+        execute(owner, "INSERT INTO public.target_endpoint (id, tenant_id, system_id, code, name, base_url,"
+                + " http_method, auth_method, timeout_ms) VALUES (?::uuid, ?::uuid, ?::uuid, 't094-db-endpoint',"
+                + " 't094 DB endpoint', 'jdbc:postgresql://db.t094.test/t094', 'POST', 'NO_AUTH', 5000)",
+                ENDPOINT_ID.toString(), tenantId.toString(), SYSTEM_ID.toString());
+        insertApprovedTable(owner, tenantId, PENDING_ROW_ID, "t094_pending", "PENDING_APPROVAL", null);
+        insertApprovedTable(owner, tenantId, APPROVED_ROW_ID, "t094_approved", "APPROVED", "t094-seed-approver");
+        execute(owner, "INSERT INTO public.message (id, tenant_id, interface_id, interface_version_id,"
+                        + " source_contract_version_id, business_key, state, accepted_at)"
+                        + " VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 't094-message', 'ROUTE_FAILED', now())",
+                TRACKING_ID.toString(), tenantId.toString(), UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(), UUID.randomUUID().toString());
+        execute(owner, "INSERT INTO public.message_stage_timing (message_id, tenant_id, accepted_at, stage,"
+                        + " started_at, finished_at) VALUES (?::uuid, ?::uuid, now(), 'INTAKE', now(), now())",
+                TRACKING_ID.toString(), tenantId.toString());
+    }
+
+    private static void insertApprovedTable(Connection owner, UUID tenantId, UUID rowId, String table, String status,
+            String decidedBy) throws SQLException {
+        execute(owner, "INSERT INTO public.db_target_approved_table (id, tenant_id, system_id, table_name, status,"
+                        + " requested_by, decided_by, decided_at, target_hash)"
+                        + " VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, 't094-seed-requester', ?::text,"
+                        + " CASE WHEN ?::text IS NULL THEN NULL ELSE now() END, public.db_target_fingerprint(?::jsonb))",
+                rowId.toString(), tenantId.toString(), SYSTEM_ID.toString(), table, status, decidedBy, decidedBy,
+                dbSettings);
+    }
+
+    private static void execute(Connection owner, String sql, String... values) throws SQLException {
+        try (PreparedStatement statement = owner.prepareStatement(sql)) {
+            for (int i = 0; i < values.length; i++) {
+                statement.setString(i + 1, values[i]);
+            }
+            statement.executeUpdate();
+        }
     }
 
     // ------------------------------------------------------------------ the scenario
@@ -215,14 +333,21 @@ class T094TypedClientContractContainerTest {
     private static void exercise(String base, String path, String method, JsonNode operation, JsonNode clientDoc,
             List<String> mismatches) throws IOException, InterruptedException {
         Optional<String> body = requestBodyFor(clientDoc, operation);
+        if (method.equals("post") && path.endsWith("/approved-tables")) {
+            body = Optional.of("{\"table\":\"t094_requested\"}"); // a plain identifier (the generic sample has a hyphen)
+        }
+        String bearer = path.startsWith(JOBS_PREFIX)
+                ? TOKENS.accessToken("sub-t094-agent", AGENT_CLIENT)
+                : TOKENS.accessToken(seededSubject);
         HttpResponse<String> response =
-                request(method.toUpperCase(), path, base, TOKENS.accessToken(seededSubject), body);
+                request(method.toUpperCase(), path + requiredQuery(operation), base, bearer, body);
 
         // The answered status must be covered by a response the client declares (a 2XX-styled range counts).
         Set<String> declaredStatuses = fieldNames(operation.path("responses"));
         if (!statusDeclared(response.statusCode(), declaredStatuses)) {
             mismatches.add(method.toUpperCase() + " " + path + " answered " + response.statusCode()
-                    + " - no declared response covers it (declared: " + declaredStatuses + ")");
+                    + " - no declared response covers it (declared: " + declaredStatuses + "); body: "
+                    + response.body().substring(0, Math.min(300, response.body().length())));
         }
 
         // A 2xx response must satisfy the schema the client declares for that response (required fields present).
@@ -402,7 +527,28 @@ class T094TypedClientContractContainerTest {
     /** Builds and sends the entry's real call; the path's parameters are substituted with a fixed sample id. */
     private static HttpResponse<String> request(String method, String declaredPath, String base, String bearer,
             Optional<String> body) throws IOException, InterruptedException {
-        return http(method, base + PATH_TEMPLATE.matcher(declaredPath).replaceAll(PATH_ID), bearer, body);
+        return http(method, base + substituted(declaredPath), bearer, body);
+    }
+
+    /** Each path parameter takes the seeded row of its kind (L23); anything unlisted keeps the fixed sample id. */
+    private static String substituted(String declaredPath) {
+        String path = declaredPath.replace("{jobType}", JOB_TYPE).replace("{systemId}", SYSTEM_ID.toString())
+                .replace("{trackingId}", TRACKING_ID.toString());
+        path = path.replace("{id}", (declaredPath.endsWith("/approve") ? PENDING_ROW_ID : APPROVED_ROW_ID).toString());
+        return PATH_TEMPLATE.matcher(path).replaceAll(PATH_ID);
+    }
+
+    /** The query parameters the client declares as required, with a valid sample (only {@code day} exists today). */
+    private static String requiredQuery(JsonNode operation) {
+        StringBuilder query = new StringBuilder();
+        for (JsonNode parameter : operation.path("parameters")) {
+            if ("query".equals(parameter.path("in").asString("")) && parameter.path("required").asBoolean(false)) {
+                String name = parameter.path("name").asString("");
+                query.append(query.length() == 0 ? '?' : '&').append(name).append('=')
+                        .append(name.equals("day") ? DAY : SAMPLE);
+            }
+        }
+        return query.toString();
     }
 
     private static HttpResponse<String> http(String method, String url, String bearer, Optional<String> body)

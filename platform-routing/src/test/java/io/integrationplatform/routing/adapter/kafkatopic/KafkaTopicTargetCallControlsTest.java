@@ -148,15 +148,7 @@ class KafkaTopicTargetCallControlsTest {
         assertThat(resolved.get()).as("the open breaker never resolves the delivery").isEqualTo(5);
     }
 
-    @Test
-    void aSendThatTimesOutIsTransient() {
-        KafkaSender sender = (st, id, body, timeout) -> {
-            throw new TimeoutException("no ack within the timeout");
-        };
-        assertThatThrownBy(() -> call(outbound(settings("orders-out")), sender,
-                CircuitBreakerRegistry.ofDefaults(), ObservationRegistry.NOOP).call(send(UUID.randomUUID())))
-                        .isInstanceOf(TargetFaultException.TransientFaultException.class);
-    }
+    // E16: an ack that never arrived is AMBIGUOUS, not TRANSIENT - see KafkaTopicHardeningTest
 
     @Test
     void everyAttemptIsMeteredAndTraced() {

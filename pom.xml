@@ -33,6 +33,10 @@
     <module>platform-transform</module>
     <!-- E14 seam (arjun-fullstack): scheduler run-recording module. -->
     <module>platform-scheduler</module>
+    <!-- E12 seam (arjun-fullstack): low-conflict contract surface for logging and activity tracking. -->
+    <module>platform-audit</module>
+    <!-- E13 seam (arjun-fullstack): low-conflict contract surface for tracking and report reads. -->
+    <module>platform-tracking</module>
     <module>platform-tenancy</module>
     <module>platform-app</module>
     <!-- Test-only module: ArchUnit rules over every module's package (ADR-001 item 2, R08). Not part of the deployable. -->
@@ -188,6 +192,24 @@
         <artifactId>platform-transform</artifactId>
         <version>${project.version}</version>
       </dependency>
+      <!-- E12 seam (arjun-fullstack): the audit contract module - the deployable backs it with the activity runtime slice. -->
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-audit</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <!-- E13 seam (arjun-fullstack): the tracking/report contract module - the deployable backs it with the tracking runtime slice. -->
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-tracking</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <!-- E14 seam (arjun-fullstack): scheduler run-recording contract module. -->
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-scheduler</artifactId>
+        <version>${project.version}</version>
+      </dependency>
       <!-- E3 seam: OpenAPI document generation for the UI's typed client (T-158) and the contract test (T-094). -->
       <dependency>
         <groupId>org.springdoc</groupId>
@@ -302,8 +324,24 @@
       <id>container</id>
       <properties>
         <surefire.groups>container</surefire.groups>
-        <surefire.excludedGroups></surefire.excludedGroups>
+        <!-- E18Base also carries e2e-full: those classes run in their own JVM under -Pe2e-full (build-checks/e2e-full-gate.sh),
+             not inside the shared -Pcontainer JVM, where ~40 cached Spring contexts already eat the E18 memory budget. -->
+        <surefire.excludedGroups>e2e-full</surefire.excludedGroups>
         <!-- ponytail override: only heap/metaspace grow; flags stay. Serialized suites keep R06 cost bounded. -->
+        <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx1g -XX:MaxMetaspaceSize=512m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>
+      </properties>
+    </profile>
+
+    <!-- T-175 (E18): the project-close gate. ./mvnw -Pe2e-full -pl platform-app -am test runs ONLY the tests tagged
+         e2e-full (the full end-to-end suite on real containers); build-checks/e2e-full-gate.sh wraps it with the Docker
+         lock and the completeness verdict. Heap is larger than -Pcontainer: one JVM holds the whole application and
+         the harness for every scenario, and the memory budget (E18-F1-S3) is asserted against this -Xmx. -->
+    <profile>
+      <id>e2e-full</id>
+      <properties>
+        <surefire.groups>e2e-full</surefire.groups>
+        <surefire.excludedGroups></surefire.excludedGroups>
+        <surefire.timeout>3600</surefire.timeout>
         <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx1g -XX:MaxMetaspaceSize=512m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>
       </properties>
     </profile>

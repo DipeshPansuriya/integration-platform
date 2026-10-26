@@ -134,6 +134,34 @@ creates N deliveries for N matched routes, not 2N (test).
   `DUE`; the rest stay in `RETRY_WAIT` for the next run, so a full target is not flooded with
   records it would only defer again.
 - A claim that ends in `HELD` or finds a duplicate (0 rows) returns the permit at once.
+- **Addendum 2026-10-22 - slot-free re-drive (E18 drain defect, T-153).** The backoff above never
+  applies on its own: only the `DELIVERY_RETRY` job re-drives a deferred delivery (60 s cadence,
+  the cap above per run), so a deferral cost at least one job period - drain times of 11 s, 54 s
+  and 260 s on the same code, all of it tail. Now, **when a send ends and its permit is about to
+  return, the same bulkhead thread, still under the delivery's tenant binding, re-drives ONE
+  bulkhead-deferred `RETRY_WAIT` delivery of the same target** (`bulkhead_deferrals > 0`, oldest
+  `next_attempt_at` first, `FOR UPDATE SKIP LOCKED`, the backoff time ignored: the wait was for this
+  slot): `RETRY_WAIT -> DUE` through the same conditional update as the job, and its `DELIVERY_DUE`
+  outbox row in one transaction. One freed permit moves at most one row, so the per-target cap
+  holds and there is no loop: a re-driven record runs again only by taking a permit like any
+  other. A failing re-drive is logged and swallowed and never fails the finished send. Ordering
+  (HELD at the claim), idempotency (claim token, duplicate detection) and tenant isolation (the
+  re-drive runs under the bound tenant; RLS scopes the select) are unchanged. **The retry job
+  remains the safety net** (a missed re-drive, a crash between the send and the re-drive, an
+  instance restart); the 1 s to 30 s backoff is now the backstop wait, not the normal path.
+  Test: `DeliveryDueDispatchTest` (full bulkhead, deferral, slot freed, re-driven at once) and
+  `JdbcBulkheadRedriveContainerTest` (the real tables).
+  **Consequences of the addendum (T-177 follow-ups, Varun F2/F3/F5/F6):**
+  - **The backoff no longer sheds load against a slow partner.** The 1 s to 30 s `BULKHEAD_FULL`
+    backoff used to space the retries of a deferred delivery; the slot-free re-drive ignores it, so a
+    slow or hanging target is no longer relieved by waiting. Only the **per-target bulkhead** (the
+    permit cap, a re-driven record must still win a permit) and the **circuit breaker** protect it.
+  - **No re-drive chain on an open breaker.** A send that ended as `CIRCUIT_DEFER` (nothing was
+    sent) does not re-drive; the retry job stays the only path until the breaker lets a call through.
+  - **HELD and duplicate claims hand the turn on**, at most 8 in a row per target (reset by a real
+    send); beyond that the retry job takes the tail.
+  - **Operability:** the re-drive writes `REDRIVE` with the detail `slot-free` (the job writes none);
+    a failed re-drive logs one WARN line without a stack trace (stack at DEBUG).
 - The pool is per instance: the effective limit for a target is pool size x instances.
 - **Gate:** with target A answering only after its 10 s timeout, target B delivers the same
   number of messages in the same wall-clock time as with target A idle (500 deliveries to B,

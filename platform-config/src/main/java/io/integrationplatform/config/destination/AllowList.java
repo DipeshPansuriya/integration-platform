@@ -39,7 +39,8 @@ public class AllowList {
             return true;
         }
         for (String suffix : suffixes) { // ".partner.example": a label must precede it
-            if (name.length() > suffix.length() && name.endsWith(suffix)) {
+            if (name.length() > suffix.length() && name.endsWith(suffix)
+                    && DestinationGuard.isDnsLabels(name.substring(0, name.length() - suffix.length()))) {
                 return true;
             }
         }

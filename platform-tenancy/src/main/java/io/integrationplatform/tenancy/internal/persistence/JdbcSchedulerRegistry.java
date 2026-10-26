@@ -25,7 +25,7 @@ public final class JdbcSchedulerRegistry implements SchedulerRegistry {
 
     /** The closed register (V2_2_1400's scheduler schema); the columns JobScheduleSync reads, in its order. */
     private static final String SELECT_JOBS =
-            "select job_type, schedule_kind, schedule, enabled, paused, max_run_seconds,"
+            "select job_type, schedule_kind, schedule, enabled, paused, paused_at, state_changed_at, max_run_seconds,"
                     + " late_threshold_seconds, coalesce(parameters::text, '') as parameters"
                     + " from scheduler.job_definition";
 

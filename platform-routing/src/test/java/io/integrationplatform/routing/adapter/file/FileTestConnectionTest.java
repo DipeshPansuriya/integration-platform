@@ -18,6 +18,9 @@ import org.junit.jupiter.api.io.TempDir;
 /** T-150: test-connection = the folder is reachable AND writable, answered as a reason-carrying map. */
 class FileTestConnectionTest {
 
+    private static final FolderResolver FOLDERS =
+            root -> Files.isDirectory(Path.of(root)) ? Optional.of(Path.of(root)) : Optional.empty();
+
     @TempDir
     Path folder;
 
@@ -27,7 +30,7 @@ class FileTestConnectionTest {
 
     private Map<String, Object> test(Function<UUID, Optional<FileSettings>> registry,
             FileTestConnection.Probe probe) throws IOException {
-        Map<String, Object> answer = new FileTestConnection(registry, probe).test(UUID.randomUUID());
+        Map<String, Object> answer = new FileTestConnection(registry, FOLDERS, probe).test(UUID.randomUUID());
         try (var files = Files.list(folder)) {
             List<String> leftovers = files.map(p -> p.getFileName().toString())
                     .filter(n -> n.contains("test-connection-")).collect(Collectors.toList());

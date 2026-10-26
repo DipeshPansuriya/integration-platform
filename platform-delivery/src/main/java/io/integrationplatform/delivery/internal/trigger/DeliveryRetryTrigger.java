@@ -2,12 +2,15 @@ package io.integrationplatform.delivery.internal.trigger;
 
 import io.integrationplatform.delivery.internal.retry.RetryPolicy;
 import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
+import io.integrationplatform.delivery.port.DeliveryCircuitFacts;
 import io.integrationplatform.delivery.port.DeliveryReconcileStore;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
 import io.integrationplatform.delivery.port.InstanceReadiness;
 import io.integrationplatform.delivery.port.RetryCandidate;
+import io.integrationplatform.delivery.port.TargetHalfOpenCap;
 import io.integrationplatform.delivery.port.TargetRedriveCap;
 import io.integrationplatform.delivery.port.TargetSendFacts;
+import io.integrationplatform.delivery.port.UnroutedMessageSweep;
 import io.integrationplatform.ingest.port.OutboxEntry;
 import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.ingest.port.OutboxWriter;
@@ -21,6 +24,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionOperations;
 
 /**
@@ -50,6 +55,9 @@ public final class DeliveryRetryTrigger {
     private final DeliveryReconcileStore reconcileStore;
     private final TargetSendFacts targetFacts;
     private final RetryPolicy policy;
+    private final DeliveryCircuitFacts circuitFacts;
+    private final TargetHalfOpenCap halfOpenCap;
+    private final UnroutedMessageSweep unroutedSweep;
     private final int batchSize;
 
     public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
@@ -92,6 +100,36 @@ public final class DeliveryRetryTrigger {
             int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
             TargetRedriveCap redriveCap, DeliveryReconcileStore reconcileStore, TargetSendFacts targetFacts,
             RetryPolicy policy) {
+        this(tenants, tenantContext, transactions, store, outboxWriter, batchSize, readiness, bulkheadFacts,
+                redriveCap, reconcileStore, targetFacts, policy, DeliveryCircuitFacts.none(),
+                TargetHalfOpenCap.unlimited());
+    }
+
+    /**
+     * T-183 (ADR-010 section 6): with the half-open cap - at most {@code halfOpenCap.trialCalls(target)}
+     * circuit-deferred deliveries of one target move to {@code DUE} per pass; the rest stay in {@code RETRY_WAIT}
+     * and a breaker that re-opens is tried again with the same count on the next pass.
+     */
+    public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
+            TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
+            int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
+            TargetRedriveCap redriveCap, DeliveryReconcileStore reconcileStore, TargetSendFacts targetFacts,
+            RetryPolicy policy, DeliveryCircuitFacts circuitFacts, TargetHalfOpenCap halfOpenCap) {
+        this(tenants, tenantContext, transactions, store, outboxWriter, batchSize, readiness, bulkheadFacts,
+                redriveCap, reconcileStore, targetFacts, policy, circuitFacts, halfOpenCap,
+                UnroutedMessageSweep.none());
+    }
+
+    /**
+     * T72 (T-180 routing leg): with the {@link UnroutedMessageSweep} - after each tenant's delivery transaction, the
+     * messages of that tenant still {@code ACCEPTED} past the sweep's threshold are handed back to routing stage 1.
+     */
+    public DeliveryRetryTrigger(ActiveTenants tenants, TriggerTenantContext tenantContext,
+            TransactionOperations transactions, DeliveryRetryStore store, OutboxWriter outboxWriter,
+            int batchSize, InstanceReadiness readiness, DeliveryBulkheadFacts bulkheadFacts,
+            TargetRedriveCap redriveCap, DeliveryReconcileStore reconcileStore, TargetSendFacts targetFacts,
+            RetryPolicy policy, DeliveryCircuitFacts circuitFacts, TargetHalfOpenCap halfOpenCap,
+            UnroutedMessageSweep unroutedSweep) {
         if (batchSize < 1) {
             throw new IllegalArgumentException("batchSize must be at least 1");
         }
@@ -106,6 +144,9 @@ public final class DeliveryRetryTrigger {
         this.reconcileStore = Objects.requireNonNull(reconcileStore, "reconcileStore");
         this.targetFacts = Objects.requireNonNull(targetFacts, "targetFacts");
         this.policy = Objects.requireNonNull(policy, "policy");
+        this.circuitFacts = Objects.requireNonNull(circuitFacts, "circuitFacts");
+        this.halfOpenCap = Objects.requireNonNull(halfOpenCap, "halfOpenCap");
+        this.unroutedSweep = Objects.requireNonNull(unroutedSweep, "unroutedSweep");
         this.batchSize = batchSize;
     }
 
@@ -130,14 +171,31 @@ public final class DeliveryRetryTrigger {
             } finally {
                 tenantContext.unbind();
             }
+            sweepUnrouted(tenant);
         }
         return reDriven;
+    }
+
+    /**
+     * T72: the routing leg of the reconciler. Runs with no tenant bound and no transaction open (the routing side
+     * binds its tenant and opens its own). One tenant's failure is logged and never stops the next tenant.
+     */
+    private void sweepUnrouted(UUID tenant) {
+        try {
+            int reHanded = unroutedSweep.sweepOnce(tenant);
+            if (reHanded > 0) {
+                LOG.info("unrouted-message sweep: tenant {}, {} message(s) handed back to stage 1", tenant, reHanded);
+            }
+        } catch (RuntimeException failed) {
+            LOG.warn("unrouted-message sweep failed for tenant {}; the next run tries again", tenant, failed);
+        }
     }
 
     private int redriveDue(UUID tenant) {
         List<RetryCandidate> due = store.lockDue(Instant.now(), batchSize);
         int moved = 0;
         Map<UUID, Integer> deferredMovedPerTarget = new HashMap<>();
+        Map<UUID, Integer> circuitMovedPerTarget = new HashMap<>();
         for (RetryCandidate candidate : due) {
             if (!readiness.ready(tenant, candidate.deliveryId())) {
                 continue; // readiness stub: never false today; E10 T-201 fills the rule
@@ -149,12 +207,18 @@ public final class DeliveryRetryTrigger {
                     >= redriveCap.maxDeferredRedrives(deferredTarget.get())) {
                 continue; // T-199: over this target's cap - stays RETRY_WAIT for the next run
             }
+            Optional<UUID> circuitTarget = circuitFacts.circuitDeferredTarget(candidate.deliveryId());
+            if (circuitTarget.isPresent() && circuitMovedPerTarget.getOrDefault(circuitTarget.get(), 0)
+                    >= halfOpenCap.trialCalls(circuitTarget.get())) {
+                continue; // T-183: over this target's half-open trial count - waits until the breaker closes
+            }
             if (!store.markDue(candidate.deliveryId())) {
                 continue; // 0 rows: the delivery is not ours to move anymore - the store never throws on this
             }
             outboxWriter.append(new OutboxEntry(OutboxTopic.DELIVERY_DUE, candidate.deliveryId(),
                     "delivery:" + candidate.deliveryId(), null, null));
             deferredTarget.ifPresent(target -> deferredMovedPerTarget.merge(target, 1, Integer::sum));
+            circuitTarget.ifPresent(target -> circuitMovedPerTarget.merge(target, 1, Integer::sum));
             moved++;
         }
         return moved;
@@ -165,6 +229,7 @@ public final class DeliveryRetryTrigger {
         int reHanded = 0;
         for (UUID id : reconcileStore.lockUnhanded(Instant.now().minus(UNHANDED_AFTER), batchSize)) {
             outboxWriter.append(new OutboxEntry(OutboxTopic.DELIVERY_DUE, id, "delivery:" + id, null, null));
+            LOG.info("unhanded delivery {} re-handed (DELIVERY_DUE appended again)", id);
             reHanded++;
         }
         return reHanded;
@@ -183,6 +248,7 @@ public final class DeliveryRetryTrigger {
                 continue; // 0 rows: no longer HELD - nothing to re-drive
             }
             outboxWriter.append(new OutboxEntry(OutboxTopic.DELIVERY_DUE, held, "delivery:" + held, null, null));
+            LOG.info("held delivery {} released (predecessors final), DELIVERY_DUE appended", held);
             released++;
         }
         return released;
@@ -208,12 +274,11 @@ public final class DeliveryRetryTrigger {
                             claim.attempts() + 1, null, ThreadLocalRandom.current().nextDouble()))
                     : store.deadLetter(claim.deliveryId(), claim.claimToken(), OutcomeClass.AMBIGUOUS);
             if (settled) {
-                LOG.log(System.Logger.Level.INFO, "stale claim settled as AMBIGUOUS: tenant {0}, delivery {1}",
-                        tenant, claim.deliveryId());
+                LOG.info("stale claim settled as AMBIGUOUS: tenant {}, delivery {}", tenant, claim.deliveryId());
             }
         }
     }
 
     private static final Duration UNKNOWN_TARGET_TIMEOUT = Duration.ofSeconds(300);
-    private static final System.Logger LOG = System.getLogger(DeliveryRetryTrigger.class.getName());
+    private static final Logger LOG = LoggerFactory.getLogger(DeliveryRetryTrigger.class);
 }

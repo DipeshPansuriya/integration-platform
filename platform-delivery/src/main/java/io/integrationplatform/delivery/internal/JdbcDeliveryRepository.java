@@ -127,11 +127,16 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
 
     /** {@code RETRY_WAIT -> DUE}: the stored retry time was reached (the delivery-retry job's re-drive). */
     public boolean redrive(UUID id, Instant at) {
+        return redrive(id, at, null);
+    }
+
+    /** The same re-drive with a named cause in the {@code REDRIVE} event detail (e.g. {@code slot-free}). */
+    public boolean redrive(UUID id, Instant at, String detail) {
         return transition(
                 "update public.delivery set state = 'DUE', updated_at = :at, next_attempt_at = null",
                 "id = :id::uuid and state = 'RETRY_WAIT'",
                 params("at", at, "id", id.toString()),
-                id, DeliveryEventType.REDRIVE, null, at);
+                id, DeliveryEventType.REDRIVE, detail, at);
     }
 
     /** {@code SENDING -> RETRY_WAIT} with the new retry time, conditional on the claim token. */
@@ -189,6 +194,20 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                 params("at", at, "next_attempt_at", nextAttemptAt,
                         "claim_token", claimToken.toString(), "id", id.toString()),
                 id, DeliveryEventType.KEY_UNAVAILABLE, "retry at " + nextAttemptAt, at);
+    }
+
+    /**
+     * E10 T96 (ADR-010 sections 5 and 6): {@code SENDING -> RETRY_WAIT} because the target's circuit breaker refused the
+     * call - conditional on the claim token, a {@code CIRCUIT_DEFER} event, and no attempt row (it is not a call).
+     */
+    public boolean deferCircuitOpen(UUID id, UUID claimToken, Instant nextAttemptAt, Instant at) {
+        return transition(
+                "update public.delivery set state = 'RETRY_WAIT', updated_at = :at,"
+                        + " next_attempt_at = :next_attempt_at, claim_token = null, claimed_at = null",
+                "id = :id::uuid and state = 'SENDING' and claim_token = :claim_token::uuid",
+                params("at", at, "next_attempt_at", nextAttemptAt,
+                        "claim_token", claimToken.toString(), "id", id.toString()),
+                id, DeliveryEventType.CIRCUIT_DEFER, "retry at " + nextAttemptAt, at);
     }
 
     /** E5 T-185: how many events of {@code type} the delivery has (the consecutive key deferrals). */
@@ -416,14 +435,21 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
     public int stage1InsertPerRoute(Collection<Stage1Delivery> deliveries) {
         int inserted = 0;
         for (Stage1Delivery delivery : deliveries) {
+            if (delivery.mappingVersionId() != null && delivery.contractVersionId() == null) {
+                // T172 (BS-10): never a mapping pin without its contract pin - the replay could not pin it (409)
+                throw new IllegalArgumentException("stage-1 delivery of message " + delivery.messageId() + " route "
+                        + delivery.routeId() + " pins mapping version " + delivery.mappingVersionId()
+                        + " without a contract version");
+            }
             List<UUID> ids = query(
                     "with ins as ("
                             + " insert into public.delivery"
                             + "   (tenant_id, state, created_at, updated_at, target_id, message_id, route_id,"
-                            + "    mapping_version_id, interface_id, business_key, key_seq)"
+                            + "    mapping_version_id, contract_version_id, interface_id, business_key, key_seq)"
                             + " values (:tenant_id::uuid, 'PENDING', :accepted_at, :accepted_at,"
                             + "   :target_endpoint_id::uuid, :message_id::uuid, :route_id::uuid,"
-                            + "   :mapping_version_id::uuid, :interface_id::uuid, :business_key, :key_seq::bigint)"
+                            + "   :mapping_version_id::uuid, :contract_version_id::uuid, :interface_id::uuid, :business_key,"
+                            + "   :key_seq::bigint)"
                             + " on conflict (message_id, route_id, created_at) do nothing"
                             + " returning id, tenant_id)"
                             + " select ins.id, ins.tenant_id from ins",
@@ -435,6 +461,8 @@ public final class JdbcDeliveryRepository extends TenantScopedRepository {
                             "route_id", delivery.routeId().toString(),
                             "mapping_version_id",
                             delivery.mappingVersionId() == null ? null : delivery.mappingVersionId().toString(),
+                            "contract_version_id",
+                            delivery.contractVersionId() == null ? null : delivery.contractVersionId().toString(),
                             "interface_id", delivery.interfaceId() == null ? null : delivery.interfaceId().toString(),
                             "business_key", delivery.businessKey(),
                             "key_seq", delivery.keySeq()),

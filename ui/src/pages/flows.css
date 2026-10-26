@@ -11,7 +11,7 @@
   flex-wrap: wrap;
   padding-bottom: var(--space-4); /* B15: the title's space below moves here, so the head centres on the title */
 }
-:is(.flows-page, .versions-page) .flows-head h2 {
+:is(.flows-page, .versions-page) .flows-head h1 {
   margin: 0;
 }
 
@@ -209,6 +209,10 @@
   }
 }
 .versions-page .versions-panel {
+  position: sticky;
+  top: var(--space-4);
+  max-height: calc(100vh - 2 * var(--space-4)); /* row 372 L5: a panel taller than the viewport scrolls inside itself, never out of reach */
+  overflow-y: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--r-3);
   background: var(--color-surface);

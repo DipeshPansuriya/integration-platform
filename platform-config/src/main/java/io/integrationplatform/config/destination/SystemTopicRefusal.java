@@ -30,16 +30,23 @@ public final class SystemTopicRefusal {
             return Optional.of("a topic is required");
         }
         String name = topic.strip();
-        if (PLATFORM_TOPICS.contains(name)) {
-            return Optional.of(name + " is a platform topic - the platform's own register is never a tenant "
+        String shown = clip(name);
+        if (PLATFORM_TOPICS.stream().anyMatch(t -> t.equalsIgnoreCase(name))) {
+            return Optional.of(shown + " is a platform topic - the platform's own register is never a tenant "
                     + "destination (T-184 SF-2)");
         }
-        if (name.startsWith("platform.") || name.startsWith("platform_")) {
-            return Optional.of(name + " rides the platform's record register - not a tenant topic (T-184 SF-2)");
+        if (name.toLowerCase().startsWith("platform.") || name.toLowerCase().startsWith("platform_")) {
+            return Optional.of(shown + " rides the platform's record register - not a tenant topic (T-184 SF-2)");
         }
         if (!name.matches("[A-Za-z0-9._\\-]+")) {
-            return Optional.of(name + " is not a Kafka topic name (letters, digits, dot, underscore, hyphen)");
+            return Optional.of(shown + " is not a Kafka topic name (letters, digits, dot, underscore, hyphen)");
         }
         return Optional.empty();
+    }
+
+    /** The echoed topic name only: control characters flattened, at most 64 characters plus an ellipsis. */
+    private static String clip(String text) {
+        String flat = text.replaceAll("\\p{Cntrl}", "_");
+        return flat.length() > 64 ? flat.substring(0, 64) + "..." : flat;
     }
 }

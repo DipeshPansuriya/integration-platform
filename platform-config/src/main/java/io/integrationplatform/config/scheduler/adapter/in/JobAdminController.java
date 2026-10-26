@@ -1,7 +1,12 @@
 package io.integrationplatform.config.scheduler.adapter.in;
 
+import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.scheduler.JobAdminService;
 import io.integrationplatform.config.scheduler.JobDefinitionRow;
+import io.integrationplatform.config.scheduler.PollingSchedulingBoundary;
+import io.integrationplatform.domain.scheduler.PollingJobSurface.JobSummary;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -11,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -27,13 +33,37 @@ public class JobAdminController {
 
     private final JobAdminService service;
 
-    public JobAdminController(JobAdminService service) {
+    private final PollingSchedulingBoundary boundary;
+
+    public JobAdminController(JobAdminService service, PollingSchedulingBoundary boundary) {
         this.service = Objects.requireNonNull(service, "service");
+        this.boundary = Objects.requireNonNull(boundary, "boundary");
     }
 
     @GetMapping
     public List<JobDefinitionRow> list() {
         return service.list(agent());
+    }
+
+    /**
+     * The polling summaries (identity and scheduling state only - ADR-012: no payload, no tenant id). Without
+     * {@code since} the full list; with {@code ?since=<ISO-8601 instant>} only the jobs that ran, were paused or had
+     * their enabled / paused state changed at or after it. A value that is not an instant is refused with 400.
+     */
+    @GetMapping("/summaries")
+    public List<JobSummary> summaries(@RequestParam(name = "since", required = false) String since) {
+        if (since == null) {
+            return boundary.summaries();
+        }
+        return boundary.summariesSince(parseSince(since));
+    }
+
+    private static Instant parseSince(String since) {
+        try {
+            return Instant.parse(since.trim());
+        } catch (DateTimeParseException e) {
+            throw ConfigApiException.validation("since must be an ISO-8601 instant, e.g. 2026-10-22T08:30:00Z");
+        }
     }
 
     @GetMapping("/{jobType}")

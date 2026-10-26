@@ -92,6 +92,7 @@ class RoutingBudgetPerformanceContainerTest {
     @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
     static class PerStepBudgetWiring {
         @org.springframework.context.annotation.Bean
+        @org.springframework.context.annotation.Primary
         io.integrationplatform.routing.stage1.RoutingStepRecorder routingStepBudgetRecorder() {
             return (messageId, step, elapsed) -> budget.record(messageId,
                     RoutingStepBudget.Step.valueOf(step.name()), elapsed);

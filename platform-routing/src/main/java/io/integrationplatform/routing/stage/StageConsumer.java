@@ -155,7 +155,7 @@ public final class StageConsumer {
         this.ready = ready;
         if (settings != null && meters != null) {
             this.breaker = io.github.resilience4j.circuitbreaker.CircuitBreaker
-                    .of("database-" + settings.group(), io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
+                    .of(settings.breakerName(), io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
                             .custom()
                             .slidingWindowSize(settings.breakerFailureThreshold())
                             .minimumNumberOfCalls(settings.breakerFailureThreshold())
@@ -235,6 +235,16 @@ public final class StageConsumer {
                 return noRow(kind, contract);
             }
             handler.onWork(contract, tenantId);
+        } catch (UnroutableWorkException e) {
+            // T190: work that can never succeed goes to poison once (like an unreadable record), never TRANSIENT
+            lastUnreadableReason = e.getMessage();
+            try {
+                poison.write(record.key(), record.value(), e.getMessage());
+            } catch (RuntimeException poisonFailure) {
+                lastTransientCause = poisonFailure;
+                return Outcome.TRANSIENT;
+            }
+            return Outcome.POISONED;
         } catch (RuntimeException e) {
             lastTransientCause = e;
             return Outcome.TRANSIENT;

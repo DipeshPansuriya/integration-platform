@@ -3,7 +3,14 @@ package io.integrationplatform.routing.store;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import static org.assertj.core.groups.Tuple.tuple;
+
+import io.integrationplatform.config.rule.api.RuleEvaluation;
+import io.integrationplatform.config.rule.api.RuleEvaluationPort;
+import io.integrationplatform.config.rule.api.RuleViolation;
 import io.integrationplatform.ingest.internal.intake.IntakeService;
+import io.integrationplatform.ingest.validation.ContractSchemaCheck;
+import io.integrationplatform.ingest.validation.PayloadValidationService;
 import io.integrationplatform.ingest.port.AcceptedMessage;
 import io.integrationplatform.ingest.port.CorrelationContext;
 import io.integrationplatform.ingest.port.IntakeRefusedException;
@@ -16,6 +23,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -93,6 +101,7 @@ class IntakeCommitContainerTest {
         seedTenants();
         seedPublishedOrders(TENANT_A);
         seedDraftInterface(TENANT_A);
+        seedStrictOrders(TENANT_A);
     }
 
     @Test
@@ -231,12 +240,17 @@ class IntakeCommitContainerTest {
         lines.start();
         ch.qos.logback.classic.Logger intakeLog =
                 (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(IntakeService.class);
+        // the per-record accepted line is logged at DEBUG since 38542c7 (review: per-record info was noise; the
+        // per-batch summary is the info line and carries no message id) - the test raises the level for the journey
+        ch.qos.logback.classic.Level levelBefore = intakeLog.getLevel();
+        intakeLog.setLevel(ch.qos.logback.classic.Level.DEBUG);
         intakeLog.addAppender(lines);
         AcceptedMessage accepted;
         try (CorrelationContext.Scope journey = CorrelationContext.open(inbound)) {
             accepted = asAppRole(tenantA).accept(request(CODE, PINNED_LABEL, "{\"customer_code\":\"CUST-T107\"}"));
         } finally {
             intakeLog.detachAppender(lines);
+            intakeLog.setLevel(levelBefore);
         }
 
         UUID tracking = accepted.trackingId();
@@ -255,6 +269,58 @@ class IntakeCommitContainerTest {
                         .containsEntry(CorrelationContext.CORRELATION_ID, "0af7651916cd43dd8448eb211c80319c")
                         .containsEntry(CorrelationContext.TENANT_ID, TENANT_A.toString())
                         .containsEntry(CorrelationContext.MESSAGE_ID, tracking.toString()));
+    }
+
+    // ---------------------------------------------------------------- the intake key bound (BS-06.4, row 375)
+
+    /**
+     * BS-06.4's real cause (row 375): the record's business key rides btree indexes (message_ordering_idx, the
+     * ordering_key unique) that refuse index rows past Postgres's ~2704 byte page bound - an over-bound key blew
+     * the transaction into the 503 INTAKE_UNAVAILABLE catch-all. The intake now refuses it deliberately 422 with
+     * the cap named, nothing persisted (the cap value stays Dipesh's call; the store bound is ~2655 bytes of key).
+     */
+    @Test
+    @DisplayName("a business key over the intake key cap is refused 422 with nothing persisted")
+    void oversizedBusinessKeyRefusedNothingPersisted() throws SQLException {
+        assertThatThrownBy(() -> asAppRole(tenantA).accept(request(CODE, PINNED_LABEL,
+                "{\"customer_code\":\"K-" + "x".repeat(2996) + "\"}")))
+                .isInstanceOfSatisfying(IntakeRefusedException.class, refused -> {
+                    assertThat(refused.reason())
+                            .isEqualTo(IntakeRefusedException.Reason.BUSINESS_KEY_TOO_LONG);
+                    assertThat(refused.detail()).contains("2048");
+                });
+        try (Connection read = owner.getConnection()) {
+            assertThat(count(read, "select count(*) from public.message where business_key like 'K-%'", null))
+                    .as("nothing persisted for the over-bound key").isEqualTo(BigDecimal.ZERO);
+            assertThat(count(read, "select count(*) from public.ordering_key where business_key like 'K-%'", null))
+                    .as("no ordering key reserved either").isEqualTo(BigDecimal.ZERO);
+        }
+    }
+
+    @Test
+    @DisplayName("a business key exactly at the cap commits (the bound is an inclusive refusal above 2048 bytes)")
+    void businessKeyAtTheCapCommits() throws SQLException {
+        AcceptedMessage accepted = asAppRole(tenantA).accept(request(CODE, PINNED_LABEL,
+                "{\"customer_code\":\"K-" + "x".repeat(2044) + "\"}"));
+        assertThat(accepted.trackingId()).isNotNull();
+        try (Connection read = owner.getConnection()) {
+            assertThat(count(read, "select count(*) from public.payload where message_id = ?",
+                    accepted.trackingId())).as("the payload row with an at-cap key").isEqualTo(BigDecimal.ONE);
+        }
+    }
+
+    @Test
+    @DisplayName("a payload of exactly 1 MB with a short business key commits (the BS-06.4 strict-cap intent)")
+    void oneMegabytePayloadWithAReasonableKeyCommits() throws SQLException {
+        String prefix = "{\"customer_code\":\"CUST-BS064\",\"note\":\"";
+        String body = prefix + "n".repeat(1_048_576 - prefix.length() - "\"}".length()) + "\"}";
+        assertThat(body).hasSize(1_048_576);
+        AcceptedMessage accepted = asAppRole(tenantA).accept(request(CODE, PINNED_LABEL, body));
+        assertThat(accepted.trackingId()).isNotNull();
+        try (Connection read = owner.getConnection()) {
+            assertThat(count(read, "select count(*) from public.payload where message_id = ?",
+                    accepted.trackingId())).as("the 1 MB payload row").isEqualTo(BigDecimal.ONE);
+        }
     }
 
     // ---------------------------------------------------------------- the transaction under proof
@@ -283,7 +349,139 @@ class IntakeCommitContainerTest {
         OutboxWriter outbox = failing != null ? failing
                 : new io.integrationplatform.ingest.internal.outbox.JdbcOutboxWriter(jdbc, tenant);
         return new IntakeService(jdbc, tenant, outbox, new io.integrationplatform.ingest.internal.timing
-                .JdbcStageTimingWriter(jdbc, tenant));
+                .JdbcStageTimingWriter(jdbc, tenant), new PayloadValidationService(new ContractSchemaCheck(),
+                        VALIDATION_RULES));
+    }
+
+    /** The stored-rules port stand-in: a VALIDATION rule set that refuses an amount over 100 (the real port is tested in platform-app). */
+    private static final RuleEvaluationPort VALIDATION_RULES = (ruleSetId, input) -> new RuleEvaluation(ruleSetId,
+            "VALIDATION", JsonMapper.builder().build().createObjectNode(),
+            input.path("amount").asDouble(0) > 100
+                    ? List.of(new RuleViolation("amount", "AMOUNT_TOO_HIGH", "amount must not exceed 100"))
+                    : List.of());
+
+    /** The caller's transaction for a bulk call (R11): tenant-stamped, one commit. */
+    private List<IntakeTransaction.RecordResult> bulk(TenantContext tenant, IntakeTransaction.BulkRequest request) {
+        IntakeTransaction port = wiringFor(app, tenant, null);
+        TransactionTemplate transaction = new TransactionTemplate(new DataSourceTransactionManager(app));
+        JdbcClient jdbc = JdbcClient.create(app);
+        return transaction.execute(status -> {
+            jdbc.sql("select set_config('app.tenant_id', :tenant, true)")
+                    .param("tenant", tenant.requireTenantId().toString()).query().singleValue();
+            return port.acceptBulk(request);
+        });
+    }
+
+    // ---------------------------------------------------------------- B37: validation at intake
+
+    private long rows(String table) throws SQLException {
+        try (Connection read = owner.getConnection()) {
+            return count(read, "select count(*) from public." + table, null).longValue();
+        }
+    }
+
+    @Test
+    @DisplayName("B37: a record with amount 'not-a-number' is refused 422-class, names amount, nothing stored or outboxed")
+    void wrongTypeIsRefusedAndNothingPersisted() throws SQLException {
+        long messages = rows("message");
+        long outbox = rows("outbox");
+        assertThatThrownBy(() -> asAppRole(tenantA).accept(request(STRICT_CODE, STRICT_LABEL,
+                "{\"customer_code\":\"CUST-B37-1\",\"amount\":\"not-a-number\"}")))
+                .isInstanceOfSatisfying(IntakeRefusedException.class, refused -> {
+                    assertThat(refused.reason()).isEqualTo(IntakeRefusedException.Reason.PAYLOAD_VALIDATION_FAILED);
+                    assertThat(refused.violations()).extracting(IntakeTransaction.RecordViolation::field,
+                            IntakeTransaction.RecordViolation::code).containsExactly(tuple("amount", "SCHEMA_TYPE"));
+                    assertThat(refused.detail() + refused.violations()).doesNotContain("not-a-number");
+                });
+        assertThat(rows("message")).as("message rows").isEqualTo(messages);
+        assertThat(rows("outbox")).as("outbox rows").isEqualTo(outbox);
+        assertThat(rows("payload")).as("payload rows").isEqualTo(messages);
+    }
+
+    @Test
+    @DisplayName("B37: schema violation and stored-rule violation come back together in one refusal")
+    void schemaAndRuleViolationsInOneRefusal() throws SQLException {
+        assertThatThrownBy(() -> asAppRole(tenantA).accept(request(STRICT_CODE, STRICT_LABEL,
+                "{\"customer_code\":42,\"amount\":500}")))
+                .isInstanceOfSatisfying(IntakeRefusedException.class, refused ->
+                        assertThat(refused.violations()).extracting(IntakeTransaction.RecordViolation::source,
+                                IntakeTransaction.RecordViolation::code).containsExactly(tuple("SCHEMA", "SCHEMA_TYPE"),
+                                tuple("RULE", "AMOUNT_TOO_HIGH")));
+    }
+
+    @Test
+    @DisplayName("B37: a valid record on the validated interface is accepted with a tracking id")
+    void validRecordOnTheStrictInterfaceIsAccepted() {
+        assertThat(asAppRole(tenantA).accept(request(STRICT_CODE, STRICT_LABEL,
+                "{\"customer_code\":\"CUST-B37-2\",\"amount\":12.5}")).trackingId()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("B37: a bulk of 10 with 3 invalid returns 10 results, 7 tracking ids, and writes exactly 7 messages and 7 outbox rows")
+    void bulkWritesOnlyTheValidRecords() throws SQLException {
+        long messages = rows("message");
+        long outbox = rows("outbox");
+        List<tools.jackson.databind.JsonNode> records = new java.util.ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            String amount = i == 1 ? "\"bad\"" : i == 4 ? "500" : "1.5";
+            String code = i == 7 ? "7" : "\"CUST-B37-B" + i + "\"";
+            records.add(JsonMapper.builder().build().readTree("{\"customer_code\":" + code + ",\"amount\":" + amount + "}"));
+        }
+        List<IntakeTransaction.RecordResult> results = bulk(tenantA, new IntakeTransaction.BulkRequest(STRICT_CODE,
+                STRICT_LABEL, records, "idem-bulk-" + idempotency.incrementAndGet(), "cred"));
+
+        assertThat(results).hasSize(10);
+        assertThat(results.stream().filter(r -> r.trackingId() != null)).hasSize(7);
+        assertThat(results.stream().filter(r -> r.trackingId() == null).map(IntakeTransaction.RecordResult::index))
+                .containsExactly(1, 4, 7);
+        assertThat(results.get(1).violations()).extracting(IntakeTransaction.RecordViolation::field).containsExactly("amount");
+        assertThat(rows("message")).isEqualTo(messages + 7);
+        assertThat(rows("outbox")).isEqualTo(outbox + 7);
+    }
+
+    @Test
+    @DisplayName("B37: a tenant never validates against another tenant's contract: tenant B has no such interface (404-class)")
+    void validationIsTenantScoped() {
+        assertThatThrownBy(() -> stamped(tenantB, wiringFor(app, tenantB, null)).accept(request(STRICT_CODE,
+                STRICT_LABEL, "{\"customer_code\":\"x\",\"amount\":1}")))
+                .isInstanceOfSatisfying(IntakeRefusedException.class, refused -> assertThat(refused.reason())
+                        .isEqualTo(IntakeRefusedException.Reason.INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED));
+    }
+
+    private static final String STRICT_CODE = "strict-orders";
+    private static final String STRICT_LABEL = "2.0";
+    private static final String STRICT_SCHEMA = "{\"type\":\"object\",\"required\":[\"customer_code\",\"amount\"],"
+            + "\"properties\":{\"customer_code\":{\"type\":\"string\"},\"amount\":{\"type\":\"number\"}}}";
+
+    /** A second published interface of tenant A: contract 2.0 with a real schema, and one VALIDATION rule set row. */
+    private void seedStrictOrders(UUID tenant) throws SQLException {
+        UUID actor = UUID.fromString("cccccccc-0000-0000-0000-00000000000a");
+        UUID approver = UUID.fromString("cccccccc-0000-0000-0000-00000000000b");
+        UUID versionId = UUID.randomUUID();
+        UUID interfaceId = UUID.randomUUID();
+        try (Connection sql = owner.getConnection()) {
+            sql.setAutoCommit(false);
+            try (PreparedStatement stamp = sql.prepareStatement("select set_config('app.tenant_id', ?, true)")) {
+                stamp.setString(1, tenant.toString());
+                stamp.execute();
+            }
+            insert(sql, "insert into public.contract_version (id, tenant_id, contract_id, version_label, status,"
+                    + " json_schema_draft_2020_12, author_id) select ?, c.tenant_id, c.id, ?, 'APPROVED', ?::jsonb, ?"
+                    + " from public.contract c where c.tenant_id = ? and c.code = 'customer-orders-v'",
+                    UUID.randomUUID(), STRICT_LABEL, STRICT_SCHEMA, actor, tenant);
+            insert(sql, "insert into public.interface (id, tenant_id, code, name, mode, ordering, current_version,"
+                    + " published_version, status) values (?, ?, ?, 'Strict orders', 'ASYNC', 'NONE', 1, 1, 'PUBLISHED')",
+                    interfaceId, tenant, STRICT_CODE);
+            insert(sql, "insert into public.interface_version (id, tenant_id, interface_id, version, status,"
+                    + " business_key_rule, snapshot, source_contract_version_id, author_id, approver_id)"
+                    + " select ?, ?, ?, 1, 'PUBLISHED', 'customer_code', '{}'::jsonb, cv.id, ?, ?"
+                    + " from public.contract_version cv where cv.tenant_id = ? and cv.version_label = ?",
+                    versionId, tenant, interfaceId, actor, approver, tenant, STRICT_LABEL);
+            insert(sql, "insert into public.rule_set (id, tenant_id, interface_id, kind, name, content, content_text,"
+                    + " author_id) values (?, ?, ?, 'VALIDATION', 'amount cap', '{\"nodes\":[]}'::jsonb,"
+                    + " '{\"nodes\":[]}', ?)", UUID.randomUUID(), tenant, interfaceId, actor);
+            sql.commit();
+        }
     }
 
     /** Tenant-stamps the transaction's shared connection (R11 production behaviour, session scope in tests). */

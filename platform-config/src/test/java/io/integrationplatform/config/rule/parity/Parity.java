@@ -23,7 +23,7 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * T-029 (E6-F3-S1, ADR-003 rule 3): the parity fixture and the one assertion both sides are judged by. The committed
  * files under {@code rule-parity/} are the bridge between the backend proof and the console's e2e proof
- * (ui/tests/screens/rules-parity.docker.spec.mjs reads the same three files):
+ * (e2e-ui/tests/screens/rules-parity.docker.spec.mjs reads the same three files):
  * <ul>
  *   <li>{@code validation-rule-set.json} - one VALIDATION rule set (ZEN JDM, hitPolicy collect) whose rows report
  *       violations AND routing outputs;</li>

@@ -1,9 +1,11 @@
 package io.integrationplatform.routing.stage1;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.config.flow.application.FlowBundle;
 import io.integrationplatform.delivery.port.Stage1Delivery;
+import io.integrationplatform.routing.stage.UnroutableWorkException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -27,6 +29,8 @@ class Stage1FanOutPlanTest {
     private static final String ENDPOINT_B = "bbbbbbbb-1111-4000-8000-000000000002";
     private static final String VERSION_A = "aaaaaaaa-2222-4000-8000-000000000001";
     private static final String VERSION_B = "bbbbbbbb-2222-4000-8000-000000000002";
+    private static final String TARGET_CV_A = "aaaaaaaa-3333-4000-8000-000000000001";
+    private static final String TARGET_CV_B = "bbbbbbbb-3333-4000-8000-000000000002";
 
     private final JdbcStage1Reads.PinnedMessage message =
             new JdbcStage1Reads.PinnedMessage(MESSAGE, "ACCEPTED", ACCEPTED_AT, UUID.randomUUID(), INTERFACE, "K-1", 3L);
@@ -39,15 +43,15 @@ class Stage1FanOutPlanTest {
                 List.of(route(ROUTE_A, 1, null, "ACTIVE", ENDPOINT_A), route(ROUTE_B, 2, null, "ACTIVE", ENDPOINT_B),
                         route(ROUTE_PAUSED, 3, null, "PAUSED", ENDPOINT_A),
                         route(ROUTE_CONDITIONAL, 4, "amount > 100", "ACTIVE", ENDPOINT_B)),
-                List.of(mapping(ROUTE_A, VERSION_A), mapping(ROUTE_B, VERSION_B)));
+                List.of(mapping(ROUTE_A, VERSION_A, TARGET_CV_A), mapping(ROUTE_B, VERSION_B, TARGET_CV_B)));
 
         List<Stage1Delivery> planned = Stage1FanOut.plan(message, snapshot);
 
         assertThat(planned).containsExactly(
                 new Stage1Delivery(MESSAGE, UUID.fromString(ROUTE_A), ACCEPTED_AT, UUID.fromString(ENDPOINT_A),
-                        UUID.fromString(VERSION_A), null, INTERFACE, "K-1", 3L),
+                        UUID.fromString(VERSION_A), UUID.fromString(TARGET_CV_A), null, INTERFACE, "K-1", 3L),
                 new Stage1Delivery(MESSAGE, UUID.fromString(ROUTE_B), ACCEPTED_AT, UUID.fromString(ENDPOINT_B),
-                        UUID.fromString(VERSION_B), null, INTERFACE, "K-1", 3L));
+                        UUID.fromString(VERSION_B), UUID.fromString(TARGET_CV_B), null, INTERFACE, "K-1", 3L));
     }
 
     @Test
@@ -57,7 +61,21 @@ class Stage1FanOutPlanTest {
                 List.of(new FlowBundle.SnapshotMapping("m-a", ROUTE_A, "[]", "$", null, null, null)));
 
         assertThat(Stage1FanOut.plan(message, snapshot)).singleElement()
-                .satisfies(delivery -> assertThat(delivery.mappingVersionId()).isNull());
+                .satisfies(delivery -> {
+                    assertThat(delivery.mappingVersionId()).isNull();
+                    assertThat(delivery.contractVersionId()).isNull();
+                });
+    }
+
+    @Test
+    @DisplayName("T172: a mapping version whose snapshot lacks the target contract id is refused loudly, never a NULL pin")
+    void mappingVersionWithoutTargetContractIsRefused() {
+        FlowBundle.Parsed snapshot = new FlowBundle.Parsed(List.of(route(ROUTE_A, 1, null, "ACTIVE", ENDPOINT_A)),
+                List.of(mapping(ROUTE_A, VERSION_A, null)));
+
+        assertThatThrownBy(() -> Stage1FanOut.plan(message, snapshot)).isInstanceOf(UnroutableWorkException.class)
+                .hasMessageContaining(ROUTE_A).hasMessageContaining(VERSION_A)
+                .hasMessageContaining("target contract");
     }
 
     @Test
@@ -66,12 +84,37 @@ class Stage1FanOutPlanTest {
         assertThat(Stage1FanOut.plan(message, new FlowBundle.Parsed(List.of(), List.of()))).isEmpty();
     }
 
+    @Test
+    @DisplayName("a snapshot parsed from its stored JSON plans one delivery pinning the route's mapping version")
+    void planFromStoredSnapshotJson() {
+        UUID routeId = UUID.fromString("44444444-4444-4444-8444-444444444444");
+        UUID targetId = UUID.fromString("55555555-5555-4555-8555-555555555555");
+        UUID mappingVersionId = UUID.fromString("66666666-6666-4666-8666-666666666666");
+        UUID targetContractVersionId = UUID.fromString("77777777-7777-4777-8777-777777777777");
+        String snapshot = """
+                {
+                  "interface": {"code":"orders","name":"orders","ordering":"PER_KEY","businessKeyRule":"$.orderId"},
+                  "routes": [
+                    {"id":"%s","sequence":1,"condition":null,"isPrimary":true,"status":"ACTIVE","targetEndpointId":"%s"}
+                  ],
+                  "mappings": [
+                    {"id":"m1","routeId":"%s","fieldMappings":[],"compiledExpression":"$","sourceContractVersionId":"sc","targetContractVersionId":"%s","mappingVersionId":"%s"}
+                  ]
+                }
+                """.formatted(routeId, targetId, routeId, targetContractVersionId, mappingVersionId);
+
+        assertThat(Stage1FanOut.plan(message, FlowBundle.parse(snapshot))).containsExactly(
+                new Stage1Delivery(MESSAGE, routeId, ACCEPTED_AT, targetId, mappingVersionId, targetContractVersionId, null, INTERFACE, "K-1",
+                        3L));
+    }
+
     private static FlowBundle.SnapshotRoute route(String id, int sequence, String condition, String status,
             String endpoint) {
         return new FlowBundle.SnapshotRoute(id, sequence, condition, false, status, endpoint);
     }
 
-    private static FlowBundle.SnapshotMapping mapping(String routeId, String versionId) {
-        return new FlowBundle.SnapshotMapping("m-" + routeId, routeId, "[]", "$", "src", "tgt", versionId);
+    private static FlowBundle.SnapshotMapping mapping(String routeId, String versionId, String targetContractVersionId) {
+        return new FlowBundle.SnapshotMapping("m-" + routeId, routeId, "[]", "$", "src", targetContractVersionId,
+                versionId);
     }
 }

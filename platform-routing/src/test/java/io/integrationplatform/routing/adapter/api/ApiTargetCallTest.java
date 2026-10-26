@@ -71,6 +71,44 @@ class ApiTargetCallTest {
     }
 
     @Test
+    @DisplayName("success: the send carries the open journey's W3C traceparent, verbatim from the journey the"
+            + " delivery opened - the same source the Kafka leg's header carries")
+    void successCarriesOpenJourneyTraceparent() {
+        String traceparent = "00-7d3e5f0a1b2c4d6e8f90a1b2c3d4e5f6-0123456789abcdef-01";
+        RecordingHttpSend sender = answering(() -> new Response(200, new byte[0]));
+        ApiTargetCall target = target(view("http://target.e5.test:8080/api", "POST", 1500, "NO_AUTH", false,
+                Map.of()), sender);
+        try (io.integrationplatform.ingest.port.CorrelationContext.Scope journey =
+                io.integrationplatform.ingest.port.CorrelationContext.open(traceparent)) {
+            target.call(send());
+        }
+        assertThat(sent.get(0).headers().get("traceparent")).as("the journey's traceparent on the wire")
+                .isEqualTo(traceparent);
+    }
+
+    @Test
+    @DisplayName("the traceparent header is a valid W3C version-00 value when the journey started fresh, and"
+            + " absent when no journey is open")
+    void traceparentHeaderIsValidW3cOrAbsentWithoutAJourney() {
+        assertThat(sent).as("no journey open yet; the first leg has not run").isEmpty();
+        RecordingHttpSend sender = answering(() -> new Response(200, new byte[0]));
+        ApiTargetCall target = target(view("http://target.e5.test:8080/api", "POST", 1500, "NO_AUTH", false,
+                Map.of()), sender);
+        target.call(send());
+        assertThat(sent.get(0).headers().get("traceparent")).as("no open journey - no header to carry").isNull();
+        try (io.integrationplatform.ingest.port.CorrelationContext.Scope journey =
+                io.integrationplatform.ingest.port.CorrelationContext.open(null)) {
+            sent.clear();
+            target.call(send());
+        }
+        String carried = sent.get(0).headers().get("traceparent");
+        assertThat(carried).as("a fresh journey still carries one valid W3C traceparent").isNotNull()
+                .matches("00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}");
+        assertThat(io.integrationplatform.ingest.port.CorrelationContext.correlationIdOf(carried))
+                .as("the trace id is the W3C trace id the target's consumer continues").isNotNull();
+    }
+
+    @Test
     @DisplayName("a refused destination is PERMANENT and nothing is sent")
     void refusedDestinationIsPermanent() {
         RecordingHttpSend sender = answering(() -> new Response(200, new byte[0]));
@@ -82,6 +120,25 @@ class ApiTargetCallTest {
                 .isInstanceOfSatisfying(TargetFaultException.class, fault ->
                         assertThat(fault.outcomeClass()).isEqualTo(OutcomeClass.PERMANENT));
         assertThat(sent).as("nothing sent to a refused destination").isEmpty();
+    }
+
+    @Test
+    @DisplayName("F-4: a refused or unresolved destination's fault text names scheme+host+port only - never path or query")
+    void faultTextNeverCarriesThePathOrQuery() {
+        String stored = "https://target.e5.test:8443/orders/v1?api_key=SECRET-TOKEN";
+        ApiTargetCall refused = new ApiTargetCall(views(view(stored, "POST", 1500, "NO_AUTH", false, Map.of())),
+                new DestinationGuard(AllowList.of(List.of()), resolver()), bodyPort, neverExpected());
+        HostResolver broken = host -> {
+            throw new UnknownHostException(host);
+        };
+        ApiTargetCall unresolved = new ApiTargetCall(views(view(stored, "POST", 1500, "NO_AUTH", false, Map.of())),
+                new DestinationGuard(AllowList.of(List.of("target.e5.test")), broken), bodyPort, neverExpected());
+
+        for (ApiTargetCall target : List.of(refused, unresolved)) {
+            assertThatThrownBy(() -> target.call(send())).isInstanceOfSatisfying(TargetFaultException.class,
+                    fault -> assertThat(fault.getMessage()).contains("https://target.e5.test:8443")
+                            .doesNotContain("SECRET-TOKEN").doesNotContain("api_key").doesNotContain("/orders"));
+        }
     }
 
     @Test

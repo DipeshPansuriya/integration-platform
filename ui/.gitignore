@@ -4,3 +4,5 @@ public/console-config.json
 # Build and Playwright run outputs.
 dist/
 test-results/
+playwright-report/
+_reports/

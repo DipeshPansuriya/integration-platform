@@ -32,6 +32,11 @@ class JdbcSchedulerRegistryTest {
         }
 
         @Override
+        public <T> List<T> query(String sql, RowMapper<T> rowMapper) {
+            return query(sql, rowMapper, new Object[0]);
+        }
+
+        @Override
         public int update(String sql, Object... args) {
             this.sql = sql;
             this.args = java.util.Arrays.asList(args);
@@ -86,6 +91,18 @@ class JdbcSchedulerRegistryTest {
         registry.setPaused("DAILY_REPORT", false, "ops-agent", Instant.parse("2026-10-19T09:00:00Z"));
 
         assertThat(jdbc.args).containsExactly(false, null, null, "DAILY_REPORT");
+    }
+
+    /** E14 follow-up: the register read exposes when the job was paused, so "changed since" can see a state change. */
+    @Test
+    void theRegisterReadIncludesPausedAt() {
+        registry.jobDefinitions(mapper);
+        assertThat(jdbc.sql).contains("paused, paused_at, state_changed_at,")
+                .endsWith("from scheduler.job_definition");
+
+        registry.jobDefinition("DAILY_REPORT", mapper);
+        assertThat(jdbc.sql).contains("paused_at, state_changed_at").endsWith(" where job_type = ?");
+        assertThat(jdbc.args).containsExactly("DAILY_REPORT");
     }
 
     /** T-127 follow-up: the operator credential lookup is ACTIVE-only with bound values; no row is not active. */

@@ -64,10 +64,9 @@ public final class MqTargetCall implements TargetCall {
 
     @Override
     public void call(Stage2Send send) {
-        CircuitBreaker breaker = breakers.circuitBreaker("mq:" + send.targetEndpointId(), BREAKER);
+        CircuitBreaker breaker = io.integrationplatform.routing.stage2.BreakerOpenWait.watch(breakers.circuitBreaker("mq:" + send.targetEndpointId(), BREAKER));
         if (!breaker.tryAcquirePermission()) {
-            throw new TargetFaultException.TransientFaultException("the breaker of target endpoint "
-                    + send.targetEndpointId() + " is open");
+            throw TargetFaultException.CircuitOpenException.of(breaker, send.targetEndpointId());
         }
         long started = System.nanoTime();
         Observation observation = Observation.createNotStarted("mq.target.send", observations).start();

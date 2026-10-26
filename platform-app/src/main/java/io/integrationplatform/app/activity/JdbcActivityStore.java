@@ -34,11 +34,16 @@ final class JdbcActivityStore extends TenantScopedRepository {
 
     /** What a row answers; {@code target_ids} leaves the database as its JSON text. */
     private static final String COLUMNS = "id, actor, action, target_ids::text as target_ids, before_state,"
-            + " after_state, event_at";
+            + " after_state, event_at, trace_id";
 
     /** One ledger row as the activity view shows it. */
     record ActivityRow(long id, String actor, String action, List<String> targetIds, String before, String after,
-            Instant at) {
+            Instant at, String traceId) {
+
+        ActivityRow(long id, String actor, String action, List<String> targetIds, String before, String after,
+                Instant at) {
+            this(id, actor, action, targetIds, before, after, at, null);
+        }
     }
 
     JdbcActivityStore(JdbcClient jdbcClient, TenantContext tenantContext) {
@@ -68,7 +73,7 @@ final class JdbcActivityStore extends TenantScopedRepository {
         params.put("limit", limit);
         params.put("offset", offset);
         return query("select " + COLUMNS + " from (select id, tenant_id, actor, action, target_ids, before_state,"
-                        + " after_state, event_at from public.audit_event where " + String.join(" and ", conditions)
+                        + " after_state, event_at, trace_id from public.audit_event where " + String.join(" and ", conditions)
                         + " order by event_at desc, id desc limit :limit offset :offset) scoped",
                 null, params, JdbcActivityStore::row);
     }
@@ -82,6 +87,7 @@ final class JdbcActivityStore extends TenantScopedRepository {
     private static ActivityRow row(ResultSet rs, int n) throws SQLException {
         return new ActivityRow(rs.getLong("id"), rs.getString("actor"), rs.getString("action"),
                 JSON.readValue(rs.getString("target_ids"), STRINGS), rs.getString("before_state"),
-                rs.getString("after_state"), rs.getObject("event_at", OffsetDateTime.class).toInstant());
+                rs.getString("after_state"), rs.getObject("event_at", OffsetDateTime.class).toInstant(),
+                rs.getString("trace_id"));
     }
 }

@@ -36,7 +36,9 @@ public class JdbcStageTimingWriter extends TenantScopedRepository implements Sta
 
     /**
      * T105: the DELIVER row of the message a delivery belongs to, written by the final move that leaves none of the
-     * message's deliveries open. Started at the message's first delivery attempt, never after the finish; a row
+     * message's deliveries open. Started at the message's first delivery attempt, but never before the TRANSFORM
+     * stage finished (the attempt is clocked before the mapping runs inside it, so BS-09's agreed order INTAKE,
+     * ROUTE, TRANSFORM, DELIVER needs the send itself as the start) and never after the finish; a row
      * already there (a replayed dead letter dying again) is a no-op through the one-row-per-stage UNIQUE. The caller
      * holds the message row lock already (every final move takes it first - T-165), so this statement's snapshot
      * sees every sibling that finished before it.
@@ -60,13 +62,20 @@ public class JdbcStageTimingWriter extends TenantScopedRepository implements Sta
                 join public.delivery s on s.id = a.delivery_id and s.tenant_id = a.tenant_id
                 join msg on msg.id = s.message_id
                 where a.tenant_id = :tenant_id::uuid
+            ), transformed as (
+                select max(coalesce(t.finished_at, t.started_at)) as at
+                from public.message_stage_timing t
+                join msg on msg.id = t.message_id and msg.accepted_at = t.accepted_at
+                where t.tenant_id = :tenant_id::uuid and t.stage = 'TRANSFORM'
             ), ins as (
                 insert into public.message_stage_timing
                     (message_id, tenant_id, accepted_at, stage, started_at, finished_at)
                 select msg.id, msg.tenant_id, msg.accepted_at, 'DELIVER',
-                    least(coalesce(first_call.started_at, :finished_at::timestamptz), :finished_at::timestamptz),
+                    least(greatest(coalesce(first_call.started_at, :finished_at::timestamptz),
+                                   coalesce(transformed.at, first_call.started_at)),
+                          :finished_at::timestamptz),
                     :finished_at::timestamptz
-                from msg cross join first_call
+                from msg cross join first_call cross join transformed
                 on conflict (message_id, accepted_at, stage) do nothing
                 returning id, tenant_id
             )
