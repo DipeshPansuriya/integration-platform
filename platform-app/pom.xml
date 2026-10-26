@@ -43,6 +43,11 @@
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-transform</artifactId>
     </dependency>
+    <!-- E14 seam (arjun-fullstack): scheduler run-recording module on the deployable classpath. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-scheduler</artifactId>
+    </dependency>
     <dependency>
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>

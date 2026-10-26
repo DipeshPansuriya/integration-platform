@@ -49,6 +49,12 @@
       <artifactId>platform-transform</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- E14 seam. -->
+    <dependency>
+      <groupId>io.integrationplatform</groupId>
+      <artifactId>platform-scheduler</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>io.integrationplatform</groupId>
       <artifactId>platform-tenancy</artifactId>
