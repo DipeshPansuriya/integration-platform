@@ -322,6 +322,11 @@ class DipeshExampleEndToEndContainerTest {
         journey.setContext(root.getLoggerContext());
         journey.start();
         root.addAppender(journey);
+        // 38542c74 demoted the per-record intake line to debug (log noise); raise just that logger for this proof
+        ch.qos.logback.classic.Logger intake = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
+                .getLogger("io.integrationplatform.ingest.internal.intake.IntakeService");
+        ch.qos.logback.classic.Level intakeLevel = intake.getLevel();
+        intake.setLevel(ch.qos.logback.classic.Level.DEBUG);
         UUID message;
         Map<UUID, String> deliveries;
         try {
@@ -331,6 +336,7 @@ class DipeshExampleEndToEndContainerTest {
             deliveries = deliveryStatesOf(message);
         } finally {
             root.detachAppender(journey);
+            intake.setLevel(intakeLevel);
         }
         List<String> ids = new ArrayList<>(List.of(message.toString()));
         deliveries.keySet().forEach(id -> ids.add(id.toString()));

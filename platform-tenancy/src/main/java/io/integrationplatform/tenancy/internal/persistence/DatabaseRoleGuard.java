@@ -5,31 +5,67 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import javax.sql.DataSource;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 /**
  * K1 (T146, Dipesh m-263aac): the application's database login must not be able to bypass row-level security -
- * not a superuser, not BYPASSRLS, and not the owner of any tenant table. Otherwise every tenant-isolation control
- * collapses silently, so the application refuses to start in every environment instead of running unprotected.
+ * not a superuser, not BYPASSRLS, and not the owner (or a member of an owner role) of any table in any application
+ * schema. Otherwise every tenant-isolation control collapses silently, so the application refuses to start in every
+ * environment instead of running unprotected.
  *
- * <p>The check runs once, against the role the application pool actually connects as. A missing {@link DataSource}
- * (a slice test with no database) skips it and fails closed at the query layer instead.
+ * <p>Wiring (row 393, Karan m-aec16c): the guard used to be {@code @ConditionalOnBean(DataSource.class)} on a scanned
+ * component. Component scanning is evaluated before the DataSource auto-configuration registers its bean, so the
+ * condition was false and the guard never existed. It is now unconditional and looks the DataSource up lazily, and
+ * the check runs in {@link #afterSingletonsInstantiated()} - after every singleton, Flyway's migration initializer
+ * included - so the ownership check sees the migrated tables and a refusal fails the startup with a clear message.
+ * No DataSource at all (a slice test with no database) skips the check and fails closed at the query layer instead.
+ *
+ * <p>The refusal wording is part of the contract: the hosting smoke test greps for "must not own a tenant table".
  */
 @Component
-@ConditionalOnBean(DataSource.class)
+@Lazy(false) // spring.main.lazy-initialization=true must not be able to skip the guard
 @TenantBoundaryCrossing("T6")
-class DatabaseRoleGuard {
+class DatabaseRoleGuard implements SmartInitializingSingleton {
 
-    private final DataSource dataSource;
+    /** Tables (plain and partitioned) in every non-system schema that the login is, or can act as, the owner of. */
+    private static final String OWNED_TABLES = "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
+            + " WHERE c.relkind IN ('r', 'p')"
+            + " AND left(n.nspname, 3) <> 'pg_' AND n.nspname <> 'information_schema'"
+            + " AND pg_has_role(current_user, c.relowner, 'MEMBER')";
 
-    DatabaseRoleGuard(DataSource dataSource) {
+    private final ObjectProvider<DataSource> dataSource;
+
+    @Autowired
+    DatabaseRoleGuard(ObjectProvider<DataSource> dataSource) {
         this.dataSource = dataSource;
     }
 
-    @jakarta.annotation.PostConstruct
+    /** Test seam: a guard for one known DataSource. */
+    DatabaseRoleGuard(DataSource dataSource) {
+        this.dataSource = new org.springframework.beans.factory.support.StaticListableBeanFactory(
+                java.util.Map.of("dataSource", dataSource)).getBeanProvider(DataSource.class);
+    }
+
+    @Override
+    public void afterSingletonsInstantiated() {
+        verifyLoginRole();
+    }
+
     void verifyLoginRole() {
-        try (Connection connection = dataSource.getConnection();
+        DataSource source = dataSource.getIfUnique();
+        if (source == null) {
+            if (dataSource.stream().findAny().isPresent()) {
+                // present but not unique: silently checking nothing would be the original K1 defect again
+                throw new IllegalStateException(
+                        "K1: more than one DataSource and none is primary - cannot tell which login the application uses");
+            }
+            return;
+        }
+        try (Connection connection = source.getConnection();
                 Statement statement = connection.createStatement()) {
             try (ResultSet attributes = statement.executeQuery(
                     "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user")) {
@@ -43,11 +79,7 @@ class DatabaseRoleGuard {
                     throw new IllegalStateException("application database login must not bypass row-level security");
                 }
             }
-            try (ResultSet ownership = statement.executeQuery(
-                    "SELECT count(*) FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner"
-                            + " WHERE r.rolname = current_user"
-                            + " AND c.relnamespace = 'public'::regnamespace"
-                            + " AND c.relkind IN ('r', 'p')")) {
+            try (ResultSet ownership = statement.executeQuery(OWNED_TABLES)) {
                 ownership.next();
                 if (ownership.getLong(1) > 0) {
                     throw new IllegalStateException(

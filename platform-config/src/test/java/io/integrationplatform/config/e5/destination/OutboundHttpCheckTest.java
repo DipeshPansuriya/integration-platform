@@ -161,6 +161,27 @@ class OutboundHttpCheckTest {
     }
 
     @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("T161 I1: with a showcase host on port 8089, a redirect to that host on :5432 is refused - only the"
+            + " first hop is dialled")
+    void aRedirectFromAListedHostToTheSameLocalHostOnAnotherPortIsRefused() {
+        server.answerWith(CannedHttpServer.answer(302, "Location: http://localhost:5432/"));
+        DestinationGuard guard = new DestinationGuard(AllowList.of(List.of("*.e5.test", "localhost")),
+                fixed(Map.of("api.e5.test", PUBLIC, "localhost", literal("127.0.0.1"))), List.of("localhost"),
+                List.of(8089));
+        OutboundHttpCheck check = new OutboundHttpCheck(guard, dialer(), OutboundHttpCheck.Settings.defaults(),
+                new SimpleMeterRegistry(), ObservationRegistry.NOOP);
+
+        Result result = check.check(URI.create("http://api.e5.test/start"), true, null);
+
+        assertThat(result.outcome()).isEqualTo(Outcome.REFUSED);
+        assertThat(result.reason()).isEqualTo("REFUSED_ADDRESS");
+        assertThat(dialled).containsExactly(new InetSocketAddress(PUBLIC, 80));
+        assertThat(server.connections()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("An allowed redirect is followed through the guard to its pinned address")
     void anAllowedRedirectIsFollowed() throws Exception {
         try (CannedHttpServer second = new CannedHttpServer(CannedHttpServer.answer(200))) {

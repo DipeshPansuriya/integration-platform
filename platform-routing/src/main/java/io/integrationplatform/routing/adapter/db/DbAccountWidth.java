@@ -12,6 +12,12 @@ import java.util.UUID;
 public interface DbAccountWidth {
 
     /**
+     * <p>T203: "narrow" means nothing beyond INSERT/SELECT on the table, no role attribute (SUPERUSER, BYPASSRLS,
+     * CREATEROLE, CREATEDB, REPLICATION), no dangerous predefined role, no CREATE right on the database or a usable
+     * schema, and no DELETE/TRUNCATE/TRIGGER/UPDATE/REFERENCES on another relation of the schema. It is NOT a claim
+     * about function EXECUTE, other schemas, TEMP, or grants made after approval; scope detail on
+     * {@code DbTestConnection#accountWidthRefusal}.
+     *
      * @param settingsJson the system's DB settings with {@code table} set to the table being approved
      * @return empty when the account is narrow; else the refusal text (starts with {@code DB_ACCOUNT_TOO_WIDE} or
      *         {@code DB_ACCOUNT_UNVERIFIED})

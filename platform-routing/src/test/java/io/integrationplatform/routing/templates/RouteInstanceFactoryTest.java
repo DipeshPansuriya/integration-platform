@@ -1,6 +1,7 @@
 package io.integrationplatform.routing.templates;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
@@ -64,7 +65,7 @@ class RouteInstanceFactoryTest {
                 null, MAPPING_M4));
 
         factory.publishInterface(TENANT, INTERFACE_ID); // AC-1: validates only
-        List<RouteInstance> instances = reader.rows.values().stream().map(factory::ensure).toList(); // stage 2, lazily
+        List<RouteInstance> instances = reader.rows.values().stream().map(row -> factory.ensure(TENANT, row)).toList(); // stage 2, lazily
 
         assertThat(context.isStarted())
                 .as("0 deploys, 0 restarts: the already-running context is still the same started instance")
@@ -88,7 +89,7 @@ class RouteInstanceFactoryTest {
                 "https://target-a.example/v1", null, MAPPING_M3);
         reader.add(m3);
         factory.publishInterface(TENANT, INTERFACE_ID);
-        RouteInstance first = factory.ensure(m3); // built lazily in stage 2 with the row's pinned versions
+        RouteInstance first = factory.ensure(TENANT, m3); // built lazily in stage 2 with the row's pinned versions
 
         reader.replace(m3.routeId(), new RouteConfigRow(m3.routeId(), ENDPOINT_A, "API",
                 "https://target-a.example/v2", null, MAPPING_M4));
@@ -99,7 +100,7 @@ class RouteInstanceFactoryTest {
         assertThat(afterChange.pinnedMappingVersionId())
                 .as("an instantiated route stays on its pinned versions; only new messages use m4")
                 .isEqualTo(MAPPING_M3);
-        RouteInstance ensured = factory.ensure(m3);
+        RouteInstance ensured = factory.ensure(TENANT, m3);
         assertThat(ensured.routeId())
                 .as("ensure() is the lazy re-use: an already-instantiated endpoint is re-used, never rebuilt")
                 .isEqualTo(first.routeId());
@@ -109,7 +110,7 @@ class RouteInstanceFactoryTest {
     void aRouteIdlingPastThirtyMinutesIsRemovedFromTheRunningContextAndRebuiltLazily() {
         reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
                 null, MAPPING_M3));
-        RouteInstance first = factory.ensure(reader.current(ENDPOINT_A));
+        RouteInstance first = factory.ensure(TENANT, reader.current(ENDPOINT_A));
         factory.touch(ENDPOINT_A, Instant.parse("2026-10-12T12:00:00Z"));
 
         factory.evictIdle(Instant.parse("2026-10-12T12:29:59Z"));
@@ -122,7 +123,7 @@ class RouteInstanceFactoryTest {
                 .isEmpty();
         assertThat(context.getRoute(first.camelRouteId())).as("the idle route is gone from the context").isNull();
 
-        RouteInstance rebuilt = factory.ensure(reader.current(ENDPOINT_A));
+        RouteInstance rebuilt = factory.ensure(TENANT, reader.current(ENDPOINT_A));
         assertThat(rebuilt.routeId()).as("lazy rebuild keeps the configuration row's route identity")
                 .isEqualTo(first.routeId());
         assertThat(context.getRoute(rebuilt.camelRouteId()))
@@ -131,13 +132,67 @@ class RouteInstanceFactoryTest {
     }
 
     @Test
+    void aFailedStopKeepsTheInstanceSoTheNextSweepRetriesAndNoOrphanRouteClashes() throws Exception {
+        java.util.concurrent.atomic.AtomicBoolean failing = new java.util.concurrent.atomic.AtomicBoolean(true);
+        DefaultCamelContext spy = new DefaultCamelContext() {
+            @Override
+            public void removeRoute(org.apache.camel.Route route) {
+                if (failing.get()) {
+                    throw new IllegalStateException("stop failed");
+                }
+                super.removeRoute(route);
+            }
+        };
+        spy.start();
+        try {
+            RouteInstanceFactory evicting = new RouteInstanceFactory(reader, spy, List.of(template),
+                    Set.of("https"), Duration.ofMinutes(30), () -> Instant.parse("2026-10-12T12:00:00Z"));
+            reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
+                    null, MAPPING_M3));
+            RouteInstance first = evicting.ensure(TENANT, reader.current(ENDPOINT_A));
+            evicting.touch(ENDPOINT_A, Instant.parse("2026-10-12T12:00:00Z"));
+
+            evicting.evictIdle(Instant.parse("2026-10-12T12:31:00Z"));
+
+            assertThat(evicting.instanceOf(ENDPOINT_A))
+                    .as("T161 L2: the route could not be stopped, so the instance stays held (was: map entry gone,"
+                            + " route orphaned, every later ensure dead-lettered PERMANENT)").isPresent();
+            assertThat(evicting.ensure(TENANT, reader.current(ENDPOINT_A)).routeId()).isEqualTo(first.routeId());
+
+            failing.set(false);
+            evicting.evictIdle(Instant.parse("2026-10-12T12:32:00Z"));
+
+            assertThat(evicting.instanceOf(ENDPOINT_A)).as("the next sweep removes it").isEmpty();
+            assertThat(spy.getRoute(first.camelRouteId())).isNull();
+            assertThat(evicting.ensure(TENANT, reader.current(ENDPOINT_A)).routeId())
+                    .as("and the lazy rebuild works, no clash").isEqualTo(first.routeId());
+        } finally {
+            spy.stop();
+        }
+    }
+
+    @Test
+    void aRouteIdAlreadyInTheContextWithoutAHeldInstanceIsRefusedAsAClash() {
+        reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
+                null, MAPPING_M3));
+        factory.ensure(TENANT, reader.current(ENDPOINT_A));
+        RouteInstanceFactory other = new RouteInstanceFactory(reader, context, List.of(template),
+                Set.of("https"), Duration.ofMinutes(30), () -> Instant.parse("2026-10-12T12:00:00Z"));
+
+        assertThatThrownBy(() -> other.ensure(TENANT, reader.current(ENDPOINT_A)))
+                .isInstanceOfSatisfying(RouteBuildRefusedException.class, refused -> assertThat(refused.getMessage())
+                        .as("T161 N-2: the clash is a RouteBuildRefusedException (stage 2 dead-letters it PERMANENT)")
+                        .contains("already in the Camel context"));
+    }
+
+    @Test
     void publishIsIdempotentAndNeverRebuildsARouteThatIsAlreadyInstantiated() {
         reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
                 null, MAPPING_M3));
-        factory.ensure(reader.current(ENDPOINT_A));
+        factory.ensure(TENANT, reader.current(ENDPOINT_A));
         factory.publishInterface(TENANT, INTERFACE_ID);
         factory.publishInterface(TENANT, INTERFACE_ID);
-        factory.ensure(reader.current(ENDPOINT_A));
+        factory.ensure(TENANT, reader.current(ENDPOINT_A));
 
         assertThat(template.builds).isEqualTo(1)
                 .as("republishing the same rows and ensuring again creates no second build (lazy re-use)");
@@ -167,7 +222,7 @@ class RouteInstanceFactoryTest {
                 .as("T71 crit 5 / T-120: publish refuses %s:", scheme)
                 .isInstanceOfSatisfying(RouteBuildRefusedException.class,
                         refused -> assertThat(refused.answer()).isEqualTo(answer));
-        assertThatThrownBy(() -> factory.ensure(reader.current(ENDPOINT_A)))
+        assertThatThrownBy(() -> factory.ensure(TENANT, reader.current(ENDPOINT_A)))
                 .as("T71 crit 5 / T-120: the lazy build refuses %s: too", scheme)
                 .isInstanceOfSatisfying(RouteBuildRefusedException.class,
                         refused -> assertThat(refused.answer()).isEqualTo(answer));
@@ -232,7 +287,7 @@ class RouteInstanceFactoryTest {
             }
         });
 
-        assertThatThrownBy(() -> factory.ensure(row))
+        assertThatThrownBy(() -> factory.ensure(TENANT, row))
                 .isInstanceOfSatisfying(RouteBuildRefusedException.class, refused -> {
                     assertThat(refused.answer()).isEqualTo("the route instance is already in the running context");
                     assertThat(refused.getMessage()).as("the log detail names the route id").contains(routeId);
@@ -296,12 +351,12 @@ class RouteInstanceFactoryTest {
         RouteConfigRow m3 = new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API",
                 "https://target-a.example/v1", null, MAPPING_M3);
 
-        RouteInstance first = factory.ensure(m3);
-        RouteInstance second = factory.ensure(m3);
+        RouteInstance first = factory.ensure(TENANT, m3);
+        RouteInstance second = factory.ensure(TENANT, m3);
 
         assertThat(second).as("the same (endpoint, version) key re-uses the instance").isSameAs(first);
         assertThat(template.builds).isEqualTo(1);
-        assertThat(first.key()).isEqualTo(new RouteKey(ENDPOINT_A, m3.endpointVersion()));
+        assertThat(first.key()).isEqualTo(new RouteKey(TENANT, ENDPOINT_A, m3.endpointVersion()));
     }
 
     @Test
@@ -311,8 +366,8 @@ class RouteInstanceFactoryTest {
         RouteConfigRow m4 = new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API",
                 "https://target-a.example/v1", null, MAPPING_M4);
 
-        RouteInstance onM3 = factory.ensure(m3);
-        RouteInstance onM4 = factory.ensure(m4);
+        RouteInstance onM3 = factory.ensure(TENANT, m3);
+        RouteInstance onM4 = factory.ensure(TENANT, m4);
 
         assertThat(onM4).as("a new version is a new key: its own instance").isNotSameAs(onM3);
         assertThat(template.builds).isEqualTo(2);
@@ -335,8 +390,8 @@ class RouteInstanceFactoryTest {
                 "https://target-a.example/v1", null, MAPPING_M3);
         RouteConfigRow m4 = new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API",
                 "https://target-a.example/v1", null, MAPPING_M4);
-        RouteInstance onM3 = factory.ensure(m3); // built 12:00, never used again
-        RouteInstance onM4 = factory.ensure(m4);
+        RouteInstance onM3 = factory.ensure(TENANT, m3); // built 12:00, never used again
+        RouteInstance onM4 = factory.ensure(TENANT, m4);
         factory.touch(onM4, Instant.parse("2026-10-12T12:29:00Z"));
 
         factory.evictIdle(Instant.parse("2026-10-12T12:31:00Z"));
@@ -395,6 +450,53 @@ class RouteInstanceFactoryTest {
         public org.apache.camel.Processor build(RouteConfigRow row) {
             builds++;
             return exchange -> { }; // wave 0: the adapters (E10) own real send behaviour
+        }
+    }
+
+    @Test
+    void theTenantIsPartOfTheInstanceKeyAndAnotherTenantNeverGetsTheBuiltRoute() {
+        UUID other = UUID.fromString("00000000-0000-4000-8000-0000000000bb");
+        RouteConfigRow row = new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API",
+                "https://target-a.example/v1", null, MAPPING_M3);
+        reader.add(row);
+
+        RouteInstance mine = factory.ensure(TENANT, row);
+
+        assertThat(mine.key().tenantId()).isEqualTo(TENANT);
+        assertThat(row.key(TENANT)).isNotEqualTo(row.key(other)).isEqualTo(mine.key());
+        assertThatThrownBy(() -> factory.ensure(other, row))
+                .as("L-7: the same endpoint row under another tenant is not served the first tenant's built route")
+                .isInstanceOf(RouteBuildRefusedException.class);
+        assertThatThrownBy(() -> new RouteKey(null, ENDPOINT_A, "v")).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void aRouteLookupThatFailsDoesNotAbortTheWholeEvictionSweep() throws Exception {
+        java.util.concurrent.atomic.AtomicBoolean failing = new java.util.concurrent.atomic.AtomicBoolean();
+        org.apache.camel.impl.DefaultCamelContext flaky = new org.apache.camel.impl.DefaultCamelContext() {
+            @Override
+            public org.apache.camel.Route getRoute(String id) {
+                if (failing.get()) {
+                    throw new IllegalStateException("lookup failed");
+                }
+                return super.getRoute(id);
+            }
+        };
+        flaky.start();
+        try {
+            RouteInstanceFactory evicting = new RouteInstanceFactory(reader, flaky, List.of(template),
+                    Set.of("https"), Duration.ofMinutes(30), () -> Instant.parse("2026-10-12T12:00:00Z"));
+            reader.add(new RouteConfigRow(instanceId("route-1"), ENDPOINT_A, "API", "https://target-a.example/v1",
+                    null, MAPPING_M3));
+            evicting.ensure(TENANT, reader.current(ENDPOINT_A));
+            evicting.touch(ENDPOINT_A, Instant.parse("2026-10-12T12:00:00Z"));
+            failing.set(true);
+
+            assertThatCode(() -> evicting.evictIdle(Instant.parse("2026-10-12T12:31:00Z"))).doesNotThrowAnyException();
+            assertThat(evicting.instanceOf(ENDPOINT_A)).as("a failed lookup keeps the instance held").isPresent();
+        } finally {
+            failing.set(false);
+            flaky.stop();
         }
     }
 }

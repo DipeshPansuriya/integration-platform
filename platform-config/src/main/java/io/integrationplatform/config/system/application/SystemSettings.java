@@ -284,6 +284,7 @@ public final class SystemSettings {
         if (absent(columns) || !columns.isArray() || columns.isEmpty() || columns.size() > MAX_CONTRACT_COLUMNS) {
             errors.add("settings.contract.columns must be a list of 1 to " + MAX_CONTRACT_COLUMNS + " columns");
         } else {
+            java.util.Map<String, Integer> firstSeen = new java.util.HashMap<>();
             for (int i = 0; i < columns.size(); i++) {
                 JsonNode column = columns.get(i);
                 String at = "settings.contract.columns[" + i + "]";
@@ -295,6 +296,13 @@ public final class SystemSettings {
                 }
                 if (absent(name) || !name.isString() || !IDENTIFIER.matcher(name.stringValue()).matches()) {
                     errors.add(at + ".name must be a plain identifier (letters, digits, underscore)");
+                } else {
+                    // T189 (T176): the CSV header and the column mapping are by name - a repeated name is ambiguous
+                    Integer first = firstSeen.putIfAbsent(name.stringValue().toLowerCase(Locale.ROOT), i);
+                    if (first != null) {
+                        errors.add(at + ".name is a duplicate of settings.contract.columns[" + first
+                                + "].name (column names must be unique, ignoring case)");
+                    }
                 }
                 if (absent(type) || !type.isString() || !List.of("TEXT", "NUMBER")
                         .contains(type.stringValue().toUpperCase(Locale.ROOT))) {
@@ -341,8 +349,28 @@ public final class SystemSettings {
 
     private static boolean charsetKnown(String name) {
         try {
-            return name.length() <= 40 && java.nio.charset.Charset.isSupported(name);
+            // T176-2: isSupported is true for decode-only charsets (ISO-2022-CN); the send needs an encoder
+            return name.length() <= 40 && java.nio.charset.Charset.isSupported(name)
+                    && java.nio.charset.Charset.forName(name).canEncode();
         } catch (java.nio.charset.IllegalCharsetNameException illegal) {
+            return false;
+        }
+    }
+
+    /**
+     * T178c-1: a STORED FILE row saved before the {@code {deliveryId}} rule (never rewritten). True only for a FILE
+     * system whose settings carry a non-blank text pattern without the placeholder; an absent or blank pattern uses
+     * the delivery-id default name, and unreadable settings are not flagged here (the send refuses those itself).
+     */
+    public static boolean storedFilePatternLacksDeliveryId(String type, String settingsJson) {
+        if (type == null || !type.equalsIgnoreCase("FILE") || settingsJson == null) {
+            return false;
+        }
+        try {
+            JsonNode field = new tools.jackson.databind.json.JsonMapper().readTree(settingsJson).get("fileNamePattern");
+            return field != null && field.isString() && !field.stringValue().isBlank()
+                    && !field.stringValue().contains("{deliveryId}");
+        } catch (tools.jackson.core.JacksonException unreadable) {
             return false;
         }
     }

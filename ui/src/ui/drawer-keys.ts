@@ -21,3 +21,8 @@ export function nextFocusIndex(count: number, current: number, backwards: boolea
   if (current < 0) return backwards ? count - 1 : 0;
   return backwards ? (current - 1 + count) % count : (current + 1) % count;
 }
+
+/** A close request (Esc, scrim, Close) on a form with unsaved input asks first instead of discarding it (B29 C3). */
+export function closeAction(dirty: boolean): 'close' | 'confirm' {
+  return dirty ? 'confirm' : 'close';
+}

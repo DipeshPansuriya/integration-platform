@@ -86,7 +86,7 @@ class TargetTypeRouteTemplatesTest {
         RouteConfigRow row = row(type);
         Stage2Send send = send(row.targetEndpointId());
 
-        RouteInstance instance = factory.ensure(row);
+        RouteInstance instance = factory.ensure(java.util.UUID.fromString("00000000-0000-4000-8000-0000000000aa"), row);
         Exchange done = producer.send(instance.consumerUri(), e -> e.getIn().setBody(send));
 
         assertThat(layerOneBodies).as("%s: the claimed send reached the one layer-1 route", type).containsExactly(send);
@@ -116,7 +116,7 @@ class TargetTypeRouteTemplatesTest {
     void aGatedOffTypeIsStillRefusedAndStageTwoRecordsItPermanent(String type) {
         RouteInstanceFactory factory = factory(runner(BOOTSTRAP, "true")); // only MQ (and API) are composed
         RouteConfigRow row = row(type);
-        assertThatThrownBy(() -> factory.ensure(row)).isInstanceOf(RouteBuildRefusedException.class)
+        assertThatThrownBy(() -> factory.ensure(java.util.UUID.fromString("00000000-0000-4000-8000-0000000000aa"), row)).isInstanceOf(RouteBuildRefusedException.class)
                 .hasMessageContaining("no route template for target type '" + type + "'");
 
         UUID delivery = seed("delivery-" + type);

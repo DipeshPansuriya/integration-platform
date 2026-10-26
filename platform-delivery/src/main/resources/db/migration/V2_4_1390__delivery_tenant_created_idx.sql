@@ -1,0 +1,13 @@
+-- T187 (review of T185): the on-demand delivery report counts one UTC day of delivery rows for ONE tenant, but the day
+-- partition (partition key created_at) held no tenant-leading index on created_at, so the scan read every tenant's rows
+-- of that day: one tenant's report loaded the others. (tenant_id, created_at) lets the planner descend straight to the
+-- bound tenant's rows of the day (the outer tenant predicate reaches the grouped subquery, tenant_id being a grouping
+-- column; FORCE RLS stays the second fence).
+--
+-- PG 17 on the PARTITIONED delivery table: a plain CREATE INDEX on the parent is recorded on the parent and built on
+-- every existing day partition; every partition created later inherits it (same pattern as V2_3_930). It holds a SHARE
+-- lock on each partition while that partition's index builds, so the table is read-only for that moment; the pre-release
+-- delivery table is small. A deployment with a large delivery table must instead create it ON ONLY the parent and build
+-- each partition's index CONCURRENTLY outside a transaction, then ATTACH - do that before this migration runs and the
+-- IF NOT EXISTS below makes it a no-op.
+CREATE INDEX IF NOT EXISTS delivery_tenant_created_idx ON public.delivery (tenant_id, created_at);

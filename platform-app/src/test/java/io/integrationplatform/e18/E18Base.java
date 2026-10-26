@@ -118,6 +118,10 @@ abstract class E18Base {
     @Autowired
     ReadTenant readTenant;
 
+    /** One throwaway 32-byte key for the JVM (base64), fixed so every property read sees the same value. */
+    private static final String KEK_K1 = java.util.Base64.getEncoder().encodeToString(
+            new java.security.SecureRandom().generateSeed(32));
+
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
         login = PlatformTestWiring.register(registry, POSTGRES);
@@ -130,6 +134,9 @@ abstract class E18Base {
                 "platform.poison");
         registry.add("OIDC_ISSUER_URI", KEYCLOAK::issuerUri);
         registry.add("CONSOLE_URL", () -> "/");
+        // the credential API (dbTargetJourney stores the partner account secret) needs an active key-encryption key; a throwaway one per JVM
+        registry.add("PLATFORM_CREDENTIAL_KEK_K1", () -> KEK_K1);
+        registry.add("PLATFORM_CREDENTIAL_KEK_ACTIVE", () -> "K1");
         registry.add("IPASS_KAFKA_BOOTSTRAP_SERVERS", KAFKA::getBootstrapServers);
         registry.add("IPASS_KAFKA_PUBLISH_CLIENT_ID", () -> "e18-relay");
         // T181 measurement dials (unset = today's behaviour: one loop per stage, the yml pool)

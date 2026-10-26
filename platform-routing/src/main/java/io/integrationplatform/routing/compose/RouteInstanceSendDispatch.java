@@ -84,7 +84,7 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
         }
         RouteInstance instance;
         try {
-            instance = routes.ensure(row);
+            instance = routes.ensure(tenantId, row);
         } catch (RouteBuildRefusedException refused) {
             log.warn("stage 2: delivery {} - its route instance was refused: {}", send.deliveryId(),
                     refused.getMessage());
@@ -105,11 +105,12 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
                     + "SENDING for the reconciler", send.deliveryId(), done.getException());
             return false;
         }
-        if (done.getProperty(Exchange.EXCEPTION_CAUGHT) == null) {
+        // T188: layer 1's explicit outcome decides; the exception guard above stays the second line, so no failure is hidden
+        if (Boolean.TRUE.equals(done.getProperty(LayerOneRouteBuilder.LAYER_ONE_SUCCEEDED, Boolean.class))) {
             transactions.executeWithoutResult(status -> outcomes.markDelivered(send.deliveryId(), send.claimToken()));
         }
-        // layer 1 sets this property only when the target's breaker refused the call (CIRCUIT_DEFER)
-        return done.getProperty(LayerOneRouteBuilder.CIRCUIT_RETRY_AFTER) != null;
+        // T191: layer 1 states a CIRCUIT_DEFER explicitly (CIRCUIT_DEFERRED), once the deferral is handed over
+        return Boolean.TRUE.equals(done.getProperty(LayerOneRouteBuilder.CIRCUIT_DEFERRED, Boolean.class));
     }
 
     private void dropWithoutRoute(Stage2Send send, String reason) {

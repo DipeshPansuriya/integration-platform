@@ -27,8 +27,7 @@ import org.junit.jupiter.api.Test;
  * real broker (E8-C8) with the properties the routing stories need, each asserted against the running broker:
  * <ul>
  * <li>a single KRaft broker with topic auto-creation OFF,</li>
- * <li>exactly the three product topics from ADR-010 and no others (the harness creates them, nothing else
- * does),</li>
+ * <li>the three product topics from ADR-010 (other classes in the JVM may add their own topics),</li>
  * <li>a produce/consume round trip that works after any previous test used the broker (reusability).</li>
  * </ul>
  * The reusability round trip is also the data-path proof of the E8-F2-S1 {@code @negative} scenario "The
@@ -67,6 +66,10 @@ class KafkaHarnessTest {
             var productTopics = names.stream().filter(n -> n.startsWith("platform.")).toList();
             assertThat(productTopics).as("exactly the ADR-010 product topics exist and nothing else")
                     .containsExactlyInAnyOrder(Topics.MESSAGE_ACCEPTED, Topics.DELIVERY_DUE, Topics.POISON);
+            var described = admin.describeTopics(List.of(Topics.MESSAGE_ACCEPTED, Topics.DELIVERY_DUE, Topics.POISON))
+                    .allTopicNames().get(TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            assertThat(described.values()).as("each product topic has the harness partition count")
+                    .allSatisfy(topic -> assertThat(topic.partitions()).hasSize(KafkaHarness.PARTITION_COUNT));
         }
     }
 

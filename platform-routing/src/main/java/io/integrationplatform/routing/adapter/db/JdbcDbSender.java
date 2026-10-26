@@ -76,7 +76,12 @@ public final class JdbcDbSender implements DbSender {
         }
     }
 
-    static final String LOCK_TIMEOUT_SQL = "select set_config('lock_timeout', '4000', true)";
+    static final String LOCK_TIMEOUT_SQL = "select set_config('lock_timeout', ?, true)";
+
+    /** T189: the wait for the delivery's advisory lock, one second under the socket timeout the driver enforces (min 500 ms). */
+    long lockTimeoutMillis() {
+        return Math.max(500L, Math.max(1L, timeout.toSeconds()) * 1000L - 1000L);
+    }
 
     static final String ADVISORY_LOCK_SQL = "select pg_advisory_xact_lock(hashtextextended(?::text, 0))";
 
@@ -91,9 +96,14 @@ public final class JdbcDbSender implements DbSender {
      */
     void insert(Connection connection, DbMessage message, UUID deliveryId) throws SQLException {
         connection.setAutoCommit(false);
+        // T189 (T178b): under a partner default of REPEATABLE READ / SERIALIZABLE the snapshot is taken by the first
+        // statement - BEFORE the lock wait ends - so the pre-state check would not see the row the lock holder just
+        // committed and the duplicate would return. READ_COMMITTED gives the check a fresh snapshot after the lock.
+        connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
         // T178b: serialise attempts of ONE delivery (no UNIQUE(delivery_id) needed): the lock is taken before the
         // pre-state check, bounded below the socket timeout, and released at commit or rollback
         try (PreparedStatement bound = connection.prepareStatement(LOCK_TIMEOUT_SQL)) {
+            bound.setString(1, lockTimeoutMillis() + "ms");
             bound.execute();
         }
         try (PreparedStatement lock = connection.prepareStatement(ADVISORY_LOCK_SQL)) {

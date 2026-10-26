@@ -59,11 +59,36 @@ class MqCsvContractSettingsTest {
 
     @Test
     @Tag("negative")
+    @DisplayName("T176-2: an encoding the JDK can only decode is refused at save time (the send needs an encoder)")
+    void aDecodeOnlyEncodingIsRefused() {
+        String decodeOnly = "ISO-2022-CN";
+        // JDK fact this test depends on: the charset is known (isSupported) but has no encoder (canEncode false)
+        org.junit.jupiter.api.Assumptions.assumeTrue(java.nio.charset.Charset.isSupported(decodeOnly)
+                && !java.nio.charset.Charset.forName(decodeOnly).canEncode(), "this JDK has no decode-only " + decodeOnly);
+
+        assertThat(mq(GOOD.replace("UTF-8", decodeOnly))).singleElement().asString()
+                .contains("settings.contract.encoding");
+        assertThat(mq(GOOD.replace("UTF-8", "ISO-8859-1"))).isEmpty(); // an encodable one still passes
+    }
+
+    @Test
+    @Tag("negative")
     @DisplayName("Delimiter equal to quote, a missing field, an unknown key, a non-object contract are refused")
     void structureIsEnforced() {
         assertThat(mq(GOOD.replace("\";\"", "\"\\\"\""))).singleElement().asString().contains("must differ");
         assertThat(mq(GOOD.replace("\"header\":true", "\"x\":1"))).hasSize(2); // header missing + x unknown
         assertThat(mq("\"csv\"")).singleElement().asString().isEqualTo("settings.contract must be a JSON object");
         assertThat(mq("{\"columns\":[]}")).anyMatch(e -> e.contains("settings.contract.columns"));
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("T189-6: two columns with the same name (case-insensitive) are refused with a clear error")
+    void duplicateColumnNamesAreRefused() {
+        assertThat(mq(GOOD.replace("\"qty\"", "\"id\"")))
+                .singleElement().asString().contains("settings.contract.columns[1].name")
+                .contains("duplicate").contains("columns[0]");
+        assertThat(mq(GOOD.replace("\"qty\"", "\"ID\"")))
+                .singleElement().asString().contains("settings.contract.columns[1].name").contains("duplicate");
     }
 }

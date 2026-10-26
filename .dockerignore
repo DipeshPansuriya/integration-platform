@@ -1,0 +1,13 @@
+# Allow-list build context (ADR-H-IPASS-01 Decision 4): every Dockerfile here builds from the repo root and may
+# see only the built artefacts it copies. No source, no env file, no test output, no worktree leftovers.
+**
+!platform-app/target/platform-app-*-exec.jar
+!ui/dist
+!compose/keycloak
+!deploy/hostinger/ui/default.conf
+**/.env*
+**/*.env
+**/node_modules
+**/test-results
+**/hs_err_*.log
+**/replay_*.log

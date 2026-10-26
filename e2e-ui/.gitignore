@@ -1,0 +1,4 @@
+# Build and Playwright run outputs (moved from ui/.gitignore with the suites, L29).
+test-results/
+playwright-report/
+_reports/

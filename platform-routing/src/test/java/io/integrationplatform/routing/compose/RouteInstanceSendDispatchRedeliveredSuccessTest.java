@@ -76,7 +76,7 @@ class RouteInstanceSendDispatchRedeliveredSuccessTest {
             when(instance.consumerUri()).thenReturn("direct:stage2-send");
             RouteConfigRow row = new RouteConfigRow(route, endpoint, "API", "https://t.example/a", null, null);
             RouteInstanceFactory routes = mock(RouteInstanceFactory.class);
-            when(routes.ensure(row)).thenReturn(instance);
+            when(routes.ensure(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(row))).thenReturn(instance);
             JdbcDueDeliveries deliveries = mock(JdbcDueDeliveries.class);
             when(deliveries.claimed(delivery)).thenReturn(Optional.of(
                     new JdbcDueDeliveries.DueDelivery(delivery, route, endpoint, iface, "key-1")));

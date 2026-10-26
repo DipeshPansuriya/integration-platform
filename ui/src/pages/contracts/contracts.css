@@ -10,7 +10,7 @@
   flex-wrap: wrap;
   padding-bottom: var(--space-4);
 }
-.contracts-page .contracts-head h2 {
+.contracts-page .contracts-head h1 {
   margin: 0;
 }
 
@@ -73,9 +73,16 @@
 .contracts-page .contracts-check {
   width: 5.5rem;
 }
+.contracts-page .contracts-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  cursor: pointer;
+}
 .contracts-page .contracts-check input {
-  width: 16px;
-  height: 16px;
+  width: 28px;
+  height: 28px;
   accent-color: var(--color-accent);
 }
 .contracts-page .contracts-actions {
@@ -184,4 +191,42 @@
 :is(.contracts-page, .drawer-body) :focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
+}
+
+/* B29 C2: empty state next action, confirm step, pane error, loading */
+.contracts-page .contracts-empty p {
+  margin: 0 0 var(--space-3);
+}
+.contracts-page .contracts-confirm-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.contracts-page .contracts-pane-error {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger-text);
+  border-radius: var(--r-2);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}
+
+/* row 372 F5: every card's version table uses the same fixed column widths (Action takes the rest), so columns line up from card to card */
+.contracts-page .contracts-table-wrap table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 44rem;
+}
+.contracts-page .contracts-table-wrap th:nth-child(1) {
+  width: 5.5rem;
+}
+.contracts-page .contracts-table-wrap th:nth-child(2) {
+  width: 8rem;
+}
+.contracts-page .contracts-table-wrap th:nth-child(3) {
+  width: 10rem;
+}
+.contracts-page .contracts-table-wrap th:nth-child(4) {
+  width: 12rem;
 }

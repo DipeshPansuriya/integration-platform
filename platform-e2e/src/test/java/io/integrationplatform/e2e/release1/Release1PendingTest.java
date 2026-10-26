@@ -61,15 +61,14 @@ class Release1PendingTest {
     }
 
     @Test
-    void theRealFlagsGateEveryScenarioThatNeedsAnUnmergedItem() {
-        // re-measured 22-Oct against main ecef544b: the MQ adapter (T98) and the compose e2e profile (T143) are on main;
-        // bulk intake (T115) and the daily report (T120) are not
+    void theRealFlagsHaveEveryItemOnMainSoNoScenarioIsSilentlyGated() {
+        // re-measured 22-Oct: the MQ adapter (T98), the compose e2e profile (T143), bulk intake (T115), the daily
+        // report (T120) and the report screen (T121, App.tsx renders DeliveryReport) are on main; a scenario is no
+        // longer disabled - it runs, or fails loudly on a missing e2e env / TBD name (E2eNames)
         assertThat(Release1Pending.ON_MAIN).containsEntry("T98", true).containsEntry("T143", true)
-                .containsEntry("T115", true).containsEntry("T120", true).containsEntry("T121", false);
+                .containsEntry("T115", true).containsEntry("T120", true).containsEntry("T121", true);
         for (Release1Scenario scenario : Release1Scenario.values()) {
-            boolean needsUnmergedItem = false; // T115 and T120 are on main (measured b6a958ee): no scenario waits on an unmerged item
-            assertThat(Release1Pending.waitsOn(scenario.waitsOn()).isPresent()).as(scenario.id())
-                    .isEqualTo(needsUnmergedItem);
+            assertThat(Release1Pending.waitsOn(scenario.waitsOn())).as(scenario.id()).isEmpty();
         }
     }
 
@@ -84,7 +83,9 @@ class Release1PendingTest {
 
     @Test
     void anElementWaitingOnAnUnmergedItemIsDisabledWithTheItemNamed() throws NoSuchMethodException {
-        ConditionEvaluationResult result = evaluate(Fixture.class.getDeclaredMethod("gated"));
+        // explicit flags: every real flag is true since the 22-Oct re-measure, so the gate is proven on a false one (T121 is the item the fixtures wait on)
+        ConditionEvaluationResult result = WaitsOnCondition.evaluate(
+                Optional.of(Fixture.class.getDeclaredMethod("gated").getAnnotation(WaitsOn.class)), Map.of("T121", false));
 
         assertThat(result.isDisabled()).isTrue();
         assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T121"));
@@ -100,7 +101,8 @@ class Release1PendingTest {
 
     @Test
     void aClassLevelWaitsOnGatesTheWholeClass() {
-        ConditionEvaluationResult result = evaluate(GatedFixture.class);
+        ConditionEvaluationResult result = WaitsOnCondition.evaluate(
+                Optional.of(GatedFixture.class.getAnnotation(WaitsOn.class)), Map.of("T121", false));
 
         assertThat(result.isDisabled()).isTrue();
         assertThat(result.getReason()).hasValueSatisfying(text -> assertThat(text).contains("T121"));
@@ -118,6 +120,24 @@ class Release1PendingTest {
         assertThatThrownBy(() -> E2eNames.nameOf(Map.of("replayApi", "TBD(T111)"), "replayApi"))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("TBD(T111)")
                 .hasMessageContaining("E2eNames");
+    }
+
+    @Test
+    void everyNameProvableFromSourceIsKnownNotTbd() {
+        for (String key : new String[] {"intakeApi", "timelineApi", "failuresApi", "bulkIntakeApi", "replayApi",
+                "dailyReportApi", "tenantBCodePrefix"}) {
+            assertThat(E2eNames.nameOf(key)).as(key).isNotBlank().doesNotContain("TBD(");
+        }
+        assertThat(E2eNames.nameOf("bulkIntakeApi")).isEqualTo("/api/v1/interfaces/{interfaceCode}/messages:bulk");
+        assertThat(E2eNames.nameOf("replayApi")).isEqualTo("/api/v1/admin/messages/deliveries/{deliveryId}/replay");
+        assertThat(E2eNames.nameOf("dailyReportApi")).isEqualTo("/api/v1/reports/delivery?day={day}");
+        assertThat(E2eNames.nameOf("tenantBCodePrefix")).isEqualTo("e2e-seed-b-");
+    }
+
+    @Test
+    void theMqQueueIsTheOneTheRunnerSeedsNotATbd() {
+        // main resolved the queue (the T174b runner seeds target B with it); E2eNamesRuntimeTest pins the same value
+        assertThat(E2eNames.nameOf("mqTargetQueue")).isEqualTo("r1.orders.mq").doesNotContain("TBD(");
     }
 
     @Test

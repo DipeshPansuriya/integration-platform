@@ -396,7 +396,7 @@ class DeliveryDueDispatchTest {
             awaitOneSend(send);
             awaitRedrives(1);
 
-            assertThat(redrive.calls).containsExactly(new RedriveCall(target, Optional.of(TENANT)));
+            assertThat(redrive.calls).containsExactly(new RedriveCall(target, Optional.of(TENANT), BulkheadRedrive.Cause.SLOT_FREE));
         } finally {
             registry.shutdown();
         }
@@ -436,7 +436,7 @@ class DeliveryDueDispatchTest {
             finishSend.countDown();
             awaitRedrives(1);
 
-            assertThat(redrive.calls).containsExactly(new RedriveCall(target, Optional.of(TENANT)));
+            assertThat(redrive.calls).containsExactly(new RedriveCall(target, Optional.of(TENANT), BulkheadRedrive.Cause.SLOT_FREE));
             assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - freedAt)).as("well within ~1 s")
                     .isLessThan(1000);
         } finally {
@@ -597,25 +597,139 @@ class DeliveryDueDispatchTest {
     }
 
     @Test
-    @DisplayName("F3: a HELD claim re-drives the NEXT deferred candidate, bounded at 8 in a row (the 9th HELD ends the chain, the count then restarts)")
-    void heldClaimChainsToTheNextCandidateWithinTheCap() throws Exception {
+    @DisplayName("F3/T190: a HELD claim re-drives the NEXT deferred candidate (cause held-chain), 8 in a row; the cap then"
+            + " STAYS until a real send - the 10th, 11th, 12th HELD do not chain again")
+    void heldClaimChainsToTheNextCandidateWithinTheStickyCap() throws Exception {
         UUID target = UUID.randomUUID();
         BulkheadRegistry registry = new BulkheadRegistry(1);
         try {
             facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
             DeliveryDueDispatch dispatch = dispatch(registry);
             deferOnce(dispatch, registry, target);
-            for (int i = 0; i < 9; i++) {
+            for (int i = 0; i < 12; i++) {
                 claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
             }
 
-            for (int i = 0; i < 9; i++) {
+            for (int i = 0; i < 12; i++) {
                 dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
             }
 
-            assertThat(redrive.calls).as("8 in a row, then the 60 s job").hasSize(8);
+            assertThat(redrive.calls).as("8 in a row, then none until a real send (was: the 10th chained again)")
+                    .hasSize(8);
             assertThat(redrive.calls).allMatch(call -> call.tenant().equals(Optional.of(TENANT)));
+            assertThat(redrive.calls).allMatch(call -> call.cause() == BulkheadRedrive.Cause.HELD_CHAIN);
             assertThat(send.calls).isEmpty();
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("T190: a real send resets the sticky cap - the next HELD chains again")
+    void aRealSendResetsTheStickyCap() throws Exception {
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            deferOnce(dispatch, registry, target);
+            for (int i = 0; i < 10; i++) {
+                claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+            }
+            for (int i = 0; i < 10; i++) {
+                dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+            }
+            assertThat(redrive.calls).hasSize(8);
+
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+            awaitPoolIdle(registry, target);
+            assertThat(send.calls).as("the real send ran").hasSize(1);
+
+            claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+            deferOnce(dispatch, registry, target);
+            dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+
+            assertThat(redrive.calls.stream().filter(c -> c.cause() == BulkheadRedrive.Cause.HELD_CHAIN).count())
+                    .as("the 9th held-chain re-drive exists only because the real send reset the cap").isEqualTo(9);
+            assertThat(redrive.calls.stream().filter(c -> c.cause() == BulkheadRedrive.Cause.SLOT_FREE).count())
+                    .as("the finished send's own re-drive is named slot-free").isEqualTo(1);
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("T190 optional: a SLOT_FREE re-drive resets the sticky cap - HELD claims counted while the send ran"
+            + " do not keep the next deferral from chaining")
+    void aSlotFreeRedriveResetsTheStickyCap() throws Exception {
+        UUID running = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(2);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            facts.byDelivery.put(running, new BulkheadFacts(target, "key-r", 0));
+            CountDownLatch inSend = new CountDownLatch(1);
+            CountDownLatch finishSend = new CountDownLatch(1);
+            send.onCall = thread -> {
+                inSend.countDown();
+                try {
+                    finishSend.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            };
+            claim.outcomes.add(DeliveryClaimService.Outcome.CLAIMED);
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            dispatch.onWork(deliveryRecord(running), TENANT);
+            assertThat(inSend.await(5, TimeUnit.SECONDS)).isTrue(); // permit 1 held by the running send
+
+            deferOnce(dispatch, registry, target); // permit 2 taken by hand: the record defers
+            for (int i = 0; i < 9; i++) {
+                claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+                dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+            }
+            assertThat(redrive.calls).as("8 chained, the 9th is past the cap").hasSize(8);
+
+            finishSend.countDown();
+            awaitRedrives(9); // the finished send's own SLOT_FREE re-drive
+            assertThat(redrive.calls.get(8).cause()).isEqualTo(BulkheadRedrive.Cause.SLOT_FREE);
+
+            claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+            dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+
+            assertThat(redrive.calls.stream().filter(c -> c.cause() == BulkheadRedrive.Cause.HELD_CHAIN).count())
+                    .as("the slot-free re-drive reset the cap, so this HELD chains again (was: stuck at the cap)")
+                    .isEqualTo(9);
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("T190-1: HELD claims with nothing deferred here are no-ops and do not spend the sticky cap -"
+            + " a later real deferral still chains")
+    void noOpHeldClaimsDoNotSpendTheStickyCap() throws Exception {
+        UUID target = UUID.randomUUID();
+        BulkheadRegistry registry = new BulkheadRegistry(1);
+        try {
+            facts.facts = Optional.of(new BulkheadFacts(target, "key-1", 0));
+            DeliveryDueDispatch dispatch = dispatch(registry);
+            for (int i = 0; i < 10; i++) {
+                claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+            }
+            for (int i = 0; i < 10; i++) {
+                dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+            }
+            assertThat(redrive.calls).as("nothing was deferred here: no re-drive, no scan").isEmpty();
+
+            deferOnce(dispatch, registry, target);
+            claim.outcomes.add(DeliveryClaimService.Outcome.HELD);
+            dispatch.onWork(deliveryRecord(UUID.randomUUID()), TENANT);
+
+            assertThat(redrive.calls).as("the first HELD after a real deferral chains (was: the cap was spent)")
+                    .hasSize(1);
+            assertThat(redrive.calls.get(0).cause()).isEqualTo(BulkheadRedrive.Cause.HELD_CHAIN);
         } finally {
             registry.shutdown();
         }
@@ -712,7 +826,7 @@ class DeliveryDueDispatchTest {
         }
     }
 
-    private record RedriveCall(UUID targetEndpointId, Optional<UUID> tenant) { }
+    private record RedriveCall(UUID targetEndpointId, Optional<UUID> tenant, BulkheadRedrive.Cause cause) { }
 
     private final class RecordingRedrive implements BulkheadRedrive {
 
@@ -721,8 +835,8 @@ class DeliveryDueDispatchTest {
         boolean result = true;
 
         @Override
-        public boolean redriveOneDeferred(UUID targetEndpointId) {
-            calls.add(new RedriveCall(targetEndpointId, binding.currentTenantId()));
+        public boolean redriveOneDeferred(UUID targetEndpointId, BulkheadRedrive.Cause cause) {
+            calls.add(new RedriveCall(targetEndpointId, binding.currentTenantId(), cause));
             if (failure != null) {
                 throw failure;
             }

@@ -62,13 +62,30 @@ public final class ZenDecisionEngine implements DecisionEngine, AutoCloseable {
 
     @Override
     public JsonNode evaluate(String jdm, JsonNode input) {
-        try (ZenDecision decision = engine.createDecision(new JsonBuffer(jdm))) {
+        return compile(jdm).evaluate(input);
+    }
+
+    /**
+     * The compiled decision is not closed on eviction: another thread may be evaluating it, and the binding frees the
+     * native handle when the object is collected (its cleaner), so a shared decision can never be used after free.
+     */
+    @Override
+    public CompiledDecision compile(String jdm) {
+        ZenDecision decision;
+        try {
+            decision = engine.createDecision(new JsonBuffer(jdm));
+        } catch (ZenException e) {
+            throw new IllegalStateException("the rule set could not be evaluated: " + reason(e), e);
+        }
+        return input -> evaluate(decision, input);
+    }
+
+    private static JsonNode evaluate(ZenDecision decision, JsonNode input) {
+        try {
             JsonBuffer result = decision.evaluate(new JsonBuffer(input.toString()), null)
                     .get(EVALUATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                     .result();
             return JSON.readTree(result.value());
-        } catch (ZenException e) {
-            throw new IllegalStateException("the rule set could not be evaluated: " + reason(e), e);
         } catch (ExecutionException | TimeoutException e) {
             throw new IllegalStateException("the rule set evaluation failed", e);
         } catch (InterruptedException e) {

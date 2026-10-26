@@ -24,8 +24,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  * no way to administer clients, and anything that needs one fails at start-up instead of half-revoking.
  *
  * <p>Settings: {@code platform.tenancy.identity-admin.client-id} (default {@value #DEFAULT_ADMIN_CLIENT}, lane D's
- * realm), the realm from {@code OIDC_ISSUER_URI}; the retry and breaker settings are the shared
- * {@code platform.tenancy.identity-provider.*} ones (one breaker for the provider).
+ * realm), the realm from {@code OIDC_ISSUER_URI}; the
+ * optional {@code platform.tenancy.identity-admin.base-uri} (env {@code KEYCLOAK_ADMIN_BASE_URI}) moves the admin REST
+ * calls to an internal address when the public edge hides /admin (tokens and the issuer stay public). An unsafe value stops the
+ * start-up (F1, {@link AdminBaseUri}): plain http only to an internal host, https to another host than the issuer's only
+ * with {@code platform.tenancy.identity-admin.allow-external} (env {@code KEYCLOAK_ADMIN_ALLOW_EXTERNAL}, default off).
+ * The retry and breaker settings are the shared {@code platform.tenancy.identity-provider.*} ones (one breaker for the
+ * provider).
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = KeycloakAdminAdapter.ADMIN_SECRET_VARIABLE)
@@ -33,6 +38,10 @@ class IdentityProviderAdminConfiguration {
 
     static final String ADMIN_CLIENT_ID = "platform.tenancy.identity-admin.client-id";
     static final String DEFAULT_ADMIN_CLIENT = "platform-admin";
+    /** Optional (env KEYCLOAK_ADMIN_BASE_URI via tenancy-security.yml): where the admin REST calls go; unset = the issuer's host. */
+    static final String ADMIN_BASE_URI = "platform.tenancy.identity-admin.base-uri";
+    /** Optional opt-in (env KEYCLOAK_ADMIN_ALLOW_EXTERNAL, default off): an https admin base on a host other than the issuer host. */
+    static final String ADMIN_ALLOW_EXTERNAL = "platform.tenancy.identity-admin.allow-external";
 
     /** The reconciliation's first wait after a failed disable, doubling per attempt up to the cap. */
     static final Duration RECONCILE_INITIAL_BACKOFF = Duration.ofSeconds(30);
@@ -44,6 +53,8 @@ class IdentityProviderAdminConfiguration {
         ObservationRegistry observationRegistry = observations.getIfAvailable(() -> ObservationRegistry.NOOP);
         return new KeycloakAdminAdapter(
                 environment.getRequiredProperty(TenancySecurityConfiguration.ISSUER_URI).strip(),
+                environment.getProperty(ADMIN_BASE_URI),
+                environment.getProperty(ADMIN_ALLOW_EXTERNAL, Boolean.class, false),
                 environment.getProperty(ADMIN_CLIENT_ID, DEFAULT_ADMIN_CLIENT),
                 () -> environment.getRequiredProperty(KeycloakAdminAdapter.ADMIN_SECRET_VARIABLE),
                 KeycloakAdminAdapter.restTemplate(IdentityProviderSettings.from(environment),
