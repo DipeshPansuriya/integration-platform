@@ -17,16 +17,16 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # --- bootstrap-env.sh
 names="$(DRY_RUN=1 sh "$HERE/bootstrap-env.sh")"
-check "bootstrap lists 14 secret names" '[ "$(echo "$names" | wc -l)" -eq 14 ]'
+check "bootstrap lists 15 secret names" '[ "$(echo "$names" | wc -l)" -eq 15 ]'
 out="$(IPASS_DOMAIN=example.test IMAGE_TAG=abc1234 sh "$HERE/bootstrap-env.sh" "$TMP/.env" 2>&1)"
 check "bootstrap writes the env file" '[ -s "$TMP/.env" ]'
-check "bootstrap prints fingerprints, never a value" '! grep -q "=" <<<"$(echo "$out" | grep fingerprint)" && [ "$(echo "$out" | grep -c fingerprint)" -eq 15 ]'
+check "bootstrap prints fingerprints, never a value" '! grep -q "=" <<<"$(echo "$out" | grep fingerprint)" && [ "$(echo "$out" | grep -c fingerprint)" -eq 16 ]'
 leak=0; while IFS='=' read -r k v; do case "$k" in *PASSWORD|*SECRET|*KEK_K1) [ -n "$v" ] && grep -qF -- "$v" <<<"$out" && leak=1;; esac; done < "$TMP/.env"
 check "no generated value appears in the output" '[ $leak -eq 0 ]'
 check "every secret name is in env.example" 'for n in $names; do grep -q "^$n=" "$HERE/env.example" || exit 1; done'
 check "env.example holds no value" '! grep -qE "^[A-Z_0-9]+=." "$HERE/env.example"'
 check "env file has every secret non-empty" 'for n in $names; do grep -qE "^$n=.{16,}" "$TMP/.env" || exit 1; done'
-check "secrets differ per name" '[ "$(grep -E "PASSWORD|SECRET" "$TMP/.env" | cut -d= -f2 | sort -u | wc -l)" -eq 13 ]'
+check "secrets differ per name" '[ "$(grep -E "PASSWORD|SECRET" "$TMP/.env" | cut -d= -f2 | sort -u | wc -l)" -eq 14 ]'
 check "bootstrap refuses to overwrite" '! IPASS_DOMAIN=example.test IMAGE_TAG=abc1234 sh "$HERE/bootstrap-env.sh" "$TMP/.env" >/dev/null 2>&1'
 check "bootstrap refuses to overwrite even with FORCE=1 (no blanket rotation)" '! FORCE=1 IPASS_DOMAIN=example.test IMAGE_TAG=abc1234 sh "$HERE/bootstrap-env.sh" "$TMP/.env" >/dev/null 2>&1'
 check "the Keycloak bootstrap admin is in its own file, not in .env, compose.yaml or env.example" '[ -s "$TMP/.env.bootstrap-admin" ] && grep -q "^KC_BOOTSTRAP_ADMIN_PASSWORD=.\{16,\}" "$TMP/.env.bootstrap-admin" && ! grep -q KC_BOOTSTRAP "$TMP/.env" && ! grep -q KC_BOOTSTRAP "$HERE/compose.yaml" && ! grep -q "^KC_BOOTSTRAP" "$HERE/env.example"'
@@ -133,6 +133,7 @@ KC_BOOTSTRAP_ADMIN_PASSWORD=x
 CONSOLE_OIDC_CLIENT_SECRET=x
 PLATFORM_ADMIN_CLIENT_SECRET=x
 OPERATOR_AGENT_CLIENT_SECRET=x
+OPS_KAFBAT_CLIENT_SECRET=x
 PLATFORM_CREDENTIAL_KEK_K1=x
 EOF
 if command -v docker >/dev/null 2>&1; then
@@ -161,7 +162,7 @@ check "wiremock lives only in the demo override, internal network, no Traefik la
 check "only the edge proxy joins the shared web network" '[ "$(awk "/^  [a-z-]+:\$/{svc=\$1} /networks: \[.*web/{print svc}" "$HERE/compose.yaml")" = "edge:" ]'
 check "only the app has outbound reach (ipass-egress)" '[ "$(awk "/^  [a-z-]+:\$/{svc=\$1} /networks: \[.*ipass-egress/{print svc}" "$HERE/compose.yaml")" = "platform-app:" ] && ! grep -A2 "^  ipass-egress:" "$HERE/compose.yaml" | grep -q "internal: true"'
 check "the front network (edge to app/ui/keycloak) is internal" 'grep -A1 "^  ipass-front:" "$HERE/compose.yaml" | grep -q "internal: true"'
-check "edge refuses actuator, openapi, keycloak admin and the master realm" 'for p in actuator v3 admin realms/master; do grep -q "$p" "$HERE/edge/edge.conf" || exit 1; done; grep -c "return 404" "$HERE/edge/edge.conf" | grep -qE "^[3-9]"'
+check "edge refuses actuator, openapi, keycloak admin and the master realm" 'for p in actuator v3 admin realms/master; do grep -q "$p" "$HERE/edge/edge.conf" || exit 1; done; [ "$(grep -c "return 404" "$HERE/edge/edge.conf")" -ge 3 ]'
 check "edge forwards only the paths the old Traefik rules routed to the app" 'for p in /api /oauth2 /login "= /logout"; do grep -q "location .*$p" "$HERE/edge/edge.conf" || exit 1; done'
 check "env.example names the three per-image variables" 'grep -q "^IPASS_APP_IMAGE=$" "$HERE/env.example" && grep -q "^IPASS_UI_IMAGE=$" "$HERE/env.example" && grep -q "^IPASS_KEYCLOAK_IMAGE=$" "$HERE/env.example"'
 # --- login rate limit at the edge (Karan open item): 10 r/min per client, 429; the key is the LAST X-Forwarded-For entry (the one Traefik appends), never the first (client-supplied)
@@ -175,6 +176,41 @@ if command -v docker >/dev/null 2>&1 && docker image inspect "ipass/ui:${NGINX_T
   check "edge.conf passes nginx -t (image ipass/ui:$NGINX_TEST_TAG)" 'MSYS_NO_PATHCONV=1 docker run --rm -v "$(cygpath -m "$HERE" 2>/dev/null || echo "$HERE")/edge/edge.conf:/etc/nginx/conf.d/default.conf:ro" "ipass/ui:$NGINX_TEST_TAG" nginx -t >/dev/null 2>&1'
 fi
 check "stateless services drop all capabilities and no-new-privileges" '[ "$(grep -c "<<: \*hardened" "$HERE/compose.yaml")" -ge 7 ] && grep -q "cap_drop: \[ALL\]" "$HERE/compose.yaml" && grep -q "no-new-privileges:true" "$HERE/compose.yaml"'
+# --- T219 operator address (ops.<domain>): read-only Kafbat only; the Keycloak console is NOT served on ops; everything behind a login
+# Comments are stripped before grepping (a commented-out rule must never satisfy a check). The behaviour of the rules is
+# proven by test/edge-ops.sh (nginx + stub upstream) and test/ops-setup-stub.sh (stub kcadm), run below when docker is there.
+C="$HERE/compose.yaml"
+strip() { sed -E 's/^[[:space:]]*#.*$//; s/[[:space:]]+#[[:space:]].*$//' "$1"; }
+Cc="$(strip "$C")"; Ec="$(strip "$E")"
+check "ops: kafbat image is pinned to an exact version + digest (no latest)" 'grep -qE "image: kafbat/kafka-ui:v[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}" <<<"$Cc"'
+kb="$(awk '/^  kafbat:/,/^  ui:/' <<<"$Cc")"
+check "ops: kafbat is read-only (cluster flag), dynamic config off, OIDC login on, Secure session cookie, RBAC file mounted" 'grep -q "KAFKA_CLUSTERS_0_READONLY: \"true\"" <<<"$kb" && grep -q "DYNAMIC_CONFIG_ENABLED: \"false\"" <<<"$kb" && grep -q "AUTH_TYPE: OAUTH2" <<<"$kb" && grep -q "SERVER_REACTIVE_SESSION_COOKIE_SECURE: \"true\"" <<<"$kb" && grep -q "kafbat-roles.yml:/etc/kafkaui/kafbat-roles.yml:ro" <<<"$kb"'
+check "ops: kafbat talks to Kafka on the internal ipass-work network and has no outbound network, port or socket" 'grep -q "networks: \[ipass-front, ipass-work\]" <<<"$kb" && ! grep -qE "ports:|ipass-egress|docker.sock|networks:.*web" <<<"$kb"'
+check "ops: kafbat is hardened like the other stateless services" 'grep -q "<<: \*hardened" <<<"$kb"'
+R="$HERE/kafbat/kafbat-roles.yml"; Rc="$(strip "$R")"
+check "ops: the Kafbat role is view-only - no message, produce, delete, create or edit action anywhere" '[ -s "$R" ] && ! grep -qiE "messages|produce|delete|create|edit|reset|update|all" <<<"$Rc" && grep -q "value: ops-operator" <<<"$Rc"'
+check "ops: Kafka 9092 and Postgres 5432 are published nowhere" '! grep -qE "^\s+ports:|\"?(9092|5432):" <<<"$Cc"'
+check "ops: the edge does not wait for kafbat (an operator tool must never hold the ingress back)" '! awk "/^  edge:/,/^  pg-backup:/" <<<"$Cc" | grep -q "kafbat"'
+check "ops: Keycloak keeps strict hostname and has NO admin-hostname override (the console is not on ops)" 'grep -q "KC_HOSTNAME_STRICT: \"true\"" <<<"$Cc" && ! grep -q "KC_HOSTNAME_ADMIN" <<<"$Cc" && ! grep -q "^KC_HOSTNAME_ADMIN" "$HERE/env.example"'
+check "ops: Traefik has ONE ops router (Kafbat paths via the edge), with security headers and TLS, and no Keycloak-console router" 'grep -q "ipass-ops.rule=Host(\`ops.\${IPASS_DOMAIN}\`)" <<<"$Cc" && grep -q "ipass-ops.middlewares=ipass-sec$" <<<"$Cc" && grep -q "ipass-ops.tls.certresolver=letsencrypt" <<<"$Cc" && ! grep -q "ipass-ops-kc" <<<"$Cc" && ! grep -qE "ops\.\\$\{IPASS_DOMAIN\}.*PathPrefix" <<<"$Cc"'
+ops="$(awk '/server_name ~\^ops/,/^}/' <<<"$Ec")"
+check "ops: edge has an ops server block that ends in 404 for everything not listed" '[ -n "$ops" ] && grep -q "location / { return 404; }" <<<"$ops"'
+check "ops: the ops block proxies only Kafbat (no keycloak upstream, no master realm, no admin, no resources)" '! grep -qE "keycloak|\\\$kc|/realms|/admin|/resources|/js" <<<"$ops" && [ "$(grep -c "proxy_pass" <<<"$ops")" -ge 5 ] && ! grep "proxy_pass" <<<"$ops" | grep -qv "\\\$kafbat"'
+check "ops: the message filter is anchored to the Kafbat API shape and the filtered path is the forwarded path" 'grep -q "if (\\\$uri ~\* \"^/kafka/api/clusters/\[^/\]+/(topics/\[^/\]+/(messages|smartfilters|serdes)|smartfilters)\") { return 404; }" <<<"$ops" && grep -c "proxy_pass \\\$kafbat\\\$uri\\\$is_args\\\$args" <<<"$ops" | grep -qE "^[5-9]"'
+check "ops: the whole API is GET-only and kafbat actuator is 404" 'grep -q "location ^~ /kafka/actuator { return 404; }" <<<"$ops" && grep -A1 "location ^~ /kafka/api/" <<<"$ops" | grep -q "limit_except GET { deny all; }" && ! grep -q "limit_except GET HEAD" <<<"$ops"'
+check "ops: kafbat oauth2 and login paths are rate limited" 'grep -F "location ^~ /kafka/oauth2" <<<"$ops" | grep -q "limit_req zone=ipass_login" && grep -F "location ^~ /kafka/login" <<<"$ops" | grep -q "limit_req zone=ipass_login"'
+check "edge: the Keycloak (auth) and Kafbat (ops) blocks never forward Upgrade / Connection upgrade" '[ "$(grep -c "proxy_set_header Upgrade \"\";" <<<"$Ec")" -eq 2 ] && [ "$(grep -c "proxy_set_header Connection \"\";" <<<"$Ec")" -eq 2 ] && [ "$(grep -c "proxy_set_header Upgrade \\\$http_upgrade;" <<<"$Ec")" -eq 1 ]'
+check "edge: token and authenticate rate-limit regexes accept the trailing-slash form (auth host)" 'grep -q "openid-connect/token/?\\\$ { limit_req zone=ipass_auth" <<<"$Ec" && grep -q "login-actions/authenticate/?\\\$ { limit_req zone=ipass_auth" <<<"$Ec"'
+check "edge: the auth-host 404s for /admin and the master realm are unchanged" 'awk "/server_name ~\^auth/,/^}/" <<<"$Ec" | grep -q "location ^~ /admin        { return 404; }" && awk "/server_name ~\^auth/,/^}/" <<<"$Ec" | grep -q "location ^~ /realms/master { return 404; }"'
+check "ops: both setup scripts and both behaviour scripts are executable in the index" 'for f in keycloak/ops-setup.sh keycloak/ops-setup-kcadm.sh test/edge-ops.sh test/ops-setup-stub.sh; do git -C "$REPO" ls-files -s -- deploy/hostinger/$f | grep -q "^100755" || exit 1; done'
+check "ops: setup scripts hold no value, create no user, ask for the admin password silently, use pipefail" '! grep -qE "create users|set-password" "$HERE/keycloak/ops-setup.sh" "$HERE/keycloak/ops-setup-kcadm.sh" && grep -q "read -r -s" "$HERE/keycloak/ops-setup.sh" && grep -q "pipefail" "$HERE/keycloak/ops-setup.sh" && grep -q "pipefail" "$HERE/keycloak/ops-setup-kcadm.sh" && DRY_RUN=1 sh "$HERE/keycloak/ops-setup.sh" | grep -q ops-kafbat'
+check "ops: env.example names OPS_KAFBAT_CLIENT_SECRET and still holds no value" 'grep -q "^OPS_KAFBAT_CLIENT_SECRET=$" "$HERE/env.example"'
+check "ops: setup behaviour against a stub kcadm (order, negated gate, bind-after-verify, rebuild, abort on a failed lookup)" 'bash "$HERE/test/ops-setup-stub.sh" >"$TMP/stub.out" 2>&1 || { tail -5 "$TMP/stub.out"; false; }'
+if command -v docker >/dev/null 2>&1 && docker image inspect "ipass/ui:${NGINX_TEST_TAG:-none}" >/dev/null 2>&1; then
+  check "ops: edge behaviour in nginx with a stub upstream (message paths, methods, 404s, forwarded path, h2c, rate limits)" 'bash "$HERE/test/edge-ops.sh" >"$TMP/edgeops.out" 2>&1 || { grep -E "^FAIL|held" "$TMP/edgeops.out" | head -5; false; }'
+else
+  echo "SKIP edge behaviour test (needs docker and NGINX_TEST_TAG=<local ipass/ui tag>)"
+fi
 check "no public route for /v3, /actuator, Keycloak admin" '! grep -E "traefik.*rule=" "$HERE/compose.yaml" | grep -E "PathPrefix\(\`/(v3|actuator)\`" ; grep -E "ipass-auth.rule" "$HERE/compose.yaml" | grep -q "!PathPrefix(\`/admin\`)"'
 check "every service has a restart policy or is one-shot" 'test "$(grep -c "restart:" "$HERE/compose.yaml")" -ge 7'
 check "memory limit on every long-running service" 'test "$(grep -c "mem_limit:" "$HERE/compose.yaml")" -ge 8'
