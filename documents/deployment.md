@@ -12,7 +12,7 @@ How the integration platform is built, run and operated: the local development s
 4. [Hosted kit: files, seed data, tests](#4-hosted-kit-files-seed-data-tests)
 5. [Edge rules](#5-edge-rules)
 6. [Redeploy a new build, rollback](#6-redeploy-a-new-build-as-done-for-t218t219)
-7. [Operator address ops](#7-operator-address-opsdomain)
+7. [Operator address on the ops host](#7-operator-address-on-the-ops-host)
 8. [Master realm state and the console](#8-master-realm-state-and-the-console)
 9. [Security status and known gaps](#9-security-status-and-known-gaps)
 10. [Open items](#10-open-items)
@@ -66,8 +66,9 @@ Closed on every public host: Keycloak `/admin` and the `master` realm, `/actuato
 
 ### Images and how the pins work
 
-The three product images are built from `main` and pushed to Docker Hub (public). The server `.env` pins each one in full with `IPASS_APP_IMAGE`, `IPASS_UI_IMAGE` and `IPASS_KEYCLOAK_IMAGE` (`repo:tag`); they win over the `IPASS_IMAGE_PREFIX`/`IMAGE_TAG` form, so the app, the ui/edge and Keycloak can sit on different tags (at the time of writing the app is ahead of the ui and Keycloak). Never `latest`. Third-party images are pinned in `compose.yaml` (Kafbat by version and digest). Read the live pins with `grep '^IPASS_.*_IMAGE=' .env` (names and tags only; the `.env` holds secrets, never print it whole).
+The three product images are built from `main` and pushed to Docker Hub (public). The server `.env` pins each one in full with `IPASS_APP_IMAGE`, `IPASS_UI_IMAGE` and `IPASS_KEYCLOAK_IMAGE` (`repo:tag`); they win over the `IPASS_IMAGE_PREFIX`/`IMAGE_TAG` form, so the app, the ui/edge and Keycloak can sit on different tags. Never `latest`. Third-party images are pinned in `compose.yaml` (Kafbat by version and digest).
 
+**Which tag is running is whatever `IPASS_APP_IMAGE` (and the other two) say in the server `.env` - this document does not record a tag, because a redeploy changes it.** Read it without printing secrets: `docker compose -f compose.yaml -f demo/compose.demo.yaml ps --format '{{.Service}} {{.Image}}'` (the image each service actually runs), and `docker inspect <container> --format '{{.Image}}'` for the image id. Do not print the whole `.env`: it holds secrets.
 
 ## 3. Local stack
 
@@ -108,7 +109,7 @@ The folder `deploy/hostinger/` holds the compose file, `edge/edge.conf`, the Key
 
 ## 6. Redeploy a new build (as done for T218/T219)
 
-1. **Build** from a detached, throwaway worktree of `main` under `D:\_Working_tree`, never from a working tree: JDK 25, `./mvnw -o -pl platform-app -am package -DskipTests`, then `docker build` of the changed image(s) with the short commit as tag. Take the PC-wide Docker lock for the build and release it afterwards. Push to the registry only with Dipesh's approval.
+1. **Build** from a detached, throwaway worktree of `main`, never from your working tree: JDK 25, `./mvnw -o -pl platform-app -am package -DskipTests`, then `docker build` of the changed image(s) with the short commit as tag. Take the PC-wide Docker lock for the build and release it afterwards. Push to the registry only with the project owner's approval.
 2. **Back up on the server** before touching anything: a new directory `/docker/ipass-backups/<UTC stamp>-<task>/` (mode 700) holding `compose.yaml`, `edge/edge.conf` and `.env` (mode 600, copied with `cp -p`), and a database dump (`docker compose exec pg-backup env RUN_ONCE=1 sh /scripts/backup.sh`, check it reports no `backup FAILED`).
 3. **Change the pin**: edit only the `IPASS_*_IMAGE` line(s) in `.env`; copy changed repo files into `/docker/ipass`; `docker compose -f compose.yaml -f demo/compose.demo.yaml config -q` must print nothing (drop the demo override on an install without WireMock).
 4. **Recreate only what changed**: `docker compose -f compose.yaml -f demo/compose.demo.yaml up -d <service>` (add `--no-deps`; `--force-recreate` when the image tag did not change). Wait until the services are `healthy`.
@@ -131,8 +132,7 @@ docker compose -f compose.yaml -f demo/compose.demo.yaml up -d --remove-orphans 
 ```
 App rollback: set `IPASS_APP_IMAGE` back to the previous tag in `.env` and recreate `platform-app` (an older app without the separate admin address returns 503 when issuing credentials; that is the previous known state). A release whose Flyway migration already ran cannot roll the schema back: restore the pre-change dump instead.
 
-
-## 7. Operator address ops.<domain>
+## 7. Operator address on the ops host
 
 `https://ops.<domain>/kafka/` is the read-only Kafka view for named operators. Everything on the ops host is behind a Keycloak login; nothing is anonymous. The Keycloak admin console and the master realm are **not** served there.
 
@@ -167,7 +167,7 @@ Realm `master` holds the named admin only. State on 26-Oct: `bootstrap-admin` is
 
 ## 9. Security status and known gaps
 
-The Release 1 security statement is **partly executed, lane runs plus review**; nothing here claims a pass of it. For the hosted instance:
+The Release 1 security statement is **partly executed, lane runs plus review**; it is not a security pass, and nothing here is a green light for external exposure. For the hosted instance:
 
 | Item | Status |
 |---|---|
@@ -178,7 +178,7 @@ The Release 1 security statement is **partly executed, lane runs plus review**; 
 | Master admin one-time code | Open: T220, needs the owner at the PC |
 | Edge literal blocks are case-sensitive (N4) | Open, Low (anonymous impact none); fix with the next edge change |
 | Kafbat can reach a PLAINTEXT, ACL-less broker (M2) | Open: design for SASL/ACL and a separate Kafbat network |
-| Kafka plaintext on the internal network (R1/F7) | Standing conditional High; per-environment probes open before any external exposure |
+| Kafka plaintext on the internal network (R1/F7) | Standing conditional High; per-environment probes P1-P9 open before any external exposure |
 | No Traefik access log | Known gap: earlier hits on `/admin` from other addresses cannot be proven absent |
 
 Also open: operator users do not exist yet (the end-to-end operator login is untested); `.env.kc-admin` sits in the stack directory and should move to the credential store; secret rotation is the owner's.
