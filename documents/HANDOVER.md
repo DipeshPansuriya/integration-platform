@@ -386,3 +386,323 @@ Source for the dates: `ws/_specs/release-base-plan-20261013.md:55-63`.
 - The queue-manager product (MQ-CSV against the real broker).
 - The operator dashboards ADR (proposed) and the platform-operator principal.
 - Whether E19 needs another pass after Release 2 functionality, since it was done early.
+
+## 6. End-to-end walkthrough
+
+One scenario: the **nested appointment** showcase. The source posts one appointment with vehicles and containers; the
+target receives one flat record per container. It is described in `deploy/hostinger/seed/NESTED-APPOINTMENT.md`, with
+its driver, seed, sample and mapping under `e2e-ui/scripts/` (`NESTED-APPOINTMENT.md:5`). It was proven live 6/6 on
+2026-10-25 (section 4.7). Every step below calls the endpoints that the seed driver uses, so a person in the console
+performs the same steps.
+
+Console screens are in `ui/src/pages/`: `Login`, `Dashboard`, `FlowsList`, `FlowDefinition`, `Versions`, `Systems`,
+`ContractVersions`, `MappingDesigner`, `MessageDetail`, `Failures`, `QueueDashboard`, `DeliveryReport` and `Activity`.
+
+| # | Step | Who | Screen | API (prefix `/api/v1`) | Code |
+|---|---|---|---|---|---|
+| 1 | Sign in through Keycloak (realm `platform`). The browser holds only the backend's HttpOnly `SESSION` cookie (BFF) | Tenant admin (`showcase-admin-a`, tenant `showcase-a`) | `Login` | `GET /me` | `MeController.java:27` |
+| 2 | Register the source system `nested-source` and the target system `nested-target` (type API, base URL on the allow-listed demo host) | Tenant admin / configurator | `Systems` | `POST /admin/systems`, `GET /admin/systems/{id}`, `PUT /admin/systems/{id}`, `POST /admin/systems/{id}/test-connection` | `SystemAdminController.java:36`, `:54`, `:106` |
+| 3 | Create contract version 1.0 for each system (JSON Schema, or import OpenAPI), submit, and have a different user approve | Configurator, then approver | `ContractVersions` | `POST /admin/contracts/versions`, `POST .../versions/import`, `POST .../versions/{id}/submit`, `POST .../versions/{id}/approve` | `ContractVersionAdminController.java:45-46`, `:66`, `:96`, `:113`, `:161` |
+| 4 | Create the flow (interface, route to the target, pinned contract versions) | Configurator | `FlowsList`, `FlowDefinition` | `POST /admin/flows`, `PUT /admin/flows/{id}`, `GET /admin/flows/{id}/routes` | `FlowAdminController.java:36`, `:56`, `:95`, `:112` |
+| 5 | Map the payload. The mapping is a raw JSONata expression (`expression.jsonata`), opened in the raw editor, because the drawn-links canvas cannot repeat a parent field per child (`NESTED-APPOINTMENT.md:5`) | Configurator | `MappingDesigner` | `GET`/`PUT /admin/routes/{routeId}/mapping` | `MappingAdminController.java:27`, `:46`, `:67` |
+| 6 | Run the sample. A passing sample run is required before publish (the publish pin check) | Configurator | `MappingDesigner` (Run sample panel) | `POST /admin/mappings/{id}/test` | `MappingTestController.java:51`; `MappingPublishPinCheck.java` |
+| 7 | Optional: validation and conditional rules as decision tables, and lookups | Configurator | `FlowDefinition` (rules editor) | `POST`/`GET /admin/flows/{flowId}/rule-sets`, `PUT /admin/rule-sets/{id}`, `POST .../evaluate`, `/admin/lookups/{id}/entries` | `RuleSetAdminController.java:35-36`, `LookupAdminController.java:31-32` |
+| 8 | Submit, approve by a different user (four-eyes), publish. Publish is one transaction over the interface, routes and mappings | Author submits; `showcase-approver-a` approves; tenant admin publishes | `Versions` | `POST /admin/flows/{id}/submit`, `.../approve`, `.../publish` | `FlowAdminController.java:143`, `:157`, `:171` |
+| 9 | Issue a source credential (client id and secret, shown once) | Tenant admin | `Systems` | `POST /admin/systems/{id}/source-credentials`; list `GET`; `POST /admin/source-credentials/{id}/rotate` and `.../revoke` | `SourceCredentialAdminController.java:57`, `:74`, `:92`, `:108` |
+| 10 | Ingest. The source gets a client-credentials token from Keycloak and posts `sample.json` with `Authorization: Bearer`, `X-Source-Contract-Version: 1.0` and `Idempotency-Key`. Expected answer: 202 with a tracking id (`NESTED-APPOINTMENT.md:22-24`) | Source system | - | `POST /interfaces/{interfaceCode}/messages` (bulk: `.../messages:bulk`) | `IntakeController.java:118`, `:185` |
+| 11 | Transform and deliver: stage 1 creates the delivery, stage 2 applies the mapping and sends; the target answers 200 | Platform | - | Kafka `platform.message.accepted`, then `platform.delivery.due` | section 2 |
+| 12 | Track: the timeline shows every stage with its time | Support / any reader | `MessageDetail` | `GET /admin/messages/{trackingId}/timeline` | `MessageTrackingController.java:64`; `MessageEndpointRoles.java:17` |
+| 13 | Failure and fix: a failed or dead-lettered delivery appears on Failures; after the cause is fixed, Retry (`RETRY_WAIT` only) or Replay (`DEAD_LETTERED` only), with a confirm step | Support | `Failures` | `GET /admin/messages/failures`; `POST /admin/messages/deliveries/{id}/retry`, `.../replay` | `MessageTrackingController.java:79`; `DeliveryOperatorController.java:61`, `:76` |
+| 14 | Queue and counts: queued, processed, converted, failed | Any reader | `Dashboard`, `QueueDashboard` | `GET /admin/queue/summary` | `QueueSummaryController.java:35`, `:51` |
+| 15 | Report and audit trail | Reader / tenant admin | `DeliveryReport`, `Activity` | `GET /reports/delivery`; `GET /activity`, `GET /activity/{eventId}` | `DeliveryReportEndpointRoles.java:15`; `ActivityEndpointRoles.java:18` |
+
+The retry and replay rule (retry only from `RETRY_WAIT`, replay only from `DEAD_LETTERED`; a 409 carries the state;
+a replay starts a new attempt-budget series) is recorded as decision m-3b79e5 in the planning workspace memory.
+
+**Showcase data.** The source document sent (`NESTED-APPOINTMENT.md:28`):
+
+```json
+{"TerminalOpsId":3,"TerminalId":2,"AppointmentId":90726015,"AppointmentDate":"2026-07-09T11:11:05.834Z",
+ "AppointmentStatus":"F","NoofVehicle":1,"BerthNo":"68",
+ "VehicleList":[{"SlotDate":"2026-07-09T11:11:05.834Z","SlotStartTime":"2026-07-09T14:00:00.834Z",
+   "SlotEndTime":"2026-07-09T15:00:00.834Z","DriverPortId":"907261",
+   "ContainerList":[{"BookingType":"FO","TransactionID":13,"ContainerNo":"26","Size":"40","Type":"GB",
+     "ISOCode":"1232","NoOfPackages":0,"GrossWeight":0,"ActualWeight":0}]}]}
+```
+
+What the target receives: one POST with a one-element array of 20 fields, where the appointment and vehicle fields are
+repeated on each container record (`NESTED-APPOINTMENT.md:30`):
+
+```json
+[{"terminalOpsId":3,"terminalId":2,"appointmentId":90726015,"appointmentDate":"2026-07-09T11:11:05.834Z",
+  "appointmentStatus":"F","noOfVehicles":1,"berthNo":"68","slotDate":"2026-07-09T11:11:05.834Z",
+  "slotStartTime":"2026-07-09T14:00:00.834Z","slotEndTime":"2026-07-09T15:00:00.834Z","driverPortId":"907261",
+  "bookingType":"FO","transactionId":13,"containerNo":"26","size":"40","type":"GB","isoCode":"1232",
+  "noOfPackages":0,"grossWeight":0,"actualWeight":0}]
+```
+
+Edge cases (`NESTED-APPOINTMENT.md:32-38`):
+
+- Two vehicles with two containers each give a 4-element array.
+- An empty `ContainerList` adds nothing; no containers at all gives `[]`.
+- Only `AppointmentId` and `ContainerNo` are guaranteed.
+- Whole numbers above 2^53 lose precision, so keep long ids as strings.
+
+The original worked example (Customer A to Target A v1.0 and Target B v2.0, section 2) is the Release 1 scenario set
+SC-01 to SC-09 in `platform-e2e`.
+
+## 7. Architecture
+
+The authoritative text is [architecture.md](architecture.md). Remember that its section 9 status notes are dated
+2026-10-16; read them with section 4 of this document.
+
+### 7.1 Modules
+
+There is one deployable, a modular monolith (ADR-001). Maven modules are listed in `pom.xml:22-44`. The root package is
+`io.integrationplatform`; each module's public surface is its base package plus `port` and `event`, and everything else
+sits under `.internal` (`AGENTS.md:41-44`).
+
+| Module | Plane | Owns | Must not |
+|---|---|---|---|
+| `platform-domain` | shared | Ids, value types, the Delivery state register and outcome classes | Depend on Spring or any other module |
+| `platform-tenancy` | shared | Tenant context, per-transaction stamping, bootstrap resolvers, OIDC resource server, console login (BFF), Keycloak admin port, role checks | Read a tenant from a body, header or Kafka record |
+| `platform-config` | control | Systems, endpoints, encrypted credentials, contracts, interfaces and versions, routes, mappings and mapping versions, rule sets, lookups, retry policies, lifecycle and publish, job definitions and the job API, the admin API, the outbound `DestinationGuard` | Be written by a data-plane module |
+| `platform-ingest` | data | The common API, caps, validation, bulk split, idempotency, the intake transaction, the outbox relay | Call a target; use Camel |
+| `platform-routing` | data | The only Camel module: stage 1 and 2 consumers, route templates, target adapters (`routing/adapter/{api,mq,kafkatopic,db,file}`), bulkheads, breakers, send-time destination check | Hold retry timing; decide a tenant from a record |
+| `platform-transform` | data | JSONata mapping execution (Dashjoin port), sample tests | Use Camel |
+| `platform-delivery` | data | Delivery and attempt persistence, outcome classifier, retry policy, ordering hold, re-drive and reconciler, replay, the delivery report | Send anything itself |
+| `platform-audit` | shared | Append-only audit and the tenant activity view (registered as a "low-conflict contract surface", `pom.xml:35`) | Update or delete an event |
+| `platform-tracking` | data | Tracking and report reads contract surface (`pom.xml:37`) | - |
+| `platform-app` | - | The deployable: wiring, security chain, scheduler jobs, actuator, message and queue controllers | Contain business logic |
+| `arch-test` | test | ArchUnit rules over every module | - |
+| `platform-e2e` | test | Black-box end-to-end harness and the Release 1 scenarios (Testcontainers Artemis and WireMock) | Ship production code |
+
+The module table is from `documents/architecture.md:45-60`. That document still lists a `platform-ledger` module,
+which does not exist in `pom.xml`. Tracking reads sit in `platform-tracking` and `platform-app`. The `platform-audit`
+and `platform-tracking` modules are small (8 and 10 tracked files).
+
+### 7.2 Dependency rules enforced by arch-test and the build
+
+- The tenant filter is on every repository and raw JDBC access, in every module's package; a planted violation fails
+  the build (R08; `documents/architecture.md:150`).
+- `org.apache.camel` is allowed only in `platform-routing` (R12; tracker T-121).
+- Outbound calls go only through the guard (rule `OutboundOnlyThroughGuardRule`, planning-workspace memory m-07ca89).
+- Routing depends only on config's public API, never on its internals (ADR-015 Decision 2, ADR-017).
+- Module internals stay private; test-only modules stay test-only (`ModuleScopeGuard`).
+- Dependency convergence: exactly one kafka-clients version and one networknt version, and no spring-kafka. This is
+  checked by `build-checks/check-dependency-tree.sh` and `check-planted-violations.sh` (`AGENTS.md:65-66`).
+
+The rule sources are in `arch-test/src/test/java/io/integrationplatform/archtest/`, with 11 test classes and 63 `@Test`
+methods on `5b9a6c36`.
+
+### 7.3 Tech stack and versions
+
+| Piece | Version | Source |
+|---|---|---|
+| Java | 25 | `pom.xml:47` |
+| Spring Boot (parent) | 4.1.1 | `pom.xml:9-11` |
+| Apache Camel Spring Boot | 4.22.1 | `pom.xml:50` |
+| Kafka client | 4.3.1 (no spring-kafka) | `AGENTS.md:26` |
+| springdoc (OpenAPI at `/v3/api-docs`) | 3.1.1 | `pom.xml:59` |
+| PostgreSQL | 17 (`postgres:17.11-alpine`) | `compose/compose.yaml:19` |
+| Keycloak | 26.8.0 | `compose/compose.yaml:47` |
+| Kafka broker | `apache/kafka:4.3.1` | `compose/compose.yaml:79` |
+| Artemis (tests, `e2e` profile) | 2.44.0, digest-pinned | `compose/compose.yaml:134` |
+| WireMock | 3.13.1, digest-pinned | `compose/compose.yaml:154` |
+| Kafbat UI | digest-pinned (hosted: v1.5.0) | `compose/compose.yaml:111` |
+| Mapping engine | JSONata, `com.dashjoin:jsonata` 0.9.10 | ADR-006; `ws/_specs/project-plan.md:84` |
+| Rules engine | GoRules ZEN; editor `@gorules/jdm-editor` 1.52.0 | ADR-003; `ui/package.json` |
+| Scheduler | db-scheduler | ADR-012 |
+| Console | React 18.3.1, Vite, TypeScript, `@xyflow/react` 12.12.0, CodeMirror 6, `openapi-fetch` | `ui/package.json` |
+| Browser tests | Playwright | `e2e-ui/package.json` |
+
+The ADR index notes "no Spring Modulith" in the build (`documents/adr/README.md`, ADR-001 status row), although older
+planning text mentions it.
+
+### 7.4 Data model essentials
+
+The full table is in `documents/architecture.md:79-89`. In short:
+
+- Every tenant-owned table has `tenant_id` and an RLS policy. Closed sets are `text` with `CHECK`. High-volume tables
+  are partitioned by day.
+- **Tenancy:** `tenant`, `app_user`, `role_grant`, `source_credential`.
+- **Systems:** `system` (type plus typed `settings`), `target_endpoint`, and `target_credential` (envelope-encrypted
+  with an out-of-database key, `PLATFORM_CREDENTIAL_KEK_*`).
+- **Contracts:** `contract`, `contract_version`.
+- **Flow:** `interface`, `interface_version` (an immutable `jsonb` snapshot, with `CHECK` approver is not author),
+  `route`, `mapping`, `mapping_version` (immutable, content-addressed, pinned on deliveries; ADR-013), `rule_set`,
+  `lookup_table`, `lookup_entry`, and approved tables for DB targets.
+- **Intake:** `message`, `payload`, `outbox`, `ordering_key`, `idempotency_key`. Message and payload are
+  day-partitioned; payload is kept 30 days (ADR-014).
+- **Delivery:** `delivery` (unique `(message_id, route_id, created_at)`, with pinned versions and a claim token),
+  `delivery_attempt` (append-only), `delivery_event`, plus the stage timing table.
+- **Audit:** `audit_event` (append-only).
+- **Scheduler:** its own schema, platform-scoped, with no `tenant_id`.
+
+The schema is owned by Flyway (`V<major>_<minor>_<n>__*.sql` under each module's `src/main/resources/db/migration`),
+and JPA only validates.
+
+### 7.5 Kafka topics
+
+Work topics are `platform.message.accepted`, `platform.delivery.due` and `platform.poison`. The hosted kit creates them
+with 3 partitions, 7-day retention and replication factor 1 (`deploy/hostinger/kafka/create-topics.sh`). Auto-create
+is off, and the app requires `IPASS_KAFKA_PLATFORM_TOPICS` and fails closed without it
+(`ws/_documents/2026-10-24-adr-hostinger-hosting.md`, Context). Records carry ids only; the payload stays in
+PostgreSQL. There are no retry topics.
+
+A Kafka-topic **target** may never point at a platform topic. The throughput design (tracker T181, "in review") calls
+for 12 partitions and N consumer loops per stage. PR #15 `feature/t181-n-consumer-loops` is merged
+(`git log`, merge `ad733861`); the partition count in production is not verified.
+
+### 7.6 Identity
+
+- **Keycloak realm `platform`** (`compose/keycloak/platform-realm.json`). Clients: `platform-console` (the console
+  BFF), `platform-admin` (service account, used by the app to issue source credentials) and `operator-agent` (service
+  account for the AI-agent caller). The hosted realm adds the client `ops-kafbat`, the role `ops-operator` and the flow
+  `ops-browser` (password, role gate, OTP) (`ws/_documents/2026-10-26-hosted-deployment-runbook.md:44`).
+- **Roles live in our database** (`role_grant`), not as realm roles. The realm export defines no realm roles. The
+  tenant is bound from our directory through the login bootstrap function (ADR-009), never from a token claim the
+  client controls.
+- **Console = BFF.** The browser holds only the backend's HttpOnly, Secure `SESSION` cookie, sessions are stored in
+  PostgreSQL, and the UI must be same-origin with `/api`, `/oauth2`, `/login` and `/logout` (hosting ADR, Context).
+- **Source systems** use OAuth2 client credentials. The (issuer, client id) pair maps to source system, customer and
+  tenant.
+- **`OPERATOR_AGENT`** is the first no-tenant principal. It reaches only job and alert operations, and every
+  tenant-owned policy errors for it (`documents/architecture.md:164-168`).
+
+### 7.7 Multi-tenancy isolation controls
+
+The closed register is in `documents/architecture.md:147-177`:
+
+| # | Control | Proven by |
+|---|---|---|
+| T1 | Tenant from the authenticated principal through our database only | Forged-tenant denial suite (1,225 tests at `347a1466`) |
+| T2 | Every query carries the tenant filter, enforced by ArchUnit | Planted-violation test |
+| T3 | RLS on every tenant-owned table; error-deny on an empty setting | RLS-bypass negative suite |
+| T4 | The tenant setting is stamped per transaction only | Pooled-connection test |
+| T5 | Exactly four definer functions cross the boundary: `ipaas_login_bootstrap`, `ipaas_client_bootstrap`, `ipaas_work_tenant`, `ipaas_active_tenants` | One negative test each; a fifth needs an ADR |
+| T6 | The app role has no `BYPASSRLS` and no DDL; maintenance runs as `ipaas_maintenance` | Grant inspection test |
+| K1 | The app refuses to start if its DB login is superuser, can bypass RLS, or owns the tables | `DatabaseRoleGuard` (hosting ADR, Context) |
+
+Background jobs and consumers take the tenant from the RLS-protected row. Reviewed crossings into
+`platform-tenancy.internal` carry `@TenantBoundaryCrossing`.
+
+### 7.8 Resilience rules
+
+- Every outbound call carries the five controls: timeout, transient-only retry with backoff, jitter and a cap, one
+  circuit breaker per dependency, a fallback, and metrics plus a trace span (R13). Targets also get a per-target
+  bulkhead.
+- There are exactly two retry layers: Camel in-attempt redelivery (seconds), and the persisted Delivery state machine
+  (long horizon).
+- A timeout after send is ambiguous. It is retried only if the target declares idempotent receive; otherwise it is
+  dead-lettered `AMBIGUOUS_TIMEOUT`.
+- Nothing stays stuck: holds are released in the same transaction, a reconciler runs inside the delivery-retry job, and
+  consumers pause on a transient database error.
+- Alerts fire on: outbox age over 60 s, consumer lag over 1,000 records or 2 minutes, any poison arrival, and a hold
+  older than 1 hour (`documents/architecture.md:205-212`).
+- **Destination controls:** refused ranges include loopback, private, link-local, cloud metadata, carrier-grade NAT,
+  IPv6 unique-local and the platform's own hosts. The resolved address is pinned, every redirect is re-checked, File
+  paths are confined to a root, and the allow-list fails closed (ADR-010 section 8, amended 2026-10-19).
+
+## 8. Deployment and environments
+
+**Operational detail is in [deployment.md](deployment.md). Read it instead of this section for any operator task.**
+It covers the two ways to run, links, services, image pins, the local stack, the hosted kit and its tests, edge rules,
+redeploy and rollback, the ops address, the master realm, security status and open items.
+
+| Environment | What | Owner |
+|---|---|---|
+| Local compose | `compose/compose.yaml`: PostgreSQL, Keycloak (realm imported), Kafka, Kafbat; the `e2e` profile adds Artemis and WireMock. The app runs from Maven or the IDE. Variable names are in `compose/compose.env.example` | Each developer |
+| Test harnesses | Testcontainers in `-Pcontainer` and `-Pe2e-full`, plus the `e2e-ui` boot scripts, which start their own containers | Developers and QA |
+| Hosted showcase / staging | `deploy/hostinger/` on a single VPS behind the host's Traefik. **Fictional showcase data only, no real customer data** (`deploy/hostinger/README.md:3`) | The project owner holds the server, accounts, secrets and every production step |
+
+**The three hosted links** (verified from outside on 2026-10-26, `ws/_documents/2026-10-26-hosted-deployment-runbook.md:19-23`):
+
+| Link | Answer | Purpose |
+|---|---|---|
+| `https://ipass.dipeshpansuriya.tech` | 200 | App UI; sign-in redirects to Keycloak |
+| `https://auth.dipeshpansuriya.tech/realms/platform/account` | 200 | Keycloak login and account (realm `platform`) |
+| `https://ops.dipeshpansuriya.tech/kafka/` | 302 to login | The ops address: Kafbat, read-only, no message bodies, password plus OTP, role `ops-operator` |
+
+Not public on any host: Keycloak `/admin` and the master realm, `/actuator`, `/metrics`, `/health`, `/v3`, swagger,
+Postgres 5432, Kafka 9092 and the WireMock admin. Reach those over SSH only.
+
+**Current hosted state** (2026-10-26):
+
+- The app runs `main 4e0730a6`, healthy with 0 restarts (planning-workspace memory m-d93433).
+- The ui, edge and Keycloak run older pins. The runbook dated the same day lists app `8ead16cc` and ui
+  `3105c3d3` (`ws/_documents/2026-10-26-hosted-deployment-runbook.md:32`).
+- The two sources disagree on the app tag. The later deploy entry (`4e0730a6`) is trusted. Read the live pins on the
+  server with `grep '^IPASS_.*_IMAGE=' .env` (names and tags only).
+- Images are on Docker Hub. `deploy/hostinger/README.md:22` also documents a private-registry prefix form; the
+  hosted copy uses the Docker Hub overrides.
+
+**Who owns what:**
+
+| Area | Owner |
+|---|---|
+| Server, DNS, registry accounts, secrets, rotation, production deploys, the master admin OTP, operator accounts | The project owner |
+| Code changes to the kit (`deploy/hostinger/**`) | Developers, through a PR, with the security reviewer checking edge and identity changes |
+
+## 9. Security
+
+### 9.1 Findings status
+
+| Item | Severity | Status | Source |
+|---|---|---|---|
+| Release 1 security statement | - | "Partly executed", "lane runs plus review"; **not a pass** | section 4.6 |
+| R1/F7 Kafka plaintext to an advertised internal node | Conditional High | **Accepted** for Release 1 with the plaintext switch off everywhere and no egress policy; not closed. The deployed value is not verified | `ws/_documents/2026-10-22-release1-security-statement-and-risk-acceptance.md:33-42` |
+| R3 DB targets `sslmode=require` without chain verification | - | Accepted for Release 1 | same, `:30` |
+| R2 existing KAFKA rows without protocol fail TLS (migration or release note) | - | Open, owner decision | same, `:40` |
+| H1 Keycloak console public with a single factor | High | **Closed** 2026-10-26 (route removed) | runbook `:63` |
+| N1 request splitting into Kafbat; N2 double-encoding bypass | - | **Closed** (edge refuses `%` and dot segments) | runbook `:64` |
+| M1 h2c Upgrade hang | Medium | **Closed** | runbook `:65` |
+| L5 platform audience on `ops-kafbat` | Low | Closed in code and setup; token check **not verified** (needs a login) | runbook `:66` |
+| N4 case-sensitive literal-prefix blocks in `edge.conf` | Low | **Open**; anonymous impact nil; fix at the next edge change | `ws/_reports/2026-10-26-t219-ops-security-recheck2.md:48`, `:94` |
+| M2 Kafbat reaches a plaintext, ACL-less Kafka | Medium | **Open**; design item: SASL/ACL and its own network | `ws/_reports/2026-10-25-t219-ops-security.md:36`, `:116` |
+| Master realm admin has no OTP | - | Approved, not done (T220) | runbook `:46`, `:70` |
+| Audit leg of four gate cases (refusal asserted, audit row not) | - | Known gap; mandatory before any "pass" claim | statement document, section 3 |
+| PATH_ID denial record C3 (before the audit writer replaces the logging recorder) | Low | Open gate | statement document `:114` |
+| Issuer-validator removal survived mutation | Low | Follow-up done (tracker T209 closed) | verdict report `:53`; tracker |
+| Per-environment probes P1-P9 | - | Open before external exposure | section 4.6 |
+| `.env.kc-admin` in the stack directory | - | Open: move it to the credential store | runbook `:79` |
+| No edge access log, so earlier `/admin` hits cannot be proven absent | - | Open | runbook `:80` |
+
+### 9.2 Hosted hardening done on 25-26 October
+
+All of this is from the T219 work: `ws/_documents/2026-10-26-hosted-deployment-runbook.md` sections 3, 4 and 6, and
+`deploy/hostinger/README.md` "Operator address".
+
+- The ops address serves only Kafbat at `/kafka/`, behind a Keycloak login (client `ops-kafbat`, auth-code only,
+  default scope `basic`), role `ops-operator` and OTP (flow `ops-browser`, bound to that client only).
+- On ops: GET only on the API; 404 for messages, serdes, smartfilters, produce and actuator; 404 for any path with `%`,
+  `;`, backslash, `//` or dot segments (including directly before a query string); no `Upgrade` or `Connection`
+  forwarded.
+- Keycloak `/admin` and the master realm are 404 on every public host; admin work is done with `kcadm.sh` in the
+  container over SSH.
+- The master realm has a named admin only, brute-force detection on, `bootstrap-admin` removed and the frontend URL
+  unset.
+- Auth and login paths are rate-limited, including the trailing-slash forms.
+- The app issues source credentials through the internal Keycloak address (`KEYCLOAK_ADMIN_BASE_URI`, unset on hosted,
+  which means the internal default). Verified live on 2026-10-25 and 2026-10-26.
+- A backup directory is taken before every change. Rollback steps are in [deployment.md](deployment.md) section 6.1.
+
+### 9.3 Rules for any new endpoint
+
+1. **Tenant from the principal only.** Never read a tenant id from the body, a header, the path or a Kafka record. Run
+   every tenant-scoped access inside a tenant-stamped transaction (R11).
+2. **Add a role check on the server.** Add the endpoint to the role policy, and add a failing test per role first (R01).
+   Also add it to the forged-tenant denial matrix (`ForgedTenantDenialSuiteTest`); a missing entry has turned the
+   container gate red before (planning-workspace memory m-dc5a12).
+3. **Return 404, not 403, for another tenant's id**, so existence does not leak. Put a `::uuid` guard on path ids, so a
+   malformed id gives 404 or 400, never 500 (tracker T197 R3).
+4. **Clean 4xx on bad input**: malformed body 400, wrong content type 415, oversized 413, and no stack trace or input
+   echo in the body. Error handling outside `io.integrationplatform.config` is an open design item (tracker T207,
+   section 13).
+5. **Masked fields never appear** in logs, response bodies or screens. Secrets are write-only.
+6. **Outbound calls go only through `DestinationGuard`**, with the five controls (R13).
+7. **Declare the real responses in OpenAPI**, then regenerate the typed client (`cd ui && npm run generate:client`).
+   The contract test fails on drift.
+8. **Update the docs**: [interface.md](interface.md), and a diagram if the change alters it (R21).
+9. **Hosted exposure**: a new path is 404 at the edge until it is added to `deploy/hostinger/edge/edge.conf` on
+   purpose. After that change the edge container must be recreated (section 12.5).
