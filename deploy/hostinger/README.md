@@ -24,18 +24,18 @@ Source: ADR-H-IPASS-01 (hosting decision; kept in the planning workspace, not in
 | `seed/` | `seed-showcase.sh` + `seed.sql` (two tenants, four users); `NESTED-APPOINTMENT.md` = hand-off for the nested-appointment showcase flow (not part of the seed run) |
 | `test/` | `test-scripts.sh` (offline), `smoke.sh` + `compose.smoke.yaml` (build-PC only) |
 
-Images (built elsewhere, see "Build"): `acsnewacr.azurecr.io/ipass/platform-app:<sc>`, `.../ui:<sc>`, `.../keycloak:26.8.0-<sc>`. `<sc>` = short commit of the merged `main`. Never `latest`.
+Images (built elsewhere, see "Build"): `<registry>/ipass/platform-app:<sc>`, `.../ui:<sc>`, `.../keycloak:26.8.0-<sc>`. `<sc>` = short commit of the merged `main`. `<registry>` is your container registry host; the compose default prefix is configurable through `IPASS_IMAGE_PREFIX`. Never `latest`.
 
-The compose `image:` names are overridable per service: `IPASS_APP_IMAGE`, `IPASS_UI_IMAGE`, `IPASS_KEYCLOAK_IMAGE` (full `repo:tag`). Each defaults to the prefix form, so the existing `IPASS_IMAGE_PREFIX=acsnewacr.azurecr.io/ipass` setup is unchanged. Docker Hub has one namespace level, so the same tag as the ACR cannot be built from one prefix - to serve the published Hub images set, e.g. `IPASS_APP_IMAGE=dipeshpansuriya/ipass-platform-app:3105c3d3`, `IPASS_UI_IMAGE=dipeshpansuriya/ipass-ui:3105c3d3`, `IPASS_KEYCLOAK_IMAGE=dipeshpansuriya/ipass-keycloak:26.8.0-3105c3d3`. Never `latest`.
+The compose `image:` names are overridable per service: `IPASS_APP_IMAGE`, `IPASS_UI_IMAGE`, `IPASS_KEYCLOAK_IMAGE` (full `repo:tag`). Each defaults to the prefix form, so the existing `IPASS_IMAGE_PREFIX=<registry>/ipass` setup is unchanged. Docker Hub has one namespace level, so the same tag as the ACR cannot be built from one prefix - to serve the published Hub images set, e.g. `IPASS_APP_IMAGE=dipeshpansuriya/ipass-platform-app:3105c3d3`, `IPASS_UI_IMAGE=dipeshpansuriya/ipass-ui:3105c3d3`, `IPASS_KEYCLOAK_IMAGE=dipeshpansuriya/ipass-keycloak:26.8.0-3105c3d3`. Never `latest`.
 
 ## Build (build PC; step 6 of the ADR; an outward push needs the project owner's approval)
 
 ```
 JAVA_HOME=<jdk25> ./mvnw -B -pl platform-app -am package -DskipTests
 (cd ui && npm ci && npx vite build)
-docker build -f platform-app/Dockerfile -t acsnewacr.azurecr.io/ipass/platform-app:<sc> .
-docker build -f ui/Dockerfile -t acsnewacr.azurecr.io/ipass/ui:<sc> .
-docker build -f deploy/hostinger/keycloak/Dockerfile -t acsnewacr.azurecr.io/ipass/keycloak:26.8.0-<sc> .
+docker build -f platform-app/Dockerfile -t <registry>/ipass/platform-app:<sc> .
+docker build -f ui/Dockerfile -t <registry>/ipass/ui:<sc> .
+docker build -f deploy/hostinger/keycloak/Dockerfile -t <registry>/ipass/keycloak:26.8.0-<sc> .
 ```
 Scan the source tree and the three images (gitleaks, plus a vulnerability scan; Critical/High = no push) before any push.
 
@@ -48,7 +48,7 @@ Scan the source tree and the three images (gitleaks, plus a vulnerability scan; 
 4. **Project folder**: `mkdir -p /docker/ipass && cd /docker/ipass`; copy this `deploy/hostinger/` folder's contents here (`scp -r`), then `chmod +x *.sh */*.sh`. (The postgres init scripts must be executable.)
 5. **Secrets**: `IPASS_DOMAIN=<domain> IMAGE_TAG=<sc> ./bootstrap-env.sh` writes `.env` (mode 600) and prints fingerprints. The project owner keeps a copy of `PLATFORM_CREDENTIAL_KEK_K1` in his password manager (losing it makes sealed credentials unreadable). The temporary Keycloak admin is written to its own file `.env.bootstrap-admin` (mode 600), not to `.env`.
    - Demo destination (optional): add `-f demo/compose.demo.yaml` to every compose command below; it brings WireMock and sets `SPRING_PROFILES_ACTIVE=showcase`, the one allow-listed host and the showcase-only exception. Without it none of that exists.
-6. **Registry**: `docker login acsnewacr.azurecr.io` with the pull-only token (the project owner creates it; `--password-stdin`).
+6. **Registry**: `docker login <registry>` with the pull-only token (the project owner creates it; `--password-stdin`).
 7. **Validate**: `./check-issuer-override.sh` (fails if `OIDC_ISSUER_URI` is set in the env file without `KEYCLOAK_ADMIN_BASE_URI`) and `docker compose -f compose.yaml -f keycloak/compose.bootstrap-admin.yaml config -q` (must print nothing).
 8. **Start** (first time, with the bootstrap admin): `F="-f compose.yaml -f keycloak/compose.bootstrap-admin.yaml"` (append `-f demo/compose.demo.yaml` for the demo), then `docker compose $F pull && docker compose $F up -d`. After step 11 the `keycloak/compose.bootstrap-admin.yaml` file is no longer used. First start: Postgres runs the init scripts (roles), Keycloak imports realm `platform`, `kafka-init` creates the topics, the app runs Flyway and starts.
 9. **Wait and verify** (guide section 8): all containers `Up` and healthy, restart count not rising for 90 s; `docker compose logs platform-app` shows a clean start.
