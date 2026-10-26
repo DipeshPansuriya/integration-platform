@@ -81,3 +81,6 @@ export function sessionStateOf(status: number | null, body: unknown): SessionSta
   if (status === 401) return 'signed-out';
   return 'error';
 }
+
+/** A10: the 'some counts could not be loaded' banner stays mounted while its Retry runs, so focus is not dropped. */
+export const retryBannerShown = (failed: boolean, retrying: boolean): boolean => failed || retrying;

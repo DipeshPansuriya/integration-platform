@@ -33,11 +33,11 @@ class DbTargetHardeningTest {
 
     static final String SETTINGS = """
             {"host":"db.example","port":5432,"database":"orders","user":"restricted",
-             "table":"orders_in","approvedTables":["orders_in"]}
+             "table":"orders_in"}
             """;
     static final String SETTINGS_NO_USER = """
             {"host":"db.example","port":5432,"database":"orders",
-             "table":"orders_in","approvedTables":["orders_in"]}
+             "table":"orders_in"}
             """;
 
     final DbSender sender = mock(DbSender.class);
@@ -48,7 +48,7 @@ class DbTargetHardeningTest {
         DbTargets targets = id -> Optional.of(new DbTargets.DbTarget(settings, "pw".toCharArray()));
         DestinationGuard guard = new DestinationGuard(AllowList.of(List.of("db.example")),
                 name -> List.of(InetAddress.getLoopbackAddress()), List.of("db.example"), List.of(5432));
-        return new DbTargetCall(new DbTargetOutbound(targets, s -> Optional.of(List.of(row))), sender, guard, List.of(5432),
+        return new DbTargetCall(ApprovedTablesFixtures.ALL, new DbTargetOutbound(targets, s -> Optional.of(List.of(row))), sender, guard, List.of(5432),
                 CircuitBreakerRegistry.ofDefaults(), new SimpleMeterRegistry(), ObservationRegistry.create());
     }
 

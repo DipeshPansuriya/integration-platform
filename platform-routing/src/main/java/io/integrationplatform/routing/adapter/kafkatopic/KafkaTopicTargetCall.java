@@ -69,7 +69,7 @@ public final class KafkaTopicTargetCall implements TargetCall {
 
     @Override
     public void call(Stage2Send send) {
-        CircuitBreaker breaker = breakers.circuitBreaker("kafka:" + send.targetEndpointId(), BREAKER);
+        CircuitBreaker breaker = io.integrationplatform.routing.stage2.BreakerOpenWait.watch(breakers.circuitBreaker("kafka:" + send.targetEndpointId(), BREAKER));
         if (!breaker.tryAcquirePermission()) {
             throw TargetFaultException.CircuitOpenException.of(breaker, send.targetEndpointId());
         }

@@ -87,6 +87,25 @@ class RuleEvaluationContainerTest {
     }
 
     @Test
+    @DisplayName("L7: the port caches the compiled rule set, yet an edit is served on the very next evaluation")
+    void editedRuleSetIsEvaluatedAfterTheCacheWasWarm() {
+        Tenant a = RuleSuiteFixture.tenantA();
+        String id = store(a, "VALIDATION", Jdm.validationTable());
+        String body = "{\"input\":" + Jdm.validationInput() + "}";
+        for (int i = 0; i < 3; i++) { // warm: the 2nd and 3rd are cache hits
+            assertThat(call("POST", "/api/v1/admin/rule-sets/" + id + "/evaluate", a, body).json()
+                    .path("violations").size()).isEqualTo(3);
+        }
+
+        Response edited = call("PUT", "/api/v1/admin/rule-sets/" + id, a,
+                "{\"name\":\"edited\",\"content\":" + Jdm.routingTable() + "}");
+        assertThat(edited.status()).as("PUT, body: %s", edited.body()).isEqualTo(200);
+
+        assertThat(call("POST", "/api/v1/admin/rule-sets/" + id + "/evaluate", a, body).json()
+                .path("violations").size()).as("the edited table no longer yields the old violations").isZero();
+    }
+
+    @Test
     @Tag("negative")
     @DisplayName("The test panel writes nothing")
     void panelWritesNothing() {

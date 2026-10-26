@@ -23,7 +23,7 @@ import java.util.UUID;
  * console's publish writes); the live route and mapping rows equal it, as a publish leaves them. The source's
  * {@code customer_id} is the {@code customerId} the source posts (E4-F1-S2 body cross-check).
  */
-final class DipeshExampleSeed {
+public final class DipeshExampleSeed {
 
     /** Target A, contract v1.0: {customer_code, order_number, total_amount}. */
     static final String EXPRESSION_A =
@@ -33,12 +33,12 @@ final class DipeshExampleSeed {
     static final String EXPRESSION_B =
             "{\"clientId\": customerId, \"referenceNo\": orderId, \"invoiceValue\": amount}";
 
-    static final String INTERFACE_CODE = "orders";
-    static final String SOURCE_CONTRACT_LABEL = "1.0";
+    public static final String INTERFACE_CODE = "orders";
+    public static final String SOURCE_CONTRACT_LABEL = "1.0";
     static final String BUSINESS_KEY_RULE = "orderId";
 
     /** One onboarded tenant: everything the suite needs to post and to look the rows up. */
-    record Tenant(String word, UUID id, String customerId, String clientId, UUID interfaceId,
+    public record Tenant(String word, UUID id, String customerId, String clientId, UUID interfaceId,
             UUID endpointA, UUID endpointB, UUID routeA, UUID routeB, String pathA, String pathB) {
     }
 
@@ -51,7 +51,7 @@ final class DipeshExampleSeed {
     }
 
     /** Onboards Dipesh's example for one tenant. The tenant row is written first (the directory owns it). */
-    static Tenant onboard(Connection owner, String word, String customerId, String clientId, String issuer)
+    public static Tenant onboard(Connection owner, String word, String customerId, String clientId, String issuer)
             throws Exception {
         UUID tenantId = UUID.randomUUID();
         execute(owner, "INSERT INTO public.tenant (id, code, status, time_zone) VALUES (?::uuid, ?, 'ACTIVE',"

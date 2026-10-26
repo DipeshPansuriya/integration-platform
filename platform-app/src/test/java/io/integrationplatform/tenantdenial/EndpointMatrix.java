@@ -320,7 +320,9 @@ final class EndpointMatrix {
             // F10's clear removes the tenant's whole message set.
             new B9FlowRoutesMatrix(), new E11IntakeMatrix(), new F10QueueSummaryMatrix(), new E13TimelineMatrix(),
             new T111DeliveryOperatorMatrix(),
-            new E12ActivityMatrix());
+            new E12ActivityMatrix(),
+            // T186: job admin (operator agent only), the report reads, the E16 F3 approved tables
+            new T186JobAdminMatrix(), new T186ReportMatrix(), new T186ApprovedTableMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),

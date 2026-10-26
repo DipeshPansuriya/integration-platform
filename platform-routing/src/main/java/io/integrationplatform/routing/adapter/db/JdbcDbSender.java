@@ -27,6 +27,15 @@ import java.util.stream.Collectors;
  * dials the guard-pinned address through {@link PinnedSocketFactory} (the host is never re-resolved) while the
  * original host name stays the TLS server name. TLS is always requested ({@code sslmode} {@code require} by default,
  * or the target's stronger choice); an operator may relax the default only through the constructor.
+ *
+ * <p>Operator note (target database): the restricted account needs INSERT <b>and SELECT</b> on the target table - the
+ * pre-state check reads {@code delivery_id} before the insert - and nothing more (the test-connection answer flags a
+ * WIDE account). Without SELECT the send is refused PERMANENT with SQL state 42501. Both the send and the privilege
+ * probe pin {@code currentSchema=public}: the table must live in {@code public}. That CHANGES behaviour for an
+ * existing target whose account relied on its own schema or a role-level search_path: the send now writes to
+ * {@code public.<table>} (or fails 42P01/42501) - move or grant the table before upgrading. The partner table's
+ * {@code delivery_id} column must be of type {@code uuid} (the pre-state check and the insert bind a UUID; a text
+ * column fails with SQL state 42883).
  */
 public final class JdbcDbSender implements DbSender {
 
@@ -67,6 +76,15 @@ public final class JdbcDbSender implements DbSender {
         }
     }
 
+    static final String LOCK_TIMEOUT_SQL = "select set_config('lock_timeout', ?, true)";
+
+    /** T189: the wait for the delivery's advisory lock, one second under the socket timeout the driver enforces (min 500 ms). */
+    long lockTimeoutMillis() {
+        return Math.max(500L, Math.max(1L, timeout.toSeconds()) * 1000L - 1000L);
+    }
+
+    static final String ADVISORY_LOCK_SQL = "select pg_advisory_xact_lock(hashtextextended(?::text, 0))";
+
     /**
      * E16 leftovers (CWE-1288 class): a multi-row delivery's rows ALL carry the delivery id, so the old
      * {@code ON CONFLICT (delivery_id) DO NOTHING} silently kept only row 1 and still reported SUCCESS. Now every
@@ -78,6 +96,20 @@ public final class JdbcDbSender implements DbSender {
      */
     void insert(Connection connection, DbMessage message, UUID deliveryId) throws SQLException {
         connection.setAutoCommit(false);
+        // T189 (T178b): under a partner default of REPEATABLE READ / SERIALIZABLE the snapshot is taken by the first
+        // statement - BEFORE the lock wait ends - so the pre-state check would not see the row the lock holder just
+        // committed and the duplicate would return. READ_COMMITTED gives the check a fresh snapshot after the lock.
+        connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+        // T178b: serialise attempts of ONE delivery (no UNIQUE(delivery_id) needed): the lock is taken before the
+        // pre-state check, bounded below the socket timeout, and released at commit or rollback
+        try (PreparedStatement bound = connection.prepareStatement(LOCK_TIMEOUT_SQL)) {
+            bound.setString(1, lockTimeoutMillis() + "ms");
+            bound.execute();
+        }
+        try (PreparedStatement lock = connection.prepareStatement(ADVISORY_LOCK_SQL)) {
+            lock.setString(1, deliveryId.toString());
+            lock.execute();
+        }
         try (PreparedStatement check = connection.prepareStatement(selectDelivery(message.table()))) {
             check.setObject(1, deliveryId);
             try (java.sql.ResultSet answer = check.executeQuery()) {
@@ -108,10 +140,19 @@ public final class JdbcDbSender implements DbSender {
 
     /** F1/F2/F5: every driver option, set on the Properties object (never the URL). */
     Properties properties(DbMessage message, InetAddress pinnedAddress) {
+        return accountProperties(message.user(), message.password(), pinnedAddress,
+                message.settings().sslmode() == null ? defaultSslmode : message.settings().sslmode(), timeout,
+                sslRootCert);
+    }
+
+    /** The one account Properties builder, shared with the test-connection privilege probe (task 11):
+     * the probe wires no root cert of its own (null), the send path passes the operator's. */
+    static Properties accountProperties(String user, char[] password, InetAddress pinnedAddress, String sslmode,
+            Duration timeout, java.nio.file.Path sslRootCert) {
         Properties account = new Properties();
-        account.setProperty("user", message.user());
-        if (message.password() != null) {
-            account.setProperty("password", new String(message.password()));
+        account.setProperty("user", user);
+        if (password != null) {
+            account.setProperty("password", new String(password));
         } else {
             // R7 (CWE-522/1188): with no password the pgjdbc driver would silently read ~/.pgpass or PGPASSFILE on
             // this host and authenticate with an ambient credential; an EXPLICIT empty password means the driver
@@ -123,8 +164,10 @@ public final class JdbcDbSender implements DbSender {
         account.setProperty("socketTimeout", String.valueOf(seconds));
         account.setProperty("socketFactory", PinnedSocketFactory.class.getName());
         account.setProperty(PinnedSocketFactory.PINNED_PROPERTY, pinnedAddress.getHostAddress());
-        String sslmode = message.settings().sslmode() == null ? defaultSslmode : message.settings().sslmode();
         account.setProperty("sslmode", sslmode);
+        // S3 (CWE-427): the unqualified INSERT and the probe both mean public.<table>; no search_path element of the
+        // target account can redirect either
+        account.setProperty("currentSchema", JdbcDbPrivilegeProbe.DEFAULT_SCHEMA);
         if (sslRootCert != null && (sslmode.equals("verify-ca") || sslmode.equals("verify-full"))) {
             account.setProperty("sslrootcert", sslRootCert.toString());
         }

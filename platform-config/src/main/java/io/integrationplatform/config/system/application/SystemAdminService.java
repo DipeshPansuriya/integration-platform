@@ -5,6 +5,7 @@ import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.FileRoots;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemDetail;
+import io.integrationplatform.domain.audit.ConfigAuditActions;
 import io.integrationplatform.tenancy.port.LoginBinding;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -16,6 +17,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -39,6 +41,7 @@ public class SystemAdminService {
     private final FileRoots fileRoots;
     private final Supplier<Optional<UUID>> tenant;
     private final boolean allowKafkaPlaintext;
+    private final ApplicationEventPublisher events;
 
     /**
      * @param guard     T-124: the ONE destination guard, run on every type's host field at save (no DNS)
@@ -46,14 +49,16 @@ public class SystemAdminService {
      * @param tenant    the tenant bound to the request (empty = none, a FILE root is then refused)
      */
     public SystemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
-            DestinationGuard guard, FileRoots fileRoots, Supplier<Optional<UUID>> tenant) {
-        this(systems, testConnection, guard, fileRoots, tenant, false);
+            DestinationGuard guard, FileRoots fileRoots, Supplier<Optional<UUID>> tenant,
+            ApplicationEventPublisher events) {
+        this(systems, testConnection, guard, fileRoots, tenant, false, events);
     }
 
     /** @param allowKafkaPlaintext the operator's {@code platform.config.destinations.kafka-allow-plaintext} (E16 R1/R2) */
     public SystemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
             DestinationGuard guard, FileRoots fileRoots, Supplier<Optional<UUID>> tenant,
-            boolean allowKafkaPlaintext) {
+            boolean allowKafkaPlaintext, ApplicationEventPublisher events) {
+        this.events = Objects.requireNonNull(events, "events");
         this.allowKafkaPlaintext = allowKafkaPlaintext;
         this.fileRoots = Objects.requireNonNull(fileRoots, "fileRoots");
         this.tenant = Objects.requireNonNull(tenant, "tenant");
@@ -64,7 +69,7 @@ public class SystemAdminService {
 
     /** Registers a system; type and settings are optional together (an E3 untyped registration stays valid). */
     @Transactional
-    public Map<String, Object> create(JsonNode body) {
+    public Map<String, Object> create(JsonNode body, UUID actorId) {
         List<String> errors = new ArrayList<>();
         String code = text(body, "code", errors);
         String name = text(body, "name", errors);
@@ -84,10 +89,46 @@ public class SystemAdminService {
                 ? systems.insertSystem(code, name, directionDb)
                 : systems.insertTypedSystem(code, name, directionDb, typeName, settings.toString());
         if (direction.equals("OUTBOUND")) {
-            systems.insertDefaultEndpoint(id, code, name);
+            String baseUrl = apiBaseUrl(typeName, settings);
+            systems.insertDefaultEndpoint(id, code, name, baseUrl);
+            if (baseUrl != null) {
+                auditDestination(actorId, id, null, baseUrl);
+            }
         }
         return view(new SystemDetail(id, code, name, directionDb, typeName,
                 typeName == null ? null : settings.toString()));
+    }
+
+    /**
+     * The delivery address of an API system: its {@code settings.baseUrl}, already schema-valid and past the destination
+     * guard (the save is refused before this runs); {@code null} for any other type, so the endpoint keeps its
+     * placeholder. The guard, the allow-list and the send-time checks are not touched.
+     */
+    private static String apiBaseUrl(String type, JsonNode settings) {
+        JsonNode value = type == null || !type.equalsIgnoreCase("API") || settings == null ? null : settings.get("baseUrl");
+        return value != null && value.isString() && !value.stringValue().isBlank() ? value.stringValue().trim() : null;
+    }
+
+    /** F-1 (CWE-778): one event per destination change - old and new HOST only, never path, query or userinfo (R14). */
+    private void auditDestination(UUID actorId, String systemId, String before, String after) {
+        UUID tenantId = tenant.get().orElseThrow(() -> new IllegalStateException("no tenant bound"));
+        events.publishEvent(ConfigAuditActions.event(ConfigAuditActions.SYSTEM_DESTINATION_CHANGED, tenantId, actorId,
+                List.of(ConfigAuditActions.target("system", systemId)),
+                before == null ? null : ConfigAuditActions.state("host", hostOnly(before)),
+                ConfigAuditActions.state("host", hostOnly(after))));
+    }
+
+    private static String hostOnly(String address) {
+        try {
+            String host = java.net.URI.create(address).getHost();
+            return host == null ? "unknown" : host;
+        } catch (IllegalArgumentException malformed) {
+            return "unknown";
+        }
+    }
+
+    private static JsonNode settingsJsonNode(String settings) {
+        return settings == null ? null : JSON.readTree(settings);
     }
 
     /** Every system of the bound tenant, ordered by code. */
@@ -111,7 +152,7 @@ public class SystemAdminService {
      * are not edited here. 404 for a row the bound tenant cannot see, before any validation.
      */
     @Transactional
-    public Map<String, Object> update(String systemId, JsonNode body) {
+    public Map<String, Object> update(String systemId, JsonNode body, UUID actorId) {
         SystemDetail current = require(systemId);
         List<String> errors = new ArrayList<>();
         boolean hasName = body != null && body.has("name");
@@ -134,6 +175,17 @@ public class SystemAdminService {
         }
         if (systems.updateSystem(current.id(), name, type, settings) != 1) {
             throw ConfigApiException.notFound();
+        }
+        // F-2: only a save that carried type/settings went through the guard above; a name-only save never writes
+        // the endpoint, and an address the endpoint already holds is not written again
+        String baseUrl = hasTypeOrSettings && current.direction().equals("TARGET")
+                ? apiBaseUrl(type, settingsJsonNode(settings)) : null;
+        if (baseUrl != null) {
+            Optional<String> held = systems.findEndpointBaseUrl(current.id());
+            if (held.isPresent() && !held.get().equals(baseUrl)) {
+                systems.updateEndpointBaseUrl(current.id(), baseUrl);
+                auditDestination(actorId, current.id(), held.get(), baseUrl);
+            }
         }
         return view(new SystemDetail(current.id(), current.code(), name, current.direction(), type, settings));
     }
@@ -164,6 +216,21 @@ public class SystemAdminService {
             String systemId = systems.insertSystem(code, name, JdbcSystemRepository.directionToDb("OUTBOUND"));
             return systems.insertDefaultEndpoint(systemId, code, name);
         });
+    }
+
+    /**
+     * T178c-1: how many of these destination codes are stored FILE systems whose pattern lacks {@code {deliveryId}}.
+     * A count only - no code, name or pattern leaves this method.
+     */
+    @Transactional(readOnly = true)
+    public long countFileDestinationsWithoutDeliveryId(java.util.Collection<String> codes) {
+        return codes.stream()
+                .map(systems::findSystemByCode)
+                .flatMap(Optional::stream)
+                .map(row -> systems.findSystem(row.id()))
+                .flatMap(Optional::stream)
+                .filter(detail -> SystemSettings.storedFilePatternLacksDeliveryId(detail.type(), detail.settings()))
+                .count();
     }
 
     @Transactional(readOnly = true)

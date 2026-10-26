@@ -38,7 +38,7 @@ class DbTargetControlsTest {
 
     static final String STORED_SETTINGS = """
             {"host":"broker.example","port":61616,"database":"orders","user":"restricted",
-             "table":"orders_in","approvedTables":["orders_in"]}
+             "table":"orders_in"}
             """;
 
     final UUID endpointId = UUID.randomUUID();
@@ -71,7 +71,7 @@ class DbTargetControlsTest {
         row.put("awb", "ABX1");
         row.put("pieces", 2);
         DbOutbound outbound = new DbTargetOutbound(targets, s -> Optional.of(List.of(row)));
-        return new DbTargetCall(outbound, sender, guard("broker.example", 61616), List.of(61616),
+        return new DbTargetCall(ApprovedTablesFixtures.ALL, outbound, sender, guard("broker.example", 61616), List.of(61616),
                 breakers, meters, ObservationRegistry.create());
     }
 
@@ -93,12 +93,36 @@ class DbTargetControlsTest {
                 .isNotNull();
     }
 
-    @Test
-    void anUnlistedTableIsRefusedPermanentlyAndNothingIsWritten() throws Exception {
-        String unlisted = "{\"host\":\"broker.example\",\"port\":61616,\"database\":\"orders\","
-                + "\"user\":\"restricted\",\"table\":\"users\",\"approvedTables\":[\"orders_in\"]}";
+    DbTargetCall callWith(ApprovedTables approved, DbTargets targets, DbSender sender) {
+        LinkedHashMap<String, Object> row = new LinkedHashMap<>();
+        row.put("awb", "ABX1");
+        DbOutbound outbound = new DbTargetOutbound(targets, s -> Optional.of(List.of(row)));
+        return new DbTargetCall(approved, outbound, sender, guard("broker.example", 61616), List.of(61616),
+                breakers, meters, ObservationRegistry.create());
+    }
 
-        assertThatThrownBy(() -> call(targets(unlisted, "db-pass".toCharArray()), sender).call(send))
+    @Test
+    @org.junit.jupiter.api.Tag("security")
+    @org.junit.jupiter.api.DisplayName("E16 F3: the send asks the approval table for THIS endpoint and table")
+    void theSendAsksTheApprovalTableForTheEndpointAndTable() throws Exception {
+        AtomicReference<String> asked = new AtomicReference<>();
+
+        callWith((endpoint, table) -> {
+            asked.set(endpoint + "|" + table);
+            return true;
+        }, targets(STORED_SETTINGS, "db-pass".toCharArray()), sender).call(send);
+
+        assertThat(asked.get()).isEqualTo(endpointId + "|orders_in");
+        verify(sender).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
+    }
+
+    @Test
+    @org.junit.jupiter.api.Tag("negative")
+    @org.junit.jupiter.api.Tag("security")
+    @org.junit.jupiter.api.DisplayName("E16 F3: an unapproved or revoked table is refused PERMANENT and nothing is written")
+    void anUnapprovedTableIsRefusedPermanentlyAndNothingIsWritten() throws Exception {
+        assertThatThrownBy(() -> callWith(ApprovedTablesFixtures.NONE,
+                targets(STORED_SETTINGS, "db-pass".toCharArray()), sender).call(send))
                 .isInstanceOf(TargetFaultException.class)
                 .extracting(f -> ((TargetFaultException) f).outcomeClass())
                 .isEqualTo(OutcomeClass.PERMANENT);
@@ -108,6 +132,37 @@ class DbTargetControlsTest {
     }
 
     @Test
+    @org.junit.jupiter.api.Tag("negative")
+    @org.junit.jupiter.api.Tag("security")
+    @org.junit.jupiter.api.DisplayName("E16 F3: an approvedTables key left in the stored settings approves nothing")
+    void aSelfAssertedApprovedTablesKeyApprovesNothing() throws Exception {
+        String selfAsserted = "{\"host\":\"broker.example\",\"port\":61616,\"database\":\"orders\","
+                + "\"user\":\"restricted\",\"table\":\"users\",\"approvedTables\":[\"users\"]}";
+
+        assertThatThrownBy(() -> callWith(ApprovedTablesFixtures.NONE, targets(selfAsserted, "db-pass".toCharArray()),
+                sender).call(send)).isInstanceOf(TargetFaultException.class)
+                .extracting(f -> ((TargetFaultException) f).outcomeClass()).isEqualTo(OutcomeClass.PERMANENT);
+        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
+    }
+
+    @Test
+    @org.junit.jupiter.api.Tag("negative")
+    @org.junit.jupiter.api.Tag("security")
+    @org.junit.jupiter.api.DisplayName("E16 F3: a failed approval lookup is TRANSIENT (retried) - never allowed, never a permanent refusal")
+    void aFailedLookupIsTransientAndNeverAllows() throws Exception {
+        ApprovedTables down = (endpoint, table) -> {
+            throw new org.springframework.dao.DataAccessResourceFailureException("platform database down");
+        };
+
+        assertThatThrownBy(() -> callWith(down, targets(STORED_SETTINGS, "db-pass".toCharArray()), sender).call(send))
+                .isInstanceOf(TargetFaultException.TransientFaultException.class)
+                .extracting(f -> ((TargetFaultException) f).outcomeClass()).isEqualTo(OutcomeClass.TRANSIENT);
+
+        verify(sender, never()).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
+    }
+
+
+    @Test
     void theTargetDatabaseDownIsTransient() throws Exception {
         DbSender down = mock(DbSender.class);
         org.mockito.Mockito.doThrow(new SQLException("connect refused", "08001"))
@@ -115,6 +170,21 @@ class DbTargetControlsTest {
 
         assertThatThrownBy(() -> call(targets(STORED_SETTINGS, "db-pass".toCharArray()), down).call(send))
                 .isInstanceOf(TargetFaultException.TransientFaultException.class);
+    }
+
+    @Test
+    void anInsertOnlyAccountWithoutSelectIsPermanentWithTheNamedPrivilegeReason() throws Exception {
+        // the pre-state check SELECTs the delivery id before the INSERT: an account granted INSERT only gets 42501
+        DbSender insertOnly = mock(DbSender.class);
+        org.mockito.Mockito.doThrow(new SQLException("permission denied for table orders_in", "42501"))
+                .when(insertOnly).insert(any(DbMessage.class), any(UUID.class), any(InetAddress.class));
+
+        assertThatThrownBy(() -> call(targets(STORED_SETTINGS, "db-pass".toCharArray()), insertOnly).call(send))
+                .isInstanceOf(TargetFaultException.class)
+                .satisfies(f -> {
+                    assertThat(((TargetFaultException) f).outcomeClass()).isEqualTo(OutcomeClass.PERMANENT);
+                    assertThat(f.getMessage()).contains("42501").contains("INSERT and SELECT");
+                });
     }
 
     @Test
@@ -143,7 +213,7 @@ class DbTargetControlsTest {
         DestinationGuard closedGuard = closedGuard(); // an empty allow-list refuses every host
 
         DbOutbound outbound = new DbTargetOutbound(targets(STORED_SETTINGS, "db-pass".toCharArray()), s -> Optional.of(List.of(Map.of("awb", "1"))));
-        DbTargetCall call = new DbTargetCall(outbound, sender, closedGuard, java.util.List.of(61616), breakers, meters,
+        DbTargetCall call = new DbTargetCall(ApprovedTablesFixtures.ALL, outbound, sender, closedGuard, java.util.List.of(61616), breakers, meters,
                 ObservationRegistry.create());
 
         assertThatThrownBy(() -> call.call(send))
@@ -157,7 +227,7 @@ class DbTargetControlsTest {
     void noMappedRowsRefuseTheSendAsPermanent() throws Exception {
         DbOutbound outbound = new DbTargetOutbound(targets(STORED_SETTINGS, "db-pass".toCharArray()),
                 s -> Optional.empty());
-        DbTargetCall call = new DbTargetCall(outbound, sender, guard("broker.example", 61616), List.of(61616), breakers, meters,
+        DbTargetCall call = new DbTargetCall(ApprovedTablesFixtures.ALL, outbound, sender, guard("broker.example", 61616), List.of(61616), breakers, meters,
                 ObservationRegistry.create());
 
         assertThatThrownBy(() -> call.call(send))
@@ -171,7 +241,7 @@ class DbTargetControlsTest {
     void aBrokenSettingsRowRefusesTheSendAsPermanent() throws Exception {
         DbTargets broken = id -> { throw new IllegalStateException("bad json"); };
         DbOutbound outbound = new DbTargetOutbound(broken, s -> Optional.of(List.of(Map.of("awb", "1"))));
-        DbTargetCall call = new DbTargetCall(outbound, sender, guard("broker.example", 61616), List.of(61616), breakers, meters,
+        DbTargetCall call = new DbTargetCall(ApprovedTablesFixtures.ALL, outbound, sender, guard("broker.example", 61616), List.of(61616), breakers, meters,
                 ObservationRegistry.create());
 
         assertThatThrownBy(() -> call.call(send))

@@ -3,6 +3,7 @@ package io.integrationplatform.delivery.internal.trigger;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
+import io.integrationplatform.ingest.port.OutboxWriter;
 import java.util.Map;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Tag;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -59,5 +61,13 @@ class DeliveryRetryTriggerPostgresTest {
 
     @SpringBootApplication(scanBasePackages = "io.integrationplatform.delivery")
     static class TestApplication {
+
+        /** The delivery-only context has no intake module; T177 gave bulkheadRedrive an OutboxWriter, so stub it. */
+        @Bean
+        OutboxWriter outboxWriter() {
+            return entry -> {
+                throw new UnsupportedOperationException("the seam test never appends to the outbox");
+            };
+        }
     }
 }
