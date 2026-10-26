@@ -164,6 +164,8 @@ services:
       # external identity provider, ALSO set this admin base to that provider's internal admin address: the default
       # below points at the bundled Keycloak only (check-issuer-override.sh fails when it is missing).
       KEYCLOAK_ADMIN_BASE_URI: ${KEYCLOAK_ADMIN_BASE_URI:-http://keycloak:8080}
+      # off by default: an https admin address on a host other than the issuer host is refused at start unless set true
+      KEYCLOAK_ADMIN_ALLOW_EXTERNAL: ${KEYCLOAK_ADMIN_ALLOW_EXTERNAL:-false}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-platform-api}
       CONSOLE_OIDC_CLIENT_ID: platform-console
       CONSOLE_OIDC_CLIENT_SECRET: ${CONSOLE_OIDC_CLIENT_SECRET:?set CONSOLE_OIDC_CLIENT_SECRET}

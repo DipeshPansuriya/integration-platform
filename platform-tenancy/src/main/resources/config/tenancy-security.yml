@@ -22,6 +22,10 @@ platform:
       # optional (env KEYCLOAK_ADMIN_BASE_URI): server address for the Keycloak admin REST calls only, e.g. http://keycloak:8080
       # when the public edge does not route /admin; empty = derived from OIDC_ISSUER_URI. Tokens and issuer stay public.
       base-uri: ${KEYCLOAK_ADMIN_BASE_URI:}
+      # opt-in (env KEYCLOAK_ADMIN_ALLOW_EXTERNAL, default off): lets an https admin base point at a host other than the
+      # issuer host (an external identity provider). Without it such a value stops the start-up. Plain http to a
+      # non-internal host is refused either way.
+      allow-external: ${KEYCLOAK_ADMIN_ALLOW_EXTERNAL:false}
     identity-provider:
       retry-max-attempts: 3            # first attempt included; transient failures only (refused, connect timeout, 429, 502-504)
       retry-initial-backoff: 200ms     # exponential random backoff ...

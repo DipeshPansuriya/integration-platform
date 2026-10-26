@@ -61,6 +61,12 @@ class TenancySecuritySettingsTest {
     }
 
     @Test
+    void theAdminExternalOptInIsAnEnvironmentVariableNameThatDefaultsToOff() throws IOException {
+        assertThat(String.valueOf(tenancySecurityYaml().getProperty("platform.tenancy.identity-admin.allow-external")))
+                .isEqualTo("${KEYCLOAK_ADMIN_ALLOW_EXTERNAL:false}");
+    }
+
+    @Test
     void withoutTheIssuerTheApplicationDoesNotStart() {
         runner.withPropertyValues("OIDC_AUDIENCE=platform-api")
                 .run(context -> assertThat(context).hasFailed()

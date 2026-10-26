@@ -5,8 +5,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import java.net.URI;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -16,8 +14,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -59,10 +55,6 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
 
     static final String OBSERVATION = "identity.provider.admin";
 
-    private static final String ADMIN_BASE_REFUSED = "The identity provider admin base URI must be a plain http(s) "
-            + "server address (no user info, query or fragment)";
-
-    private static final Logger LOG = LoggerFactory.getLogger(KeycloakAdminAdapter.class);
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final String issuer;
@@ -79,6 +71,9 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
      *                          {@code <base>/admin/realms/<realm>}), for a deployment whose public edge does not route
      *                          /admin; null or blank = derived from the issuer, as before. The token endpoint and
      *                          {@link #issuer()} always stay on the issuer.
+     * @param allowExternal     the explicit opt-in (KEYCLOAK_ADMIN_ALLOW_EXTERNAL) for an https admin base on a host other
+     *                          than the issuer host; default off. The admin base itself is checked by {@link AdminBaseUri}
+     *                          and an unsafe value stops the start-up.
      * @param adminClientId     the service-account client ({@code platform-admin})
      * @param adminClientSecret its secret, read when a token is needed and held only for that call
      * @param rest              a client from {@link #restTemplate} (the shared breaker, the admin timeout)
@@ -90,6 +85,11 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
 
     public KeycloakAdminAdapter(String issuer, String adminBaseUri, String adminClientId,
             Supplier<String> adminClientSecret, RestTemplate rest, ObservationRegistry observations) {
+        this(issuer, adminBaseUri, false, adminClientId, adminClientSecret, rest, observations);
+    }
+
+    public KeycloakAdminAdapter(String issuer, String adminBaseUri, boolean allowExternal, String adminClientId,
+            Supplier<String> adminClientSecret, RestTemplate rest, ObservationRegistry observations) {
         // The issuer is kept exactly as configured: revoke and disable compare it with the stored one. Only the URLs
         // built from it use a slash-trimmed copy; the slash stripping is for the admin base alone.
         this.issuer = Objects.requireNonNull(issuer, "issuer");
@@ -99,7 +99,7 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
             throw new IllegalArgumentException("The issuer is not a Keycloak realm URI: " + this.issuer);
         }
         this.tokenEndpoint = URI.create(realmUri + "/protocol/openid-connect/token");
-        String adminBase = adminBase(adminBaseUri);
+        String adminBase = AdminBaseUri.resolve(adminBaseUri, this.issuer, allowExternal);
         this.clientsResource = (adminBase != null ? adminBase : realmUri.substring(0, realms))
                 + "/admin" + realmUri.substring(realms) + "/clients";
         this.adminClientId = Objects.requireNonNull(adminClientId, "adminClientId");
@@ -245,50 +245,6 @@ public final class KeycloakAdminAdapter implements IdentityProviderAdmin {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-    }
-
-    /**
-     * The optional admin base: null when unset; otherwise a plain http(s) server address - no other scheme, no embedded
-     * secrets, no query, no fragment. It is operator configuration, never request data; the value is not echoed (it
-     * could carry a password).
-     */
-    private static String adminBase(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        String base = stripSlash(raw.strip());
-        URI parsed;
-        try {
-            parsed = new URI(base);
-        } catch (java.net.URISyntaxException malformed) {
-            throw new IllegalArgumentException(ADMIN_BASE_REFUSED);
-        }
-        String scheme = parsed.getScheme();
-        boolean http = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
-        if (!http || parsed.getHost() == null || parsed.getRawUserInfo() != null || parsed.getRawQuery() != null
-                || parsed.getRawFragment() != null) {
-            throw new IllegalArgumentException(ADMIN_BASE_REFUSED);
-        }
-        if ("http".equalsIgnoreCase(scheme) && !internalHost(parsed.getHost())) {
-            // The admin bearer and the new client secret travel in clear over this hop; only the host is named.
-            LOG.warn("The Keycloak admin base is plain http to host '{}', which is not a private or internal name; "
-                    + "the admin token and client secret would leave the private network unencrypted", parsed.getHost());
-        }
-        return base;
-    }
-
-    /** Loopback, RFC1918 / link-local address, or a dotless name (a Docker service name). No DNS lookup is made. */
-    private static boolean internalHost(String host) {
-        String h = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
-        if (h.matches("\\d{1,3}(\\.\\d{1,3}){3}") || h.contains(":")) {
-            try {
-                InetAddress ip = InetAddress.getByName(h); // a literal, so no lookup
-                return ip.isLoopbackAddress() || ip.isSiteLocalAddress() || ip.isLinkLocalAddress();
-            } catch (UnknownHostException notLiteral) {
-                return false;
-            }
-        }
-        return !h.contains(".") || "localhost".equalsIgnoreCase(h);
     }
 
     private static String stripSlash(String uri) {
