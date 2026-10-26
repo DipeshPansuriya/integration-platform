@@ -6,6 +6,8 @@
     { "name": "versions", "path": "/#/versions", "wait": "[data-flow-row]" },
     { "name": "systems", "path": "/#/systems", "wait": "[data-page=\"systems\"][data-systems-loaded=\"true\"]" },
     { "name": "contracts", "path": "/#/contracts", "wait": "[data-page=\"contracts\"][data-contracts-loaded=\"true\"]" },
-    { "name": "mapping-designer", "path": "/#/mappings", "wait": "[data-page=\"mapping-designer\"][data-mapping-loaded=\"true\"]" }
+    { "name": "mapping-designer", "path": "/#/mappings", "wait": "[data-page=\"mapping-designer\"][data-mapping-loaded=\"true\"]" },
+    { "name": "activity", "path": "/#/activity", "wait": "[data-page=\"activity\"][data-activity-loaded=\"true\"]" },
+    { "name": "delivery-report", "path": "/#/reports", "wait": "[data-page=\"delivery-report\"] [data-delivery-report]" }
   ]
 }
