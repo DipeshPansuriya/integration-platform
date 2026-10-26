@@ -10,6 +10,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -35,6 +38,11 @@ public final class MaskedFields {
     /** ponytail: bounded LRU, per node; a restart empties it until intake registers again. */
     private static final int REGISTRY_LIMIT = 10_000;
 
+    private static final Logger LOG = LoggerFactory.getLogger(MaskedFields.class);
+
+    /** Evictions since start; the first and every 100th is logged (a count only - never the evicted value). */
+    private static final AtomicLong EVICTIONS = new AtomicLong();
+    private static final int EVICTION_LOG_EVERY = 100;
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -42,7 +50,15 @@ public final class MaskedFields {
             new LinkedHashMap<>(256, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
-                    return size() > REGISTRY_LIMIT;
+                    if (size() <= REGISTRY_LIMIT) {
+                        return false;
+                    }
+                    long evicted = EVICTIONS.incrementAndGet();
+                    if (evicted == 1 || evicted % EVICTION_LOG_EVERY == 0) {
+                        LOG.warn("Masked-value registry full at {} entries: oldest entry evicted ({} evicted since start); "
+                                + "an evicted value is no longer scrubbed from later log lines", REGISTRY_LIMIT, evicted);
+                    }
+                    return true;
                 }
             });
 
