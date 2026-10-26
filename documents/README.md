@@ -22,6 +22,7 @@ provenance - each section names the surviving source it came from, or is labelle
 | [interface.md](interface.md) | The common API (ADR-011 Decision 4, built in E11) and the admin API as built |
 | [deployment.md](deployment.md) | How it is built, run and operated: local stack vs hosted kit, the three links, what is not public, redeploy and rollback, the ops address, security status and known gaps |
 | [adr/README.md](adr/README.md) | The ADR index, with each ADR's status against the code |
+| [HANDOVER.md](HANDOVER.md) | One-document handover for a new team and its AI agents: scope, Release 1 and 2 state, end to end, architecture, how to run, test and work, open items |
 | [diagrams/README.md](diagrams/README.md) | Six archify diagrams (architecture, end to end in two parts, configuration workflow, delivery states, console UI shell) drawn against the code |
 
 Recreated in the phase that first needs them: `fetch.md` and `interface.md` were recreated in the
