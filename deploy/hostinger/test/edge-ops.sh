@@ -54,6 +54,29 @@ for u in /kafka/actuator/health /kafka/actuator%2fhealth /kafka/api/../actuator/
 done
 [ "$(st $O GET /)" = 302 ] && ok "ops: / redirects to /kafka/" || bad "ops: /"
 if curl -s -o /dev/null -D - -H "Host: $O" "http://127.0.0.1:$PORT/" | grep -i '^location:' | grep -q ':8080'; then bad "ops: the redirect leaks the edge port"; else ok "ops: the redirect carries no :8080"; fi
+# 4b. T219 N1/N2: no percent-encoding in an ops path. Double encoding must not slip past the message filter or the login rate
+# limit, and an encoded CR/LF must never become raw bytes in the request line sent upstream. Each is 404 and never reaches the stub.
+for u in /kafka/%256Cogin /kafka/%256Danifest.json $API/topics/y/%256Dessages /kafka/mess%2561ges /kafka/login%0d%0aX-A:1 /kafka/a%2fb "/kafka/login?x=1%0d%0a"; do
+  s="$(st $O GET "$u")"; case "$u" in *"?"*) want=200;; *) want=404;; esac     # a % in the QUERY STRING is not a path and stays fine
+  if [ "$s" = "$want" ]; then ok "ops: $u -> $want"; else bad "ops: $u -> $s (want $want)"; fi
+done
+s="$(st $O GET /kafka/%00)"; { [ "$s" = 404 ] || [ "$s" = 400 ]; } && ok "ops: /kafka/%00 is refused ($s)" || bad "ops: /kafka/%00 -> $s"
+# the request-splitting payloads, sent with a raw client INSIDE the docker network (the host-side curl path resets these connections
+# itself, which would prove nothing about nginx): the edge must answer 404 and the stub must never see the smuggled second request.
+raw() { MSYS_NO_PATHCONV=1 docker run --rm --network $N --entrypoint sh nginx:stable-alpine -c "printf 'GET ${1//%/%%} HTTP/1.1
+Host: ops.t.invalid
+Connection: close
+
+' | nc -w 3 $N-edge 8080 | head -1" 2>&1 | tr -d '' | tail -1; }
+for u in "/kafka/a%20HTTP/1.1%0d%0a%0d%0aGET%20/x" "/kafka/login%20HTTP/1.1%0d%0aX-A:%201%0d%0a%0d%0aGET%20/zzz" "/kafka/%250d%250aX"; do
+  r="$(raw "$u")"; grep -q ' 404 ' <<<"$r" && ok "ops: request-splitting path $u -> 404" || bad "ops: request-splitting path $u -> [$r]"
+done
+if docker logs $N-up 2>&1 | grep -E '/zzz|GET /x ' >/dev/null; then bad "ops: a smuggled request reached the upstream"; else ok "ops: nothing smuggled ever reached the upstream"; fi
+# legitimate Kafbat paths are untouched (own client address each, so the login limit is not what is being tested)
+n2=0
+for u in /kafka/ /kafka/login /kafka/oauth2/authorization/keycloak /kafka/index.html /kafka/static/js/main.js "/kafka/api/clusters/ipass/topics?page=1&perPage=25" $API/topics/messages $API/topics/ipass.messages.v1; do
+  n2=$((n2+1)); s="$(st $O GET "$u" -H "X-Forwarded-For: 10.2.0.$n2")"; [ "$s" = 200 ] && ok "ops: legitimate $u still served" || bad "ops: legitimate $u -> $s"
+done
 # 5. the path the upstream receives is the path that was tested
 b="$(body $O GET "$API/topics/a/../b/partitions?x=1&y=2")"; grep -qF 'uri=[/kafka/api/clusters/ipass/topics/b/partitions?x=1&y=2]' <<<"$b" && ok "ops: upstream gets the normalised path and the query string" || bad "ops: forwarded uri: $b"
 b="$(body $O GET /kafka/api//clusters/ipass/topics)"; grep -qF 'uri=[/kafka/api/clusters/ipass/topics]' <<<"$b" && ok "ops: merged slashes are forwarded merged" || bad "ops: double slash: $b"
