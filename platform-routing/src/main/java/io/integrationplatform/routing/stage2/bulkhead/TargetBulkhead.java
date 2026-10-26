@@ -24,8 +24,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class TargetBulkhead {
 
+    private final UUID targetEndpointId;
+    private final int bound;
     private final Semaphore permits;
     private final ThreadPoolExecutor pool;
+    private final AtomicInteger deferrals = new AtomicInteger();
 
     TargetBulkhead(int maxConcurrentSends, UUID targetEndpointId) {
         this(new BulkheadSettings(maxConcurrentSends), targetEndpointId);
@@ -35,6 +38,8 @@ public final class TargetBulkhead {
         int bound = settings.maxConcurrentSends();
         String nameTag = Long.toString(Math.abs(targetEndpointId.getMostSignificantBits()
                 ^ targetEndpointId.getLeastSignificantBits()), 36);
+        this.targetEndpointId = targetEndpointId;
+        this.bound = bound;
         this.permits = new Semaphore(bound);
         AtomicInteger seq = new AtomicInteger();
         this.pool = new ThreadPoolExecutor(bound, bound, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(bound),
@@ -46,9 +51,36 @@ public final class TargetBulkhead {
         this.pool.allowCoreThreadTimeOut(true);
     }
 
+    /** The pinned target endpoint this pool's metrics are tagged with. */
+    public UUID targetEndpointId() {
+        return targetEndpointId;
+    }
+
+    /** The pool size ({@code max_concurrent_sends}). */
+    public int bound() {
+        return bound;
+    }
+
+    /** Permits in hand right now - the bulkhead-in-use gauge of ADR-010 section 8 (Mahesh 1g). */
+    public int inUse() {
+        return bound - permits.availablePermits();
+    }
+
+    /**
+     * How many BULKHEAD_FULL deferrals this pool saw (a deferral writes NO attempt row; the count is the metric,
+     * the deferral itself a delivery event). Read by the metric binder (Mahesh 1g).
+     */
+    public int deferrals() {
+        return deferrals.get();
+    }
+
     /** Non-blocking permit take - {@code false} means the bulkhead is full: defer, never wait. */
     public boolean tryAcquire() {
-        return permits.tryAcquire();
+        boolean taken = permits.tryAcquire();
+        if (!taken) {
+            deferrals.incrementAndGet();
+        }
+        return taken;
     }
 
     /** Returns a permit (a claim that ended HELD/duplicate, or a finished send). */

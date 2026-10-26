@@ -21,7 +21,9 @@ public class JdbcTargetEndpointViews extends TenantScopedRepository implements T
 
     private static final String SELECT_ENDPOINT = """
             select te.base_url, te.http_method, te.timeout_ms, te.auth_method, te.idempotent_receive,
-                   te.error_dictionary
+                   te.error_dictionary,
+                   (select s.settings -> 'errorDictionary' from public.system s
+                    where s.tenant_id = te.tenant_id and s.id = te.system_id) as settings_error_dictionary
             from public.target_endpoint te""";
 
     public JdbcTargetEndpointViews(JdbcClient jdbcClient, TenantContext tenantContext) {
@@ -34,15 +36,26 @@ public class JdbcTargetEndpointViews extends TenantScopedRepository implements T
                 "te.id = :id::uuid", Map.of("id", endpointId.toString()),
                 (rs, rowNum) -> new TargetEndpointRow(rs.getString("base_url"), rs.getString("http_method"),
                         rs.getInt("timeout_ms"), rs.getString("auth_method"), rs.getBoolean("idempotent_receive"),
-                        rs.getString("error_dictionary")));
+                        rs.getString("error_dictionary"), rs.getString("settings_error_dictionary")));
         return rows.stream().findFirst().map(row -> new TargetEndpointView(URI.create(row.baseUrl()), row.httpMethod(),
-                row.timeoutMs(), row.authMethod(), row.idempotentReceive(), dictionary(row.errorDictionary())));
+                row.timeoutMs(), row.authMethod(), row.idempotentReceive(),
+                dictionary(row.errorDictionary(), row.settingsErrorDictionary())));
     }
 
-    private static Map<Integer, OutcomeClass> dictionary(String json) {
+    /**
+     * The {@code error_dictionary} column first, then the system's {@code settings.errorDictionary} (what the console
+     * saves, SystemSettings) over it: a status in both takes the settings class. Either may be absent.
+     */
+    static Map<Integer, OutcomeClass> dictionary(String columnJson, String settingsJson) {
         Map<Integer, OutcomeClass> read = new LinkedHashMap<>();
+        readInto(read, columnJson);
+        readInto(read, settingsJson);
+        return read;
+    }
+
+    private static void readInto(Map<Integer, OutcomeClass> read, String json) {
         if (json == null || json.isBlank()) {
-            return read;
+            return;
         }
         tools.jackson.databind.JsonNode entries = tools.jackson.databind.json.JsonMapper.builder().build()
                 .readTree(json);
@@ -56,10 +69,9 @@ public class JdbcTargetEndpointViews extends TenantScopedRepository implements T
             }
             read.put(status, OutcomeClass.valueOf(entry.getValue().asString().toUpperCase()));
         });
-        return read;
     }
 
     private record TargetEndpointRow(String baseUrl, String httpMethod, int timeoutMs, String authMethod,
-            boolean idempotentReceive, String errorDictionary) {
+            boolean idempotentReceive, String errorDictionary, String settingsErrorDictionary) {
     }
 }

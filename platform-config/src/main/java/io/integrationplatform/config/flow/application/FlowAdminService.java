@@ -39,6 +39,8 @@ public class FlowAdminService {
 
     private static final List<String> ORDERINGS = List.of("PER_KEY", "NONE");
     private static final String DEFAULT_EXPRESSION = "$";
+    private static final String FILE_PATTERN_REFUSAL = "FILE_NAME_PATTERN_NEEDS_DELIVERY_ID";
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(FlowAdminService.class);
 
     private final JdbcFlowRepository flows;
     private final SystemAdminService systems;
@@ -163,6 +165,9 @@ public class FlowAdminService {
     @Transactional(readOnly = true)
     public void refuseVersionEdit(String flowId, String versionId) {
         requireInterface(flowId);
+        if (!isCanonicalUuid(versionId)) {
+            throw ConfigApiException.notFound();
+        }
         Optional<VersionInfo> version = flows.findVersionOfInterface(flowId, versionId);
         if (version.isEmpty()) {
             throw ConfigApiException.notFound();
@@ -195,12 +200,23 @@ public class FlowAdminService {
      * T-019: approve runs the V2_2_4 definer. A refusal must keep the audit row the function wrote in this same
      * transaction - so the refusal is RETURNED, never thrown: a thrown exception would roll the transaction back
      * together with {@code config_version_refusal}, and the scenario demands the refusal is recorded.
+     *
+     * <p>V5 (Varun, row 372): the FILE-pattern refusal (T178c-1) is the one refusal that is deliberately NOT written to
+     * {@code config_version_refusal}. That table records the two decision refusals of the approval function only: its
+     * CHECK allows AUTHOR_IS_APPROVER and NOT_PENDING_APPROVAL (V2_2_4__config_interface_versions.sql:49) and the
+     * application role may only read it, the insert belongs to {@code config_approve_version} (same file, :136-141,
+     * :160-162). The FILE refusal is a pre-check on the destinations, made before the function is called; nothing about
+     * the version changes, and it is logged (count only) at {@link #fileDestinationsWithoutDeliveryId}. Recording it
+     * would need a new refusal value and a definer path: a migration, decided separately.
      */
     @Transactional
     public ApprovalOutcome approve(String flowId, UUID approverId) {
         InterfaceRow interfaceRow = requireInterface(flowId);
         VersionInfo pending = flows.findLatestVersionByStatus(flowId, "PENDING_APPROVAL")
                 .orElseThrow(() -> ConfigApiException.conflict("the flow has no version pending approval"));
+        if (fileDestinationsWithoutDeliveryId(pending.snapshotJson()) > 0) {
+            return new ApprovalOutcome(409, ConfigApiException.refusal(409, FILE_PATTERN_REFUSAL).body());
+        }
         String result = flows.approveVersion(pending.id(), approverId.toString());
         return switch (result) {
             case "APPROVED" -> {
@@ -251,6 +267,9 @@ public class FlowAdminService {
         InterfaceRow interfaceRow = requireInterface(flowId);
         VersionInfo approved = flows.findLatestVersionByStatus(flowId, "APPROVED")
                 .orElseThrow(() -> ConfigApiException.conflict("the flow has no approved version to publish"));
+        if (fileDestinationsWithoutDeliveryId(approved.snapshotJson()) > 0) {
+            throw ConfigApiException.refusal(409, FILE_PATTERN_REFUSAL);
+        }
         Parsed bundle = FlowBundle.parse(approved.snapshotJson());
 
         // T-190, ADR-013 Decision 5: the mapped pins of every route are verified against the contract
@@ -291,6 +310,29 @@ public class FlowAdminService {
 
     // ------------------------------------------------------------------ shared steps
 
+    /**
+     * T178c-1: stored FILE destinations saved before the {@code {deliveryId}} rule are never rewritten; a flow that
+     * still sends to one is not approved or published until an operator edits the pattern. Logs the count only.
+     *
+     * <p>V6 (Varun, row 372): the destinations are those of the version SNAPSHOT being approved or published (its
+     * ACTIVE routes' target endpoints), not the interface's current route rows, which may belong to another version.
+     * An INACTIVE route is skipped: routing builds ACTIVE routes only ({@code JdbcRouteConfigReader}, status =
+     * 'ACTIVE'). The old read, {@code READ_DESTINATIONS}, had no status filter and counted inactive rows too.
+     */
+    private long fileDestinationsWithoutDeliveryId(String snapshotJson) {
+        List<String> endpointIds = FlowBundle.parse(snapshotJson).routes().stream()
+                .filter(route -> "ACTIVE".equalsIgnoreCase(route.status()))
+                .map(SnapshotRoute::targetEndpointId).filter(id -> id != null && CANONICAL_UUID.matcher(id).matches())
+                .distinct().toList();
+        long count = systems.countFileDestinationsWithoutDeliveryId(
+                flows.findDestinationsOfEndpoints(endpointIds).stream().map(DestinationRow::systemCode).toList());
+        if (count > 0) {
+            LOG.warn("flow approval or publish refused: {} FILE destination(s) without {deliveryId} in the file name pattern",
+                    count);
+        }
+        return count;
+    }
+
     /** E12-F2-S1: one audit event per completed lifecycle step, inside its transaction (the writer is AFTER_COMMIT). */
     private void audit(String action, UUID actorId, String interfaceId, String versionId, String before,
             String after) {
@@ -299,7 +341,23 @@ public class FlowAdminService {
                         ConfigAuditActions.target("interface_version", versionId)), before, after));
     }
 
+    private static final java.util.regex.Pattern CANONICAL_UUID = java.util.regex.Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+    /**
+     * T197 R3: a path id that is not a canonical UUID names no row. The repository casts the text with
+     * {@code ::uuid}; unguarded, a non-UUID was a PostgreSQL 22P02 and the catch-all 500. The shape is checked, not
+     * parsed: {@code UUID.fromString} also accepts forms such as {@code 1-1-1-1-1} that the cast rejects.
+     */
+    static boolean isCanonicalUuid(String id) {
+        return id != null && CANONICAL_UUID.matcher(id).matches();
+    }
+
+    /** The one guard in front of every flow path id: every public method starts here, before any SQL. */
     private InterfaceRow requireInterface(String flowId) {
+        if (!isCanonicalUuid(flowId)) {
+            throw ConfigApiException.notFound();
+        }
         return flows.findInterface(flowId).orElseThrow(ConfigApiException::notFound);
     }
 

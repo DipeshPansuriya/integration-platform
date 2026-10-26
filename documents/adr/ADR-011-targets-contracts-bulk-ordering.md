@@ -3,7 +3,7 @@ type: ADR
 title: "ADR-011 - Target types, contract registry and version graph, bulk at intake, ordering, Kafka records carry ids only, background tenant from the row"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy. 2026-10-22 - E16 F3 amendment (approved tables, D1-D4) and F3 hardening addendum (S1, S2, S3, S5, residuals)"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -54,7 +54,7 @@ carries; and how background work finds its tenant.
 | Type | Release | Sends with | Idempotent receive, when the target declares it | Notes |
 |---|---|---|---|---|
 | `API` | 1 | `camel-http` | `Idempotency-Key: <delivery id>` header | The one outbound destination check of ADR-010 section 8: every resolved address checked and the checked address pinned; refused ranges reachable only through an operator allow-list entry; redirects off unless the target enables them, every hop re-checked |
-| `MQ_CSV` | 1 | `camel-csv` / `camel-bindy` to format, `camel-jms` to send | JMS correlation id = delivery id, deduplicated by the target | Queue-manager product unknown; plugged in through its JMS connection factory, chosen from an allow-list of factory classes |
+| `MQ_CSV` | 1 | `camel-csv` / `camel-bindy` to format, `camel-jms` to send | JMS correlation id = delivery id, deduplicated by the target | Queue-manager product unknown; plugged in through its JMS connection factory, chosen from an allow-list of factory classes. **Bindy stays (2026-10-20):** camel-bindy is live in the Camel 4.22.x data-format docs with no deprecation notice and the project pins camel-spring-boot 4.22.1; the 404 Vikram saw is camel-beanio, removed in 3.17 - lanes do not re-litigate this |
 | `DB` | 2 | `camel-sql` | Insert-or-update on a natural key the target declares | Only tables on the target's approved list; a restricted per-target database account with no DDL rights; parameterised statements only |
 | `FILE` | 2 | `camel-file` | Deterministic file name from the delivery id; write to a temporary name, then atomic rename | A shared folder; SFTP is out of scope unless Dipesh names it; no half-written file is ever visible |
 | `KAFKA_TOPIC` | 2 | `camel-kafka` | Idempotent producer, key = delivery id | Kept in scope by Mira's decision (`ws/_specs/project-plan.md:151`); not in Dipesh's formal list |
@@ -73,8 +73,13 @@ carries; and how background work finds its tenant.
   network policy enforces the same refused ranges (ADR-010 section 8). A File target's path is
   normalised and confined under its configured root. The check runs at save, at
   test-connection and at send.
-- Each type's settings declare `max_concurrent_sends` (the bulkhead pool size, ADR-010 section 2)
-  and its error dictionary (overrides of the default outcome table, ADR-010 section 5).
+- Each type's settings declare `max_concurrent_sends` (the bulkhead pool size, ADR-010 section 2),
+  its error dictionary (overrides of the default outcome table, ADR-010 section 5), and
+  `half_open_trial_calls` (the per-target half-open trial-call count, ADR-010 section 6;
+  Resilience4j `permittedNumberOfCallsInHalfOpenState`, default 3) — an addendum (2026-10-20,
+  E10 settle-up for T-183): the field lives in `target_endpoint.settings` (the JSONB column
+  E5 extended the endpoint row with, V2_2_1's note), validated against the type's schema on
+  save, so it needs **no new migration**.
 
 ## Decision 2 - The registry extends the flow-configuration tables; one home for every schema
 
@@ -329,3 +334,85 @@ dead letter from that day is unresolved.
   Target A) - that is orchestration, out of scope today (`ws/_specs/project-plan.md:226`).
 - A consumer outside the platform needs payloads from Kafka.
 - More than 50 held deliveries older than 1 hour on any day for two weeks.
+
+## Amendment 2026-10-22 - who approves a DB target's tables, and where it is enforced (E16 finding F3)
+
+Dipesh decided D1-D4 on 2026-10-22; design note: option B of the E16 F3 note (`_documents/2026-10-22-design-job-state-change-and-approved-tables.md`
+in the project workspace). This amends the `DB` row of Decision 1 ("only tables on the target's approved list").
+
+- **Where the list lives.** Not in the system's `settings` (a configurator wrote both `table` and the list that was meant
+  to restrict it). It is the tenant table `public.db_target_approved_table` (`V2_4_1330`): forced row-level security, the
+  app role holds SELECT and INSERT only, and a decision moves only through the `SECURITY DEFINER` function
+  `config_decide_db_table_approval(id, decision)` (pinned `search_path`, no PUBLIC execute).
+- **Who approves (D1).** The tenant's approver (`APPROVE_DB_TABLE`: TENANT_ADMIN, APPROVER), not the platform operator. A
+  configurator (`EDIT_CONFIGURATION`) only requests. **D4:** the requester can never approve their own request, even in a
+  one-admin tenant (same rule as contract approval, `V2_2_5_1`). Revoking is the safe direction and is open to the
+  approver roles including the requester. **D3:** no column-level list; column control belongs in the target database's own
+  column grants. **D2:** existing `approvedTables` entries migrated as `PENDING_APPROVAL` and the key was stripped from
+  the stored settings; a DB send is refused until someone approves.
+- **Approval is bound to the target** (Karan, 2026-10-22). Each row stores a SHA-256 fingerprint of host, port, database
+  and account; an approval is refused if the system was repointed since the request, and a send or publish counts an
+  approval only while the system's current settings still hash to it. Editing the host or database of a system therefore
+  invalidates its approvals (revoke and request again).
+- **Enforcement points.** (1) Save: a settings body carrying `approvedTables` is 400 `FIELD_NOT_ALLOWED`. (2) Publish: an
+  interface whose DB table is not approved is refused through the ADR-017 contract (`InterfacePublishRefused`). (3) Send:
+  `DbTargetCall` asks the approval table per send; unapproved or revoked is PERMANENT (destination refused); a failed
+  lookup is TRANSIENT and retried, never read as allowed. (4) Every request, approval and revoke leaves an `AuditEvent`
+  (`DB_TABLE_REQUESTED/APPROVED/REVOKED`) and, refused or not, a log line.
+- **Honest limits.** Four-eyes inside one tenant is an audit trail and a separation of duties, **not an authorization
+  boundary**: a tenant whose admin and approver collude can approve any table - but only in a database whose credentials
+  that tenant supplied itself. The decider is stamped into the transaction (`app.actor_id`) by the platform from the
+  validated session, not authenticated by the database (the app connects as one role); a database-authenticated actor
+  needs a tenancy-module change and stays open. The privilege probe at test-connection is now built but **reports
+  only** (see the hardening addendum below); the account's real privileges remain the target database owner's
+  responsibility, and this approval list is the platform-side control only. A platform-operator ceiling (option A)
+  waits for the operator login (ADR-012).
+
+### Addendum 2026-10-22 - F3 hardening (merge `d2aed86e`, on main at `aeddfdd9`)
+
+Sources: Karan's re-check and Varun's review (`_reports/2026-10-22-f3-hardening-security.md`,
+`_reports/2026-10-22-f3-hardening-review.md` in the project workspace). Container tests are named for each control;
+both reports are static reads (neither reviewer ran them).
+
+- **S1 - an INSERT is only ever a fresh request** (`V2_4_1340:15-31`). The one `FOR ALL` policy of `V2_4_1330` is
+  replaced by one policy per command: SELECT (tenant); INSERT `WITH CHECK` tenant AND `status = 'PENDING_APPROVAL'`
+  AND `decided_by`, `decided_at`, `revoked_by`, `revoked_at` all NULL; UPDATE (tenant). The app role still holds
+  SELECT and INSERT only - no UPDATE, no DELETE (`V2_4_1330:101`) - so the UPDATE policy serves only the definer
+  function `config_decide_db_table_approval`, which runs as the owner under FORCE ROW LEVEL SECURITY. APPROVED and
+  REVOKED are reachable only through that function; it refuses self-approval (`REFUSED_SELF_APPROVAL`, backed by the
+  `four_eyes` CHECK). `INSERT ... ON CONFLICT DO UPDATE` needs UPDATE and is refused (42501). No DELETE policy:
+  deliberate; a later purge job must run as a role that bypasses RLS. Tests: `anInsertIsAlwaysPending`,
+  `noUpdateAndNoDeleteForTheAppRole` (`ApprovedTableMigrationContainerTest`); no test names the ON CONFLICT case.
+- **S5 - the fingerprint includes `sslmode`** (`V2_4_1340:39-46`). One SQL definition, `db_target_fingerprint`, read by
+  the send, the publish check, the request insert and the decision, so weakening `verify-full` to `require` invalidates
+  an approval like a repoint does. The data step (`V2_4_1340:48-`) re-hashes **only** rows whose stored hash equals
+  the old four-field hash of the system's current settings; a row already stale from a repoint keeps its old hash and
+  stays refused, so the upgrade never revives it (Karan F-1). Tests: `sslmodeIsPartOfTheFingerprint`,
+  `aRepointedRowStaysStaleAcrossTheUpgrade`.
+- **S2 - privilege probe, report only** (`JdbcDbPrivilegeProbe.java:32-45`). Test-connection asks the server for the
+  account's effective privileges on `public.<table>` (roles, PUBLIC and inheritance included): INSERT, SELECT, UPDATE,
+  DELETE, TRUNCATE, TRIGGER, BYPASSRLS, superuser, CREATE on the schema, membership of `pg_write_all_data`. Anything
+  beyond INSERT and SELECT appends `WIDE ACCOUNT` to the answer's `detail` text (`DbTestConnection.java:113-121`); the
+  answer stays `SUCCESS` and nothing gates a send or an approval on it. Not probed: REFERENCES, column-level grants,
+  CREATEROLE, the other predefined roles, privileges on other tables; a missing table reads as "none". **Open
+  decision (Dipesh):** refuse a WIDE account at approve time, or keep the probe informational - recommended: refuse,
+  after widening what counts as WIDE.
+- **S3 - `currentSchema=public` pinned** in `JdbcDbSender.accountProperties` (`JdbcDbSender.java:145-147`), shared by
+  the send and the probe; it outranks a role-level `search_path` (test `theSchemaIsPinnedAgainstARoleSearchPath`).
+  **Behaviour change:** an existing target whose account relied on another default schema now writes to
+  `public.<table>` or fails 42P01/42501 - move or grant the table before upgrading.
+- **Operator notes** (`JdbcDbSender.java:31-38`). The restricted account needs SELECT as well as INSERT (the
+  `delivery_id` pre-state check reads the table). The partner `delivery_id` column must be `uuid` (a text column fails
+  42883, PERMANENT). An INSERT-only account fails 42501, classified PERMANENT with a message naming INSERT and SELECT
+  (`DbTargetCall.java:138-144`); the same text also appears for other 42501 causes (missing USAGE on the schema or the
+  table's sequence). Before go-live the operator lists every migrated PENDING row to the approver: DB sends stop until
+  each table is approved.
+- **Known residuals - accepted risk pending Dipesh.**
+  (a) Code running as the app role still chooses `requested_by`, `requested_at` and `target_hash` on a PENDING row, so
+  it can name another user as requester and then approve through the function with its own stamped actor; it cannot
+  insert an APPROVED row. **Open decision (Dipesh):** accept and record here, or add a `BEFORE INSERT` trigger deriving
+  `requested_by` from `app.actor_id` and `target_hash` from the live settings - recommended: accept; add the trigger
+  only if he asks. (b) On PostgreSQL 14 and older PUBLIC holds CREATE on `public`, so every account reads WIDE (a
+  false positive; accurate on 15+). Target database versions: TBD. (c) A repoint A to B and back to A revives the
+  original approval (only the live hash is compared); a `TARGET_CHANGED` state would close it - not built. (d) The
+  table owner (migration role) can still write any state; DBA-level, outside the app's reach.

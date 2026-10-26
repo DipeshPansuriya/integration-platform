@@ -1,5 +1,8 @@
 package io.integrationplatform.ingest.port;
 
+import io.integrationplatform.ingest.port.IntakeTransaction.RecordViolation;
+import java.util.List;
+
 /**
  * A known, refused intake - nothing was persisted (E11 A1 narrow). Each reason maps to one HTTP answer in the
  * adapter ({@code IntakeController}): 404/422/400 classes of ADR-011 Decision 4's response table. Refusals are
@@ -13,14 +16,28 @@ public class IntakeRefusedException extends RuntimeException {
         /** The sent {@code X-Source-Contract-Version} does not match the interface's pinned contract version - 422. */
         CONTRACT_PIN_MISMATCH,
         /** The business key rule could not resolve from the payload - 422. */
-        BUSINESS_KEY_UNRESOLVED
+        BUSINESS_KEY_UNRESOLVED,
+        /** The business key is over the intake key cap (BS-06.4, row 375: an over-bound key cannot ride the
+         * message_store's btree indexes) - 422 with the cap named, never the catch-all 503. */
+        BUSINESS_KEY_TOO_LONG,
+        /** The Idempotency-Key was already used by this credential with another request body (T-187) - 422. */
+        IDEMPOTENCY_KEY_REUSED,
+        /** B37 (E6-F2-S1, ADR-011 Decision 4): the record broke the source contract's JSON Schema or a VALIDATION
+         * rule set - 422, every violation (path, code, message; never a value) in the body. */
+        PAYLOAD_VALIDATION_FAILED
     }
 
     private final Reason reason;
+    private final List<RecordViolation> violations;
 
     public IntakeRefusedException(Reason reason, String detail) {
+        this(reason, detail, List.of());
+    }
+
+    public IntakeRefusedException(Reason reason, String detail, List<RecordViolation> violations) {
         super(detail);
         this.reason = java.util.Objects.requireNonNull(reason, "reason");
+        this.violations = violations == null ? List.of() : List.copyOf(violations);
     }
 
     public Reason reason() {
@@ -30,5 +47,10 @@ public class IntakeRefusedException extends RuntimeException {
     /** The human-readable detail the adapter puts in the error body (the pinned label for a pin mismatch). */
     public String detail() {
         return getMessage();
+    }
+
+    /** Every violation of a {@link Reason#PAYLOAD_VALIDATION_FAILED} refusal (empty for the other reasons). */
+    public List<RecordViolation> violations() {
+        return violations;
     }
 }

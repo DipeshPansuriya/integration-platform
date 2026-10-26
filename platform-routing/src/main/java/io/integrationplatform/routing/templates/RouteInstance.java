@@ -13,11 +13,13 @@ import java.util.UUID;
  */
 public final class RouteInstance {
 
+    private final UUID tenantId;
     private final RouteConfigRow pinned;
     private final Instant builtAt;
     private volatile Instant lastUsedAt;
 
-    RouteInstance(RouteConfigRow pinned, Instant builtAt) {
+    RouteInstance(UUID tenantId, RouteConfigRow pinned, Instant builtAt) {
+        this.tenantId = Objects.requireNonNull(tenantId, "tenantId");
         this.pinned = Objects.requireNonNull(pinned, "pinned");
         this.builtAt = Objects.requireNonNull(builtAt, "builtAt");
         this.lastUsedAt = builtAt;
@@ -33,9 +35,9 @@ public final class RouteInstance {
         return RouteInstanceFactory.routeIdOf(pinned);
     }
 
-    /** The (target endpoint, endpoint version) pair this instance is held under (ADR-010 section 3, F16). */
+    /** The (tenant, target endpoint, endpoint version) triple this instance is held under (ADR-010 section 3, F16). */
     public RouteKey key() {
-        return pinned.key();
+        return pinned.key(tenantId);
     }
 
     /** The direct consumer this instance answers on; stage 2 sends a delivery here (direct-only dispatch). */

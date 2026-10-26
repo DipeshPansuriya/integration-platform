@@ -3,16 +3,21 @@ package io.integrationplatform.app.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
+import io.integrationplatform.delivery.port.DeliveryDailyAggregates;
 import io.integrationplatform.domain.scheduler.JobHandler;
+import io.integrationplatform.tenancy.WorkerTenantBinding;
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionOperations;
 
 /**
  * Row 327 T158 (E14 T-144; ADR-012 :129): a job-definition row never holds a tenant id, so no job body may take one
  * from what the scheduler hands it. Covers the unfenced app-side job paths that exist today: the run wrapper every
- * job goes through, and the DAILY_REPORT placeholder (its real body is T-143). CREDENTIAL_CLEANUP has its own test
+ * job goes through, and the DAILY_REPORT body (T-138). CREDENTIAL_CLEANUP has its own test
  * ({@link CredentialCleanupHandlerTest}); DELIVERY_RETRY and PAYLOAD_PURGE bodies live in the fenced delivery lane.
  */
 class UnfencedJobsForgedTenantTest {
@@ -41,9 +46,28 @@ class UnfencedJobsForgedTenantTest {
 
     @Test
     void theDailyReportBodyIgnoresAForgedTenant() {
-        // ponytail: the placeholder reads nothing; T-143's real body inherits this test and must keep it green
-        assertThatCode(() -> new DailyReportPlaceholderHandler().run("{\"tenantId\":\"" + FORGED + "\"}"))
-                .doesNotThrowAnyException();
-        assertThat(new DailyReportPlaceholderHandler().type()).isEqualTo(SchedulerJobTasks.DAILY_REPORT);
+        // T-138 real body: the job data is ignored - the tenants come only from the active-tenant directory
+        DailyReportPlaceholderHandler handler = new DailyReportPlaceholderHandler(List::of,
+                new WorkerTenantBinding(), TransactionOperations.withoutTransaction(), new NoAggregates(),
+                Clock.systemUTC());
+        assertThatCode(() -> handler.run("{\"tenantId\":\"" + FORGED + "\"}")).doesNotThrowAnyException();
+        assertThat(handler.type()).isEqualTo(SchedulerJobTasks.DAILY_REPORT);
+    }
+
+    private static final class NoAggregates implements DeliveryDailyAggregates {
+        @Override
+        public int refresh(LocalDate day) {
+            throw new AssertionError("no tenant is active, so nothing is refreshed");
+        }
+
+        @Override
+        public List<DailyCounts> aggregated(LocalDate day) {
+            return List.of();
+        }
+
+        @Override
+        public List<DailyCounts> direct(LocalDate day) {
+            return List.of();
+        }
     }
 }

@@ -148,6 +148,37 @@ class StageConsumerTest {
     }
 
     @Test
+    void anUnroutableRecordGoesToPoisonOnceAndThePartitionMovesOnInsteadOfBlockingForEver() throws Exception {
+        // T190 item 2: work that can never succeed (a legacy snapshot with no contract pin) must not be classed
+        // TRANSIENT - the offset would never commit and the partition (and, via the breaker, the group) would stall.
+        List<UUID> handled = new ArrayList<>();
+        List<String> poisonReasons = new ArrayList<>();
+        StageConsumer consumer = new StageConsumer(broker, new WorkRecordParser(), rows,
+                (record, tenantId) -> {
+                    if (handled.isEmpty()) {
+                        handled.add(tenantId);
+                        throw new UnroutableWorkException("route r pins mapping version v but the snapshot has no contract");
+                    }
+                    handled.add(tenantId);
+                },
+                (key, value, reason) -> {
+                    poisonedValues.add(value);
+                    poisonReasons.add(reason);
+                },
+                attempt -> Duration.ofMillis(250L * attempt), Duration.ofMillis(50), clock,
+                duration -> clock.advance(duration));
+        redeliverFake.seed(PARTITION, workRecordAt(0), workRecordAt(1));
+
+        consumer.runUntil(clock.instant().plusSeconds(5));
+
+        assertThat(poisonedValues).as("exactly one poison write").hasSize(1);
+        assertThat(poisonReasons.get(0)).contains("no contract");
+        assertThat(handled).as("the partition moved on to the next record").hasSize(2);
+        assertThat(redeliverFake.commitLog()).as("the poisoned offset is committed, then the next").containsExactly(1L, 2L);
+        assertThat(redeliverFake.pausedPartitions()).isEmpty();
+    }
+
+    @Test
     void aTransientDatabaseErrorPausesThePartitionRetriesTheSameRecordAfterBackOffAndResumes() throws Exception {
         rows.failTheNextVisibleChecks(2);
         redeliverFake.seed(PARTITION, workRecordAt(0));
@@ -367,6 +398,32 @@ class StageConsumerTest {
         void advance(Duration duration) {
             now = now.plus(duration);
         }
+    }
+
+    // ---------- T-201 (E10-F15): readiness DOWN stops the consumer, offsets stay uncommitted ----------
+
+    @Test
+    void aNotReadyInstanceStopsConsumingWithoutCommittingAndResumesWhenReadyAgain() throws Exception {
+        redeliverFake.assign(List.of(PARTITION));
+        redeliverFake.seed(PARTITION, workRecordAt(0));
+        java.util.concurrent.atomic.AtomicBoolean ready = new java.util.concurrent.atomic.AtomicBoolean(false);
+        StageConsumer gated = new StageConsumer(broker, new WorkRecordParser(), rows,
+                (record, tenantId) -> workDone.add(tenantId), (key, value, reason) -> poisonedValues.add(value),
+                attempt -> Duration.ofMillis(250L * attempt), Duration.ofMillis(50), clock,
+                duration -> clock.advance(duration), null, null, null, null, ready::get);
+
+        gated.runUntil(clock.instant().plusSeconds(5));
+
+        assertThat(workDone).as("a not-ready instance processes nothing").isEmpty();
+        assertThat(redeliverFake.commitLog()).as("and commits no offset").isEmpty();
+        assertThat(redeliverFake.pausedPartitions()).as("its assignment is paused").containsExactly(PARTITION);
+
+        ready.set(true);
+        gated.runUntil(clock.instant().plusSeconds(5));
+
+        assertThat(workDone).as("ready again: the same record is worked").containsExactly(ROW_TENANT);
+        assertThat(redeliverFake.commitLog()).containsExactly(1L);
+        assertThat(redeliverFake.pausedPartitions()).isEmpty();
     }
 
     /** A broker fake whose fetch semantics the base's seek-back rule can be proven against. */

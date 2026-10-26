@@ -4,9 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import io.integrationplatform.delivery.internal.JdbcDeliveryReconcileStore;
+import io.integrationplatform.delivery.internal.JdbcDeliveryCircuitFacts;
+import io.integrationplatform.delivery.port.DeliveryBulkheadFacts;
+import io.integrationplatform.delivery.port.TargetHalfOpenCap;
 import io.integrationplatform.delivery.port.DeliveryReconcileStore;
 import io.integrationplatform.delivery.port.DeliveryRetryStore;
+import io.integrationplatform.delivery.port.TargetRedriveCap;
 import io.integrationplatform.delivery.port.TargetSendFacts;
+import io.integrationplatform.delivery.port.UnroutedMessageSweep;
 import io.integrationplatform.domain.scheduler.JobHandler;
 import io.integrationplatform.ingest.port.OutboxWriter;
 import io.integrationplatform.tenancy.TenantContext;
@@ -14,6 +19,7 @@ import io.integrationplatform.tenancy.port.ActiveTenantDirectory;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -30,6 +36,10 @@ class DeliveryRetryTriggerConfigurationTest {
     private static final TargetSendFacts FACTS =
             id -> Optional.of(new TargetSendFacts.Facts(Duration.ofSeconds(7), true));
 
+    private static final DeliveryBulkheadFacts BULKHEAD_FACTS = delivery -> Optional.empty();
+    private static final String KAFKA = "IPASS_KAFKA_BOOTSTRAP_SERVERS=localhost:9092";
+    private static final UUID TARGET = UUID.randomUUID();
+
     private final AtomicInteger tenantLookups = new AtomicInteger();
 
     private ApplicationContextRunner runner() {
@@ -43,6 +53,7 @@ class DeliveryRetryTriggerConfigurationTest {
                 .withBean(TenantContext.class, () -> Optional::empty, definition -> definition.setPrimary(true))
                 .withBean(ActiveTenantDirectory.class, () -> tenants)
                 .withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))
+                .withBean(DeliveryBulkheadFacts.class, () -> BULKHEAD_FACTS)
                 .withBean(DeliveryRetryStore.class, () -> mock(DeliveryRetryStore.class))
                 .withBean(OutboxWriter.class, () -> mock(OutboxWriter.class));
     }
@@ -83,6 +94,70 @@ class DeliveryRetryTriggerConfigurationTest {
         runner().withPropertyValues("IPASS_KAFKA_BOOTSTRAP_SERVERS=localhost:9092")
                 .run(context -> assertThat(context.getBean(DeliveryRetryTrigger.class))
                         .extracting("targetFacts").isNotNull());
+    }
+
+    @Test
+    void theTriggerReadsTheRealBulkheadFactsPort() {
+        runner().withPropertyValues(KAFKA).run(context -> assertThat(context.getBean(DeliveryRetryTrigger.class))
+                .extracting("bulkheadFacts").isSameAs(BULKHEAD_FACTS));
+    }
+
+    @Test
+    void theRedriveCapIsMaxConcurrentSendsTimesTheInstanceCount() {
+        runner().withPropertyValues(KAFKA, "routing.core.stage2.bulkhead.max-concurrent-sends=5",
+                "routing.core.stage2.bulkhead.instance-count=3").run(context -> {
+                    TargetRedriveCap cap = (TargetRedriveCap) org.springframework.test.util.ReflectionTestUtils
+                            .getField(context.getBean(DeliveryRetryTrigger.class), "redriveCap");
+                    assertThat(cap.maxDeferredRedrives(TARGET)).isEqualTo(15);
+                });
+    }
+
+    @Test
+    void theTriggerReadsTheCircuitFactsFromTheDeliveryLedgerAndCapsAtTheAdrDefaultOfThree() {
+        runner().withPropertyValues("IPASS_KAFKA_BOOTSTRAP_SERVERS=localhost:9092")
+                .run(context -> {
+                    DeliveryRetryTrigger trigger = context.getBean(DeliveryRetryTrigger.class);
+                    assertThat(trigger).extracting("circuitFacts").isInstanceOf(JdbcDeliveryCircuitFacts.class);
+                    TargetHalfOpenCap cap = (TargetHalfOpenCap) org.springframework.test.util.ReflectionTestUtils
+                            .getField(trigger, "halfOpenCap");
+                    assertThat(cap.trialCalls(UUID.randomUUID())).isEqualTo(TargetHalfOpenCap.DEFAULT_TRIAL_CALLS)
+                            .isEqualTo(3);
+                });
+    }
+
+    @Test
+    void theInstanceCountDefaultsToOneAndTheSendsToTheTeamDefaultOfFour() {
+        runner().withPropertyValues(KAFKA).run(context -> {
+            TargetRedriveCap cap = (TargetRedriveCap) org.springframework.test.util.ReflectionTestUtils
+                    .getField(context.getBean(DeliveryRetryTrigger.class), "redriveCap");
+            assertThat(cap.maxDeferredRedrives(TARGET)).isEqualTo(4);
+        });
+    }
+
+    @Test
+    void anInstanceCountBelowOneFailsTheStartNamingTheSetting() {
+        runner().withPropertyValues(KAFKA, "routing.core.stage2.bulkhead.instance-count=0")
+                .run(context -> assertThat(context).hasFailed().getFailure()
+                        .hasStackTraceContaining("routing.core.stage2.bulkhead.instance-count must be at least 1"));
+    }
+
+    @Test
+    void theRoutingSweepBeanIsWiredIntoTheTriggerAndNoneWhenAbsent() {
+        UnroutedMessageSweep sweep = tenant -> 0;
+        runner().withPropertyValues(KAFKA).withBean(UnroutedMessageSweep.class, () -> sweep)
+                .run(context -> assertThat(context.getBean(DeliveryRetryTrigger.class))
+                        .extracting("unroutedSweep").isSameAs(sweep));
+        runner().withPropertyValues(KAFKA).run(context -> assertThat(context.getBean(DeliveryRetryTrigger.class))
+                .extracting("unroutedSweep").isNotNull());
+    }
+
+    @Test
+    void anApplicationsPerTargetHalfOpenCapReplacesTheDefault() {
+        TargetHalfOpenCap five = target -> 5;
+        runner().withPropertyValues("IPASS_KAFKA_BOOTSTRAP_SERVERS=localhost:9092")
+                .withBean(TargetHalfOpenCap.class, () -> five)
+                .run(context -> assertThat(context.getBean(DeliveryRetryTrigger.class))
+                        .extracting("halfOpenCap").isSameAs(five));
     }
 
     @Test

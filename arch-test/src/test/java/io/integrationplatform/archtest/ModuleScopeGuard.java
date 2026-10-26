@@ -5,12 +5,14 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Stream;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
@@ -34,9 +36,17 @@ final class ModuleScopeGuard {
      */
     static final Set<String> SEED_MARKERS = Set.of("io.integrationplatform.e2e.seed", "e2e-seed");
 
-    /** Production files outside the Maven modules' src/main: the console source and the compose realm import. */
+    /** Production files outside the Maven modules' src/main: the console source, the whole compose tree and its
+     *  provisioning scripts, and the build-check scripts. */
     private static final List<String> OTHER_PRODUCTION_ROOTS =
-            List.of("ui/src", "compose/keycloak/platform-realm.json");
+            List.of("ui", "compose", "build-checks");
+
+    /** The root whose installed packages are never walked (B31): the console only. Under a module's src/main,
+     *  compose or build-checks a folder named node_modules is production source and IS read (T189). */
+    private static final String GENERATED_OUTPUT_ROOT = "ui";
+
+    /** Folder names never walked under {@link #GENERATED_OUTPUT_ROOT}: the console's installed packages (B31). The built bundle ui/dist is NOT skipped (B31-1): it is what ships. */
+    private static final Set<String> GENERATED_FOLDERS = Set.of("node_modules");
 
     private ModuleScopeGuard() {
     }
@@ -98,11 +108,24 @@ final class ModuleScopeGuard {
             if (!Files.exists(production)) {
                 continue;
             }
-            try (Stream<Path> files = Files.walk(production)) {
-                files.filter(Files::isRegularFile)
-                        .filter(file -> names(file, markers))
-                        .map(file -> root.relativize(file).toString().replace(File.separatorChar, '/'))
-                        .forEach(naming::add);
+            try {
+                Files.walkFileTree(production, new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                        // B31: installed/generated trees are not our source and took minutes to read
+                        return production.equals(root.resolve(GENERATED_OUTPUT_ROOT))
+                                && GENERATED_FOLDERS.contains(String.valueOf(dir.getFileName()))
+                                ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        if (attrs.isRegularFile() && names(file, markers)) {
+                            naming.add(root.relativize(file).toString().replace(File.separatorChar, '/'));
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
             } catch (IOException failure) {
                 throw new UncheckedIOException("Cannot walk " + production.toAbsolutePath(), failure);
             }

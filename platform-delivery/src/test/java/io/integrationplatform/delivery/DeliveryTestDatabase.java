@@ -190,6 +190,29 @@ public final class DeliveryTestDatabase {
             return dataSource;
         }
 
+        /**
+         * A transaction manager that stamps {@code app.tenant_id} from {@code tenantContext} at every transaction
+         * start - the production shape of {@code TenantStampingTransactionManager}, mirrored in test scope because
+         * that class is package-private in tenancy. With no tenant bound nothing is stamped (fails closed).
+         */
+        public org.springframework.transaction.PlatformTransactionManager stampingManager(TenantContext tenantContext) {
+            return new org.springframework.jdbc.support.JdbcTransactionManager(dataSource) {
+                @Override
+                protected void prepareTransactionalConnection(Connection connection,
+                        org.springframework.transaction.TransactionDefinition definition) throws SQLException {
+                    super.prepareTransactionalConnection(connection, definition);
+                    Optional<UUID> tenantId = tenantContext.currentTenantId();
+                    if (tenantId.isPresent()) {
+                        try (PreparedStatement set = connection.prepareStatement(
+                                "select set_config('app.tenant_id', ?, true)")) {
+                            set.setString(1, tenantId.get().toString());
+                            set.execute();
+                        }
+                    }
+                }
+            };
+        }
+
         /** Runs {@code work} in one transaction with {@code app.tenant_id} stamped (set_config local, R11). */
         public void inTenantTx(UUID tenantId, Runnable work) {
             transactionTemplate.executeWithoutResult(status -> {

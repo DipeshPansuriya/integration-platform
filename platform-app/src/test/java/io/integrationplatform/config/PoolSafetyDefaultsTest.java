@@ -35,10 +35,19 @@ class PoolSafetyDefaultsTest {
 
     @Test
     void thePoolIsExplicitlySizedAgainstThePostgresConnectionHeadroom() {
-        // Postgres default max_connections=100 leaves the headroom; the smallest sane pool is the platform's
-        // historical 10 per instance - explicit, so a boot upgrade cannot change it silently.
+        // Postgres default max_connections=100 leaves the headroom; T181 sized the pool at 20 per instance for N
+        // consumer loops per stage (the throughput-ceiling design note) - explicit, so a boot upgrade cannot change
+        // it silently.
         assertThat(valueOf("spring.datasource.hikari.maximum-pool-size")).as("max pool size pinned in application.yml")
-                .isEqualTo("10");
+                .isEqualTo("20");
+    }
+
+    @Test
+    void fourInstancesAtThePoolSizeStayInsideThePostgresConnectionLimit() {
+        // T181: the design caps the sizing for 4 instances; max_connections=100 keeps 20 for the owner login,
+        // sessions and admin tooling. More instances or a bigger pool is a Dipesh decision, not a quiet edit.
+        int pool = Integer.parseInt(valueOf("spring.datasource.hikari.maximum-pool-size"));
+        assertThat(pool * 4).as("4 instances x pool size").isLessThanOrEqualTo(80);
     }
 
     @Test

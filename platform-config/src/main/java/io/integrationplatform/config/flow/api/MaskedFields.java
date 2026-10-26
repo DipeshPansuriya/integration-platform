@@ -35,8 +35,6 @@ public final class MaskedFields {
     /** ponytail: bounded LRU, per node; a restart empties it until intake registers again. */
     private static final int REGISTRY_LIMIT = 10_000;
 
-    /** Values shorter than this are not scrubbed from every log line (too likely to hit unrelated text). */
-    private static final int MIN_GLOBAL_LENGTH = 4;
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -149,13 +147,14 @@ public final class MaskedFields {
         return result;
     }
 
-    /** Remember values to scrub from every later log line (values under four characters are skipped). */
+    /** Remember values to scrub from every later log line. Per-tenant masked fields must never appear in clear logs
+     *  regardless of their length (E12-F2-S2). */
     public static void register(Collection<String> values) {
         if (values == null) {
             return;
         }
         for (String value : values) {
-            if (value != null && value.length() >= MIN_GLOBAL_LENGTH) {
+            if (value != null && !value.isEmpty()) {
                 REGISTRY.put(value, Boolean.TRUE);
             }
         }

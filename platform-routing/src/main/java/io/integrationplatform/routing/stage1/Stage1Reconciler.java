@@ -1,5 +1,6 @@
 package io.integrationplatform.routing.stage1;
 
+import io.integrationplatform.delivery.port.UnroutedMessageSweep;
 import io.integrationplatform.routing.stage.StageConsumer;
 import io.integrationplatform.routing.stage.WorkRecord;
 import io.integrationplatform.tenancy.WorkerTenantBinding;
@@ -22,9 +23,10 @@ import org.springframework.transaction.support.TransactionOperations;
  * left {@code ACCEPTED} for the next sweep; it never stops the others.
  *
  * <p>No timer here (ADR-012 section 3, SchedulerTimingRulesTest): the caller - the delivery-retry trigger's tenant
- * loop today, a db-scheduler job in E14 - calls {@link #sweepOnce(UUID)} once per active tenant.
+ * loop, through the delivery module's {@link UnroutedMessageSweep} port which this class implements and
+ * {@code PipelineCompositionConfiguration} wires (T72) - calls {@link #sweepOnce(UUID)} once per active tenant.
  */
-public final class Stage1Reconciler {
+public final class Stage1Reconciler implements UnroutedMessageSweep {
 
     private static final Logger log = LoggerFactory.getLogger(Stage1Reconciler.class);
 
@@ -53,6 +55,7 @@ public final class Stage1Reconciler {
      *
      * @return how many stuck messages were re-handed to stage 1 without an error
      */
+    @Override
     public int sweepOnce(UUID tenantId) {
         Instant cutoff = clock.get().minus(stuckAfter);
         List<UUID> stuck = binding.callAs(tenantId, () -> transactions.execute(status -> reads.acceptedBefore(cutoff)));

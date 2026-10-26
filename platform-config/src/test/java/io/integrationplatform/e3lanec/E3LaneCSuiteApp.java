@@ -4,7 +4,9 @@ import io.integrationplatform.config.e3.LaneCIdentities;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.context.annotation.Bean;
+import io.integrationplatform.suitesupport.SuiteSchedulerConfig;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 
@@ -36,6 +38,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
  */
 @SpringBootConfiguration(proxyBeanMethods = false)
 @EnableAutoConfiguration
+@Import(SuiteSchedulerConfig.class)
 @ComponentScan(basePackages = {
         "io.integrationplatform.config",
         "io.integrationplatform.tenancy.internal.persistence",

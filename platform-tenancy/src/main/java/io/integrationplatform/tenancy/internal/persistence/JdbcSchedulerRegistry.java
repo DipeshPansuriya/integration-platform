@@ -25,7 +25,7 @@ public final class JdbcSchedulerRegistry implements SchedulerRegistry {
 
     /** The closed register (V2_2_1400's scheduler schema); the columns JobScheduleSync reads, in its order. */
     private static final String SELECT_JOBS =
-            "select job_type, schedule_kind, schedule, enabled, paused, max_run_seconds,"
+            "select job_type, schedule_kind, schedule, enabled, paused, paused_at, state_changed_at, max_run_seconds,"
                     + " late_threshold_seconds, coalesce(parameters::text, '') as parameters"
                     + " from scheduler.job_definition";
 
@@ -144,5 +144,24 @@ public final class JdbcSchedulerRegistry implements SchedulerRegistry {
         sql.append(ORDER_RUNS);
         args.add(query.limit());
         return jdbc.query(sql.toString(), mapper, args.toArray());
+    }
+
+    private static final String UPDATE_PAUSED =
+            "update scheduler.job_definition set paused = ?, paused_by = ?, paused_at = ? where job_type = ?";
+
+    @Override
+    public int setPaused(String jobType, boolean paused, String by, Instant at) {
+        return jdbc.update(UPDATE_PAUSED, paused, paused ? by : null, paused ? Timestamp.from(at) : null, jobType);
+    }
+
+    private static final String SELECT_ACTIVE_OPERATOR = "select 1 from scheduler.operator_credential"
+            + " where issuer = ? and client_id = ? and status = 'ACTIVE'";
+
+    @Override
+    public boolean operatorCredentialActive(String issuer, String clientId) {
+        if (issuer == null || issuer.isBlank() || clientId == null || clientId.isBlank()) {
+            return false;
+        }
+        return !jdbc.query(SELECT_ACTIVE_OPERATOR, (rs, n) -> 1, issuer, clientId).isEmpty();
     }
 }

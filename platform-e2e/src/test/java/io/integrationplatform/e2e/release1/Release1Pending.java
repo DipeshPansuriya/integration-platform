@@ -11,7 +11,7 @@ import java.util.Optional;
 /**
  * Row 323 T139/T140: one flag per T-item - is its feature on local main? Flip ONE line when the item lands; every
  * scenario annotated {@code @WaitsOn(item)} then runs. Never flip for a lane or seam branch. Same pattern as the
- * base suite's {@code ui/tests/base-suite/lib/pending-names.mjs} (lane t130). Measured against main efa7d1d, 18-Oct.
+ * base suite's {@code e2e-ui/tests/base-suite/lib/pending-names.mjs} (lane t130). Measured against main efa7d1d, 18-Oct; T96/T98/T99/T111/T112/T143/T144/T157 re-measured against main ecef544b, 22-Oct (lane t174-sc); T121 re-measured 22-Oct (App.tsx renders DeliveryReport). e2e-ui/tests/release1/pending-probes.mjs holds the file+needle probe per item; pending-gate.test.mjs keeps this map equal to e2e-ui/tests/release1/pending.mjs.
  */
 public final class Release1Pending {
 
@@ -21,24 +21,24 @@ public final class Release1Pending {
     static {
         Map<String, Boolean> flags = new LinkedHashMap<>();
         flags.put("T95", true); // tenant + systems registry
-        flags.put("T96", false); // contract version pinning on replay - not on main
-        flags.put("T98", false); // MQ (CSV) target adapter - only ApiTargetCall on main
-        flags.put("T99", false); // retry + circuit breaker per target - not on main
+        flags.put("T96", true); // contract version pinning on replay - on main 27d217f6/1904b6dd (stage-1 insert pins contract_version_id)
+        flags.put("T98", true); // MQ (CSV) target adapter - on main (CompositionConfiguration MQ-CSV renderer; E18 mqCsv journey green on 137ed4f6)
+        flags.put("T99", true); // retry + circuit breaker per target - on main (JdbcDeliveryRetryStore, ApiTargetCall)
         flags.put("T104", true); // outbox
         flags.put("T105", true); // stage timings - efa7d1d
         flags.put("T106", true); // composition - OutboxRelayRunnerConfiguration
         flags.put("T107", true); // correlation + JSON logs - efa7d1d
         flags.put("T109", true); // audit writer - JdbcAuditEventStore
         flags.put("T110", true); // tracking reads - MessageTrackingController
-        flags.put("T111", false); // replay - seam-row327-t112 e69d14e
-        flags.put("T112", false); // detail + failures screens - seam-row327-t112 80d2804
+        flags.put("T111", true); // replay - on main (DeliveryOperatorController, POST .../deliveries/{deliveryId}/replay)
+        flags.put("T112", true); // detail + failures screens - on main (ui/src/pages/failures-view.ts, App.tsx:30)
         flags.put("T113", true); // dashboard
-        flags.put("T115", false); // bulk intake, idempotency, same-key ordering - not on main
-        flags.put("T120", false); // daily report - DailyReportPlaceholderHandler only
-        flags.put("T121", false); // report screen - not on main
-        flags.put("T143", false); // platform-e2e compose profile - seam ed9d5ec only
-        flags.put("T144", false); // AdjustableClock (e2e profile) - seam only
-        flags.put("T157", false); // tenant B seed - be2ef40, approved, not merged
+        flags.put("T115", true); // bulk intake, idempotency, same-key ordering - on main 93aa1910 (IntakeController.submitBulk, messages:bulk); measured on b6a958ee, 22-Oct (lane t174c)
+        flags.put("T120", true); // daily report READ - on main eded195a (DeliveryReportController GET /api/v1/reports/delivery?day=); the roll-up writer is DailyReportPlaceholderHandler (SC-08 measures what that yields, see RUN 8)
+        flags.put("T121", true); // report screen - on main (ui/src/App.tsx renders <DeliveryReport />, c6ba9251)
+        flags.put("T143", true); // platform-e2e compose profile - on main (compose/compose.yaml profile e2e: artemis + wiremock); provisions NO bearer tokens and NO REF-ORDER seed
+        flags.put("T144", true); // AdjustableClock (e2e profile) - on main (PlatformClockConfiguration @Profile e2e)
+        flags.put("T157", true); // tenant B seed - on main (e2e-ui/tests/base-suite/lib/tenants.mjs TENANT_B_PLAN)
         ON_MAIN = Collections.unmodifiableMap(flags);
     }
 
