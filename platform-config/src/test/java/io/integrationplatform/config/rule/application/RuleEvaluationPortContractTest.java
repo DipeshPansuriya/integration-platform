@@ -12,6 +12,7 @@ import io.integrationplatform.config.rule.api.RuleEvaluationPort;
 import io.integrationplatform.config.rule.api.RuleSetNotFoundException;
 import io.integrationplatform.config.rule.api.RuleViolation;
 import io.integrationplatform.config.rule.internal.JdbcRuleSetRepository;
+import io.integrationplatform.config.rule.internal.JdbcRuleSetRepository.Fingerprinted;
 import io.integrationplatform.config.rule.internal.JdbcRuleSetRepository.RuleSetRow;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,6 +35,8 @@ class RuleEvaluationPortContractTest {
 
     private static ZenDecisionEngine engine;
 
+    private static final UUID TENANT = UUID.randomUUID();
+
     private final JdbcRuleSetRepository repository = mock(JdbcRuleSetRepository.class);
 
     @BeforeAll
@@ -47,13 +50,14 @@ class RuleEvaluationPortContractTest {
     }
 
     private RuleEvaluationPort port() {
-        return new RuleEvaluationService(repository, engine);
+        return new RuleEvaluationService(repository, engine, () -> Optional.of(TENANT));
     }
 
     private UUID stored(String kind, String table) {
         UUID id = UUID.randomUUID();
-        when(repository.find(id)).thenReturn(Optional.of(
-                new RuleSetRow(id.toString(), UUID.randomUUID().toString(), kind, kind + " set", table)));
+        RuleSetRow row = new RuleSetRow(id.toString(), UUID.randomUUID().toString(), kind, kind + " set", table);
+        when(repository.fingerprint(id)).thenReturn(Optional.of("fp"));
+        when(repository.findFingerprinted(id)).thenReturn(Optional.of(new Fingerprinted(row, "fp")));
         return id;
     }
 
@@ -111,7 +115,7 @@ class RuleEvaluationPortContractTest {
     @DisplayName("An id the bound tenant cannot see throws RuleSetNotFoundException")
     void unknownRuleSetThrows() {
         UUID unknown = UUID.randomUUID();
-        when(repository.find(unknown)).thenReturn(Optional.empty());
+        when(repository.fingerprint(unknown)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> port().evaluate(unknown, JSON.readTree("{}")))
                 .isInstanceOf(RuleSetNotFoundException.class)

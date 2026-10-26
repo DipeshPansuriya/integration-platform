@@ -65,6 +65,12 @@ class SystemPersistenceConfiguration {
     /** T-184: the platform's own hosts (exact names or IP literals) - never a destination, whatever is allowed. */
     static final String PLATFORM_HOSTS = "platform.config.destinations.platform-hosts";
     static final String SHOWCASE_PROFILE = "showcase";
+    /**
+     * T161 R1: the showcase port list is global to the exception (every listed host on every listed port), so it must
+     * never name a port the platform itself serves or depends on: PostgreSQL and Kafka by default, plus the app's own
+     * {@code server.port} (default 8080) and {@code management.server.port}. Naming one refuses to start.
+     */
+    static final Set<Integer> PLATFORM_STORE_PORTS = Set.of(5432, 9092);
     /** The only profiles the local-host exception may run next to; any other active profile refuses to start. */
     static final Set<String> SHOWCASE_COMPANIONS = Set.of(SHOWCASE_PROFILE, "local", "dev", "test");
 
@@ -110,6 +116,18 @@ class SystemPersistenceConfiguration {
         if (showcasePorts.isEmpty()) {
             throw new IllegalStateException(SHOWCASE_LOCAL_PORTS + " must list the exact port(s) of the local test"
                     + " destination while " + SHOWCASE_LOCAL_HOSTS + " is set - refusing to start");
+        }
+        Set<Integer> ownPorts = new java.util.TreeSet<>(PLATFORM_STORE_PORTS);
+        ownPorts.add(environment.getProperty("server.port", Integer.class, 8080));
+        Integer management = environment.getProperty("management.server.port", Integer.class);
+        if (management != null) {
+            ownPorts.add(management);
+        }
+        List<Integer> clash = showcasePorts.stream().filter(ownPorts::contains).toList();
+        if (!clash.isEmpty()) {
+            throw new IllegalStateException(SHOWCASE_LOCAL_PORTS + " names the app's own port " + clash
+                    + " (platform stores " + PLATFORM_STORE_PORTS + ", server.port, management.server.port) -"
+                    + " refusing to start: the local-host exception must never reach the platform's own services");
         }
         DestinationGuard guard = new DestinationGuard(AllowList.of(allowed), resolver, showcaseLocal, showcasePorts,
                 platformHosts);
@@ -182,20 +200,32 @@ class SystemPersistenceConfiguration {
     /** E16 F3: the approved tables of a DB target; the audit event names the bound tenant (none bound fails closed). */
     @Bean
     ApprovedTableService approvedTableService(JdbcApprovedTableRepository tables, JdbcSystemRepository systems,
-            org.springframework.context.ApplicationEventPublisher events, ObjectProvider<TenantContext> tenantContexts) {
+            org.springframework.context.ApplicationEventPublisher events, ObjectProvider<TenantContext> tenantContexts,
+            ObjectProvider<io.integrationplatform.config.system.application.DbAccountWidthCheck> width,
+            org.springframework.transaction.PlatformTransactionManager transactionManager) {
+        // T178a: no width check composed (no routing slice) = every approval is refused (fail closed)
+        org.springframework.transaction.support.TransactionTemplate decisions =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        // L19/F2: the refusal event commits in a transaction of its own whatever the caller has open
+        org.springframework.transaction.support.TransactionTemplate audit =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        audit.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return new ApprovedTableService(tables, systems, events,
-                () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId());
+                () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId(),
+                width.getIfAvailable(() -> (systemId, settings) -> Optional.of("DB_ACCOUNT_UNVERIFIED: no privilege"
+                        + " probe is composed; an approval is refused when the account's privileges cannot be read")),
+                decisions, java.time.Clock.systemUTC(), audit);
     }
 
     @Bean
     SystemAdminService systemAdminService(JdbcSystemRepository systems, TestConnectionService testConnection,
             DestinationGuard guard, FileRoots fileRoots, ObjectProvider<TenantContext> tenantContexts,
-            Environment environment) {
+            Environment environment, org.springframework.context.ApplicationEventPublisher events) {
         // E16 R1/R2: clear-text Kafka stays off unless the operator opts in (the sender reads the same property)
         boolean allowKafkaPlaintext = Binder.get(environment)
                 .bind("platform.config.destinations.kafka-allow-plaintext", Boolean.class).orElse(false);
         return new SystemAdminService(systems, testConnection, guard, fileRoots,
                 () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId(),
-                allowKafkaPlaintext);
+                allowKafkaPlaintext, events);
     }
 }

@@ -109,10 +109,10 @@ public class ApiTargetCall implements TargetCall {
                 destination = guard.check(view.baseUri());
             } catch (DestinationRefusedException refused) {
                 throw new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(), "the destination of "
-                        + view.baseUri() + " is refused (" + refused.refusal() + "): nothing is sent to it");
+                        + origin(view.baseUri()) + " is refused (" + refused.refusal() + "): nothing is sent to it");
             } catch (UnknownHostException unresolved) {
                 throw new TargetFaultException.TransientFaultException("the allow-listed host of "
-                        + view.baseUri() + " resolves to nothing (the address's fault, not the destination's)");
+                        + origin(view.baseUri()) + " resolves to nothing (the address's fault, not the destination's)");
             }
             Map<String, String> headers = new LinkedHashMap<>();
             headers.put("Content-Type", body.contentType());
@@ -142,7 +142,7 @@ public class ApiTargetCall implements TargetCall {
 
     private void attempt(Stage2Send send, TargetEndpointView view, CheckedDestination destination,
             Map<String, String> headers, ApiTargetBody.ApiWireBody body) {
-        CircuitBreaker breaker = breakers.circuitBreaker(send.targetEndpointId().toString());
+        CircuitBreaker breaker = io.integrationplatform.routing.stage2.BreakerOpenWait.watch(breakers.circuitBreaker(send.targetEndpointId().toString()));
         if (!breaker.tryAcquirePermission()) {
             throw TargetFaultException.CircuitOpenException.of(breaker, send.targetEndpointId());
         }
@@ -191,5 +191,10 @@ public class ApiTargetCall implements TargetCall {
         return outcome == OutcomeClass.TRANSIENT
                 ? new TargetFaultException.TransientFaultException(message)
                 : new TargetFaultException(outcome, message);
+    }
+
+    /** F-4 (CWE-532): scheme, host and port only - the stored path and query are tenant-controlled and never logged. */
+    private static String origin(java.net.URI uri) {
+        return uri.getScheme() + "://" + uri.getHost() + (uri.getPort() < 0 ? "" : ":" + uri.getPort());
     }
 }

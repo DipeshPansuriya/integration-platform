@@ -1,7 +1,9 @@
 package io.integrationplatform.app.composition;
 
+import io.integrationplatform.config.system.application.DbAccountWidthCheck;
 import io.integrationplatform.ingest.port.StageTimings;
 import io.integrationplatform.routing.adapter.api.ApiTargetBody;
+import io.integrationplatform.routing.adapter.db.DbAccountWidth;
 import io.integrationplatform.routing.adapter.db.DbRows;
 import io.integrationplatform.routing.adapter.file.FileTargetContent;
 import io.integrationplatform.routing.adapter.file.JdbcFileTargets;
@@ -93,6 +95,22 @@ class CompositionConfiguration {
     @Bean
     DbRows transformedDbRows(ApiTargetBody transformedApiBody) {
         return new TransformedDbRows(transformedApiBody);
+    }
+
+    /**
+     * T178a / B30: config's approval asks "is the DB account wider than INSERT and SELECT?"; routing answers through
+     * its own {@link DbAccountWidth} (routing uses no config application type). Without routing's DB slice the bean
+     * is a check that refuses every approval (fail closed; the same words as config's own default, which this bean
+     * replaces - a null bean made that default depend on the container treating a NullBean as absent).
+     */
+    @Bean
+    DbAccountWidthCheck dbAccountWidthCheck(ObjectProvider<DbAccountWidth> routingWidth) {
+        DbAccountWidth width = routingWidth.getIfAvailable();
+        if (width != null) {
+            return width::refusalFor;
+        }
+        return (systemId, settings) -> Optional.of("DB_ACCOUNT_UNVERIFIED: no privilege probe is composed; an approval"
+                + " is refused when the account's privileges cannot be read");
     }
 
     /** E16: the file body is the transformed payload, named by the target's pattern or the delivery id; see {@link TransformedFileContent}. */

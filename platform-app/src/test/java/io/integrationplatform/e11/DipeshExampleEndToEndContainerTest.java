@@ -7,8 +7,10 @@ import io.integrationplatform.PlatformTestWiring.RestrictedLogin;
 import io.integrationplatform.TestImages;
 import io.integrationplatform.config.destination.HostResolver;
 import io.integrationplatform.config.destination.SocketDialer;
+import io.integrationplatform.delivery.replay.DeliveryOperatorActions;
 import io.integrationplatform.identity.KeycloakRealmContainer;
 import io.integrationplatform.identity.KeycloakRealmContainer.ClientCredentials;
+import io.integrationplatform.tenancy.WorkerTenantBinding;
 import java.net.ConnectException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -131,6 +133,12 @@ class DipeshExampleEndToEndContainerTest {
     @Autowired
     private ApplicationContext context;
 
+    @Autowired
+    private DeliveryOperatorActions operatorActions;
+
+    @Autowired
+    private WorkerTenantBinding binding;
+
     @LocalServerPort
     private int port;
 
@@ -250,6 +258,40 @@ class DipeshExampleEndToEndContainerTest {
         assertThat(deliveryToEndpoint(messageB, tenantB.endpointA()).get("state"))
                 .as("tenant B's other target is unharmed").isEqualTo("DELIVERED");
         assertThat(deliveryStatesOf(messageA).values()).as("tenant A's flow is unharmed").containsOnly("DELIVERED");
+    }
+
+    /**
+     * BS-10 (the replay pin defect): a delivery the REAL pipeline created (intake -> stage 1 -> deliver) and
+     * dead-lettered carries the contract version stage 1 pinned beside the mapping version, so the operator replay
+     * is accepted - one REPLAY event, the delivery back to DUE with both pins - instead of the 409 "not pinned".
+     * No row of this delivery is seeded by SQL.
+     */
+    @Test
+    @Order(4)
+    @DisplayName("an operator replays a pipeline-created dead-lettered delivery: both pins present, one REPLAY event")
+    void anOperatorReplaysAPipelineCreatedDeadLetter() throws Exception {
+        awaitPipeline(messageB, 2);
+        UUID deadLettered = (UUID) deliveryToEndpoint(messageB, tenantB.endpointB()).get("id");
+        assertThat(ownerString("select state from public.delivery where id = ?::uuid", deadLettered))
+                .as("the pipeline dead-lettered it").isEqualTo("DEAD_LETTERED");
+        String pinnedContract = ownerString("select mv.target_contract_version_id::text from public.delivery d"
+                + " join public.mapping_version mv on mv.id = d.mapping_version_id where d.id = ?::uuid",
+                deadLettered);
+        assertThat(pinnedContract).as("the mapping version the delivery was accepted under names its target contract")
+                .isNotNull();
+        assertThat(ownerString("select contract_version_id::text from public.delivery where id = ?::uuid",
+                deadLettered)).as("stage 1 pins the contract version beside the mapping version")
+                .isEqualTo(pinnedContract);
+
+        java.util.concurrent.atomic.AtomicReference<DeliveryOperatorActions.Result> result =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        binding.runAs(tenantB.id(), () -> result.set(operatorActions.replay(deadLettered, "operator-bs10")));
+
+        assertThat(result.get().outcome()).as("the replay of a pipeline-created delivery is accepted, not 'not pinned'")
+                .isEqualTo(DeliveryOperatorActions.Outcome.MOVED_TO_DUE);
+        assertThat(result.get().contractVersionId().toString()).isEqualTo(pinnedContract);
+        assertThat(ownerCount("select count(*) from public.delivery_event where delivery_id = ?::uuid"
+                + " and type = 'REPLAY'", deadLettered)).as("exactly one REPLAY event").isEqualTo(1);
     }
 
     /**

@@ -10,8 +10,8 @@
 // Masked fields: this screen shows NO payload field - the timeline answer has none. Only ids, stage
 // names, states and timestamps are rendered, all as React text children (escaped).
 //
-// Look and feel: the console's own elements only - base.css element defaults (the QueueDashboard
-// table style) and base.css .badge tones; nothing new is styled here.
+// Look and feel (B28, UI audit B0/B6/B8): the Flows pattern - header block, summary panel with a styled dl, the
+// stage table in ONE card (operator.css, tokens only); state is a worded badge, the failure a role=alert block.
 
 import { useEffect, useState } from 'react';
 import { messageTimeline, type Timeline } from '../api/messages';
@@ -23,6 +23,7 @@ import {
   failingStageOf,
   isTrackingId,
   stageName,
+  stateBadge,
   statusWord,
   targetResponses,
   timelineRows,
@@ -30,6 +31,7 @@ import {
   utcText,
   type StageStatus
 } from './message-timeline';
+import './operator.css';
 
 type Load = 'loading' | 'ready' | 'not-found' | 'refused' | 'error';
 
@@ -117,14 +119,18 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
             : '';
 
   return (
-    <div data-page="message-detail" data-message-loaded={load === 'ready' ? 'true' : 'false'} data-load={load}>
-      <h1>Message</h1>
-      <p>
-        <a href="#/failures" data-action="back-to-failures">Back to failures</a>
-      </p>
+    <div data-page="message-detail" data-message-loaded={load === 'ready' ? 'true' : 'false'} data-load={load} className="operator-page">
+      <header className="op-head">
+        <div>
+          <h1>Message</h1>
+          <p className="op-lead">Where this message went through the pipeline, stage by stage.</p>
+        </div>
+        <a className="btn" href="#/failures" data-action="back-to-failures">Back to failures</a>
+      </header>
       {/* One persistent live region: loading, not found, refused and error are announced from it. */}
       <p
-        role="status"
+        role={load === 'refused' || load === 'error' ? 'alert' : 'status'}
+        className={load === 'refused' || load === 'error' ? 'op-alert op-alert-danger' : load === 'not-found' ? 'op-empty' : 'op-status'}
         data-status="message-detail"
         data-empty={load === 'not-found' ? 'message-not-found' : undefined}
         data-refusal={load === 'refused' ? 'message-timeline-refused' : undefined}
@@ -134,18 +140,23 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
       {timeline && (
         <>
           {/* Row 328 V1 (WCAG 1.3.1): every group has the same form - one <div> holding one dt and one dd. */}
-          <dl data-message-summary>
+          <div className="op-panel">
+          <dl data-message-summary className="op-dl">
             <div>
               <dt>Tracking id</dt>
-              <dd data-tracking-id>{timeline.trackingId}</dd>
+              <dd data-tracking-id className="op-mono">{timeline.trackingId}</dd>
             </div>
             <div>
               <dt>Flow</dt>
-              <dd data-flow-id>{timeline.flowId}</dd>
+              <dd data-flow-id className="op-mono">
+                <a href={`#/flow/${encodeURIComponent(timeline.flowId)}`}>{timeline.flowId}</a>
+              </dd>
             </div>
             <div>
               <dt>State</dt>
-              <dd data-message-state>{timeline.state}</dd>
+              <dd data-message-state data-state-raw={timeline.state}>
+                <span className={`badge badge-${stateBadge(timeline.state).tone}`} title={timeline.state}>{stateBadge(timeline.state).word}</span>
+              </dd>
             </div>
             <div>
               <dt>Accepted at</dt>
@@ -153,7 +164,7 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
             </div>
             <div>
               <dt>Total</dt>
-              <dd data-total-ms={timeline.totalMs === null ? '' : String(timeline.totalMs)}>{totalText(timeline.totalMs)}</dd>
+              <dd data-total-ms={timeline.totalMs === null ? '' : String(timeline.totalMs)} className="op-mono">{totalText(timeline.totalMs)}</dd>
             </div>
             {responses.map((r) => (
               <div key={r.key} data-target-response={r.key}>
@@ -162,31 +173,33 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
               </div>
             ))}
           </dl>
+          </div>
           {(timeline.deliveries ?? []).map((d) => {
             // T165 M2: the action follows the delivery state - RETRY_WAIT offers Retry now, DEAD_LETTERED Replay; the 409 still guards.
             const action = deliveryAction(d) ?? acted[d.deliveryId] ?? null;
             return action ? (
-              <p key={d.deliveryId} data-delivery-action={d.deliveryId}>
+              <p key={d.deliveryId} data-delivery-action={d.deliveryId} className="op-panel">
                 Delivery to {d.targetId ?? d.deliveryId}: <OperatorActionButton action={action} onDone={actionDone} />
               </p>
             ) : null;
           })}
           {failing && (
-            <p data-failing-stage={failing}>
+            <div role="alert" className="op-alert op-alert-danger" data-failing-stage={failing}>
               Failed at the {stageName(failing)} stage.
-            </p>
+            </div>
           )}
-          <h2>Pipeline stages</h2>
-          <table data-timeline>
-            <caption>Pipeline stages of message {timeline.trackingId}, in pipeline order (times in UTC)</caption>
+          <h2 className="op-section">Pipeline stages</h2>
+          <div className="op-card">
+          <table className="table op-table" data-timeline>
+            <caption className="op-sr-only">Pipeline stages of message {timeline.trackingId}, in pipeline order (times in UTC)</caption>
             <thead>
               <tr>
                 <th scope="col">Stage</th>
                 <th scope="col">Status</th>
                 <th scope="col">Started</th>
                 <th scope="col">Finished</th>
-                <th scope="col">Duration</th>
-                <th scope="col">Since previous stage</th>
+                <th scope="col" className="num">Duration</th>
+                <th scope="col" className="num">Since previous stage</th>
               </tr>
             </thead>
             <tbody>
@@ -203,12 +216,13 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
                   </td>
                   <td>{row.startedAt ? <time dateTime={row.startedAt}>{row.startedText}</time> : row.startedText}</td>
                   <td>{row.finishedAt ? <time dateTime={row.finishedAt}>{row.finishedText}</time> : row.finishedText}</td>
-                  <td data-duration-cell>{row.durationText}</td>
-                  <td data-since-cell>{row.sinceText}</td>
+                  <td data-duration-cell className="num op-mono">{row.durationText}</td>
+                  <td data-since-cell className="num op-mono">{row.sinceText}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>

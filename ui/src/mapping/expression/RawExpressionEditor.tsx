@@ -13,6 +13,7 @@ import { EditorState } from '@codemirror/state';
 import { EditorView, minimalSetup } from 'codemirror';
 import type { MappingGraph } from '../graph';
 import { renderExpression } from './raw';
+import './cm-theme.css';
 
 /**
  * The typed surface of the graph's expression. Every edit is handed to `onEdit` as the full
@@ -69,7 +70,6 @@ export default function RawExpressionEditor({
     <div
       data-field="raw-expression"
       className="raw-expression"
-      style={{ border: '1px solid #8a939e', borderRadius: 4 }}
       ref={host}
     />
   );

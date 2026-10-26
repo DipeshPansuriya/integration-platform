@@ -89,3 +89,58 @@ export function failuresCaption(flowLabel: string | null, date: string | null): 
   const what = flowLabel || date ? scope(flowLabel, date) : ', all flows and days';
   return `Failed and dead-lettered messages${what}, newest first`;
 }
+
+
+/** The row key: the delivery id, else tracking id + stage (the same identity failureRows() uses). */
+export function failureKey(f: Pick<Failure, 'deliveryId' | 'trackingId' | 'failingStage'>): string {
+  return f.deliveryId ?? `${f.trackingId}|${f.failingStage}`;
+}
+
+/**
+ * A silent refresh after Replay/Retry: rows the server no longer lists drop out, except the ones the operator
+ * just acted on (they stay in place, showing their answer, until the next Reload); new rows follow.
+ */
+export function keepActed(previous: readonly Failure[], fresh: readonly Failure[], actedKeys: readonly string[]): Failure[] {
+  const freshByKey = new Map(fresh.map((f) => [failureKey(f), f]));
+  const out: Failure[] = [];
+  const seen = new Set<string>();
+  for (const old of previous) {
+    const key = failureKey(old);
+    const now = freshByKey.get(key);
+    if (now) out.push(now);
+    else if (actedKeys.includes(key)) out.push(old);
+    else continue;
+    seen.add(key);
+  }
+  for (const f of fresh) if (!seen.has(failureKey(f))) out.push(f);
+  return out;
+}
+
+/** "5 min ago" beside the absolute time; blank for an unreadable instant. */
+export function relativeAge(iso: string, now: Date): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return '';
+  const seconds = Math.max(0, Math.round((now.getTime() - then) / 1000));
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+  return `${Math.floor(seconds / 86400)} d ago`;
+}
+
+/** Platform = our side (warn), Target = the target's answer (info); the word still says which. */
+export function originTone(origin: string): 'warn' | 'info' | 'neutral' {
+  return origin === 'PLATFORM' ? 'warn' : origin === 'TARGET' ? 'info' : 'neutral';
+}
+
+/** The Queue's "Failed" link: #/failures narrowed to one flow and day. */
+export function failuresHash(flowId: string, day: string): string {
+  return `#/failures?flow=${encodeURIComponent(flowId)}&date=${encodeURIComponent(day)}`;
+}
+
+/** Reads `?flow=&date=` off a failures hash; junk values are ignored (failuresQuery's own rule). */
+export function failuresParamsFromHash(hash: string): { flowId: string; date: string | null } {
+  const query = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : '';
+  const params = new URLSearchParams(query);
+  const checked = failuresQuery({ flowId: params.get('flow') ?? '', date: params.get('date') ?? '' });
+  return { flowId: checked.flowId ?? '', date: checked.date ?? null };
+}

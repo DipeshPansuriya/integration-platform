@@ -9,6 +9,7 @@ import io.integrationplatform.ingest.port.OutboxEntry;
 import io.integrationplatform.ingest.port.OutboxTopic;
 import io.integrationplatform.ingest.port.OutboxWriter;
 import io.integrationplatform.ingest.port.StageTimings;
+import io.integrationplatform.ingest.validation.PayloadValidationService;
 import io.integrationplatform.tenancy.TenantContext;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -53,13 +54,25 @@ public class IntakeService implements IntakeTransaction {
     private final IntakeStore store;
     private final OutboxWriter outbox;
     private final StageTimings timings;
+    private final IntakeValidation validation;
 
+    /**
+     * @param payloadValidation B37: the contract-then-rules validation every record passes before it is stored; there is
+     *        deliberately no constructor without it - intake never runs unvalidated.
+     */
     public IntakeService(JdbcClient jdbcClient, TenantContext tenantContext, OutboxWriter outbox,
-            StageTimings timings) {
+            StageTimings timings, PayloadValidationService payloadValidation) {
         this.tenantContext = tenantContext;
         this.store = new IntakeStore(jdbcClient, tenantContext);
         this.outbox = outbox;
         this.timings = timings;
+        this.validation = new IntakeValidation(payloadValidation);
+    }
+
+    /** A rejected record as the exception the single call throws: every rejection code is a {@link Reason} name. */
+    static IntakeRefusedException refusal(RecordResult rejected) {
+        return new IntakeRefusedException(IntakeRefusedException.Reason.valueOf(rejected.code()), rejected.message(),
+                rejected.violations());
     }
 
     @Override
@@ -69,7 +82,7 @@ public class IntakeService implements IntakeTransaction {
                 List.of(request.payload()), request.idempotencyKey(), request.credentialRef()), true);
         RecordResult only = run.results().get(0);
         if (!RecordResult.ACCEPTED.equals(only.status())) {
-            throw new IntakeRefusedException(IntakeRefusedException.Reason.valueOf(only.code()), only.message());
+            throw refusal(only);
         }
         return new AcceptedMessage(only.trackingId(), only.outboxId(), run.sync());
     }
@@ -121,9 +134,20 @@ public class IntakeService implements IntakeTransaction {
                     "the interface pins source contract " + pinnedLabel);
         }
         int n = records.size();
-        RecordResult[] results = new RecordResult[n];
+        // B37: validation runs against the interface's PUBLISHED contract version (the pinned one just checked) for
+        // THIS tenant - schema first, then the VALIDATION rule sets; the compiled schema is cached per
+        // (tenant, contract version), so a bulk reads/compiles it once. A rejected record gets no key, no row, no
+        // outbox entry and no tracking id; one query for the rule sets per request, none per record.
+        UUID contractVersionId = version.sourceContractVersionId();
+        RecordResult[] results = validation.check(tenantContext.requireTenantId() + "/" + contractVersionId,
+                () -> JSON.readTree(store.contractSchema(contractVersionId).orElseThrow(() -> new IllegalStateException(
+                        "the pinned source contract version " + contractVersionId + " has no readable schema"))),
+                store.validationRuleSetIds(published.interfaceId()), records, request.interfaceCode());
         String[] keys = new String[n];
         for (int i = 0; i < n; i++) {
+            if (results[i] != null) {
+                continue; // rejected by the contract or the rules above: no business key, nothing written
+            }
             try {
                 keys[i] = BusinessKeyRule.resolve(version.businessKeyRule(), records.get(i));
             } catch (IntakeRefusedException unresolved) {
@@ -168,7 +192,7 @@ public class IntakeService implements IntakeTransaction {
             long outboxId = outbox.append(new OutboxEntry(OutboxTopic.MESSAGE_ACCEPTED, messageId, keys[i],
                     CorrelationContext.currentTraceparent(), deferredUntil, version.sourceContractVersionId()));
             timings.record(messageId, StageTimings.Stage.INTAKE, startedAt, Instant.now());
-            log.debug("intake accepted message {}", messageId); // per record; the per-batch summary below is the info line
+            log.info("intake accepted message {}", messageId); // T107: the journey line per message (id + correlation MDC); terse
             results[i] = RecordResult.accepted(i, messageId, outboxId);
         }
         List<RecordResult> answer = List.of(results);

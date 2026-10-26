@@ -316,8 +316,8 @@
       <id>container</id>
       <properties>
         <surefire.groups>container</surefire.groups>
-        <!-- E18Base is tagged container AND e2e-full; the e2e-full classes run only in -Pe2e-full (own JVM, memory
-             budget E18-F1-S3), never at the tail of the shared -Pcontainer JVM. Exclusion beats inclusion. -->
+        <!-- E18Base also carries e2e-full: those classes run in their own JVM under -Pe2e-full (build-checks/e2e-full-gate.sh),
+             not inside the shared -Pcontainer JVM, where ~40 cached Spring contexts already eat the E18 memory budget. -->
         <surefire.excludedGroups>e2e-full</surefire.excludedGroups>
         <!-- ponytail override: only heap/metaspace grow; flags stay. Serialized suites keep R06 cost bounded. -->
         <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx1g -XX:MaxMetaspaceSize=512m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>

@@ -2,9 +2,11 @@ package io.integrationplatform.e5.contract;
 
 import static io.integrationplatform.e5.contract.E5ContractFixture.TARGET_A_V1;
 import static io.integrationplatform.e5.contract.E5ContractFixture.approve;
+import static io.integrationplatform.e5.contract.E5ContractFixture.call;
 import static io.integrationplatform.e5.contract.E5ContractFixture.importVersion;
 import static io.integrationplatform.e5.contract.E5ContractFixture.registerTargetSystem;
 import static io.integrationplatform.e5.contract.E5ContractFixture.scalar;
+import static io.integrationplatform.e5.contract.E5ContractFixture.shortId;
 import static io.integrationplatform.e5.contract.E5ContractFixture.submit;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -77,7 +79,8 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @Tag("container")
 @Testcontainers
-@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
+        properties = "platform.config.destinations.allowed-hosts=*.partner.example")
 @Import(E12ConfigAuditTrailContainerTest.SuiteDecoder.class)
 class E12ConfigAuditTrailContainerTest {
 
@@ -230,6 +233,60 @@ class E12ConfigAuditTrailContainerTest {
         assertThat(rows(tenant, LookupEntryService.ACTION)).as("the E7 lookup event, unchanged, now has its row")
                 .containsExactly(who + "|" + lookupId + ",r1"
                         + "|{\"key\":\"NL\",\"value\":\"Kingdom of the Netherlands\"}");
+    }
+
+    // ------------------------------------------------------------------ A destination change reaches the ledger
+
+    @Test
+    @DisplayName("Review A-C2: an API system create and a base-URL change through the admin API each land one"
+            + " SYSTEM_DESTINATION_CHANGED row - actor, system id, old and new HOST only, never path, query or scheme")
+    void aDestinationChangeLandsOneHostOnlyRowInTheLedger() throws Exception {
+        Tenant tenant = seed("dest");
+        String admin = tenant.subject("TENANT_ADMIN");
+        String actor = tenant.userId("TENANT_ADMIN").toString();
+        String code = "sys-dest-" + shortId();
+
+        HttpResponse<String> created = call(port, admin, "POST", "/api/v1/admin/systems", systemJson(code,
+                "https://one.partner.example/v1/orders?token=first-secret-query"));
+        assertThat(created.statusCode()).as("create: %s", created.body()).isEqualTo(201);
+        String system = E5ContractFixture.json(created).path("id").asString();
+        assertThat(destinationRows(tenant)).as("create: one row, no before, the new host")
+                .containsExactly(actor + "|system:" + system + "||{\"host\":\"one.partner.example\"}");
+
+        HttpResponse<String> changed = call(port, admin, "PUT", "/api/v1/admin/systems/" + system, systemJson(code,
+                "https://two.partner.example/v2/orders?token=second-secret-query"));
+        assertThat(changed.statusCode()).as("change: %s", changed.body()).isEqualTo(200);
+        assertThat(destinationRows(tenant)).as("a changed address adds exactly one more row, old and new host")
+                .containsExactly(actor + "|system:" + system + "||{\"host\":\"one.partner.example\"}",
+                        actor + "|system:" + system + "|{\"host\":\"one.partner.example\"}|{\"host\":\"two.partner.example\"}");
+
+        HttpResponse<String> same = call(port, admin, "PUT", "/api/v1/admin/systems/" + system, systemJson(code,
+                "https://two.partner.example/v2/orders?token=second-secret-query"));
+        assertThat(same.statusCode()).isEqualTo(200);
+        HttpResponse<String> refused = call(port, admin, "PUT", "/api/v1/admin/systems/" + system, systemJson(code,
+                "https://evil.example/steal"));
+        assertThat(refused.statusCode()).as("off-list host: %s", refused.body()).isEqualTo(400);
+        assertThat(count(tenant, ConfigAuditActions.SYSTEM_DESTINATION_CHANGED))
+                .as("an unchanged address and a refused one write no row").isEqualTo(2);
+
+        assertThat(rowText(tenant, ConfigAuditActions.SYSTEM_DESTINATION_CHANGED))
+                .as("hosts only: no scheme, path, query or userinfo in the ledger")
+                .doesNotContain("https", "/v1", "/v2", "orders", "token", "secret", "?", "@");
+    }
+
+    private static String systemJson(String code, String baseUrl) {
+        return "{\"code\":\"" + code + "\",\"name\":\"" + code + "\",\"direction\":\"OUTBOUND\",\"type\":\"API\","
+                + "\"settings\":{\"baseUrl\":\"" + baseUrl + "\",\"timeoutMs\":3000}}";
+    }
+
+    /** Each destination row as {@code actor|target ids|before|after}, oldest first. */
+    private static List<String> destinationRows(Tenant tenant) throws Exception {
+        String joined = scalar(POSTGRES, "SELECT coalesce(string_agg(actor || '|'"
+                + " || (SELECT string_agg(t, ',' ORDER BY n) FROM jsonb_array_elements_text(target_ids)"
+                + " WITH ORDINALITY AS x(t, n)) || '|' || coalesce(before_state, '') || '|' || coalesce(after_state, ''),"
+                + " E'\n' ORDER BY id), '') FROM audit_event WHERE tenant_id = ?::uuid AND action = ?",
+                tenant.id().toString(), ConfigAuditActions.SYSTEM_DESTINATION_CHANGED);
+        return joined.isEmpty() ? List.of() : List.of(joined.split("\\n"));
     }
 
     // ------------------------------------------------------------------ helpers

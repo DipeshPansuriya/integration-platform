@@ -18,12 +18,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * ordering inside the test: AFTER_MIGRATE runs as the migration finishes, strictly before any scheduler or
  * pool bean. It grants nothing else and is idempotent (membership re-grant is a no-op).
  */
-final class GrantAppRoleFlywayCallback implements Callback {
+public final class GrantAppRoleFlywayCallback implements Callback {
 
     private final PostgreSQLContainer postgres;
     private final PlatformTestWiring.RestrictedLogin login;
 
-    GrantAppRoleFlywayCallback(PostgreSQLContainer postgres, PlatformTestWiring.RestrictedLogin login) {
+    public GrantAppRoleFlywayCallback(PostgreSQLContainer postgres, PlatformTestWiring.RestrictedLogin login) {
         this.postgres = postgres;
         this.login = login;
     }

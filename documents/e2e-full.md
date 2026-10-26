@@ -23,7 +23,7 @@ Adapter gates not yet wired on `main` are switched on with `-De18.gates=kafka,db
 | E18-F1-S1 (T-151) | `AllTargetTypesJourneyContainerTest` | API, MQ-CSV, Kafka topic, DB, File: intake to delivered, trace id carried, tracking and report reads show the journey |
 | E18-F1-S2 (T-152) | `HourLongOutageContainerTest` | a target, Kafka, the JMS broker down for an hour of simulated time |
 | E18-F1-S3 (T-153) | `MemoryBudgetContainerTest`, `MemoryBudgetTest` | a bounded load inside the stated heap, pool and queue budget; over budget fails and reports the peak |
-| UI leg | `ui/tests/e2e-full/` | Playwright, reusing the base-suite seed; not edited in `ui/tests/base-suite` |
+| UI leg | `e2e-ui/tests/e2e-full/` | Playwright, reusing the base-suite seed; not edited in `e2e-ui/tests/base-suite` |
 
 A scenario annotated `@BlockedBy(lane, assertion)` still runs unweakened; its failure is recorded BLOCKED-BY with the
 exact assertion. Only a PASS closes the project.

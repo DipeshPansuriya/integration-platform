@@ -13,6 +13,9 @@ import java.util.UUID;
  *                         {@code created_at} (ADR-014; never a fresh timestamp)
  * @param targetEndpointId the pinned target endpoint
  * @param mappingVersionId the pinned mapping version (later configuration changes never alter it, E9-F1-S1)
+ * @param contractVersionId the pinned target contract version of the same mapping (the snapshot the message was
+ *                         accepted under); written beside the mapping version so an operator replay/retry is pinned
+ *                         to both. {@code null} only when the route's mapping is unbound
  * @param orderingKey      the interface's ordering key value for this message (hold/scope key), or {@code null}
  *                         when the interface's ordering is {@code NONE}
  * @param interfaceId      the message's {@code interface_id} - with {@code businessKey} and the target, the ordering
@@ -21,5 +24,5 @@ import java.util.UUID;
  * @param keySeq           the message's per-key {@code key_seq}, or {@code null} when the message has none
  */
 public record Stage1Delivery(UUID messageId, UUID routeId, java.time.Instant acceptedAt, UUID targetEndpointId,
-        UUID mappingVersionId, String orderingKey, UUID interfaceId, String businessKey, Long keySeq) {
+        UUID mappingVersionId, UUID contractVersionId, String orderingKey, UUID interfaceId, String businessKey, Long keySeq) {
 }
