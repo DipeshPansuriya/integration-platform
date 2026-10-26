@@ -84,7 +84,7 @@ done
 # 5. the upstream receives the request URI UNCHANGED (raw == tested): same path, same query string; and anything that would make
 # the raw path differ from nginx's normalised one (dot segments, doubled slashes, ';' parameters, backslash) is refused at the edge
 b="$(body $O GET "$API/topics/b/partitions?x=1&y=2&z=a%20b")"; grep -qF 'uri=[/kafka/api/clusters/ipass/topics/b/partitions?x=1&y=2&z=a%20b]' <<<"$b" && ok "ops: upstream gets the request URI unchanged (path and query)" || bad "ops: forwarded uri: $b"
-for u in "$API/topics/a/../b/partitions" "$API/topics/a/./b" "/kafka/api//clusters/ipass/topics" "$API/topics/b;jsessionid=1" "$API/topics/b/.." "$API/topics/b/."; do
+for u in "$API/topics/a/../b/partitions" "$API/topics/a/./b" "/kafka/api//clusters/ipass/topics" "$API/topics/b;jsessionid=1" "$API/topics/b/.." "$API/topics/b/." "/kafka/x/..?x=1" "/kafka/x/.?x=1" "$API/topics/b/..?x=1"; do
   s="$(st $O GET "$u")"; [ "$s" = 404 ] && ok "ops: non-normal path $u -> 404" || bad "ops: non-normal path $u -> $s"
 done
 # nothing the stub ever received carries a percent sign, a dot segment, a doubled slash or a ';' in the PATH part
