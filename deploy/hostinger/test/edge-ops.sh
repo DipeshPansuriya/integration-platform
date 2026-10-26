@@ -8,10 +8,15 @@
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 TAG="${NGINX_TEST_TAG:?set NGINX_TEST_TAG to a local ipass/ui image tag}"
-LOCK="${DOCKER_SUITE_LOCK:-/d/Projects/ipass/.docker-suite.lock}"
-N=ipass-edge-ops; PORT="${EDGE_TEST_PORT:-18092}"
-mkdir "$LOCK" 2>/dev/null || { echo "docker lock held by: $(cat "$LOCK/owner" 2>/dev/null) - not started"; exit 2; }
-echo "maya ipass-edge-ops $(date -u +%FT%TZ) refreshed=$(date -u +%FT%TZ)" > "$LOCK/owner"
+# the PC-wide docker lock is slotted: .docker-suite.lock-N (a DIRECTORY with an owner file; plain files of that name belong to
+# others and are skipped). Never take over a live holder. Names and port are unique per run so two runs cannot collide.
+LOCKROOT="${DOCKER_SUITE_LOCKROOT:-/d/Projects/ipass/.docker-suite.lock}"
+LOCK=""; for slot in 2 3 4 5 6 7 8 9; do
+  if mkdir "$LOCKROOT-$slot" 2>/dev/null; then LOCK="$LOCKROOT-$slot"; break; fi
+done
+[ -n "$LOCK" ] || { echo "no free docker lock slot under $LOCKROOT-N - not started"; exit 2; }
+N=ipass-edge-ops-$$; PORT="${EDGE_TEST_PORT:-$((18100 + RANDOM % 800))}"
+echo "maya ipass-edge-ops pid=$$ $(date -u +%FT%TZ) refreshed=$(date -u +%FT%TZ)" > "$LOCK/owner"
 TMP="$(mktemp -d)"
 cleanup() { docker rm -f $N-edge $N-up >/dev/null 2>&1; docker network rm $N >/dev/null 2>&1; rm -rf "$LOCK" "$TMP"; }
 trap cleanup EXIT
@@ -63,12 +68,11 @@ done
 s="$(st $O GET /kafka/%00)"; { [ "$s" = 404 ] || [ "$s" = 400 ]; } && ok "ops: /kafka/%00 is refused ($s)" || bad "ops: /kafka/%00 -> $s"
 # the request-splitting payloads, sent with a raw client INSIDE the docker network (the host-side curl path resets these connections
 # itself, which would prove nothing about nginx): the edge must answer 404 and the stub must never see the smuggled second request.
-raw() { MSYS_NO_PATHCONV=1 docker run --rm --network $N --entrypoint sh nginx:stable-alpine -c "printf 'GET ${1//%/%%} HTTP/1.1
-Host: ops.t.invalid
-Connection: close
-
-' | nc -w 3 $N-edge 8080 | head -1" 2>&1 | tr -d '' | tail -1; }
-for u in "/kafka/a%20HTTP/1.1%0d%0a%0d%0aGET%20/x" "/kafka/login%20HTTP/1.1%0d%0aX-A:%201%0d%0a%0d%0aGET%20/zzz" "/kafka/%250d%250aX"; do
+raw() { # raw request line sent with nc from INSIDE the docker network; prints the status line the edge answered
+  local rp="${1//\\/\\\\}"; rp="${rp//%/%%}"
+  MSYS_NO_PATHCONV=1 docker run --rm --network $N --entrypoint sh nginx:stable-alpine -c "printf 'GET $rp HTTP/1.1\\r\\nHost: ops.t.invalid\\r\\nConnection: close\\r\\n\\r\\n' | nc -w 3 $N-edge 8080 | head -1" 2>&1 | tr -d '\r' | tail -1
+}
+for u in '/kafka/api\clusters' "/kafka/a%20HTTP/1.1%0d%0a%0d%0aGET%20/x" "/kafka/login%20HTTP/1.1%0d%0aX-A:%201%0d%0a%0d%0aGET%20/zzz" "/kafka/%250d%250aX"; do
   r="$(raw "$u")"; grep -q ' 404 ' <<<"$r" && ok "ops: request-splitting path $u -> 404" || bad "ops: request-splitting path $u -> [$r]"
 done
 if docker logs $N-up 2>&1 | grep -E '/zzz|GET /x ' >/dev/null; then bad "ops: a smuggled request reached the upstream"; else ok "ops: nothing smuggled ever reached the upstream"; fi
@@ -77,9 +81,14 @@ n2=0
 for u in /kafka/ /kafka/login /kafka/oauth2/authorization/keycloak /kafka/index.html /kafka/static/js/main.js "/kafka/api/clusters/ipass/topics?page=1&perPage=25" $API/topics/messages $API/topics/ipass.messages.v1; do
   n2=$((n2+1)); s="$(st $O GET "$u" -H "X-Forwarded-For: 10.2.0.$n2")"; [ "$s" = 200 ] && ok "ops: legitimate $u still served" || bad "ops: legitimate $u -> $s"
 done
-# 5. the path the upstream receives is the path that was tested
-b="$(body $O GET "$API/topics/a/../b/partitions?x=1&y=2")"; grep -qF 'uri=[/kafka/api/clusters/ipass/topics/b/partitions?x=1&y=2]' <<<"$b" && ok "ops: upstream gets the normalised path and the query string" || bad "ops: forwarded uri: $b"
-b="$(body $O GET /kafka/api//clusters/ipass/topics)"; grep -qF 'uri=[/kafka/api/clusters/ipass/topics]' <<<"$b" && ok "ops: merged slashes are forwarded merged" || bad "ops: double slash: $b"
+# 5. the upstream receives the request URI UNCHANGED (raw == tested): same path, same query string; and anything that would make
+# the raw path differ from nginx's normalised one (dot segments, doubled slashes, ';' parameters, backslash) is refused at the edge
+b="$(body $O GET "$API/topics/b/partitions?x=1&y=2&z=a%20b")"; grep -qF 'uri=[/kafka/api/clusters/ipass/topics/b/partitions?x=1&y=2&z=a%20b]' <<<"$b" && ok "ops: upstream gets the request URI unchanged (path and query)" || bad "ops: forwarded uri: $b"
+for u in "$API/topics/a/../b/partitions" "$API/topics/a/./b" "/kafka/api//clusters/ipass/topics" "$API/topics/b;jsessionid=1" "$API/topics/b/.." "$API/topics/b/."; do
+  s="$(st $O GET "$u")"; [ "$s" = 404 ] && ok "ops: non-normal path $u -> 404" || bad "ops: non-normal path $u -> $s"
+done
+# nothing the stub ever received carries a percent sign, a dot segment, a doubled slash or a ';' in the PATH part
+if docker logs $N-up 2>&1 | grep -E '"[A-Z]+ [^ ?]*(%|;|//|/\.\.?(/| ))' >/dev/null; then bad "ops: the upstream saw a percent sign / dot segment / double slash / ';' in a path"; else ok "ops: the upstream never saw a percent sign, dot segment, double slash or ';' in a path"; fi
 # 6. no Upgrade / Connection reaches Keycloak or Kafbat (h2c); the app host keeps websocket
 for spec in "$A /realms/platform/.well-known/openid-configuration" "$O /kafka/login" "$O $API/topics"; do
   set -- $spec; b="$(body $1 GET $2 -H 'Upgrade: h2c' -H 'Connection: Upgrade, HTTP2-Settings' -H 'HTTP2-Settings: AAMAAABkAAQAoAAAAAIAAAAA')"

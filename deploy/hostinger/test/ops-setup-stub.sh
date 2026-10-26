@@ -24,7 +24,12 @@ case "$verb $path" in
  "get roles/ops-operator") echo "r-1"; exit 0;;
  "create roles") echo ops-operator > "$S/roles"; exit 0;;
  "get clients") [ -e "$S/get-clients-fails" ] && { echo "HTTP 500" >&2; exit 1; }; [ -s "$S/clients" ] && echo c-1; exit 0;;
- "create clients") echo c-1 > "$S/clients"; echo c-1; exit 0;;
+ "create clients") echo c-1 > "$S/clients"; printf 'ds-1,platform-api-audience
+ds-2,profile
+ds-3,roles
+' > "$S/dscopes"; echo c-1; exit 0;;
+ "get clients/c-1/default-client-scopes") [ -e "$S/dscopes-get-fails" ] && exit 1; cat "$S/dscopes" 2>/dev/null; exit 0;;
+ "delete clients/c-1/default-client-scopes/"*) id="${path##*/}"; grep -v "^$id," "$S/dscopes" > "$S/ds.n"; mv "$S/ds.n" "$S/dscopes"; exit 0;;
  "update clients/c-1")
    case "$args" in *authenticationFlowBindingOverrides.browser=*) b="${args##*authenticationFlowBindingOverrides.browser=}"; b="${b%% *}"; echo "$b" > "$S/bind";; esac; exit 0;;
  "get clients/c-1") echo "{ \"authenticationFlowBindingOverrides\" : { \"browser\" : \"$(cat "$S/bind" 2>/dev/null)\" } }"; exit 0;;
@@ -89,10 +94,13 @@ grep -q "directAccessGrantsEnabled=false" "$c" && grep -q "fullScopeAllowed=fals
 ! grep -q "create users\|set-password" "$c" && ok "no user is created or given a password" || bad "user created"
 grep -q "$OUT" /dev/null 2>/dev/null; ! grep -qE "(^| )(p|s)( |$)" <<<"$OUT" && ok "the output carries no secret value" || bad "secret in output"
 
+grep -q "^delete clients/c-1/default-client-scopes/ds-1 " "$c" && [ "$(grep -c "^delete clients/c-1/default-client-scopes/" "$c")" -eq 1 ] && ! grep -q platform-api-audience "$S1/dscopes" && grep -q "^ds-2,profile" "$S1/dscopes" && grep -q "^ds-3,roles" "$S1/dscopes" && ok "fresh: platform-api-audience is removed from the client's default scopes, nothing else" || bad "fresh: default scope handling"
+
 # 2. re-run on the verified state changes nothing
 cp -r "$S1" "$T/rerun"; S2="$T/rerun"; : > "$S2/calls"; run "$S2"
 [ $RC -eq 0 ] && grep -q "present and verified" <<<"$OUT" && ok "re-run: flow is verified and reported present" || bad "re-run: $OUT"
 ! grep -q "create authentication/flows\|delete authentication" "$S2/calls" && ok "re-run: no flow is created or deleted" || bad "re-run changed the flow"
+! grep -q "^delete clients/c-1/default-client-scopes/" "$S2/calls" && ok "re-run: no default scope is touched again" || bad "re-run deleted a default scope again"
 
 # 3. half-built flow (OTP missing): rebuilt completely, bound only after verification
 cp -r "$S1" "$T/half"; S3="$T/half"; : > "$S3/calls"; grep -v "auth-otp-form" "$S3/execs" > "$S3/execs.n"; mv "$S3/execs.n" "$S3/execs"; run "$S3"

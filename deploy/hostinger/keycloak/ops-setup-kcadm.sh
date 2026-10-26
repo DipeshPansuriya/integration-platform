@@ -38,6 +38,18 @@ else
     -s "redirectUris=[\"$REDIR\"]" -s 'webOrigins=[]' >/dev/null
   echo "client ops-kafbat present (secret, redirect, scope reset)"
 fi
+# the realm's default scope platform-api-audience would put the platform API audience into the ops-kafbat tokens (Kafbat holds
+# them server-side): remove it from this client only (idempotent, checked after). Other default scopes stay.
+rows="$(list get "clients/$CID/default-client-scopes" -r $R --fields id,name --format csv --noquotes)"
+while IFS=, read -r sid sname; do
+  if [ "$sname" = platform-api-audience ]; then
+    "$K" delete "clients/$CID/default-client-scopes/$sid" -r $R >/dev/null
+    echo "default scope platform-api-audience removed from ops-kafbat"
+  fi
+done <<<"$rows"
+if list get "clients/$CID/default-client-scopes" -r $R --fields name --format csv --noquotes | grep -x platform-api-audience >/dev/null; then
+  echo "platform-api-audience still a default scope of ops-kafbat" >&2; exit 1
+fi
 # only this role may ever appear in the client's tokens (checked, not assumed)
 if ! list get "clients/$CID/scope-mappings/realm" -r $R --fields name --format csv --noquotes | grep -x ops-operator >/dev/null; then
   "$K" create "clients/$CID/scope-mappings/realm" -r $R -b "[{\"id\":\"$ROLE_ID\",\"name\":\"ops-operator\"}]" >/dev/null
