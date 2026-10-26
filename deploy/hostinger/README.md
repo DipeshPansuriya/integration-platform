@@ -84,3 +84,25 @@ The host's Traefik does read the socket (ADR Decision 5 point 8). A read-only mo
 - Offline: `bash deploy/hostinger/test/test-scripts.sh` (dry runs, secret hygiene, compose controls). Run it from any directory; needs `bash` (it re-runs itself under bash and leaves POSIX mode if started as `sh`), `openssl`, `awk`, `sed`, `grep`, `mktemp` and `git` on PATH, and stops with `MISSING PREREQUISITE: <tool>` otherwise. No Docker, `pg_dump` or `psql` is needed.
 - Rate limit proof: `NGINX_TEST_TAG=<tag of a local ipass/ui image> bash deploy/hostinger/test/edge-ratelimit.sh` (one stub upstream + the real `edge/edge.conf` in nginx; takes the Docker lock, exits 2 without starting if a live owner holds it).
 - Whole stack: `IMAGE_TAG=<sc> bash deploy/hostinger/test/smoke.sh` (also asserts the edge allow-list, the web-network membership, the K1 refusal C1, a live DB password rotation) with local images `ipass/<name>:<sc>` - takes the PC-wide docker-suite lock, uses dummy secrets in a temp file, deletes everything afterwards.
+
+## Operator address ops.<domain> (T219)
+
+Everything on `ops.<domain>` is behind a Keycloak login; nothing is anonymous. Same edge, Traefik router `ipass-ops`.
+
+| URL | What | Gate |
+|---|---|---|
+| `/kafka/` | Kafbat, read-only: topic names, partitions, offsets, consumer groups, counts. No message bodies | Keycloak realm `platform`, client `ops-kafbat`, role `ops-operator`, OTP (flow `ops-browser`) |
+
+That is the whole list. The Keycloak admin console and the master realm are **not** served on ops (404; so are `/admin`, `/realms/*`, `/resources`, `/js`, `/v3`, swagger, every `/actuator`). Postgres, raw Kafka 9092 and WireMock publish nothing. The auth host still 404s `/admin` and `/realms/master`.
+
+Why no message bodies: the cluster `readOnly` flag stops writes only. Reads are held back by two layers - the RBAC role (`kafbat/kafbat-roles.yml`, no message permission) and the edge (404 for the messages / smartfilters / serdes API paths, GET only). Both sit in front of an unauthenticated PLAINTEXT broker on the internal network; a broker-side ACL is the follow-up.
+
+**Existing install:** run `./keycloak/ops-setup.sh` FIRST, before any other `docker compose` command - `compose.yaml` now requires `OPS_KAFBAT_CLIENT_SECRET`, which the script generates in `.env` when it is missing (fingerprint printed, value never). It creates the role, the client and the flow, verifies the flow on every run (rebuilds it if it drifted) and binds it to the client only after it verified. It needs the named master admin: `KC_ADMIN_USERNAME` / `KC_ADMIN_PASSWORD` in the environment, or `./.env.kc-admin` (mode 600; create once with `umask 077; printf 'KC_ADMIN_USERNAME=%s
+KC_ADMIN_PASSWORD=%s
+' "$name" "$pw" > .env.kc-admin`), else it asks (password read silently). Then `docker compose up -d kafbat edge`. DNS: one A record `ops`.
+
+Operators: create the named users in realm `platform` yourself, assign role `ops-operator`, add the required action `CONFIGURE_TOTP` and enrol them in person (a first login without it lets whoever knows the password enrol the authenticator).
+
+**Keycloak admin console - SSH tunnel only.** It is on no public host. Admin work is done with `kcadm.sh` inside the container (what the scripts here do: `docker compose exec keycloak /opt/keycloak/bin/kcadm.sh ...`). A browser console over a tunnel (`ssh -L 18080:<keycloak container ip>:8080 root@<server>`, open `http://localhost:18080/admin/master/console/`) does NOT complete its login by default: with strict hostname the master realm redirects to `https://auth.<domain>/realms/master`, which is 404 on purpose. Do not set the master realm Frontend URL to make it work without a decision (see the T219 report).
+
+Rollback: restore `compose.yaml`, `edge/edge.conf` and `.env` from the backup directory taken before the change, `docker compose up -d --remove-orphans`, `docker rm -f ipass-kafbat-1`. The Keycloak role, client and flow may stay (inert without the kafbat container); the `ops` DNS record may stay.

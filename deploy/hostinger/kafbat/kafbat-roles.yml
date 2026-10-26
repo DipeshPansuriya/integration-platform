@@ -1,0 +1,22 @@
+# Kafbat RBAC (T219). One role, bound to the Keycloak realm role ops-operator (token claim `roles`).
+# View-only: NO topic message actions (messages_read / messages_produce / messages_delete), no topic create/edit/delete,
+# no consumer-group edit/delete/reset, no schema / connect / ksql / acl / application-config rights. A signed-in user
+# without the ops-operator role gets no permission at all.
+rbac:
+  roles:
+    - name: ops-operator-readonly
+      clusters:
+        - ipass
+      subjects:
+        - provider: oauth
+          type: role
+          value: ops-operator
+      permissions:
+        - resource: clusterconfig
+          actions: [view]
+        - resource: topic
+          value: ".*"
+          actions: [view]
+        - resource: consumer
+          value: ".*"
+          actions: [view]
