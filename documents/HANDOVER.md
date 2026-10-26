@@ -706,3 +706,297 @@ All of this is from the T219 work: `ws/_documents/2026-10-26-hosted-deployment-r
 8. **Update the docs**: [interface.md](interface.md), and a diagram if the change alters it (R21).
 9. **Hosted exposure**: a new path is 404 at the edge until it is added to `deploy/hostinger/edge/edge.conf` on
    purpose. After that change the edge container must be recreated (section 12.5).
+
+## 10. How to run and test
+
+### 10.1 Prerequisites
+
+- **JDK 25.** Export `JAVA_HOME`; the wrapper refuses without it (`AGENTS.md:60`). Use `./mvnw`, not a system Maven.
+- **Docker** for any container test or the local stack. Use Docker Desktop on Windows.
+- **Node and npm** for `ui/` and `e2e-ui/`. Run `npm ci` in **both** folders (`AGENTS.md:29`, `e2e-ui/README.md:13`).
+  The Node version is not pinned in the repository (not verified).
+- **Git Bash** on Windows for the `.sh` scripts.
+
+### 10.2 Environment for every Maven run
+
+```bash
+export JAVA_HOME=/path/to/jdk-25
+export JAVA_TOOL_OPTIONS=-Duser.timezone=Etc/UTC   # R04: the Postgres container rejects some host zones
+export MAVEN_OPTS=-Xmx768m                          # AGENTS.md:61; an uncapped JVM ran out of commit memory
+```
+
+`rule.md` R06 gives tighter flags (`MAVEN_OPTS="-Xmx384m -Xms64m -XX:MaxMetaspaceSize=256m -Xshare:off"`). The later
+`AGENTS.md` uses `-Xmx768m`, and the `container` and `e2e-full` profiles set their own surefire JVM flags
+(`pom.xml:315-345`). **Never pass a bare `-DargLine`**: it overrides the pom's flags (`AGENTS.md:62`).
+
+### 10.3 Maven commands
+
+| Goal | Command | Needs Docker | Expected green result (last known) |
+|---|---|---|---|
+| Unit tests and arch rules | `./mvnw test` | No (R03: container tests are excluded by default) | BUILD SUCCESS. arch-test 66/0 at `347a1466` |
+| One module | `./mvnw -pl <module> -am test` | No | - |
+| Container suite | `./mvnw -Pcontainer test` (runs only `@Tag("container")`) | Yes, take the lock | 1,902 tests, 0 failed, 5 skipped at `347a1466` |
+| Full end-to-end gate (project-close gate) | `build-checks/e2e-full-gate.sh` (wraps `./mvnw -o -Pe2e-full -pl platform-app -am test` with the lock and the verdict) | Yes | `GATE: PASS` 10/10 at `347a1466` (`documents/e2e-full.md`) |
+| Release 1 Java scenarios | `node e2e-ui/scripts/run-release1-gate.mjs <log>` (Maven `-Pcontainer -pl platform-e2e -Dtest=Release1ScenariosContainerTest` plus its own Artemis, backend boot and seed) | Yes | `RELEASE 1 GATE: PASS` |
+| Build the deployable jar | `./mvnw -pl platform-app -am package -DskipTests` | No | - |
+| Build checks | `bash build-checks/check-dependency-tree.sh`, `check-planted-violations.sh`, `check-agent-guidance.sh`, `check-provenance.sh`, `test-e2e-full-gate.sh` | No | Exit 0 |
+
+Notes:
+
+- `Release1ScenariosContainerTest` errors under a plain `-Pcontainer` run **by design**: it needs the gate runner
+  (`ws/_reports/2026-10-24-release1-verdict-and-proof.md:45`).
+- Before any `-rf` resume, run `./mvnw install -DskipTests -am`, otherwise stale local-repository jars are used
+  (`AGENTS.md:62-63`).
+- `platform-app` test-compile needs `-pl platform-app -am`.
+- Surefire `-Dtest='*Scheduler*'` does not match the `io.integrationplatform.scheduler.*` container proof classes
+  (case mismatch). Name those classes explicitly.
+
+### 10.4 Console (`ui/`) and console end-to-end suites (`e2e-ui/`)
+
+| Goal | Command | Expected green result (last known) |
+|---|---|---|
+| Install | `cd ui && npm ci && cd ../e2e-ui && npm ci` | - |
+| Dev server | `cd ui && npm run dev` | - |
+| Build (type check, Vite build, licence check) | `cd ui && npm run build` | Exit 0 |
+| All offline unit tests | `cd ui && npm test` (ui's own tests, then `e2e-ui` unit tests) | 428/428 at `0b4cbf04` |
+| ui-only unit tests | `cd ui && npm run test:product` | 383 at `0b4cbf04` (`e2e-ui/README.md:24`) |
+| Regenerate the typed API client from OpenAPI | `cd ui && npm run generate:client` | `tsc` clean |
+| Screens suite (Playwright, real backend) | `cd e2e-ui && npm run test:screens` | 128/128 at `0b4cbf04` |
+| Base suite | `cd e2e-ui && npx playwright test -c playwright.base-suite.config.mjs` | BS-10, BS-11.3 and BS-11.3b gave 20/20 at `0b4cbf04` |
+| Security specs | `cd e2e-ui && npx playwright test -c playwright.security.config.mjs` | 13/13 at `0b4cbf04` |
+| Release 1 browser journey | `cd e2e-ui && npm run test:release1-journey -- <log>` | PASS, 6 steps |
+| e2e-full UI leg | `cd e2e-ui && npm run test:e2e-full-ui` | not verified |
+| Mocked UI / OpenAPI contract / perf | `npm run test:mocked`, `test:container`, `test:perf` (in `e2e-ui`) | not verified |
+| Local trial stack (backend, console, seeded user) | `cd e2e-ui && npm run trial` | - |
+
+Every `ui` script name still works and delegates to `e2e-ui`. To pass extra arguments, run the script inside `e2e-ui`
+(`e2e-ui/README.md:23`).
+
+### 10.5 Hosted kit tests
+
+Run these from the repository root (full table in [deployment.md](deployment.md) section 4):
+
+- `bash deploy/hostinger/test/test-scripts.sh`: offline, no Docker. Last known 111 passed, 0 failed (2026-10-26).
+- `NGINX_TEST_TAG=<tag> bash deploy/hostinger/test/edge-ratelimit.sh` and `.../edge-ops.sh`: nginx behaviour; take
+  the Docker lock.
+- `IMAGE_TAG=<sc> bash deploy/hostinger/test/smoke.sh`: the whole stack with dummy secrets. Heavy; takes the lock.
+  Last known 30/30 on images `3105c3d3` (2026-10-24, planning-workspace report
+  `2026-10-24-hosting-smoke-30of30-images-3105c3d3.log`).
+
+### 10.6 The Docker suite lock (R06)
+
+- **One Docker or Testcontainers suite at a time on a build machine.** Two at once have wedged the host
+  (`ws/_documents/2026-10-24-demo-runbook.md` section 4).
+- The machine-wide lock file is `.docker-suite.lock`, **one level above the repository root** (`AGENTS.md:58-59`).
+  Take it with a holder note (who, which suite, when) and release it when the run ends.
+- The first holder keeps it. Never remove another holder's lock.
+- `build-checks/e2e-full-gate.sh` and the `e2e-ui` boot scripts take the lock themselves. The boot scripts accept
+  `DOCKER_SUITE_LOCK=<path>` to use a numbered slot such as `.docker-suite.lock-3` (demo runbook section 4).
+- The hosted-kit nginx tests exit 2 without starting when a live owner holds the lock (`deploy/hostinger/README.md:84`).
+
+### 10.7 Windows notes
+
+- Use Git Bash for scripts. Use `cmd` for the Windows-style commands in the demo runbook.
+- Set the time zone flag every time (R04).
+- Ctrl-C cleanup of the journey runner cannot be proven on Windows, because Windows does not deliver a catchable
+  SIGINT to another process (verdict report `:62`). If you kill a run, clean up its containers and its lock by hand.
+- Use `127.0.0.1`, not `localhost`, for the console login in the local demo (demo runbook section 7).
+- Ports 8089 (WireMock) and 4173 (console) must be free before a demo or gate run
+  (`netstat -ano | findstr ":8089 :4173"`).
+
+## 11. How to work on this code
+
+### 11.1 Branching and pull requests
+
+1. Fetch, then branch off a fresh `origin/main`: `feature/<id>-<topic>`, `fix/<id>-<topic>` or `docs/<id>-<topic>`.
+   These are the prefixes in use, for example PR #20 `feature/t219-ops-n1` and PR #5 `fix/idp-admin-refuse-unsafe`.
+2. Commit on the branch only. **Never commit to `main` directly.** In the current owner's clone a local `pre-push` hook
+   refuses any push of `main` unless `ALLOW_MAIN_PUSH=1` is set for that one push
+   (`ws/_documents/2026-10-22-release1-security-statement-and-risk-acceptance.md:104`). Set up the same guard in your own
+   clones.
+3. Open a pull request to `main` on the hosting service. PRs #4 to #20 have used this flow since the `release-1` tag
+   (`git log --merges 0b4cbf04..5b9a6c36`).
+4. Get a code review, and a security review for anything touching identity, tenancy, outbound calls, credentials or the
+   edge. The gates in section 10 must be green on the PR head, with results stated as counts.
+5. Merge to `main` only with the project owner's sign-off. R17 requires the owner's word for every push, remote,
+   pull request and merge (`documents/rule.md:51`). Under the current practice, routine feature-branch pushes and PRs
+   are normal and the merge to `main` is the owner's sign-off.
+6. Never use `--no-verify`, never force-push, and never rewrite history.
+7. After a merge, a red test closes only when it is re-run green on the merged tip.
+
+### 11.2 Conventions
+
+- **Package layout:** `io.integrationplatform.<module>`. The public surface is that package plus `port` and `event`;
+  everything else lives under `.internal`. Hexagonal-style `adapter/in` and `adapter/out`, `application` and `domain`
+  inside `platform-config` (for example `config/flow/adapter/in/FlowAdminController.java`).
+- **Migrations:** Flyway, one per change, never edited after they reach `origin/main`. Under the versioned name
+  pattern `V<major>_<minor>_<n>__<what>.sql` the versions must stay strictly increasing; a migration was renamed for
+  strict Flyway ordering before (planning-workspace memory m-802f1c). Closed sets use `text` plus `CHECK` (R10).
+  Explicit `?::uuid` casts (R09).
+- **No secrets in files:** only variable names; `.example` files list names. Values come from the OS secret store or
+  the server's root-only `.env`.
+- **Pinned images and dependencies:** never `latest` (R05).
+- **Diagrams:** `documents/diagrams/` holds the archify specs and pages. Update and re-render them in the same change
+  (R21). No image files are committed.
+- **Naming:** English only. No employer, client or product names in any file (R19).
+- **UI:** match the existing design system in `ui/src/tokens.css` and `ui/src/ui/base.css` (light and dark token
+  pairs, slate plus blue). Keep WCAG AA contrast, landmarks, keyboard support and dialogs with Esc and focus return;
+  the token and contrast tests in `ui/tests/ui/` assert these. Do not introduce a second component library.
+
+### 11.3 Definition of done (per story)
+
+1. A failing test existed before the code (R01), and it now passes.
+2. The acceptance criteria are met, with evidence as run counts (R02).
+3. Unit tests and arch rules are green. Container tests are green under the lock if the change touches persistence,
+   Kafka, Camel or HTTP. UI tests are green if the change touches `ui/`.
+4. Diagrams and documents are in sync (R21); `interface.md` is updated for any API change.
+5. No new secret, unpinned image or extra kafka-clients or networknt version (build checks green).
+6. The work has been reviewed. A security review is required for identity, tenancy, outbound, credential and edge
+   changes.
+
+The backlog's definition of done adds the diagram rule explicitly (`ws/_specs/backlog.md:39-48`).
+
+### 11.4 ADR process
+
+- ADRs live in `documents/adr/ADR-NNN-<title>.md`, with the index in `documents/adr/README.md`. The next number is
+  ADR-019.
+- Sections: Context, Options, Decision, Consequences, Revisit if. State what the decision gives up.
+- Write the ADR **before** the code it governs. A change to a closed register (states, target types, topics, definer
+  functions, roles, job types, exemption tables) goes through its owning ADR (`documents/adr/README.md`, "Closed
+  registers").
+- Team decisions are marked "Accepted (team) - the owner may reverse". Owner-approved ones say so with a date.
+- Two hosting ADRs (ADR-H-IPASS-01 hosting, ADR-H-IPASS-02 operator dashboards) are currently kept in the planning
+  workspace, not in `documents/adr/`. Ask for them, or move them in through a PR.
+
+## 12. Guide for AI agents
+
+This section is directive. Follow it together with `AGENTS.md`; where they disagree, `AGENTS.md` and `documents/` win.
+
+### 12.1 Repository map
+
+Top-level directories in `git ls-files` on `5b9a6c36` (1,790 tracked files). That makes 18 directories, plus `.mvn`
+and `_memory`:
+
+| Directory | Owns | Tracked files |
+|---|---|---|
+| `platform-domain` | Ids, value types, delivery states, outcome classes; no Spring | 24 |
+| `platform-tenancy` | Tenant context, RLS stamping, bootstrap resolvers, OIDC, console BFF login, roles (`Role.java`, `RolePolicy.java`) | 146 |
+| `platform-config` | Control plane: systems, credentials, contracts, flows, routes, mappings, rules, lookups, jobs, the admin API, `DestinationGuard` | 291 |
+| `platform-ingest` | The common intake API, validation, bulk, idempotency, the outbox relay | 96 |
+| `platform-routing` | The only Camel module: stage consumers, route templates, adapters (api, mq, kafkatopic, db, file), bulkheads, breakers | 311 |
+| `platform-transform` | JSONata mapping execution | 11 |
+| `platform-delivery` | Delivery and attempt persistence, retry, hold, re-drive, replay, delivery report | 105 |
+| `platform-audit` | Append-only audit and the activity view | 8 |
+| `platform-tracking` | Tracking and report reads | 10 |
+| `platform-app` | The deployable: wiring, security chain, scheduler jobs, message, queue and activity controllers, the e18 suite in `src/test` | 248 |
+| `arch-test` | ArchUnit rules (test-only) | 56 |
+| `platform-e2e` | Black-box Release 1 scenarios and harness (test-only) | 31 |
+| `ui` | React console (product code and product unit tests) | 170 |
+| `e2e-ui` | Playwright suites and runner scripts (test-only) | 182 |
+| `compose` | Local development stack and Keycloak realm export | 8 |
+| `deploy` | Hosted kit (`deploy/hostinger/`) | 30 |
+| `documents` | PRD, architecture, rules, design, interface, fetch, ADRs, diagrams, ops runbooks | 43 (before this file) |
+| `build-checks` | Dependency, planted-violation, guidance, provenance and e2e-full gate scripts | 11 |
+
+`_memory/` holds one stale open-issues stub ("Fresh baseline - no open items"); use section 13 instead.
+
+### 12.2 Read first, in this order
+
+1. `AGENTS.md`
+2. This file, sections 2, 4 and 13
+3. `documents/rule.md`
+4. `documents/architecture.md` sections 2 to 7
+5. `documents/adr/README.md`, then the ADRs for the area you touch (ADR-010 for routing, ADR-011 for contracts,
+   targets and ordering, ADR-007 and ADR-009 for identity and tenancy, ADR-012 for jobs)
+6. `documents/interface.md` for any API change; `documents/design.md` for any UI change
+7. The module's existing tests next to the code you change
+
+### 12.3 Before and after every change
+
+Before you change anything:
+
+```bash
+git fetch origin && git switch -c fix/<id>-<topic> origin/main
+export JAVA_TOOL_OPTIONS=-Duser.timezone=Etc/UTC MAVEN_OPTS=-Xmx768m   # plus JAVA_HOME (JDK 25)
+./mvnw -q test                                                       # the baseline must be green first
+```
+
+Then:
+
+1. Find every caller of what you will change (`git grep`, or an IDE call hierarchy) and list the modules you touch.
+   Three or more modules, or anything in tenancy, means design first (an ADR or an issue).
+2. Write the failing test first and commit it.
+
+After you change something:
+
+```bash
+./mvnw test                                   # unit and arch-test, always
+./mvnw -pl <module> -am -Pcontainer test      # if persistence, Kafka, Camel or HTTP changed; take the Docker lock first
+cd ui && npm test && npm run build            # if ui/ changed
+bash build-checks/check-dependency-tree.sh    # if any pom changed
+```
+
+Report the counts (run, failed, errors, skipped) and the commit id.
+
+### 12.4 Rules you must not break
+
+1. **Tenant isolation.** The tenant comes only from the authenticated principal through the database. Never take it
+   from a body, header, path or Kafka record. Never weaken RLS, never add a `BYPASSRLS` login, never add a fifth definer
+   function without an ADR. A new endpoint is added to the forged-tenant matrix.
+2. **No secrets in files.** Use variable names only. Never print a `.env`, a token or a password. Never paste a
+   credential into an issue, PR or log.
+3. **No direct commits to `main`.** Use a branch and a PR (section 11.1). Never force-push or rewrite history.
+4. **Never skip hooks.** No `--no-verify`. Fix the cause of a failing hook.
+5. **Ask before anything destructive or outward.** That means: deleting files or branches, dropping tables or
+   partitions, editing a migration already on `origin/main`, any production or hosted step, rotating a credential,
+   or pushing images. Stop and ask the project owner.
+6. **Camel only in `platform-routing`; no spring-kafka; one kafka-clients version** (R12).
+7. **The five controls on every outbound call**; outbound calls go only through `DestinationGuard` (R13).
+8. **The UI matches the existing design system** (tokens and base styles). Accessibility is part of done: WCAG AA
+   contrast, labels, landmarks, keyboard support and focus management.
+9. **Pinned image tags and dependency versions**; never `latest`.
+10. **Test first, counts not ratios.** Never claim "green" without the command and its counts.
+11. **One Docker suite at a time**, under the lock.
+12. **Do not quote security figures that are not current.** The Release 1 statement is "partly executed" (section 4.6).
+
+### 12.5 Traps found in this project
+
+| Trap | What to do |
+|---|---|
+| Unit run silently runs container tests | It does not: container tests carry `@Tag("container")` and need `-Pcontainer` (R03). Do not remove the exclusion |
+| Postgres container FATAL invalid TimeZone | Set `JAVA_TOOL_OPTIONS=-Duser.timezone=Etc/UTC` on every run (R04) |
+| Out-of-memory or commit-charge exhaustion on Windows | Cap `MAVEN_OPTS`; never a bare `-DargLine`; one suite at a time |
+| `-rf` resume uses stale jars | Run `install -DskipTests -am` before resuming |
+| `ui npm test` fails on a fresh checkout | `npm ci` in both `ui/` and `e2e-ui/` |
+| `ui/node_modules` in a fresh git worktree | A worktree has no `node_modules`. Run `npm ci` there. Linking the main checkout's folder with a Windows directory junction is a local convenience that is **not verified** for this repository; never commit `node_modules` |
+| `edge.conf` change has no effect on the server | It is a single-file bind mount. Run `docker compose up -d --force-recreate --no-deps edge`; `nginx -s reload` is not enough. The same applies to `kafbat/kafbat-roles.yml` (`deploy/hostinger/README.md`, "Operator address") |
+| `ops-setup.sh` re-enables the `ops-kafbat` client | Do not re-run it if you disabled the client on purpose |
+| Keycloak admin console over an SSH tunnel does not log in | That is by design (strict hostname). Use `kcadm.sh` in the container; do not set the master realm frontend URL without a decision |
+| App healthy but scheduled jobs missing | The app DB login must be granted `ipaas_app` before the first start (outside Flyway); otherwise the job register stays empty (tracker T198, B35) |
+| App refuses to start | K1 guard: the DB login is superuser, bypasses RLS or owns the tables. Use the restricted login |
+| Release 1 scenarios error under plain `-Pcontainer` | By design; use the gate runner |
+| A Kafka topic name that needs URL-encoding is 404 on the ops address | By design (the edge refuses `%`) |
+| A drawn mapping drops or cannot repeat a parent field per child | Use the raw JSONata editor for such mappings and do not re-save from the graph view (`NESTED-APPOINTMENT.md:5`) |
+| Numbers above 2^53 in JSONata | They lose precision; keep long ids as strings |
+| Known flaky tests | `SchedulerIncidentAlertsContainerTest` (harness timing race, one red in four runs, recorded 2026-10-16); `DeliveryRetryTriggerTest` (tracker B24, in review); `DeliveryDueDispatchTest` RecordingSend race (tracker T154). Re-run once, isolated, before you call a red real, and report both runs |
+| Fixed ports 8089 and 4173 shared by the gate and the demo | Do not run them together |
+| Docs say "not wired" | `documents/*` status notes are frozen at 2026-10-16; check the code and section 4 |
+
+### 12.6 Finding an owner or a decision
+
+- **Requirements and acceptance criteria:** `documents/PRD.md`, then the project owner.
+- **Design decisions:** the ADR index. A missing decision is a new ADR proposed by the architect role and approved by
+  the project owner.
+- **Security severity and acceptance:** the security reviewer role. Accepting a risk is the project owner's call.
+- **Anything in section 3.5 or 13 marked "owner decision":** ask the project owner. Do not decide it in code.
+
+### 12.7 How to report
+
+Hand back each task in four parts:
+
+- **Done:** what changed, with the branch, commit and PR.
+- **Decisions:** what you chose and why.
+- **Open:** what is left, and any question in the form "Needs decision: ... (recommend ...)".
+- **Limits:** what you could not run or check, with each unchecked claim marked "not verified".
+
+Every test claim states the command, the counts and the commit.
