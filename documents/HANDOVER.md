@@ -1,7 +1,8 @@
 # Handover - configuration-driven integration platform
 
 This document is written for a team, and for that team's AI coding agents, taking over this repository with no other
-briefing. It was written on 2026-10-26 against `main` at `5b9a6c36`.
+briefing. It was written on 2026-10-26 against `origin/main 5b9a6c36`; `main` has moved on since (at least one later
+code-only commit), so check `git log 5b9a6c36..origin/main` for anything newer.
 
 How to read the evidence:
 
@@ -46,7 +47,7 @@ How to read the evidence:
 This document is a map. It does not replace the design documents. When it disagrees with
 [PRD.md](PRD.md), [architecture.md](architecture.md), [rule.md](rule.md) or an ADR, the design document wins for
 *intent*. For *current state*, trust the dated reports cited here, because those documents carry status notes frozen at
-`main 90c1ddd` (2026-10-16) (`documents/README.md:109-113`, `documents/PRD.md:194`). Those status notes are now out of
+`main 90c1ddd` (2026-10-16) (`documents/README.md:32`, `documents/PRD.md:194`). Those status notes are now out of
 date: for example, they still say the relay and the consumers are "not wired". Section 4 gives the current state.
 
 ## 2. Product in one page
@@ -240,9 +241,9 @@ while their code is on `main` and passed the gates in section 4.7. Both views ar
 | E12 | Logging and activity | 0% (0/7); items "in review" | Activity API `/api/v1/activity` exists (`ActivityEndpointRoles.java:18`) |
 | E13 | Tracking, timings, daily report | 0% (0/6); items "in review" | Timeline, failures, retry/replay and delivery report APIs exist (section 6) |
 | E14 | Job scheduler for AI agents | 16% (1/6) | Job admin API `/api/v1/admin/jobs` exists (`JobAdminController.java:32`) |
-| E15 | End-to-end suite, Release 1 cut | 31% (5/16), flagged blocked | Release 1 verdict GO on 2026-10-24 (section 4.7) |
+| E15 | End-to-end suite, Release 1 cut | 31% (5/16), flagged blocked | Release 1 verdict GO on 2026-10-24 for the candidate build; the security statement is still only partly executed (section 4.6) |
 
-Tracker source: the project tracker (`track show` for this project), run 2026-10-26; the overall tracker reads
+Tracker source: the project tracker, read on 2026-10-26; the overall tracker reads
 "F 12/21, T 103/203, 13 open defects". Paths in the table above are abbreviated; the full controller paths are in
 section 6.
 
@@ -318,12 +319,14 @@ and the dashboard counts reflect queued, processed, converted and failed. The tw
 | Playwright security specs | 13/13 | `0b4cbf04` | same |
 | Release 1 browser journey | PASS, 6 steps | `8732c738` (tree equals `0b4cbf04`) | verdict report `:42` |
 | Nested appointment live proof | 6/6; `e2e-ui` unit tests 84/84 | `1b07586d` (2026-10-25) | `ws/_reports/2026-10-25-t215-nested-live.md` |
-| Hosted kit offline tests (`deploy/hostinger/test/test-scripts.sh`) | 111 passed, 0 failed | hosted deploy of `4e0730a6`, 2026-10-26 | planning-workspace memory entry m-d93433 |
+| Hosted kit offline tests (`deploy/hostinger/test/test-scripts.sh`) | 111 passed, 0 failed | hosted deploy of `4e0730a6`, 2026-10-26 | hosted deploy record of 2026-10-26 |
 
 Two count notes:
 
-- `e2e-ui/README.md:17` says the `e2e-ui` unit tests are 45, but the 2026-10-25 report counted 84. The newer report is
-  trusted; the README is probably stale. This is not verified.
+- `e2e-ui` unit test count: 45 per `e2e-ui/README.md:17` (true at tag `release-1`, `0b4cbf04`: 383 + 45 = 428) and 84
+  as measured at `1b07586d` (2026-10-25 report). Neither is current: the count on the `main` tip was not re-measured.
+  On `5b9a6c36` the `test` script in `e2e-ui/package.json` names five files that are not on `main` (section 13, item
+  16), so `npm test` there is expected to fail until they are restored. Do not quote 428, 45 or 84 as current.
 - Measured from source on `5b9a6c36` (2026-10-26, `git grep "@Test"`): `@Test` methods per module are app 455,
   config 477, routing 601, tenancy 287, delivery 211, ingest 153, e2e 64, arch-test 63, domain 28, transform 22,
   audit 5, tracking 1. These are source counts, not run results.
@@ -358,7 +361,7 @@ Release 1 cut.
 | File targets, full end-to-end suite, Release 2 cut | R2 | See 5.1 |
 
 **SFTP** is not in Release 2. It is out of scope unless the owner names it (section 3.3). ADR-015's 2026-10-19 addendum
-records "FILE = shared folder R2, SFTP revisit" (planning-workspace memory m-4e0714).
+records "FILE = shared folder R2, SFTP revisit".
 
 ### 5.3 Dependencies and order
 
@@ -417,7 +420,8 @@ Console screens are in `ui/src/pages/`: `Login`, `Dashboard`, `FlowsList`, `Flow
 | 15 | Report and audit trail | Reader / tenant admin | `DeliveryReport`, `Activity` | `GET /reports/delivery`; `GET /activity`, `GET /activity/{eventId}` | `DeliveryReportEndpointRoles.java:15`; `ActivityEndpointRoles.java:18` |
 
 The retry and replay rule (retry only from `RETRY_WAIT`, replay only from `DEAD_LETTERED`; a 409 carries the state;
-a replay starts a new attempt-budget series) is recorded as decision m-3b79e5 in the planning workspace memory.
+a replay starts a new attempt-budget series) is a recorded design decision of 2026-10-18; the code is in
+`DeliveryOperatorController.java`.
 
 **Showcase data.** The source document sent (`NESTED-APPOINTMENT.md:28`):
 
@@ -486,7 +490,7 @@ and `platform-tracking` modules are small (8 and 10 tracked files).
 - The tenant filter is on every repository and raw JDBC access, in every module's package; a planted violation fails
   the build (R08; `documents/architecture.md:150`).
 - `org.apache.camel` is allowed only in `platform-routing` (R12; tracker T-121).
-- Outbound calls go only through the guard (rule `OutboundOnlyThroughGuardRule`, planning-workspace memory m-07ca89).
+- Outbound calls go only through the guard (arch rule `OutboundOnlyThroughGuardRule` in `arch-test`).
 - Routing depends only on config's public API, never on its internals (ADR-015 Decision 2, ADR-017).
 - Module internals stay private; test-only modules stay test-only (`ModuleScopeGuard`).
 - Dependency convergence: exactly one kafka-clients version and one networknt version, and no spring-kafka. This is
@@ -629,11 +633,11 @@ Postgres 5432, Kafka 9092 and the WireMock admin. Reach those over SSH only.
 
 **Current hosted state** (2026-10-26):
 
-- The app runs `main 4e0730a6`, healthy with 0 restarts (planning-workspace memory m-d93433).
-- The ui, edge and Keycloak run older pins. The runbook dated the same day lists app `8ead16cc` and ui
-  `3105c3d3` (`ws/_documents/2026-10-26-hosted-deployment-runbook.md:32`).
-- The two sources disagree on the app tag. The later deploy entry (`4e0730a6`) is trusted. Read the live pins on the
-  server with `grep '^IPASS_.*_IMAGE=' .env` (names and tags only).
+- The running app tag is whatever `IPASS_APP_IMAGE` in the server `.env` says; read it with
+  `grep '^IPASS_.*_IMAGE=' .env` (names and tags only). This document does not state a fixed tag.
+- Docker Hub also holds a newer app image `4e0730a6`, pushed on 26 October, whose deployment is not confirmed here.
+  The runbook of the same morning lists app `8ead16cc` and ui `3105c3d3`
+  (`ws/_documents/2026-10-26-hosted-deployment-runbook.md:32`).
 - Images are on Docker Hub. `deploy/hostinger/README.md:22` also documents a private-registry prefix form; the
   hosted copy uses the Docker Hub overrides.
 
@@ -693,7 +697,7 @@ All of this is from the T219 work: `ws/_documents/2026-10-26-hosted-deployment-r
    every tenant-scoped access inside a tenant-stamped transaction (R11).
 2. **Add a role check on the server.** Add the endpoint to the role policy, and add a failing test per role first (R01).
    Also add it to the forged-tenant denial matrix (`ForgedTenantDenialSuiteTest`); a missing entry has turned the
-   container gate red before (planning-workspace memory m-dc5a12).
+   container gate red before.
 3. **Return 404, not 403, for another tenant's id**, so existence does not leak. Put a `::uuid` guard on path ids, so a
    malformed id gives 404 or 400, never 500 (tracker T197 R3).
 4. **Clean 4xx on bad input**: malformed body 400, wrong content type 415, oversized 413, and no stack trace or input
@@ -831,7 +835,7 @@ Run these from the repository root (full table in [deployment.md](deployment.md)
   inside `platform-config` (for example `config/flow/adapter/in/FlowAdminController.java`).
 - **Migrations:** Flyway, one per change, never edited after they reach `origin/main`. Under the versioned name
   pattern `V<major>_<minor>_<n>__<what>.sql` the versions must stay strictly increasing; a migration was renamed for
-  strict Flyway ordering before (planning-workspace memory m-802f1c). Closed sets use `text` plus `CHECK` (R10).
+  strict Flyway ordering before. Closed sets use `text` plus `CHECK` (R10).
   Explicit `?::uuid` casts (R09).
 - **No secrets in files:** only variable names; `.example` files list names. Values come from the OS secret store or
   the server's root-only `.env`.
@@ -979,6 +983,7 @@ Report the counts (run, failed, errors, skipped) and the commit id.
 | A drawn mapping drops or cannot repeat a parent field per child | Use the raw JSONata editor for such mappings and do not re-save from the graph view (`NESTED-APPOINTMENT.md:5`) |
 | Numbers above 2^53 in JSONata | They lose precision; keep long ids as strings |
 | Known flaky tests | `SchedulerIncidentAlertsContainerTest` (harness timing race, one red in four runs, recorded 2026-10-16); `DeliveryRetryTriggerTest` (tracker B24, in review); `DeliveryDueDispatchTest` RecordingSend race (tracker T154). Re-run once, isolated, before you call a red real, and report both runs |
+| `npm test` in `ui/` or `e2e-ui/` fails with "Could not find" | Five test files named in `e2e-ui/package.json` are missing on `main` (section 13, item 16); restore them, or run `cd ui && npm run test:product` for the ui-only tests |
 | Fixed ports 8089 and 4173 shared by the gate and the demo | Do not run them together |
 | Docs say "not wired" | `documents/*` status notes are frozen at 2026-10-16; check the code and section 4 |
 
@@ -1024,7 +1029,8 @@ Release 2 work. "Tnnn" and "Bnnn" are project tracker items (section 14).
 | 12 | **Throughput**: one consumer loop per stage gave about 15-22 records per second; T181 (N loops, 12 partitions) merged; T179 design in review | The plan's 50 msg/s plus a 10x burst is unproven | Architect, developer | Load test after the T181 merge (`ws/_documents/2026-10-22-design-throughput-ceiling.md`) |
 | 13 | **Not-covered test gaps accepted for Release 1** (eight items) | Known holes in proof | QA | `ws/_reports/2026-10-24-release1-verdict-and-proof.md:55-64` |
 | 14 | **Secrets hygiene on the server**: `.env.kc-admin` in the stack directory; no edge access log | Credential at rest; no forensic trail | Project owner | Move it to the credential store; decide on an access log (runbook `:79-80`) |
-| 15 | **Orphan source credential** from the 2026-10-26 live check (secret discarded unseen) | Unused but valid credential | Project owner | Revoke it (planning-workspace memory m-d93433) |
+| 15 | **Orphan source credential** from the 2026-10-26 live check (secret discarded unseen) | Unused but valid credential | Project owner | Revoke it (hosted deploy record of 2026-10-26) |
+| 16 | **Product defect on `main`: the `test` script in `e2e-ui/package.json` names five test files that are not on `main`** (`tests/release1/unit/` `pending-parity`, `journey-runner`, `nested-appointment-seed`, `nested-hosted-driver`, `nested-hosted-guards` `.test.mjs`); they existed through `cf202e17` and were dropped by the merge of PR #12 (`b6206d9c`) | `node --test` exits 1 on a missing file, so `cd e2e-ui && npm test`, and therefore `cd ui && npm test` (which ends with it), very likely fail on `main`. **Not re-run** for this document | Developer | Restore the five files from `cf202e17` on a fix branch, re-run both `npm test` and record the counts (evidence: code review of 2026-10-26, `git ls-tree` and `git log` on `5b9a6c36`) |
 
 ### 13.2 Product questions still open with the owner
 
@@ -1044,8 +1050,10 @@ workspace are left out.
 
 ### 13.3 Not verified in this document
 
-1. The live hosted image tags. The app tag is reported as `4e0730a6` (memory) and as `8ead16cc` (runbook, same day).
-2. The `e2e-ui` unit test count: 45 in its README versus 84 in the 2026-10-25 report.
+1. The live hosted image pins (`IPASS_*_IMAGE` in the server `.env`), and whether the `4e0730a6` app image on Docker
+   Hub is the one running.
+2. The `e2e-ui` unit test count on the `main` tip: 45 (README at tag `release-1`) and 84 (measured at `1b07586d`) are
+   historical; the tip was not re-measured, and its `test` script names five missing files (section 13, item 16).
 3. The production Kafka partition count after the T181 merge.
 4. Node and npm version requirements.
 5. The e2e-full UI leg, `test:mocked`, `test:container` and perf suite results.
@@ -1111,7 +1119,7 @@ workspace are left out.
 | Controllers under `platform-*/src/main/java` (cited in section 6) | API endpoints in the walkthrough |
 | `platform-tenancy/.../Role.java`, `RolePolicy.java` | Roles and caller kinds |
 | `git ls-files`, `git log`, `git ls-remote --tags origin`, `git grep "@Test"` (run 2026-10-26 on `5b9a6c36`) | File counts, PR flow, the `release-1` tag at `0b4cbf04`, test source counts |
-| Project tracker (`track show`, 2026-10-26) | Epic and item states, open defects, T207, T220 |
+| Project tracker (read 2026-10-26) | Epic and item states, open defects, T207, T220 |
 | `ws/_specs/project-plan.md` | Approved scope, Release 1 and Release 2 phases, sizes, risks, out of scope |
 | `ws/_specs/backlog.md` | Epic map E0 to E19, definition of done |
 | `ws/_specs/release-base-plan-20261013.md` | Base-version definition, roadmap waves, dates (stale) |
@@ -1128,4 +1136,3 @@ workspace are left out.
 | `ws/_documents/2026-10-25-adr-operator-dashboards.md` | Proposed operator dashboards and the platform-operator principal |
 | `ws/_documents/2026-10-24-demo-runbook.md` | Demo story, lock slots, ports, Windows notes |
 | `ws/_documents/2026-10-22-design-throughput-ceiling.md` | Throughput ceiling and the N-loops design |
-| Planning-workspace memory entries m-d93433, m-3b79e5, m-4e0714, m-07ca89, m-dc5a12, m-802f1c | Hosted deploy of 26 October; retry/replay rule; File = shared folder; outbound guard rule; matrix gate trap; migration rename |
