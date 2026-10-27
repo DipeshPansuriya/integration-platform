@@ -84,17 +84,17 @@ One Docker suite at a time on the build PC (the PC-wide Docker lock). Locally Ka
 
 **Symptom.** Saving a system with an external `https` host answers "The save was refused: settings.baseUrl is refused: the host is not on the destination allow-list". That is by design: the outbound allow-list is empty by default and an empty list refuses every destination (fail closed, an SSRF guard). Nothing is reachable until the operator - you, locally - lists the host.
 
-**Fix.** Set `platform.config.destinations.allowed-hosts` (env form `PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS`), a comma-separated list of exact host names or `*.domain` (sub-domains only, not the bare domain; case-insensitive):
+**Fix.** Set `platform.config.destinations.allowed-hosts` (env form `PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS`), a comma-separated list of exact host names or `*.domain` (sub-domains only, not the bare domain; case-insensitive; keep it to hosts you control, not a public suffix such as `*.com` - this is operator guidance, `AllowList` does not enforce it). The list is deployment configuration, read when the application starts: no console screen or API edits it (that waits for the operator login, ADR-009), so every change needs a restart. The database table `operator_allowed_host` is dormant (left from the removed PR #34 screen): nothing reads or writes it, so rows in it have no effect:
 
 ```
 PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS=uat.example.com,*.partner.example
-ROUTING_CORE_ALLOWED_SCHEMES=http,https
+ROUTING_CORE_ALLOWED_SCHEMES=https
 ```
 
 - **Local run:** put both variables in the IDE run configuration (or the shell that starts the application with Maven); the compose file above starts no application. Restart the application after a change.
 - **Hosted stack:** set `IPASS_DESTINATION_HOSTS=uat.example.com` in the server `.env` (mapped in `deploy/hostinger/compose.yaml`), then `docker compose up -d platform-app` to recreate it. The demo override defaults it to the WireMock host.
-- **Schemes:** the destination guard accepts only `http` and `https` URLs and has no scheme setting of its own. `ROUTING_CORE_ALLOWED_SCHEMES` (default: empty) is the routing stage's list; empty approves no scheme, so every delivery route build is refused. The hosted compose sets `http,https`; set it yourself locally.
-- **Still refused when listed:** a name that resolves to a loopback, private, link-local, carrier-grade-NAT, multicast or broadcast address, and the platform's own hosts. Listing `localhost` does not help.
+- **Schemes:** the destination guard accepts only `http` and `https` URLs and has no scheme setting of its own. `ROUTING_CORE_ALLOWED_SCHEMES` (default: empty) is the routing stage's list; empty approves no scheme, so every delivery route build is refused. Use `https` for external destinations: the guard allows plain `http` to a listed public host, so add `http` only for a local stub. The hosted compose sets `http,https`; set it yourself locally.
+- **Still refused when listed:** a name that resolves to a loopback, private, link-local, carrier-grade-NAT, multicast or broadcast address. The platform's own hosts are refused too, but only when `platform.config.destinations.platform-hosts` is set: it is empty by default and no shipped configuration sets it. Outside the showcase exception below, listing `localhost` does not help.
 - **Testing against a local stub (WireMock etc.):** run with the `showcase` profile (`local`, `dev` and `test` may accompany it; any other active profile refuses to start) and set `PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS` (exact allow-listed names, no wildcard, no IP) together with `PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS` (the stub's port; never 5432, 9092 or the app's own `server.port`/management port). The host must also be in `allowed-hosts`. Showcase only; the application logs a WARN at start.
 
 ## 4. Hosted kit: files, seed data, tests

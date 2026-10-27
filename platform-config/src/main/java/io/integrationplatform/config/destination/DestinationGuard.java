@@ -76,7 +76,7 @@ public final class DestinationGuard {
     /** The only ranges the showcase exception lifts: a local test destination is on loopback or a private network. */
     private static final Set<String> LOCAL_RANGES = Set.of("loopback", "private");
 
-    private volatile AllowList allowList;
+    private final AllowList allowList;
     private final HostResolver resolver;
     private final Set<String> showcaseLocalHosts;
     private final Set<Integer> showcaseLocalPorts;
@@ -242,14 +242,6 @@ public final class DestinationGuard {
         return Set.copyOf(exact);
     }
 
-    /**
-     * Replaces the allow-list at runtime (operator settings screen). Thread-safe: the volatile field swap is atomic;
-     * in-flight checks see the old or the new list, never a partial update.
-     */
-    public void updateAllowList(AllowList replacement) {
-        this.allowList = Objects.requireNonNull(replacement, "replacement");
-    }
-
     /** An IPv4 dotted quad or a bracketed/plain IPv6 literal, parsed without any DNS query. */
     private static Optional<InetAddress> literal(String host) {
         String text = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
@@ -257,8 +249,8 @@ public final class DestinationGuard {
             return Optional.empty();
         }
         try {
-            return Optional.of(InetAddress.getByName(text)); // a literal: parsed, never looked up
-        } catch (UnknownHostException malformed) {
+            return Optional.of(InetAddress.ofLiteral(text)); // a literal: parsed, never looked up or resolved
+        } catch (IllegalArgumentException notALiteral) {
             return Optional.empty();
         }
     }
