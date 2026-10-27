@@ -1,0 +1,46 @@
+# Opt-in override for the outside Postgres door (Phase 2; design and runbook: outside/OUTSIDE-ACCESS.md). Never part of
+# compose.yaml. Add it as the LAST -f:  docker compose -f compose.yaml -f demo/compose.demo.yaml -f outside/compose.outside.yaml ...
+# Needs IPASS_PGFRONT_SUBNET (the CIDR rendered into outside/pg_hba.conf) and outside/tls/{server.crt,server.key}.
+# ipass-data stays internal and is not touched; postgres gains ONE more INTERNAL network; only pg-front is published.
+services:
+  postgres:
+    # command is replaced as a whole: the two base flags first, then TLS, scram, our hba_file, short auth timeout, connection log
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=50",
+              "-c", "ssl=on", "-c", "ssl_cert_file=/tls/server.crt", "-c", "ssl_key_file=/tls/server.key",
+              "-c", "ssl_min_protocol_version=TLSv1.2", "-c", "password_encryption=scram-sha-256",
+              "-c", "hba_file=/etc/postgresql/pg_hba.conf", "-c", "authentication_timeout=10s",
+              "-c", "log_connections=on", "-c", "log_disconnections=on"]
+    volumes:
+      - ./outside/tls:/tls:ro
+      - ./outside/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    networks: [ipass-data, ipass-pgfront]
+
+  pg-front:
+    image: haproxy:3.0.11-alpine@sha256:e49b7beb96f4dba79f9a671515b469a6e516a2b88ff0681a820b184bba1effbd
+    pull_policy: missing
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports:
+      - "0.0.0.0:5432:5432"        # IPv4 only on purpose: an IPv6 publish goes through docker-proxy and hides the client address
+    volumes:
+      - ./outside/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [ipass-pgfront, ipass-pgpublic]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 64m
+    cpus: 0.2
+    logging:
+      driver: ${IPASS_LOG_DRIVER:-journald}
+
+networks:
+  ipass-pgfront:                  # proxy <-> postgres only; internal, fixed subnet so pg_hba can name it
+    internal: true
+    ipam:
+      config:
+        - subnet: ${IPASS_PGFRONT_SUBNET:?set IPASS_PGFRONT_SUBNET}
+  ipass-pgpublic:                 # the only non-internal network of this change; pg-front alone is on it
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"   # no outbound NAT: the proxy cannot reach the internet

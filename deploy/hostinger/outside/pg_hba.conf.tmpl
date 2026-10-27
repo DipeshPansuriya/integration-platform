@@ -1,0 +1,16 @@
+# pg_hba.conf for the outside-access path (Phase 2). Rendered by render-pg-hba.sh: @PGFRONT_SUBNET@ becomes the fixed
+# subnet of the internal network `ipass-pgfront`, which only the pg-front proxy and postgres share. First match wins.
+# TYPE    DATABASE  USER           ADDRESS            METHOD
+# container-local access (docker exec): unchanged behaviour of the image
+local     all       all                               trust
+host      all       all            127.0.0.1/32       scram-sha-256
+host      all       all            ::1/128            scram-sha-256
+# 1. the ONE outside door: TLS only, role ipass_outside only, database ipass only, only via the proxy's network
+hostssl   ipass     ipass_outside  @PGFRONT_SUBNET@   scram-sha-256
+# 2. everything else arriving from the proxy's network is refused: any other role (admin, backup, app, ipaas_app,
+#    migrator, restore, keycloak), any other database (keycloak, postgres, template*), and ipass_outside without TLS
+host      all       all            @PGFRONT_SUBNET@   reject
+# 3. ipass_outside has no other way in (not from the app networks, not from loopback)
+host      all       ipass_outside  all                reject
+# 4. the internal docker networks (ipass-data): unchanged
+host      all       all            all                scram-sha-256
