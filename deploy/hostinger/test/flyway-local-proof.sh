@@ -11,7 +11,7 @@
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-LOCKROOT="${DOCKER_SUITE_LOCKROOT:-$(cd "$REPO/.." && pwd)/.docker-suite.lock}"
+LOCKROOT="${DOCKER_SUITE_LOCKROOT:-/d/Projects/ipass/.docker-suite.lock}"      # the PC-wide lock, one level above the code root (AGENTS.md)
 PGIMG='postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb'
 N="fwproof-$$"; IMG="ipass/flyway-migrate:proof-$$"
 LOCK=""
@@ -73,10 +73,24 @@ umask 077
 printf 'POSTGRES_DB=ipass\nIMAGE_TAG=proof-%s\nIPASS_IMAGE_PREFIX=ipass\nDB_MIGRATION_PASSWORD=%s\n' "$$" "$PW_MIG" > "$TMP/.env"
 mig() { ENV_FILE="$TMP/.env" FLYWAY_NETWORK="$N" FLYWAY_IMAGE="$IMG" sh "$HERE/flyway/migrate.sh" "$@"; }
 
+# parity: the app's Flyway (FlywayParityCheck.java) on this database. Needs PARITY_JAVA (java binary) and PARITY_JARS (flyway-core,
+# flyway-database-postgresql, the Postgres driver, jackson-databind...) - skipped, loudly, when they are not given.
+parity() { # expected-exit
+  [ -n "${PARITY_JAVA:-}" ] && [ -n "${PARITY_JARS:-}" ] || { echo "SKIP parity (set PARITY_JAVA and PARITY_JARS)"; return 0; }
+  sep=:; [ "$(uname -o 2>/dev/null)" = Msys ] && sep=";"
+  dirs=""; for d in $(find "$REPO" \( -name node_modules -o -name target -o -name .git \) -prune -o -type d -path '*/src/main/resources' -print); do
+    [ -d "$d/db/migration" ] && dirs="$dirs${dirs:+$sep}$(cygpath -w "$d" 2>/dev/null || echo "$d")"; done
+  PARITY_DB_PASSWORD="$PW_MIG" "$PARITY_JAVA" -cp "$dirs$sep$PARITY_JARS" "$(cygpath -w "$HERE/test/FlywayParityCheck.java" 2>/dev/null || echo "$HERE/test/FlywayParityCheck.java")" "jdbc:postgresql://127.0.0.1:$HOSTPORT/ipass" ipass_migrator 2>&1 | tail -3
+  return "${PIPESTATUS[0]}"
+}
+
 step "3. info on the empty database (all pending)"
 mig info > "$TMP/i1.out" 2>&1; rc=$?; cat "$TMP/i1.out" | tail -12
 expect "info exit 0" test $rc -eq 0
 expect "$EXPECTED migrations listed Pending" test "$(grep -c '| Pending' "$TMP/i1.out")" -eq "$EXPECTED"
+
+parity > "$TMP/p0.out" 2>&1; rc=$?; cat "$TMP/p0.out"
+[ -n "${PARITY_JAVA:-}" ] && expect "control: the app's Flyway sees $EXPECTED pending before the CLI ran (check is not vacuous)" test $rc -eq 1
 
 step "4. validate on the empty database (pending is not an error)"
 mig validate > "$TMP/v1.out" 2>&1; rc=$?; tail -5 "$TMP/v1.out"
@@ -93,6 +107,9 @@ expect "info exit 0" test $rc -eq 0
 expect "$EXPECTED migrations Success, none Pending" bash -c "[ \"\$(grep -c '| Success' '$TMP/i2.out')\" -eq $EXPECTED ] && ! grep -q '| Pending' '$TMP/i2.out'"
 grep -E "Success|Pending" "$TMP/i2.out" | sed -n '1,3p;$p'
 docker exec "$N-pg" psql -U ipass_admin -d ipass -Atc "select count(*), count(*) filter (where success) from flyway_schema_history"
+
+parity > "$TMP/p1.out" 2>&1; rc=$?; cat "$TMP/p1.out"
+[ -n "${PARITY_JAVA:-}" ] && expect "PARITY: the app's own Flyway finds 0 pending and validate OK on the CLI-migrated database" test $rc -eq 0
 
 step "7. migrate again (no-op)"
 mig migrate > "$TMP/m2.out" 2>&1; rc=$?; tail -5 "$TMP/m2.out"
@@ -125,7 +142,7 @@ mig migrate >/dev/null 2>&1; expect "migrate after the restore is a no-op (exit 
 if [ "${KEEP:-0}" = 1 ]; then
   echo; echo "KEEP=1: database left up for the parity check: jdbc:postgresql://127.0.0.1:$HOSTPORT/ipass user ipass_migrator password in $TMP/.env (deleted on exit of THIS script: copy it now)"
   echo "remove with: docker rm -f $N-pg; docker network rm $N; docker volume rm $N-data"
-  cp "$TMP/.env" "$REPO/../.flyway-proof.env" 2>/dev/null || true
+  cp "$TMP/.env" "/d/tmp/.flyway-proof.env" 2>/dev/null || true
 fi
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail
