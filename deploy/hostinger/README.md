@@ -25,9 +25,9 @@ Source: ADR-H-IPASS-01 (hosting decision; kept in the planning workspace, not in
 | `seed/` | `seed-showcase.sh` + `seed.sql` (two tenants, four users); `NESTED-APPOINTMENT.md` = hand-off for the nested-appointment showcase flow (not part of the seed run) |
 | `test/` | `test-scripts.sh` (offline), `smoke.sh` + `compose.smoke.yaml` (build-PC only) |
 
-Images (built elsewhere, see "Build"): `<registry>/ipass/platform-app:<sc>`, `.../ui:<sc>`, `.../keycloak:26.8.0-<sc>`. `<sc>` = short commit of the merged `main`. `<registry>` is your container registry host. `compose.yaml` still carries a built-in default registry prefix; `IPASS_IMAGE_PREFIX` (the prefix) or `IPASS_APP_IMAGE` / `IPASS_UI_IMAGE` / `IPASS_KEYCLOAK_IMAGE` (whole names) override it. Never `latest`.
+Images (built elsewhere, see "Build"): `<registry>/ipass/platform-app:<sc>`, `.../ui:<sc>`, `.../keycloak:26.8.1-<sc>`. `<sc>` = short commit of the merged `main`. `<registry>` is your container registry host. `compose.yaml` still carries a built-in default registry prefix; `IPASS_IMAGE_PREFIX` (the prefix) or `IPASS_APP_IMAGE` / `IPASS_UI_IMAGE` / `IPASS_KEYCLOAK_IMAGE` (whole names) override it. Never `latest`.
 
-The compose `image:` names are overridable per service: `IPASS_APP_IMAGE`, `IPASS_UI_IMAGE`, `IPASS_KEYCLOAK_IMAGE` (full `repo:tag`). Each defaults to the prefix form (the built-in default prefix in `compose.yaml`, overridden by `IPASS_IMAGE_PREFIX`), so the existing `IPASS_IMAGE_PREFIX=<registry>/ipass` setup is unchanged. Docker Hub has one namespace level, so the same tag as in the registry cannot be built from one prefix - to serve the published Hub images set, e.g. `IPASS_APP_IMAGE=dipeshpansuriya/ipass-platform-app:3105c3d3`, `IPASS_UI_IMAGE=dipeshpansuriya/ipass-ui:3105c3d3`, `IPASS_KEYCLOAK_IMAGE=dipeshpansuriya/ipass-keycloak:26.8.0-3105c3d3`. Never `latest`.
+The compose `image:` names are overridable per service: `IPASS_APP_IMAGE`, `IPASS_UI_IMAGE`, `IPASS_KEYCLOAK_IMAGE` (full `repo:tag`). Each defaults to the prefix form (the built-in default prefix in `compose.yaml`, overridden by `IPASS_IMAGE_PREFIX`), so the existing `IPASS_IMAGE_PREFIX=<registry>/ipass` setup is unchanged. Docker Hub has one namespace level, so the same tag as in the registry cannot be built from one prefix - to serve the published Hub images set, e.g. `IPASS_APP_IMAGE=dipeshpansuriya/ipass-platform-app:3105c3d3`, `IPASS_UI_IMAGE=dipeshpansuriya/ipass-ui:3105c3d3`, `IPASS_KEYCLOAK_IMAGE=dipeshpansuriya/ipass-keycloak:26.8.1-<sc>`. Never `latest`.
 
 ## Build (build PC; step 6 of the ADR; an outward push needs the project owner's approval)
 
@@ -36,7 +36,7 @@ JAVA_HOME=<jdk25> ./mvnw -B -pl platform-app -am package -DskipTests
 (cd ui && npm ci && npx vite build)
 docker build -f platform-app/Dockerfile -t <registry>/ipass/platform-app:<sc> .
 docker build -f ui/Dockerfile -t <registry>/ipass/ui:<sc> .
-docker build -f deploy/hostinger/keycloak/Dockerfile -t <registry>/ipass/keycloak:26.8.0-<sc> .
+docker build -f deploy/hostinger/keycloak/Dockerfile -t <registry>/ipass/keycloak:26.8.1-<sc> .
 ```
 Scan the source tree and the three images (gitleaks, plus a vulnerability scan; Critical/High = no push) before any push.
 

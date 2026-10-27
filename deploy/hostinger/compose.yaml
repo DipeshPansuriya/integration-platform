@@ -105,7 +105,7 @@ services:
     <<: *hardened
 
   keycloak:
-    image: ${IPASS_KEYCLOAK_IMAGE:-${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/keycloak:26.8.0-${IMAGE_TAG:?set IMAGE_TAG}}
+    image: ${IPASS_KEYCLOAK_IMAGE:-${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/keycloak:26.8.1-${IMAGE_TAG:?set IMAGE_TAG}}
     pull_policy: missing
     restart: unless-stopped
     depends_on:
