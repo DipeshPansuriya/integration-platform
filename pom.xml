@@ -327,6 +327,7 @@
         <!-- E18Base also carries e2e-full: those classes run in their own JVM under -Pe2e-full (build-checks/e2e-full-gate.sh),
              not inside the shared -Pcontainer JVM, where ~40 cached Spring contexts already eat the E18 memory budget. -->
         <surefire.excludedGroups>e2e-full</surefire.excludedGroups>
+        <surefire.timeout>3600</surefire.timeout>
         <!-- ponytail override: only heap/metaspace grow; flags stay. Serialized suites keep R06 cost bounded. -->
         <surefireJvmArgs>-Duser.timezone=Etc/UTC -Xmx1g -XX:MaxMetaspaceSize=512m -XX:+UseSerialGC -Djdk.attach.allowAttachSelf=true</surefireJvmArgs>
       </properties>
