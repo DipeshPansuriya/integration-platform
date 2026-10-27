@@ -2,8 +2,7 @@
 # Offline tests for the Flyway CLI pipeline (deploy/hostinger/flyway/*, deploy/hostinger/deploy.sh): the migration-folder guard,
 # migrate.sh and deploy.sh run against a fake docker. No container is started, no lock is needed, nothing touches a database.
 # Run (any directory):  bash deploy/hostinger/test/test-flyway.sh      (the container-level proof is README "Migration pipeline")
-# Kept apart from test-scripts.sh: that suite exits at its "edge refuses actuator..." check on main since row 489 (the check
-# `exit 1`s inside eval), so nothing after it would run.
+# Kept apart from test-scripts.sh (its own suite; one Flyway concern per file).
 [ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set +o posix
 set -u
