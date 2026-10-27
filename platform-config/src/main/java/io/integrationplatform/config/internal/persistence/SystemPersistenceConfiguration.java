@@ -229,19 +229,13 @@ class SystemPersistenceConfiguration {
                 allowKafkaPlaintext, events);
     }
 
+    /**
+     * Dormant until the operator login exists (ADR-009, row 484): the {@code operator_allowed_host} table and this
+     * repository stay, but nothing reads or writes them - the destination allow-list is the deployment property
+     * {@link #ALLOWED_HOSTS} only (ADR-010, T97), so no tenant role and no stored row can widen it.
+     */
     @Bean
     JdbcOperatorAllowedHostRepository jdbcOperatorAllowedHostRepository(JdbcClient jdbcClient) {
         return new JdbcOperatorAllowedHostRepository(jdbcClient);
-    }
-
-    @Bean
-    DefaultOperatorAllowedHostService operatorAllowedHostService(JdbcOperatorAllowedHostRepository repository,
-            DestinationGuard guard, Environment environment) {
-        List<String> startupPatterns = Binder.get(environment)
-                .bind(ALLOWED_HOSTS, Bindable.listOf(String.class)).orElse(List.of());
-        DefaultOperatorAllowedHostService service = new DefaultOperatorAllowedHostService(repository, guard,
-                startupPatterns);
-        service.loadFromDatabase();
-        return service;
     }
 }
