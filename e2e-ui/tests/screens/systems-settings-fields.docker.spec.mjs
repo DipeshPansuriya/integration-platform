@@ -103,7 +103,10 @@ test('switching the type replaces the fieldset; an unknown type shows no setting
 test('an API system with the optional Follow redirects box ticked stores followRedirects: true and the timeout as a number', async ({ page }) => {
   const code = `sysf-api-${RUN}`;
   const form = await openRegister(page);
+  // the settings fieldset only exists once the type is typed (SettingsFields renders nothing for an empty type)
+  await form.locator('[data-field="system-type"]').fill('API');
   await expect(form.locator('[data-setting="followRedirects"]')).not.toBeChecked();
+  await expect(form.getByRole('checkbox', { name: 'Follow redirects' })).not.toBeChecked();
   await register(form, {
     code, name: 'API with redirects', type: 'API',
     settings: { baseUrl: 'https://partner.example.test/redirects', timeoutMs: 7000, followRedirects: true }

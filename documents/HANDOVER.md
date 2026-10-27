@@ -313,7 +313,7 @@ and the dashboard counts reflect queued, processed, converted and failed. The tw
 | Full end-to-end gate `-Pe2e-full` | 14 tests in 5 classes, 0 failed; GATE PASS 10/10 required scenarios (all five target types, three hour-long outages, memory budget) | `347a1466` | same |
 | arch-test | 66 tests, 0 failed | `347a1466` | same |
 | Release 1 Java scenarios SC-01 to SC-09 | PASS, 10 tests | `6ce6c561` (same tree as `347a1466`) | `ws/_reports/2026-10-24-release1-verdict-and-proof.md:35` |
-| UI offline `npm test` | 428/428 (383 + 45) at that commit; 494/494 (383 + 111) on branch `fix/t224-e2e-ui-test-files`, 2026-10-26 | `0b4cbf04`; T224 branch | `ws/_reports/2026-10-24-g7-ui-gates-0b4cbf04.md`; T224 run of 2026-10-26 |
+| UI offline `npm test` | 428/428 (383 + 45) at that commit; 495/495 (383 + 112) on `main` after PR #32, 2026-10-27 | `0b4cbf04`; `main` after #32 | `ws/_reports/2026-10-24-g7-ui-gates-0b4cbf04.md`; run of 2026-10-27 (`npm test` in `ui/` and `e2e-ui/`) |
 | Base suite (BS-10 Replay, BS-11.3, BS-11.3b) | 20/20 | `0b4cbf04` | same |
 | Screens suite | 128/128 | `0b4cbf04` | same |
 | Playwright security specs | 13/13 | `0b4cbf04` | same |
@@ -323,12 +323,11 @@ and the dashboard counts reflect queued, processed, converted and failed. The tw
 
 Two count notes:
 
-- `e2e-ui` unit test count: 111 on branch `fix/t224-e2e-ui-test-files` (`npm test` in `e2e-ui/`, 2026-10-26; `ui`
-  `npm test` = 383 own tests + 111 here = 494, all passing). Earlier figures were 45 at tag `release-1` (`0b4cbf04`,
+- `e2e-ui` unit test count: 112 on `main` after PR #32 (`npm test` in `e2e-ui/`, 2026-10-27; `ui`
+  `npm test` = 383 own tests + 112 here = 495, all passing). Earlier figures were 45 at tag `release-1` (`0b4cbf04`,
   `e2e-ui/README.md:17`; 383 + 45 = 428) and 84 at `1b07586d` (2026-10-25 report). On `5b9a6c36` the `test` script in
   `e2e-ui/package.json` named five files that were not on `main` (section 13, item 16), so `npm test` failed there;
-  the T224 branch restores them. Until that branch is merged, `main` still has the failing script: do not quote 111
-  as the `main` count.
+  the T224 branch restored them and is merged (`930360b0`), so `main` runs the full script (111 at that merge, 112 after PR #32).
 - Measured from source on `5b9a6c36` (2026-10-26, `git grep "@Test"`): `@Test` methods per module are app 455,
   config 477, routing 601, tenancy 287, delivery 211, ingest 153, e2e 64, arch-test 63, domain 28, transform 22,
   audit 5, tracking 1. These are source counts, not run results.
