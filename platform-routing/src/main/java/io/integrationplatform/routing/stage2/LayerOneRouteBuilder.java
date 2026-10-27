@@ -1,6 +1,8 @@
 package io.integrationplatform.routing.stage2;
 
 import io.integrationplatform.domain.delivery.OutcomeClass;
+import io.integrationplatform.routing.credential.OpenedCredentials;
+import io.integrationplatform.routing.credential.TargetCallCredentialHolder;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -44,6 +46,14 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
      * ambiguous, circuit-open). The dispatch marks DELIVERED on this flag, not on the absence of Camel's caught exception.
      */
     public static final String LAYER_ONE_SUCCEEDED = "stage2.layerOneSucceeded";
+
+    /**
+     * Exchange property (row 540): the send-time opened secret set of the delivery, put on the exchange by
+     * {@code RouteInstanceSendDispatch} so a thread hop between the dispatch and the call (a threads / seda / async
+     * step) cannot lose it. {@link #oneTry} binds it to the executing thread for the one target call (and again on every
+     * redelivery) and clears it after; absent = the secret slice is off.
+     */
+    public static final String TARGET_CALL_SECRETS = "stage2.targetCallSecrets";
 
     /** Exchange property: how long the open circuit refuses calls (set only by a breaker refusal). */
     public static final String CIRCUIT_RETRY_AFTER = "stage2.circuitRetryAfter";
@@ -107,7 +117,11 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
         exchange.setProperty(LAST_TRY, tryNumber);
         exchange.setProperty(LAYER_ONE_SUCCEEDED, Boolean.FALSE); // a try is a failure until it records its SUCCESS
         Instant started = clock.get();
+        OpenedCredentials opened = exchange.getProperty(TARGET_CALL_SECRETS, OpenedCredentials.class);
         try {
+            if (opened != null) {
+                TargetCallCredentialHolder.set(opened); // this thread, this call: the exchange is the carrier
+            }
             targetCall.call(send);
             attempts.record(send.deliveryId(), 1, OutcomeClass.SUCCESS, started, clock.get(),
                     "layer-1 try " + tryNumber + ": success");
@@ -129,6 +143,8 @@ public final class LayerOneRouteBuilder extends RouteBuilder {
                     "layer-1 try " + tryNumber + ": " + fault.getMessage());
             log.info("stage 2: delivery {} - layer-1 try {}: {}", send.deliveryId(), tryNumber, fault.outcomeClass());
             throw fault; // redelivery follows the class: TRANSIENT redelivers, AMBIGUOUS/PERMANENT never
+        } finally {
+            TargetCallCredentialHolder.clear();
         }
     }
 
