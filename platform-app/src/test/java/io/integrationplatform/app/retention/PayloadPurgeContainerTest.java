@@ -49,7 +49,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Import(PayloadPurgeContainerTest.GrantAppRoleWiring.class)
 class PayloadPurgeContainerTest {
 
-    /** The app login joins ipaas_app right after Flyway: the application reads operator_allowed_host at start. */
+    /** The app login joins ipaas_app right after Flyway; the application holds no write on operator_allowed_host (V2_4_1440) and does not read it. */
     @TestConfiguration(proxyBeanMethods = false)
     static class GrantAppRoleWiring {
         @Bean
