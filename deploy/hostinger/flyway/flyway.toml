@@ -8,5 +8,9 @@
 locations = ["filesystem:/flyway/sql"]
 table = "flyway_schema_history"
 validateOnMigrate = true
-# migrations wait for a lock at most 5 s, then fail fast with SQLSTATE 55P03 and roll back (T204); same default as the app
+
+# url, user and password of this (default) environment come from FLYWAY_URL / FLYWAY_USER / FLYWAY_PASSWORD.
+# initSql is an environment setting in Flyway 12: migrations wait for a lock at most 5 s, then fail fast with SQLSTATE 55P03
+# and roll back (T204); same default as the app's init-sqls.
+[environments.default]
 initSql = "SET lock_timeout = '5s'"

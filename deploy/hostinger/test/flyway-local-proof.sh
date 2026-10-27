@@ -38,11 +38,16 @@ EXPECTED="${1:-$(find "$REPO" \( -name node_modules -o -name target -o -name .gi
 step "0. guard"
 expect "check-migration-dirs.sh passes on the real tree" sh "$HERE/flyway/check-migration-dirs.sh" "$REPO"
 
+# the guard must fail when a folder is left out of the Dockerfile
+grep -v "COPY platform-routing/" "$HERE/flyway/Dockerfile" > "$TMP/Dockerfile.omit"
+sh "$HERE/flyway/check-migration-dirs.sh" "$REPO" "$TMP/Dockerfile.omit" > "$TMP/omit.out" 2>&1; rc=$?; cat "$TMP/omit.out"
+expect "guard FAILS (exit 1) when platform-routing is omitted from the Dockerfile" bash -c "[ $rc -eq 1 ] && grep -q 'platform-routing/src/main/resources/db/migration exists' '$TMP/omit.out'"
+
 step "1. build the Flyway image ($EXPECTED migrations expected)"
 expect "docker build" docker build -q -f "$HERE/flyway/Dockerfile" -t "$IMG" "$REPO"
 docker run --rm --entrypoint sh "$IMG" -c 'ls /flyway/sql | wc -l; ls /flyway/conf; id -un' | tr '\n' ' '; echo
 expect "image holds $EXPECTED SQL files" test "$(docker run --rm --entrypoint sh "$IMG" -c 'ls /flyway/sql | wc -l' | tr -d ' \r')" = "$EXPECTED"
-expect "image holds no password or env value" bash -c "! docker run --rm --entrypoint sh '$IMG' -c 'cat /flyway/conf/flyway.toml; env' | grep -qiE 'password=|FLYWAY_PASSWORD'"
+expect "image holds no password or connection value" bash -c "! docker run --rm --entrypoint sh '$IMG' -c 'cat /flyway/conf/flyway.toml; env' | grep -qE '^(password|user|url) *=|^FLYWAY_(PASSWORD|URL|USER)='"
 
 step "2. throwaway Postgres on its own network (the real role script runs at first start)"
 PW_ADMIN="$(rnd)"; PW_MIG="$(rnd)"; PW_APP="$(rnd)"; PW_BAK="$(rnd)"; PW_RST="$(rnd)"; PW_KC="$(rnd)"
@@ -97,7 +102,7 @@ step "8. validate refuses a tampered history (checksum), and migrate then refuse
 V="$(docker exec "$N-pg" psql -U ipass_admin -d ipass -Atc "select checksum from flyway_schema_history where installed_rank=2" | tr -d '\r')"
 docker exec "$N-pg" psql -U ipass_admin -d ipass -Atc "update flyway_schema_history set checksum=checksum+1 where installed_rank=2" >/dev/null
 mig validate > "$TMP/v2.out" 2>&1; rc=$?; grep -iE "checksum|ERROR|FAILED" "$TMP/v2.out" | head -4
-expect "validate exit 3 on a checksum mismatch" test $rc -eq 3
+expect "validate exit 3 on a checksum mismatch" bash -c "[ $rc -eq 3 ] && grep -qi 'checksum' '$TMP/v2.out'"
 mig migrate > "$TMP/m3.out" 2>&1; rc=$?; grep -E "VALIDATE FAILED|Successfully|MIGRATION FAILED" "$TMP/m3.out"
 expect "migrate refuses (exit 3, no migrate run)" bash -c "[ $rc -eq 3 ] && ! grep -q 'Successfully applied' '$TMP/m3.out' && ! grep -q 'Migrating schema' '$TMP/m3.out'"
 docker exec "$N-pg" psql -U ipass_admin -d ipass -Atc "update flyway_schema_history set checksum=$V where installed_rank=2" >/dev/null
