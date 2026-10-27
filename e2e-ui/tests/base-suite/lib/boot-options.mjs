@@ -43,7 +43,7 @@ export function baseSuiteBootOptions(settings, { lockHolder } = {}) {
   return {
     extraTenants: [TENANT_B_PLAN],
     services: { wiremock: { ...BS_WIREMOCK, hostPort: exception.port }, kafka: BS_KAFKA },
-    appEnv: { ...exception.appEnv, IPASS_DB_TARGET_ENABLED: 'true' },
+    appEnv: { ...exception.appEnv, IPASS_DB_TARGET_ENABLED: 'true' },   // the DB target adapter beans exist only with it (DbAdapterConfiguration.java:32)
     sourceCredentials: true,
     lockHolder
   };

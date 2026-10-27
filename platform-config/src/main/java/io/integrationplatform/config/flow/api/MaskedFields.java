@@ -176,6 +176,12 @@ public final class MaskedFields {
         }
     }
 
+    /** Test seam: empties the registry and the eviction count, so a test that fills it leaves no state behind. */
+    static void resetRegistryForTest() {
+        REGISTRY.clear();
+        EVICTIONS.set(0);
+    }
+
     /** The text with every registered value replaced by {@link #MARKER}; null stays null. */
     public static String scrub(String text) {
         if (text == null || text.isEmpty() || REGISTRY.isEmpty()) {

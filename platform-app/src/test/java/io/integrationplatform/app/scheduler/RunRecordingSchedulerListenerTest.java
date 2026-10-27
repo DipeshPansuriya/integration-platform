@@ -159,4 +159,32 @@ class RunRecordingSchedulerListenerTest {
                 .doesNotContain("payload", "tenantId", "tenant_id", "data");
         assertThat(row.counts()).isNull();
     }
+
+    @Test
+    void countsTheBodyReportedAreRecordedOnTheRowOnce() {
+        RecordingSink sink = new RecordingSink();
+        JobRunCounts counts = new JobRunCounts();
+        RunRecordingSchedulerListener listener =
+                new RunRecordingSchedulerListener(sink, new RowRepository(), new SimpleMeterRegistry(), counts);
+
+        counts.put("dropped", 2);
+        listener.onExecutionComplete(execution(STARTED, STARTED, DONE, true, null));
+        listener.onExecutionComplete(execution(STARTED, STARTED, DONE, true, null));
+
+        assertThat(sink.runs.get(0).counts()).isEqualTo("{\"dropped\":2}");
+        assertThat(sink.runs.get(1).counts()).as("the next run does not inherit them").isNull();
+    }
+
+    @Test
+    void aFailedRunKeepsTheCountsItReportedBeforeFailing() {
+        RecordingSink sink = new RecordingSink();
+        JobRunCounts counts = new JobRunCounts();
+        RunRecordingSchedulerListener listener =
+                new RunRecordingSchedulerListener(sink, new RowRepository(), new SimpleMeterRegistry(), counts);
+
+        counts.put("failedTenants", 1);
+        listener.onExecutionComplete(execution(STARTED, STARTED, DONE, false, new IllegalStateException("x")));
+
+        assertThat(sink.runs.getFirst().counts()).isEqualTo("{\"failedTenants\":1}");
+    }
 }
