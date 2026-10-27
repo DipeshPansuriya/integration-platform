@@ -130,6 +130,68 @@ The role names are the cluster's, so the restore (as the superuser, without `--n
 
 **Tests.** Offline, no container: `bash deploy/hostinger/test/test-flyway.sh` (guard, `.env` parsing without eval, password never on a command line, validate-before-migrate, deploy order and exit codes, with a fake docker). Container proof on the build PC (takes a Docker lock, throwaway Postgres and network, real `postgres-init` role script, deletes what it created): `bash deploy/hostinger/test/flyway-local-proof.sh`. Parity check (the app's own Flyway, same engine and the module `db/migration` folders on the class path, finds 0 pending and a valid history on a CLI-migrated database): `test/FlywayParityCheck.java`, run by `flyway-local-proof.sh`. `PARITY_JAVA` (a JDK 25 `java`) and `PARITY_JARS` (flyway-core 12.4.0, flyway-database-postgresql, the Postgres driver, Jackson 3 databind and core, jackson-annotations; `;`-separated on Windows) are REQUIRED: without them the run fails, and `ALLOW_NO_PARITY=1` ends in `PASSED WITHOUT PARITY`, never in `ALL PASSED`. Step 10 of the proof shows the init SQL (`lock_timeout`) really reaches the migration session, with controls that must fail. The recorded run is the row 528 proof report `_reports/2026-10-27-row528-flyway-pipeline-proof.md` of the project's planning workspace (not in this repository). There is no CI job for these scripts (none exists for this repo): run `bash deploy/hostinger/test/test-flyway.sh` (offline, about two minutes) whenever `flyway/`, `deploy.sh` or a `db/migration` folder changes; `test-scripts.sh` cannot be the gate while it exits early on main (row 489).
 
+## Audit ledger lockdown (option A, row 544)
+
+What changes: the application role (`ipaas_app`, which `ipass_app` is a member of) can no longer INSERT into `audit_event` or UPDATE
+`audit_outbox.relayed_at`. A committed `audit_outbox` row reaches the ledger only through `public.audit_relay_move(bigint)` (SECURITY
+DEFINER, owner `ipass_migrator`), which stamps `relayed_at` and inserts the ledger row in one statement. Flow and contract approvals
+read the approver from the `app.actor_id` the application stamps in the same transaction. Migrations: `V2_4_1470` (`platform-app`,
+audit) and `V2_4_1480` (`platform-config`, approvals); numbers are provisional until the integrator assigns them.
+
+**Release order (one release, the app is stopped during the migration).** The previous app cannot work against these migrations (its
+relay needs the revoked privileges; it never stamps an actor, so approvals answer `REFUSED_NO_ACTOR`), and `deploy.sh` runs Flyway
+while the old app still serves, so stop it first. In `/docker/ipass`:
+
+1. Baseline: run the reconciliation query below once on the current data (findings go to the owner, they are not fixed here).
+2. `docker compose stop platform-app` (business writes pause; nothing is written, so no audit event is lost).
+3. `IMAGE_TAG=<sc> ./deploy.sh` - backup, `info`, `validate`, `migrate` (applies V2_4_1470 then V2_4_1480 as `ipass_migrator`), tag switch,
+   `up -d` (the new app's own Flyway finds nothing pending; the relay delivers any pending backlog), health.
+4. Post-checks (below).
+
+Downtime is migrate duration + app start + health wait (`deploy.sh` waits at most 300 s). Pre-flight on the build PC: the PR is
+merged to `main`, both images for the same tag are built, `bash deploy/hostinger/test/test-flyway.sh` is green.
+
+**Flag.** `IPAAS_AUDIT_RELAY_MODE` (compose passes it through, default `DEFINER`): `DEFINER` relays through the function; `LEGACY` uses the
+old direct statement and logs one WARN at start; any other value stops the app from starting. The flag alone is NOT a rollback.
+
+**Rollback (two steps, in this order).**
+1. `docker compose stop platform-app`; run the block between `-- ROLLBACK-BEGIN` and `-- ROLLBACK-END` in the header of
+   `V2_4_1470__audit_relay_move_and_lockdown.sql` as `ipass_migrator` (re-grants the two privileges, drops the function).
+2. Set `IPAAS_AUDIT_RELAY_MODE=LEGACY` in `.env`, then `docker compose up -d`.
+If the app **image** is also rolled back, additionally run the rollback block of `V2_4_1480__approval_actor_from_session.sql` (restores the
+previous approval function bodies) before starting the old tag. Flyway history rows stay; a later roll-forward uses a new migration
+number, never an edit, and `repair` is not needed (no checksum changed). The last resort is the pre-release dump (see "Update and roll back").
+
+**Post-checks** (as the owner, `psql -U ipass_migrator`):
+
+```sql
+select has_table_privilege('ipaas_app', 'public.audit_event', 'INSERT');                         -- false
+select has_column_privilege('ipaas_app', 'public.audit_outbox', 'relayed_at', 'UPDATE');         -- false
+select has_function_privilege('ipaas_app', 'public.audit_relay_move(bigint)', 'EXECUTE');        -- true
+select has_function_privilege('public', 'public.audit_relay_move(bigint)', 'EXECUTE');          -- false
+-- the function is owned by the migration owner, who is neither superuser nor BYPASSRLS (cannot be proven in test containers)
+select p.proowner::regrole as owner, r.rolsuper, r.rolbypassrls, p.prosecdef, p.proconfig
+  from pg_proc p join pg_roles r on r.oid = p.proowner where p.proname = 'audit_relay_move';  -- ipass_migrator, f, f, t, {search_path=pg_catalog, pg_temp}
+select count(*) from public.audit_outbox where relayed_at is null;                               -- falls to 0 after the relay runs
+```
+
+Then approve one flow version end to end and confirm the ledger shows the event.
+
+**Reconciliation of `selfApproved` (read-only, one tenant per run).** `audit/reconcile-self-approved.sql` compares the flag on every
+`FLOW_APPROVED`, `CONTRACT_VERSION_APPROVED` and `DB_TABLE_APPROVED` event with the business row (approver = author, or decided_by =
+requested_by). No rows returned = everything reconciles; any row is a mismatch to investigate (it is never repaired automatically):
+
+```sh
+docker compose exec -T postgres psql -U ipass_migrator -d postgres   -c "select set_config('app.tenant_id', '<tenant uuid>', false)" -f /dev/stdin < audit/reconcile-self-approved.sql
+```
+
+Run it inside one psql session: the tenant setting is session-wide, so use a single `psql` with both the `select set_config(...)` and the
+file (`\i`). It detects a claim that disagrees with the business row; it cannot detect an event that was never written.
+
+**Known limits.** A compromised application session can still write false actor/action text into the outbox at write time; the
+migration owner can still alter or drop ledger partitions; flow-version `approver_id`/`status` stay writable by the application role through
+the `interface_version` column grants (`V2_2_4`) - a separate residual.
+
 ## Tests (build PC)
 
 - Offline: `bash deploy/hostinger/test/test-scripts.sh` (dry runs, secret hygiene, compose controls). Run it from any directory; needs `bash` (it re-runs itself under bash and leaves POSIX mode if started as `sh`), `openssl`, `awk`, `sed`, `grep`, `mktemp` and `git` on PATH, and stops with `MISSING PREREQUISITE: <tool>` otherwise. No Docker, `pg_dump` or `psql` is needed.
