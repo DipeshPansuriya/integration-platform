@@ -1,5 +1,6 @@
 package io.integrationplatform.routing.adapter.api;
 
+import io.integrationplatform.config.destination.ApiKeyHeaderName;
 import io.integrationplatform.config.destination.CheckedDestination;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.DestinationRefusedException;
@@ -74,13 +75,13 @@ public class ApiTargetCall implements TargetCall {
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
             CircuitBreakerRegistry breakers) {
         this(views, guard, bodyPort, sender, breakers, new SimpleMeterRegistry(), ObservationRegistry.NOOP,
-                new OAuth2TokenFetcher());
+                new OAuth2TokenFetcher(sender));
     }
 
     /** T99 (T-167): every attempt is timed, counted by outcome and observed; breaker state is a gauge per target. */
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
             CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations) {
-        this(views, guard, bodyPort, sender, breakers, meters, observations, new OAuth2TokenFetcher());
+        this(views, guard, bodyPort, sender, breakers, meters, observations, new OAuth2TokenFetcher(sender));
     }
 
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
@@ -225,12 +226,19 @@ public class ApiTargetCall implements TargetCall {
             }
             case "BEARER_TOKEN" -> {
                 char[] token = requireCredential(credentials, "BEARER_TOKEN", "BEARER_TOKEN");
-                headers.put("Authorization", "Bearer " + new String(token));
+                headers.put("Authorization", headerValue("Bearer " + new String(token)));
             }
             case "API_KEY" -> {
                 String headerName = requireIdentity(view, "API_KEY");
+                if (ApiKeyHeaderName.problem(headerName).isPresent()) {
+                    // row 510: the name is tenant-typed and goes on the wire verbatim - never a line break, never a
+                    // header the platform sets (Idempotency-Key, Content-Type, Host, Authorization ...)
+                    throw new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(),
+                            "the endpoint's API_KEY header name is not allowed; correct it in the endpoint's auth"
+                            + " settings");
+                }
                 char[] key = requireCredential(credentials, "API_KEY", "API_KEY");
-                headers.put(headerName, new String(key));
+                headers.put(headerName, headerValue(new String(key)));
             }
             case "OAUTH2_CLIENT_CREDENTIALS" -> {
                 String clientId = requireIdentity(view, "OAUTH2_CLIENT_CREDENTIALS");
@@ -240,11 +248,14 @@ public class ApiTargetCall implements TargetCall {
                             "the endpoint's OAUTH2_CLIENT_CREDENTIALS method requires auth_token_url but none is"
                             + " configured; the configuration must be completed before deliveries can proceed");
                 }
+                // row 510: the token URL receives the sealed client secret, so the destination guard speaks first
+                // (BEFORE the secret is opened) and the exchange dials the address it pinned
+                CheckedDestination tokenEndpoint = guardTokenUrl(tokenUrl);
                 char[] clientSecret = requireCredential(credentials, "OAUTH_CLIENT_SECRET",
                         "OAUTH2_CLIENT_CREDENTIALS");
                 try {
-                    String accessToken = tokenFetcher.fetchToken(tokenUrl, clientId, clientSecret);
-                    headers.put("Authorization", "Bearer " + accessToken);
+                    String accessToken = tokenFetcher.fetchToken(tokenEndpoint, clientId, clientSecret);
+                    headers.put("Authorization", headerValue("Bearer " + accessToken));
                 } catch (OAuth2TokenFetcher.OAuth2TokenException tokenFailed) {
                     if (tokenFailed.isTransient()) {
                         throw new TargetFaultException.TransientFaultException(
@@ -257,6 +268,38 @@ public class ApiTargetCall implements TargetCall {
             default -> throw new TargetFaultException.TransientFaultException("the endpoint's auth method '"
                     + method + "' is not yet supported; the delivery waits");
         }
+    }
+
+    /**
+     * Row 510: the token URL passes the destination guard like the base URL (TLS required, plain http only for the
+     * showcase host). The fault text is fixed - no host, port or refusal reason - so it cannot probe the network.
+     */
+    private CheckedDestination guardTokenUrl(String tokenUrl) {
+        java.net.URI uri;
+        try {
+            uri = new java.net.URI(tokenUrl.strip());
+        } catch (java.net.URISyntaxException malformed) {
+            throw new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(),
+                    "the endpoint's token URL is not a valid address; nothing is sent to it");
+        }
+        try {
+            return guard.checkSecretReceiver(uri);
+        } catch (DestinationRefusedException refused) {
+            throw new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(),
+                    "the endpoint's token URL is refused by the destination policy: nothing is sent to it");
+        } catch (UnknownHostException unresolved) {
+            throw new TargetFaultException.TransientFaultException(
+                    "the endpoint's token URL cannot be resolved right now; the delivery waits");
+        }
+    }
+
+    /** A header value that came from a secret or from a remote answer must never carry a line break (header injection). */
+    private static String headerValue(String value) {
+        if (ApiKeyHeaderName.hasLineBreak(value)) {
+            throw new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(),
+                    "an authentication value contains a line break and is not sent");
+        }
+        return value;
     }
 
     private static String requireIdentity(TargetEndpointView view, String authMethod) {

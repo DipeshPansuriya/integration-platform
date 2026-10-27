@@ -1,13 +1,10 @@
 package io.integrationplatform.routing.adapter.api;
 
+import io.integrationplatform.config.destination.CheckedDestination;
 import java.io.IOException;
-import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,69 +12,68 @@ import org.slf4j.LoggerFactory;
  * Fetches an OAuth2 access token using the client_credentials grant. One fresh token per call (ADR-007: credentials
  * are never cached); a high-volume deployment should add a short-lived cache keyed by target endpoint id.
  *
- * <p>The token endpoint URL comes from {@code target_endpoint.auth_token_url} (V2_4_1420); the client_id from
+ * <p>The token endpoint URL comes from {@code target_endpoint.auth_token_url} (V2_4_1430); the client_id from
  * {@code auth_identity}; the client_secret from the opened {@code OAUTH_CLIENT_SECRET} credential field. The
  * exchange uses form-encoded POST with the credentials in the body (RFC 6749 section 4.4).
+ *
+ * <p>Row 510: the fetcher never resolves or chooses an address. The caller passes the {@link CheckedDestination} the
+ * {@code DestinationGuard} pinned for the token URL, and the request leaves through the same {@link HttpSend} seam as
+ * the delivery itself: it dials that one address, never follows a redirect, requires TLS unless the guard lifted it for
+ * the showcase host, and reads a bounded answer. Failures carry a FIXED text per class - no host, port, status or JDK
+ * message - so the delivery fault a tenant reads cannot be used to probe what a token URL reaches; the detail goes to
+ * the server log without the host.
  */
 public final class OAuth2TokenFetcher {
 
     private static final Logger log = LoggerFactory.getLogger(OAuth2TokenFetcher.class);
-    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
+    /** The token exchange's whole-call timeout (connect and read). */
+    static final int TIMEOUT_MS = 30_000;
 
-    private final HttpClient httpClient;
+    static final String REJECTED = "the token endpoint rejected the credentials";
+    static final String NO_TOKEN = "the token endpoint did not issue a token";
 
-    public OAuth2TokenFetcher() {
-        this(HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build());
-    }
+    private final HttpSend sender;
 
-    OAuth2TokenFetcher(HttpClient httpClient) {
-        this.httpClient = httpClient;
+    public OAuth2TokenFetcher(HttpSend sender) {
+        this.sender = java.util.Objects.requireNonNull(sender, "sender");
     }
 
     /**
      * Exchanges client credentials for an access token.
      *
+     * @param tokenEndpoint the destination the guard checked and pinned for the token URL
      * @return the access token string
      * @throws OAuth2TokenException on any failure (network, bad status, missing token in response)
      */
-    public String fetchToken(String tokenUrl, String clientId, char[] clientSecret) throws OAuth2TokenException {
+    public String fetchToken(CheckedDestination tokenEndpoint, String clientId, char[] clientSecret)
+            throws OAuth2TokenException {
         String body = "grant_type=client_credentials"
                 + "&client_id=" + URLEncoder.encode(clientId, StandardCharsets.UTF_8)
                 + "&client_secret=" + URLEncoder.encode(new String(clientSecret), StandardCharsets.UTF_8);
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(tokenUrl))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .timeout(REQUEST_TIMEOUT)
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build();
-
-        HttpResponse<String> response;
+        HttpSend.Response response;
         try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            response = sender.send(tokenEndpoint, "POST",
+                    Map.of("Content-Type", "application/x-www-form-urlencoded", "Accept", "application/json"),
+                    body.getBytes(StandardCharsets.UTF_8), TIMEOUT_MS);
         } catch (IOException networkFailed) {
-            throw new OAuth2TokenException(true, "the token endpoint at " + redactedOrigin(tokenUrl)
-                    + " is unreachable: " + networkFailed.getMessage());
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new OAuth2TokenException(true, "the token request was interrupted");
+            log.warn("OAuth2 token exchange failed before an answer ({})", networkFailed.getClass().getSimpleName());
+            throw new OAuth2TokenException(true, NO_TOKEN);
         }
 
-        if (response.statusCode() == 401 || response.statusCode() == 403) {
-            throw new OAuth2TokenException(false, "the token endpoint rejected the credentials (HTTP "
-                    + response.statusCode() + ")");
+        if (response.status() == 401 || response.status() == 403) {
+            throw new OAuth2TokenException(false, REJECTED);
         }
-        if (response.statusCode() != 200) {
-            boolean transient_ = response.statusCode() >= 500;
-            throw new OAuth2TokenException(transient_, "the token endpoint returned HTTP " + response.statusCode());
+        if (response.status() != 200) {
+            log.warn("OAuth2 token exchange answered HTTP {}", response.status());
+            throw new OAuth2TokenException(response.status() >= 500, NO_TOKEN);
         }
 
-        String accessToken = extractAccessToken(response.body());
+        String accessToken = extractAccessToken(new String(response.body(), StandardCharsets.UTF_8));
         if (accessToken == null || accessToken.isBlank()) {
-            throw new OAuth2TokenException(false, "the token response contains no access_token");
+            throw new OAuth2TokenException(false, NO_TOKEN);
         }
-        log.debug("OAuth2 client_credentials token obtained from {}", redactedOrigin(tokenUrl));
+        log.debug("OAuth2 client_credentials token obtained");
         return accessToken;
     }
 
@@ -89,15 +85,6 @@ public final class OAuth2TokenFetcher {
             return tokenNode != null ? tokenNode.asString() : null;
         } catch (Exception parseError) {
             return null;
-        }
-    }
-
-    private static String redactedOrigin(String url) {
-        try {
-            URI uri = URI.create(url);
-            return uri.getScheme() + "://" + uri.getHost() + (uri.getPort() < 0 ? "" : ":" + uri.getPort());
-        } catch (Exception ignored) {
-            return "(malformed)";
         }
     }
 
