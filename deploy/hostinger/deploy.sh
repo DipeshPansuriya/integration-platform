@@ -13,6 +13,8 @@
 # `docker save | docker load` exist only locally, where a pull would fail.
 # Exit: 0 released and healthy, 2 bad input/setup, 3 backup failed, 4 Flyway image missing, 5 migration (or validate) failed,
 #       6 started but a service is not healthy (roll back with the printed steps).
+# Backups: release-backups/ (mode 700) keeps .env.bak and compose.yaml.bak (mode 600) per release; only the newest RELEASE_BACKUPS_KEEP
+# (default 5) timestamp folders are kept, older ones are removed and logged; the current release's folder is never removed.
 # The env file is read for IMAGE_TAG only by name and rewritten line-wise; it is never sourced or eval'd, and no secret is printed.
 set -eu
 umask 077       # backups of the env file hold secrets
@@ -22,6 +24,12 @@ STACK_DIR="${STACK_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 cd "$STACK_DIR"
 ENV_FILE="${ENV_FILE:-$STACK_DIR/.env}"
 export ENV_FILE
+LOCK_DIR="$STACK_DIR/.deploy.lock"
+tmp=""
+cleanup_deploy() { [ -z "$tmp" ] || rm -f "$tmp"; rmdir "$LOCK_DIR" 2>/dev/null || true; }
+mkdir "$LOCK_DIR" 2>/dev/null || { echo "ERROR: another deploy.sh is running (or died without cleaning up): $LOCK_DIR exists. Check with ps; remove the folder only if no deploy is running." >&2; exit 2; }
+trap cleanup_deploy EXIT
+trap 'cleanup_deploy; exit 130' INT TERM
 [ -r "$ENV_FILE" ] || { echo "ERROR: cannot read $ENV_FILE" >&2; exit 2; }
 
 NEW_TAG="${IMAGE_TAG:-}"
@@ -34,6 +42,8 @@ esac
 TAG_LINE='^[[:space:]]*(export[[:space:]]+)?IMAGE_TAG='      # the ONE pattern for reading and rewriting the tag line
 OLD_TAG="$(grep -E "$TAG_LINE" "$ENV_FILE" | tail -n 1 | tr -d '\r' | cut -d= -f2- | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\\(.*\\)'\$/\\1/")" || true
 OLD_TAG="${OLD_TAG:-unknown}"
+KEEP_BACKUPS="${RELEASE_BACKUPS_KEEP:-5}"
+case "$KEEP_BACKUPS" in ''|*[!0-9]*|0) echo "ERROR: RELEASE_BACKUPS_KEEP must be a whole number of 1 or more (default 5)" >&2; exit 2 ;; esac
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="$STACK_DIR/release-backups/$STAMP"
 export IMAGE_TAG="$NEW_TAG"      # compose and migrate.sh both read it from the environment first
@@ -49,8 +59,17 @@ rollback_note() {
 
 echo "=== 1/6 backup ==="
 mkdir -p "$BACKUP_DIR"
-cp -p "$ENV_FILE" "$BACKUP_DIR/.env.bak"
-cp -p compose.yaml "$BACKUP_DIR/compose.yaml.bak"
+chmod 700 "$STACK_DIR/release-backups" "$BACKUP_DIR"
+cp "$ENV_FILE" "$BACKUP_DIR/.env.bak"; chmod 600 "$BACKUP_DIR/.env.bak"         # explicit modes: both copies hold secrets or the stack layout
+cp compose.yaml "$BACKUP_DIR/compose.yaml.bak"; chmod 600 "$BACKUP_DIR/compose.yaml.bak"
+# keep the newest RELEASE_BACKUPS_KEEP release folders (timestamp names only; this release's folder is never removed), log each removal
+n=0
+for d in $(ls -1 "$STACK_DIR/release-backups" | grep -E '^[0-9]{8}T[0-9]{6}Z$' | sort -r); do
+  n=$((n + 1))
+  if [ "$n" -gt "$KEEP_BACKUPS" ] && [ "$d" != "$STAMP" ]; then
+    rm -rf "$STACK_DIR/release-backups/$d" && echo "pruned release-backup $d (keeping the newest $KEEP_BACKUPS)"
+  fi
+done
 if ! "$DOCKER" compose exec -T pg-backup env RUN_ONCE=1 sh /scripts/backup.sh; then
   echo "ERROR: the database backup failed - release stopped, nothing was changed." >&2
   exit 3
@@ -61,6 +80,7 @@ PREFIX="${IPASS_IMAGE_PREFIX:-}"
 if [ -z "$PREFIX" ]; then PREFIX="$(grep -E '^[[:space:]]*(export[[:space:]]+)?IPASS_IMAGE_PREFIX=' "$ENV_FILE" | tail -n 1 | tr -d '\r' | cut -d= -f2- | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\\(.*\\)'\$/\\1/")" || true; fi
 FLYWAY_IMAGE="${FLYWAY_IMAGE:-${PREFIX:-acsnewacr.azurecr.io/ipass}/flyway-migrate:$NEW_TAG}"
 export FLYWAY_IMAGE
+export FW_EXPECT_REVISION="$NEW_TAG"      # migrate.sh refuses an image whose revision label is not this commit (build with flyway/build-image.sh)
 if ! "$DOCKER" image inspect "$FLYWAY_IMAGE" >/dev/null 2>&1; then
   echo "Flyway image $FLYWAY_IMAGE is not on this host; trying the registry..."
   if ! "$DOCKER" pull "$FLYWAY_IMAGE"; then
@@ -85,17 +105,20 @@ if ! sh "$MIGRATE" migrate; then
 fi
 
 echo "=== 5/6 switch to $NEW_TAG and start ==="
-tmp="$STACK_DIR/.env.deploy.$$"
+tmp="$(mktemp "$STACK_DIR/.env.new.XXXXXX")"      # same directory, so the final mv is an atomic rename; the EXIT trap removes it on any failure
 if grep -qE "$TAG_LINE" "$ENV_FILE"; then
   sed -E "s/^([[:space:]]*(export[[:space:]]+)?)IMAGE_TAG=.*/\1IMAGE_TAG=$NEW_TAG/" "$ENV_FILE" > "$tmp"
 else
   { cat "$ENV_FILE"; echo "IMAGE_TAG=$NEW_TAG"; } > "$tmp"
 fi
-cat "$tmp" > "$ENV_FILE"       # same file, same mode: no new inode with a looser mode
-rm -f "$tmp"
+chmod "$(stat -c %a "$ENV_FILE" 2>/dev/null || echo 600)" "$tmp"
+mv "$tmp" "$ENV_FILE"; tmp=""       # atomic: .env is never half-written
 if ! "$DOCKER" compose up -d; then
   cat "$BACKUP_DIR/.env.bak" > "$ENV_FILE"       # the old containers still run on the old tag: keep the env file consistent with them
   echo "ERROR: 'docker compose up -d' failed. The database IS migrated (migrations are expand-only, the old app still works); the env file was restored to $OLD_TAG." >&2
+  echo "WARNING: 'up -d' recreates services one by one, so SOME services may already run $NEW_TAG while .env says $OLD_TAG. Current state:" >&2
+  "$DOCKER" compose ps >&2 || true
+  echo "Do NOT run another plain 'compose up -d' / rotate-secret.sh before deciding: it would recreate those services on $OLD_TAG against the migrated database. Either fix the cause and re-run IMAGE_TAG=$NEW_TAG ./deploy.sh, or finish the roll-back below." >&2
   rollback_note
   exit 6
 fi

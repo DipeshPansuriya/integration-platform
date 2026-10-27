@@ -13,13 +13,16 @@
 #   POSTGRES_DB                 database name, default ipass
 #   DB_MIGRATION_PASSWORD (required, only from the env file or the environment) - ipass_migrator's password
 #   IPAAS_FLYWAY_LOCK_TIMEOUT   the app's variable for the migration lock_timeout (a Postgres duration: 5s, 500ms, 1min, 0 = off); default 5s
+# Image check: <prefix>/flyway-migrate:<tag> must carry the label org.opencontainers.image.revision starting with <tag> (flyway/build-image.sh),
+# else exit 4 before the password is used; FLYWAY_IMAGE_ID=<sha256:...> additionally pins the exact build.
 # Other overrides: FLYWAY_IMAGE (whole image name), FLYWAY_NETWORK (default ipass_ipass-data = compose project "ipass",
 # network ipass-data), DOCKER (the docker binary, tests only).
-# The env file is READ, never sourced or eval'd: only the keys above are picked out, one line each. The password goes
-# into the container through the environment (docker run -e FLYWAY_PASSWORD), never on a command line, and is never printed.
+# The env file is READ, never sourced or eval'd: only the keys above are picked out, one line each. The password reaches Flyway
+# through a mode-600 temp file mounted read-only (flyway-run.sh): not an environment variable (docker inspect would show it), not
+# a command-line argument (the process list would), and never printed. The container runs read-only, non-root, no capabilities.
 # The env file is read the way this script reads it, which differs from compose for a value with `$` (compose interpolates it)
 # or ` #` (compose drops the rest): such a DB_MIGRATION_PASSWORD is refused (bootstrap-env.sh generates neither character).
-# Exit: 0 ok, 1 usage, 2 env file/password problem, 3 validate failed, 5 migrate/repair/info failed.
+# Exit: 0 ok, 1 usage, 2 env file/password problem, 3 validate failed, 4 image is not the expected build, 5 migrate/repair/info failed.
 set -eu
 
 ACTION="${1:-info}"
@@ -52,25 +55,32 @@ esac
 LOCKT="${IPAAS_FLYWAY_LOCK_TIMEOUT:-$(env_value IPAAS_FLYWAY_LOCK_TIMEOUT)}"; LOCKT="${LOCKT:-5s}"
 printf '%s' "$LOCKT" | grep -Eq '^[0-9]+(ms|s|min|h|d)?$' || { echo "ERROR: IPAAS_FLYWAY_LOCK_TIMEOUT must be a plain Postgres duration (5s, 500ms, 1min, 0)" >&2; exit 2; }
 DB="${POSTGRES_DB:-$(env_value POSTGRES_DB)}"; DB="${DB:-ipass}"
+case "$DB" in *[!A-Za-z0-9_]*) echo "ERROR: POSTGRES_DB may contain only letters, digits and _ (it goes into the JDBC URL)" >&2; exit 2 ;; esac
 TAG="${IMAGE_TAG:-$(env_value IMAGE_TAG)}"
 PREFIX="${IPASS_IMAGE_PREFIX:-$(env_value IPASS_IMAGE_PREFIX)}"; PREFIX="${PREFIX:-acsnewacr.azurecr.io/ipass}"
 if [ -z "${FLYWAY_IMAGE:-}" ]; then
   [ -n "$TAG" ] || { echo "ERROR: IMAGE_TAG is not set (environment or $ENV_FILE)" >&2; exit 2; }
   FLYWAY_IMAGE="$PREFIX/flyway-migrate:$TAG"
+  FW_EXPECT_REVISION="${FW_EXPECT_REVISION:-$TAG}"      # the image must carry this commit (label from flyway/build-image.sh); an explicit FLYWAY_IMAGE skips the tag-derived check
 fi
+FW_EXPECT_IMAGE_ID="${FLYWAY_IMAGE_ID:-}"
 NETWORK="${FLYWAY_NETWORK:-ipass_ipass-data}"
 
-# one Flyway container, one action; extra Flyway arguments follow the action name
+# one Flyway container, one action; extra Flyway arguments precede the action name. The container is started by flyway-run.sh
+# (the password goes in through a mode-600 file, never the environment or a command line; hardened flags are set there).
+. "$(dirname "$0")/flyway-run.sh"
+trap flyway_cleanup EXIT
+trap 'flyway_cleanup; exit 130' INT TERM
+FW_IMAGE="$FLYWAY_IMAGE"; FW_NETWORK="$NETWORK"; FW_URL="jdbc:postgresql://postgres:5432/$DB"; FW_DB_USER=ipass_migrator; FW_DB_PASSWORD="$PW"
 run_flyway() { # action [flyway args...]
   act="$1"; shift
-  FLYWAY_PASSWORD="$PW" "$DOCKER" run --rm --network "$NETWORK" --cap-drop ALL --security-opt no-new-privileges:true \
-    -e "FLYWAY_URL=jdbc:postgresql://postgres:5432/$DB" -e FLYWAY_USER=ipass_migrator -e FLYWAY_PASSWORD \
-    "$FLYWAY_IMAGE" "$@" "-initSql=SET lock_timeout = '$LOCKT'" "$act"
+  flyway_run "$@" "-initSql=SET lock_timeout = '$LOCKT'" "$act"
 }
 # pending migrations are the normal state before a release: validate checks the HISTORY against the files, so ignore them;
 # *:future (Flyway's and Spring Boot's default, which an explicit pattern replaces) keeps a database that is ahead of this image valid
 validate() { run_flyway validate '-ignoreMigrationPatterns=*:pending,*:future'; }
 
+flyway_verify_image || exit 4      # before any container gets the password
 echo "=== Flyway $ACTION | image $FLYWAY_IMAGE | database $DB | user ipass_migrator ==="
 case "$ACTION" in
   info)
