@@ -1,11 +1,12 @@
 package io.integrationplatform.routing.credential;
 
 /**
- * Thread-scoped holder for passing {@link OpenedCredentials} from {@code RouteInstanceSendDispatch} through
- * the synchronous Camel {@code direct:} route to {@code ApiTargetCall}. The direct endpoint processes on the
- * caller's thread, so a ThreadLocal set before {@code producer.send()} is visible inside the target call.
+ * Thread-scoped holder that hands {@link OpenedCredentials} to the one target call that needs them
+ * ({@code ApiTargetCall}). Row 540: it is bound ONLY by {@code LayerOneRouteBuilder#oneTry}, on the thread that
+ * performs the call, from the exchange property {@code TARGET_CALL_SECRETS} that carries the values from the dispatch
+ * (so a thread hop earlier in the route cannot lose them), and cleared in a finally right after the call.
  *
- * <p>Always clear in a finally block after the producer returns. The credentials themselves are wiped by
+ * <p>The credentials themselves are wiped by
  * {@code CredentialedDelivery}'s try-with-resources regardless of this holder's state.
  */
 public final class TargetCallCredentialHolder {

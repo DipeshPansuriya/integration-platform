@@ -172,6 +172,21 @@ export type TargetCredentialView = {
   allowedFields: string[];
 };
 
+/**
+ * The caller's role names from GET /api/v1/me (row 540), or null when the answer has none (an older server, a failed
+ * call, an empty list): null means "unknown", never "no rights" - the server's 403 stays the gate.
+ */
+export async function readMyRoles(): Promise<string[] | null> {
+  try {
+    const response = await consoleFetch('/api/v1/me');
+    const body = await response.json().catch(() => null);
+    const roles = response.ok && Array.isArray(body?.roles) ? body.roles.map(String) : [];
+    return roles.length > 0 ? roles : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function readEndpointAuth(systemId: string): Promise<ListedAnswer<EndpointAuthView>> {
   const response = await consoleFetch(`/api/v1/admin/systems/${encodeURIComponent(systemId)}/endpoint-auth`);
   const body = await response.json().catch(() => null);

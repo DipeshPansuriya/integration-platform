@@ -39,7 +39,14 @@ public class LayerOneRouteTemplate implements RouteTemplate {
         Objects.requireNonNull(row, "row");
         return exchange -> {
             Exchange layerOne = producer.send(LayerOneRouteBuilder.LAYER_ONE_SEND,
-                    inner -> inner.getIn().setBody(exchange.getIn().getBody()));
+                    inner -> {
+                        inner.getIn().setBody(exchange.getIn().getBody());
+                        // row 540: layer 1 runs on its own exchange - hand the opened secrets over explicitly
+                        Object secrets = exchange.getProperty(LayerOneRouteBuilder.TARGET_CALL_SECRETS);
+                        if (secrets != null) {
+                            inner.setProperty(LayerOneRouteBuilder.TARGET_CALL_SECRETS, secrets);
+                        }
+                    });
             // a classified failure layer 1 handled (and handed off) - the dispatching stage must not mark success
             Object handled = layerOne.getProperty(Exchange.EXCEPTION_CAUGHT);
             if (handled != null) {

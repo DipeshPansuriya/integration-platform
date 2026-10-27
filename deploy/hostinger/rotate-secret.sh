@@ -79,4 +79,7 @@ if [ "${ROTATE_SOURCE_ONLY:-0}" != 1 ]; then
   # shellcheck disable=SC2086
   [ -z "$SERVICES" ] || $COMPOSE up -d --no-deps --force-recreate $SERVICES
   echo "rotated $name. A later plain 'up -d' may also re-create postgres once (its environment holds the role passwords)."
+  # deploy.sh keeps copies of the old .env in release-backups/<utc>/.env.bak; they still hold the value just rotated
+  _bk="$(ls -d release-backups/*/.env.bak 2>/dev/null | wc -l | tr -d ' ')"
+  [ "${_bk:-0}" -eq 0 ] || echo "WARNING: $_bk release-backups/*/.env.bak copies still hold the OLD $name (and every other secret as of that release). Remove the ones you do not need for a roll-back: rm -rf release-backups/<utc> (deploy.sh keeps only the newest RELEASE_BACKUPS_KEEP)." >&2
 fi

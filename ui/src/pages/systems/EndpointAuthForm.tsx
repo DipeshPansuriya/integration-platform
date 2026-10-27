@@ -5,6 +5,7 @@ import {
   AUTH_IDENTITY_LABEL,
   CREDENTIAL_FIELDS_BY_AUTH,
   readEndpointAuth,
+  readMyRoles,
   readTargetCredentials,
   saveTargetCredentials,
   updateEndpointAuth,
@@ -22,13 +23,17 @@ export function EndpointAuthForm({ systemId }: { systemId: string }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  // Row 519: the save is TENANT_ADMIN-only (403 for anyone else); the console learns the role from that answer.
+  // Row 519: the save is TENANT_ADMIN-only (403 for anyone else). Row 540: GET /api/v1/me names the caller's roles, so
+  // the form is read-only BEFORE the first Save; the 403 on Save stays as the fallback when the roles are unknown.
   const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
     let current = true;
     setLoading(true);
     void (async () => {
+      const roles = await readMyRoles();
+      if (!current) return;
+      if (roles && !roles.includes('TENANT_ADMIN')) setForbidden(true);
       const authResult = await readEndpointAuth(systemId);
       if (!current) return;
       if (authResult.ok) {

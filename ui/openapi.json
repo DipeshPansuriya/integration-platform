@@ -637,6 +637,12 @@
       },
       "Me": {
         "properties": {
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "tenantCode": {
             "type": "string"
           },
