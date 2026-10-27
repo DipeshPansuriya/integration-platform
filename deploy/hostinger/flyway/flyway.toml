@@ -1,0 +1,16 @@
+# Flyway CLI settings for the iPass pipeline - the same behaviour as the app's own Flyway, which Spring Boot configures from
+#   platform-tenancy/src/main/resources/config/tenancy-database.yml   (user ipass_migrator, password from DB_MIGRATION_PASSWORD)
+#   platform-app/src/main/resources/config/flyway-lock-timeout.yml    (init-sqls: SET lock_timeout = '5s')
+# and Boot defaults (locations classpath:db/migration = the files copied to /flyway/sql, table flyway_schema_history,
+# validateOnMigrate true, default schema of the connection, no baseline, no out-of-order, no placeholders).
+# No secret here: FLYWAY_URL, FLYWAY_USER and FLYWAY_PASSWORD come from the container environment (migrate.sh).
+[flyway]
+locations = ["filesystem:/flyway/sql"]
+table = "flyway_schema_history"
+validateOnMigrate = true
+
+# url, user and password of this (default) environment come from FLYWAY_URL / FLYWAY_USER / FLYWAY_PASSWORD.
+# initSql is an environment setting in Flyway 12: migrations wait for a lock at most 5 s, then fail fast with SQLSTATE 55P03
+# and roll back (T204); same default as the app's init-sqls.
+[environments.default]
+initSql = "SET lock_timeout = '5s'"

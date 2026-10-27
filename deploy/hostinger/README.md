@@ -22,6 +22,7 @@ Source: ADR-H-IPASS-01 (hosting decision; kept in the planning workspace, not in
 | `postgres-init/` | `10-keycloak-database.sh`, `20-platform-roles.sh` (the four DB roles + `ipass_backup` + `ipass_restore`) |
 | `kafka/create-topics.sh` | Creates the three platform topics |
 | `backup/` | `backup.sh` (nightly dump loop), `restore-test.sh` |
+| `flyway/`, `deploy.sh` | Standalone Flyway CLI migration pipeline: `Dockerfile` (+ `flyway.toml`), `migrate.sh` (info / validate / migrate / repair --yes), `check-migration-dirs.sh` (build guard); `deploy.sh` = backup -> migrate -> switch tag -> health. See "Migration pipeline" below |
 | `seed/` | `seed-showcase.sh` + `seed.sql` (two tenants, four users); `NESTED-APPOINTMENT.md` = hand-off for the nested-appointment showcase flow (not part of the seed run) |
 | `test/` | `test-scripts.sh` (offline), `smoke.sh` + `compose.smoke.yaml` (build-PC only) |
 | `kafka-public/` | `compose.kafka-public.yaml` (overlay: `kafka-front` HAProxy publishes host 9092), `haproxy.cfg`, `kafka-public-fw.sh on\|off\|check` (outbound-drop rule), `ipass-kafka-fw.service` (re-applies it at boot) |
@@ -87,6 +88,40 @@ One secret at a time, never a blanket regeneration (`bootstrap-env.sh` refuses t
 Only `edge` joins the host's shared `web` network, so no other stack on that network can reach the app, the actuator or Keycloak directly. `platform-app` alone has outbound reach (`ipass-egress`) for allow-listed destinations and the public issuer URL; everything else sits on internal networks. No iPass service mounts the Docker socket (checked by `test-scripts.sh` and `smoke.sh`).
 
 The host's Traefik does read the socket (ADR Decision 5 point 8). A read-only mount does not limit what a compromised Traefik can see or do through the socket API. Recommended (outside this stack, the operator and the project owner, not done by the kit): put a socket proxy in front of it that allows only `GET /containers` and `/events` (for example `tecnativa/docker-socket-proxy` with `CONTAINERS=1`, everything else `0`, on an internal network shared only with Traefik), point Traefik's `docker` provider at `tcp://socket-proxy:2375`, and remove the socket mount from Traefik. Pin the image by digest when you add it.
+
+## Migration pipeline (Flyway CLI, run before the app is deployed)
+
+Adds a separate, repeatable migration step. **The app is unchanged:** it still runs Flyway at its own start-up (`SPRING_FLYWAY_ENABLED` is not touched; turning it off is a later phase, only after several releases went through this pipeline). After the CLI migrated, the app's own Flyway finds nothing pending. Same engine version as the app (Spring Boot manages Flyway 12.4.0), same settings: user `ipass_migrator`, table `flyway_schema_history`, `validateOnMigrate`, init-sql `SET lock_timeout = '5s'` (`flyway/flyway.toml`; the app's are `platform-tenancy/.../tenancy-database.yml` and `platform-app/.../flyway-lock-timeout.yml`). No secret is in the image or in any file: the password comes from the server's `.env` through the container environment.
+
+**Build (build PC, repo root).** The image carries every module's `src/main/resources/db/migration` folder (six today: tenancy, config, delivery, ingest, app, routing). The guard fails if a module has such a folder that `flyway/Dockerfile` does not COPY (a future module), or if two folders repeat a file name or a Flyway version:
+```
+sh deploy/hostinger/flyway/check-migration-dirs.sh
+docker build -f deploy/hostinger/flyway/Dockerfile -t <registry>/ipass/flyway-migrate:<sc> .     # <sc> = the same tag as the other images
+docker push <registry>/ipass/flyway-migrate:<sc>          # or, without a registry: docker save <registry>/ipass/flyway-migrate:<sc> | ssh <vps> docker load
+```
+The name follows `${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/flyway-migrate:${IMAGE_TAG}`; `FLYWAY_IMAGE` overrides the whole name. Pushing is the project owner's step.
+
+**On the VPS (`/docker/ipass`).** Copy `flyway/migrate.sh` and `deploy.sh` next to `compose.yaml` (`scp -r deploy/hostinger/flyway deploy/hostinger/deploy.sh <vps>:/docker/ipass/`, then `chmod +x deploy.sh flyway/*.sh`). `IMAGE_TAG` is the commit being released; a value you pass wins over `.env` (as with compose). The `.env` is read, never sourced.
+```
+IMAGE_TAG=<sc> ./flyway/migrate.sh info        # applied / pending, read-only
+IMAGE_TAG=<sc> ./flyway/migrate.sh validate    # history vs files (checksums, missing files); pending is not an error; read-only
+IMAGE_TAG=<sc> ./flyway/migrate.sh migrate     # runs validate first and refuses when it fails, then applies the pending migrations
+IMAGE_TAG=<sc> ./flyway/migrate.sh repair --yes   # rewrites flyway_schema_history; only after a backup and a look at `info`
+IMAGE_TAG=<sc> ./deploy.sh                     # the whole release: backup, info, validate+migrate, tag switch, up -d, health wait, info
+```
+`deploy.sh` stops before touching anything if the backup or the Flyway image is missing, and again if `validate` or `migrate` fails (exit 5, "MIGRATION FAILED - do not deploy"); a service that is not healthy after `HEALTH_TIMEOUT` (300 s) makes it exit 6 with the roll-back steps. It records the previous tag as `OLD_TAG`, keeps `.env` and `compose.yaml` in `release-backups/<utc>/`, and takes `COMPOSE_FILE=compose.yaml:demo/compose.demo.yaml` when the demo overlay is in use. Exit codes are in the script header.
+
+**If a migration fails.** Postgres DDL is transactional and Flyway runs each migration in its own transaction, so the failed migration rolled back on its own and wrote no history row; migrations that finished before it stay applied. None of the migration files uses a non-transactional statement (`CREATE INDEX CONCURRENTLY` appears only in a comment of `V2_4_1390`). So normally: read the error, fix the SQL, build a new image tag, run again. `repair --yes` is for a checksum you changed on purpose or a history row left failed by a non-transactional statement, not routine. Restore only when data is damaged or the schema must go back to the pre-release state. The nightly and the pre-release dumps are `pg_dump -Fc` files `/backups/ipass-<utc>.dump` (and `keycloak-<utc>.dump`, which migrations never touch) in volume `ipass-backups` (`backup/backup.sh`):
+```
+docker compose stop platform-app
+docker compose exec -T pg-backup ls -1t /backups                      # pick the pre-release ipass-<utc>.dump
+docker compose exec -T postgres psql -U ipass_admin -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE ipass WITH (FORCE)" -c "CREATE DATABASE ipass OWNER ipass_migrator"
+docker compose exec -T pg-backup cat /backups/ipass-<utc>.dump | docker compose exec -T postgres pg_restore -U ipass_admin -d ipass --exit-on-error
+cp -p release-backups/<utc>/.env.bak .env && docker compose up -d     # the previous IMAGE_TAG
+```
+The role names are the cluster's, so the restore (as the superuser, without `--no-owner`) puts the objects back under `ipass_migrator` with their grants; `restore-test.sh` uses `--no-owner` only because it just counts rows. The sequence was run against a throwaway Postgres in `test/flyway-local-proof.sh` (step 9: 59 migrations still `Success`, owners back to `ipass_migrator`, `migrate` a no-op). Use `POSTGRES_USER` instead of `ipass_admin` if you changed it.
+
+**Tests.** Offline, no container: `bash deploy/hostinger/test/test-flyway.sh` (guard, `.env` parsing without eval, password never on a command line, validate-before-migrate, deploy order and exit codes, with a fake docker). Container proof on the build PC (takes a Docker lock, throwaway Postgres and network, real `postgres-init` role script, deletes what it created): `bash deploy/hostinger/test/flyway-local-proof.sh`. Parity check (the app's own Flyway, same engine and the module `db/migration` folders on the class path, finds 0 pending and a valid history on a CLI-migrated database): `test/FlywayParityCheck.java`, run by `flyway-local-proof.sh` when `PARITY_JAVA` (a JDK 25 `java`) and `PARITY_JARS` (flyway-core 12.4.0, flyway-database-postgresql, the Postgres driver, Jackson 3 databind/core, jackson-annotations; `;`-separated on Windows) are set; its control run first shows 59 pending before the CLI ran.
 
 ## Tests (build PC)
 

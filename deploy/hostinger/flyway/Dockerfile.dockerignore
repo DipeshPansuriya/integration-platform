@@ -1,0 +1,5 @@
+# Build context for flyway/Dockerfile only (BuildKit reads <Dockerfile>.dockerignore before the repo-root .dockerignore):
+# the migration SQL and the Flyway config, nothing else - no source, no env file, no test output.
+**
+!deploy/hostinger/flyway/flyway.toml
+!platform-*/src/main/resources/db/migration/*.sql
