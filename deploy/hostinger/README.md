@@ -12,6 +12,7 @@ Source: ADR-H-IPASS-01 (hosting decision; kept in the planning workspace, not in
 | `edge/edge.conf` | The edge proxy path allow-list (actuator, `/v3`, Keycloak `/admin` and the master realm answer 404). Login and token paths are rate limited: about 10 requests/min per client, burst 5, 429 beyond that (the client is the last `X-Forwarded-For` entry, the one Traefik appends - a spoofed first entry is ignored). |
 | `test/edge-ratelimit.sh` | Behaviour proof of that rate limit in nginx (build PC, Docker lock) |
 | `test/edge-ops.sh`, `test/ops-setup-stub.sh` | Behaviour proof of the ops and auth edge rules in nginx, and of `ops-setup-kcadm.sh` against a stub kcadm |
+| `test/public-smoke.sh` | Public smoke from outside the server (curl + bash, one python3 snippet for the TCP checks): site, actuator closed, Keycloak, ops edge, Postgres TLS 1.3 fingerprint, Kafka Metadata. `bash deploy/hostinger/test/public-smoke.sh [fingerprint]`; no Docker, no lock, no logins |
 | `demo/compose.demo.yaml` | Opt-in override: WireMock demo destination + the showcase profile. Never part of `compose.yaml` |
 | `keycloak/` | `compose.bootstrap-admin.yaml` (first start only), `retire-bootstrap-admin.sh`, `Dockerfile`; `ops-setup.sh` + `ops-setup-kcadm.sh` (role `ops-operator`, client `ops-kafbat`, flow `ops-browser`; safe to re-run) |
 | `kafbat/kafbat-roles.yml` | The Kafbat RBAC role: view-only, no message permission |
