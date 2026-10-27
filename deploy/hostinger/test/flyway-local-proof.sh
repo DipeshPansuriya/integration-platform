@@ -90,7 +90,7 @@ expect "info exit 0" test $rc -eq 0
 expect "$EXPECTED migrations listed Pending" test "$(grep -c '| Pending' "$TMP/i1.out")" -eq "$EXPECTED"
 
 parity > "$TMP/p0.out" 2>&1; rc=$?; cat "$TMP/p0.out"
-[ -n "${PARITY_JAVA:-}" ] && expect "control: the app's Flyway sees $EXPECTED pending before the CLI ran (check is not vacuous)" test $rc -eq 1
+[ -n "${PARITY_JAVA:-}" ] && expect "control: the app's Flyway sees $EXPECTED pending before the CLI ran (check is not vacuous)" bash -c "[ $rc -eq 1 ] && grep -q 'pending=$EXPECTED ' '$TMP/p0.out'"
 
 step "4. validate on the empty database (pending is not an error)"
 mig validate > "$TMP/v1.out" 2>&1; rc=$?; tail -5 "$TMP/v1.out"
@@ -109,7 +109,7 @@ grep -E "Success|Pending" "$TMP/i2.out" | sed -n '1,3p;$p'
 docker exec "$N-pg" psql -U ipass_admin -d ipass -Atc "select count(*), count(*) filter (where success) from flyway_schema_history"
 
 parity > "$TMP/p1.out" 2>&1; rc=$?; cat "$TMP/p1.out"
-[ -n "${PARITY_JAVA:-}" ] && expect "PARITY: the app's own Flyway finds 0 pending and validate OK on the CLI-migrated database" test $rc -eq 0
+[ -n "${PARITY_JAVA:-}" ] && expect "PARITY: the app's own Flyway finds 0 pending and validate OK on the CLI-migrated database" bash -c "[ $rc -eq 0 ] && grep -q 'pending=0 validate=OK' '$TMP/p1.out'"
 
 step "7. migrate again (no-op)"
 mig migrate > "$TMP/m2.out" 2>&1; rc=$?; tail -5 "$TMP/m2.out"
