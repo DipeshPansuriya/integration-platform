@@ -228,4 +228,20 @@ class SystemPersistenceConfiguration {
                 () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId(),
                 allowKafkaPlaintext, events);
     }
+
+    @Bean
+    JdbcOperatorAllowedHostRepository jdbcOperatorAllowedHostRepository(JdbcClient jdbcClient) {
+        return new JdbcOperatorAllowedHostRepository(jdbcClient);
+    }
+
+    @Bean
+    DefaultOperatorAllowedHostService operatorAllowedHostService(JdbcOperatorAllowedHostRepository repository,
+            DestinationGuard guard, Environment environment) {
+        List<String> startupPatterns = Binder.get(environment)
+                .bind(ALLOWED_HOSTS, Bindable.listOf(String.class)).orElse(List.of());
+        DefaultOperatorAllowedHostService service = new DefaultOperatorAllowedHostService(repository, guard,
+                startupPatterns);
+        service.loadFromDatabase();
+        return service;
+    }
 }

@@ -1,0 +1,55 @@
+/* Settings page — allowed-hosts configuration */
+
+.settings-section {
+  max-width: 720px;
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.settings-section-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.settings-muted {
+  color: var(--color-ink-muted);
+  font-size: 13px;
+  margin: 0 0 var(--space-3);
+}
+
+.settings-error {
+  color: var(--color-danger-text);
+  font-size: 13px;
+  margin: 0 0 var(--space-3);
+}
+
+.settings-add-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.settings-add-form .input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.btn-danger-text {
+  background: none;
+  border: none;
+  color: var(--color-danger-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--r-2);
+}
+.btn-danger-text:hover {
+  background: var(--color-danger-bg);
+}
