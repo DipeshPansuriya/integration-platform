@@ -8,17 +8,14 @@ import {
   readTargetCredentials,
   saveTargetCredentials,
   updateEndpointAuth,
-  type AuthMethod,
-  type EndpointAuthView,
-  type TargetCredentialView
+  type AuthMethod
 } from '../../api/systems';
-import { ERRORS_ID, ValidationErrors } from './SystemFields';
+import { ValidationErrors } from './SystemFields';
 
 export function EndpointAuthForm({ systemId }: { systemId: string }) {
   const [authMethod, setAuthMethod] = useState<AuthMethod>('NO_AUTH');
   const [authIdentity, setAuthIdentity] = useState('');
   const [authTokenUrl, setAuthTokenUrl] = useState('');
-  const [endpointId, setEndpointId] = useState<string | null>(null);
   const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
   const [sealedFields, setSealedFields] = useState<string[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
@@ -34,7 +31,6 @@ export function EndpointAuthForm({ systemId }: { systemId: string }) {
       if (!current) return;
       if (authResult.ok) {
         const auth = authResult.data;
-        setEndpointId(auth.endpointId);
         setAuthMethod((auth.authMethod ?? 'NO_AUTH') as AuthMethod);
         setAuthIdentity(auth.authIdentity ?? '');
         setAuthTokenUrl(auth.authTokenUrl ?? '');
@@ -69,7 +65,6 @@ export function EndpointAuthForm({ systemId }: { systemId: string }) {
         setErrors(authResult.errors?.length ? authResult.errors : [`Save refused (HTTP ${authResult.status}).`]);
         return;
       }
-      setEndpointId(authResult.data.endpointId);
 
       const fieldsToSeal: Record<string, string> = {};
       for (const def of credentialDefs) {
