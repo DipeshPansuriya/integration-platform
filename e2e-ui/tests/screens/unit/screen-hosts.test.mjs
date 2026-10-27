@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { SCREEN_ALLOWED_HOSTS, screenAppEnv } from '../screen-hosts.mjs';
+import { SCREEN_ALLOWED_HOSTS, SCREEN_UNLISTED_HOST, screenAppEnv } from '../screen-hosts.mjs';
 
 const SCREENS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -46,4 +46,9 @@ test('the allow-list holds no loopback or IP literal', () => {
 
 test('the boot env carries the list as the comma-joined app setting', () => {
   assert.deepEqual(screenAppEnv(), { PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: SCREEN_ALLOWED_HOSTS.join(',') });
+});
+
+test('the deliberately unlisted host stays off the allow-list (the refusal spec depends on it)', () => {
+  assert.equal(allows(SCREEN_ALLOWED_HOSTS, SCREEN_UNLISTED_HOST), false);
+  assert.equal(allows(SCREEN_ALLOWED_HOSTS, 'partner.example.test'), true, 'the control host of the same spec stays listed');
 });
