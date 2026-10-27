@@ -135,7 +135,7 @@ class E12ConfigAuditTrailContainerTest {
 
     @Test
     @DisplayName("One event per action: a contract import and its approval each land exactly one audit_event row;"
-            + " the author's refused approval lands none")
+            + " a configurator's refused approval lands none")
     void aContractImportAndApprovalEachLandOneRow() throws Exception {
         Tenant tenant = seed("ct");
         String author = tenant.subject("CONFIGURATOR");
@@ -154,7 +154,7 @@ class E12ConfigAuditTrailContainerTest {
                 .containsExactly(tenant.userId("CONFIGURATOR") + "|contract_version:" + versionId
                         + "|{\"status\":\"PENDING_APPROVAL\"}");
         HttpResponse<String> refused = approve(port, author, versionId);
-        assertThat(refused.statusCode()).as("the author never approves: %s", refused.body()).isEqualTo(403);
+        assertThat(refused.statusCode()).as("a configurator holds no approve role: %s", refused.body()).isEqualTo(403);
         assertThat(count(tenant, ConfigAuditActions.CONTRACT_VERSION_APPROVED))
                 .as("a refused approval rolls back and writes no audit row").isZero();
 

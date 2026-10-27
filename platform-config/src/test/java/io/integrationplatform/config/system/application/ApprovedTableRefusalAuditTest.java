@@ -201,12 +201,8 @@ class ApprovedTableRefusalAuditTest {
     }
 
     @Test
-    @DisplayName("Not audited here: a self-approval (REQUESTER_IS_APPROVER) and an unknown row")
+    @DisplayName("Not audited here: an unknown row")
     void otherRefusalsAreNotThisEvent() {
-        when(tables.decide(ROW, REQUESTER.toString(), "APPROVE")).thenReturn("REFUSED_SELF_APPROVAL");
-
-        assertThatThrownBy(() -> service.decide(SYSTEM, ROW, "APPROVE", REQUESTER))
-                .isInstanceOf(ConfigApiException.class);
         assertThatThrownBy(() -> service.decide(SYSTEM, UUID.randomUUID().toString(), "APPROVE", APPROVER))
                 .isInstanceOf(ConfigApiException.class);
 

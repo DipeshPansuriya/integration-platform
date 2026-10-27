@@ -21,7 +21,7 @@ test('dbSystemBody is an OUTBOUND DB system on the exception host with a plain-i
 });
 
 test('refusalOf reads only the named refusal code', () => {
-  assert.equal(refusalOf({ status: 403, data: { refusal: 'REQUESTER_IS_APPROVER' } }), 'REQUESTER_IS_APPROVER');
+  assert.equal(refusalOf({ status: 409, data: { refusal: 'NOT_PENDING_APPROVAL' } }), 'NOT_PENDING_APPROVAL');
   assert.equal(refusalOf({ status: 404, data: { error: 'not found' } }), null);
   assert.equal(refusalOf(null), null);
 });
@@ -40,9 +40,9 @@ test('requestedRowProblems: a clean pending row has none, every deviation is nam
   assert.ok(requestedRowProblems({ ...row, systemId: 'x' }, 's').length > 0);
 });
 
-test('decidedRowProblems: four-eyes - an approval by the requester is a problem, a different decider is not', () => {
+test('decidedRowProblems: an approval by the requester is no problem any more (single-user workflow), a missing decider is', () => {
   assert.deepEqual(decidedRowProblems({ status: STATUS.approved, requestedBy: 'u1', decidedBy: 'u2' }, STATUS.approved), []);
-  assert.ok(decidedRowProblems({ status: STATUS.approved, requestedBy: 'u1', decidedBy: 'u1' }, STATUS.approved).some((p) => p.includes('own requester')));
+  assert.deepEqual(decidedRowProblems({ status: STATUS.approved, requestedBy: 'u1', decidedBy: 'u1' }, STATUS.approved), []);
   assert.ok(decidedRowProblems({ status: STATUS.pending, requestedBy: 'u1', decidedBy: null }, STATUS.approved).length > 0);
 });
 

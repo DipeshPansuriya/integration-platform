@@ -13,7 +13,6 @@ export const DB_ACCOUNT = 'f3_etl';
 export const DB_NAME = 'f3orders';
 export const STATUS = Object.freeze({ pending: 'PENDING_APPROVAL', approved: 'APPROVED', revoked: 'REVOKED' });
 export const REFUSAL = Object.freeze({
-  selfApproval: 'REQUESTER_IS_APPROVER',
   notPending: 'NOT_PENDING_APPROVAL',
   notApproved: 'NOT_APPROVED'
 });
@@ -56,12 +55,11 @@ export function requestedRowProblems(row, systemId, table = DB_TABLE) {
   return problems;
 }
 
-/** Problems with a decided row: approver is a different person than the requester (four-eyes). */
+/** Problems with a decided row: the status and a named decider (the requester may be the decider: single-user workflow). */
 export function decidedRowProblems(row, status) {
   const problems = [];
   if (row?.status !== status) problems.push(`status ${row?.status}, expected ${status}`);
   if (!row?.decidedBy) problems.push('decidedBy is empty');
-  if (row?.decidedBy && row.decidedBy === row.requestedBy && status === STATUS.approved) problems.push('approved by its own requester');
   return problems;
 }
 

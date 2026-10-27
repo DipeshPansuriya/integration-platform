@@ -208,9 +208,10 @@ test('§6 contracts: aria-labels kept verbatim; the change note moves behind its
 
 test('§6 contracts: refusals keep their words and render at the top of the affected card', () => {
   const list = read('pages/contracts/ContractList.tsx') + read('pages/ContractVersions.tsx');
-  assert.ok(list.includes('Refused: the author cannot approve their own version (AUTHOR_IS_APPROVER).'));
   assert.ok(list.includes('Refused: only a submitted version can be approved (NOT_PENDING_APPROVAL).'));
-  assert.ok(list.includes('data-refusal="author-cannot-approve"'));
+  // single-user workflow (V2_4_1420): the author may approve, so the screen has no author-cannot-approve refusal
+  assert.ok(!list.includes('AUTHOR_IS_APPROVER'), 'no AUTHOR_IS_APPROVER branch');
+  assert.ok(!list.includes('author-cannot-approve'), 'no author-cannot-approve alert');
   const cardList = read('pages/contracts/ContractList.tsx');
   assert.match(cardList, /refusal\?\.contractKey === group\.key/, 'the refusal renders in its own card');
 });

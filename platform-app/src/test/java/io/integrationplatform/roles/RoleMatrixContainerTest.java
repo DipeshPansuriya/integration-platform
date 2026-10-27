@@ -218,18 +218,13 @@ class RoleMatrixContainerTest {
     }
 
     @Test
-    @Tag("negative")
-    @Tag("security")
-    @DisplayName("Refused: an approver approves their OWN version - 403 AUTHOR_IS_APPROVER from the real endpoint")
-    void anApproverCannotApproveTheirOwnVersion() throws Exception {
+    @DisplayName("Allowed: an approver approves their OWN version - 200 from the real endpoint (single-user self-approval)")
+    void anApproverMayApproveTheirOwnVersion() throws Exception {
         String flowId = pendingFlowAuthoredBy(USER_IDS.get("APPROVER"));
 
-        HttpResponse<String> refused = call("APPROVER", "POST", FLOWS + "/" + flowId + "/approve", null);
+        HttpResponse<String> approved = call("APPROVER", "POST", FLOWS + "/" + flowId + "/approve", null);
 
-        assertThat(refused.statusCode()).as(refused.body()).isEqualTo(403);
-        assertThat(JSON.readTree(refused.body()).path("refusal").asString())
-                .as("the role let the approver through; the record refused its own version")
-                .isEqualTo("AUTHOR_IS_APPROVER");
+        assertThat(approved.statusCode()).as("the author-as-approver rule is gone: %s", approved.body()).isEqualTo(200);
     }
 
     @Test
@@ -269,10 +264,8 @@ class RoleMatrixContainerTest {
         submit(flowId);
 
         HttpResponse<String> ownApproval = call("TENANT_ADMIN", "POST", FLOWS + "/" + flowId + "/approve", null);
-        assertThat(JSON.readTree(ownApproval.body()).path("refusal").asString())
-                .as("the admin passes the role check; never-own-version still holds on the record")
-                .isEqualTo("AUTHOR_IS_APPROVER");
-        assertThat(call("APPROVER", "POST", FLOWS + "/" + flowId + "/approve", null).statusCode()).isEqualTo(200);
+        assertThat(ownApproval.statusCode()).as("the single tenant admin approves their own version: %s",
+                ownApproval.body()).isEqualTo(200);
         HttpResponse<String> published = call("TENANT_ADMIN", "POST", FLOWS + "/" + flowId + "/publish", null);
         assertThat(published.statusCode()).as(published.body()).isEqualTo(200);
     }

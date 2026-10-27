@@ -139,7 +139,7 @@ class ContractAdminAuditTest {
 
     @Test
     void aRefusedApprovalPublishesNothing() {
-        when(contracts.approveVersion(VERSION, ACTOR.toString())).thenReturn("REFUSED_AUTHOR_IS_APPROVER");
+        when(contracts.approveVersion(VERSION, ACTOR.toString())).thenReturn("REFUSED_APPROVED");
 
         assertThatThrownBy(() -> service.approve(VERSION, ACTOR)).isInstanceOf(ConfigApiException.class);
         assertThat(audits()).isEmpty();

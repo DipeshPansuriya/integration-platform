@@ -52,14 +52,14 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * E5-F2-S1 (T-105) through the REAL running application and its real endpoints: versioned source and target contracts
- * imported from OpenAPI or JSON Schema, stored as rows side by side, approved only by someone other than the author,
+ * imported from OpenAPI or JSON Schema, stored as rows side by side, approved by an approver or tenant admin (the author may approve their own version: single-user workflow),
  * tenant-scoped, retired versions still readable (ADR-011 Decisions 2 and 3), each new endpoint gated by its
  * {@code RolePolicy} operation and declaring its real statuses. Container group (R03): PostgreSQL. The Keycloak-issued
  * tokens of users and sources of both tenants run the same endpoints in the forged-tenant suite (E5ContractMatrix).
  *
  * <pre>
  * Scenario: Two contract versions side by side
- * &#64;negative &#64;security Scenario: The author cannot approve their own contract version
+ * Scenario: The author may approve their own contract version (single-user self-approval)
  * &#64;negative Scenario: An invalid schema is refused
  * &#64;negative &#64;tenant Scenario: Contracts are tenant-scoped
  * </pre>
@@ -186,13 +186,11 @@ class E5ContractVersionsContainerTest {
         assertThat(versionCount(target)).isEqualTo("1");
     }
 
-    // ------------------------------------------------- @negative @security: the author cannot approve their own version
+    // ------------------------------------------------- the author may approve their own version (single-user workflow)
 
     @Test
-    @Tag("negative")
-    @Tag("security")
-    @DisplayName("@negative @security Scenario: The author cannot approve their own contract version; another approver can")
-    void theAuthorCannotApproveTheirOwnVersion(CapturedOutput output) throws Exception {
+    @DisplayName("Scenario: The author (a tenant admin) approves their own contract version; the audit names them")
+    void theAuthorMayApproveTheirOwnVersion(CapturedOutput output) throws Exception {
         String target = registerTargetSystem(port, tenantA, "tgt-own");
         // Given a contract version authored by user U (a tenant admin: the role lets U approve in general)
         String author = tenantA.subject("TENANT_ADMIN");
@@ -202,26 +200,16 @@ class E5ContractVersionsContainerTest {
         // When U approves it
         HttpResponse<String> own = approve(port, author, versionId);
 
-        // Then the approval is refused
-        assertThat(own.statusCode()).as(own.body()).isEqualTo(403);
-        assertThat(json(own).path("refusal").asString()).isEqualTo("AUTHOR_IS_APPROVER");
-        assertThat(scalar(POSTGRES, "SELECT status || '/' || coalesce(approver_id::text, '-') FROM contract_version"
-                + " WHERE id = ?::uuid", versionId)).isEqualTo("PENDING_APPROVAL/-");
-        assertThat(output.getAll().lines().filter(line -> line.contains("event=contract.version.approve")).toList())
-                .anySatisfy(line -> assertThat(line).contains("outcome=AUTHOR_IS_APPROVER",
-                        "tenant=" + tenantA.id(), "actor=" + tenantA.userId("TENANT_ADMIN"), "version=" + versionId));
-
-        // ... another approver can approve it
-        HttpResponse<String> other = approve(port, tenantA.subject("APPROVER"), versionId);
-        assertThat(other.statusCode()).as(other.body()).isEqualTo(200);
-        assertThat(json(other).path("status").asString()).isEqualTo("APPROVED");
+        // Then the approval succeeds and the version names U as its approver
+        assertThat(own.statusCode()).as(own.body()).isEqualTo(200);
+        assertThat(json(own).path("status").asString()).isEqualTo("APPROVED");
         assertThat(scalar(POSTGRES, "SELECT status || '/' || approver_id FROM contract_version WHERE id = ?::uuid",
-                versionId)).isEqualTo("APPROVED/" + tenantA.userId("APPROVER"));
+                versionId)).isEqualTo("APPROVED/" + tenantA.userId("TENANT_ADMIN"));
         assertThat(output.getAll().lines().filter(line -> line.contains("event=contract.version.approve")).toList())
                 .anySatisfy(line -> assertThat(line).contains("outcome=APPROVED",
-                        "actor=" + tenantA.userId("APPROVER"), "version=" + versionId));
+                        "tenant=" + tenantA.id(), "actor=" + tenantA.userId("TENANT_ADMIN"), "version=" + versionId));
 
-        // An approved version is immutable: approving it again is NOT_PENDING_APPROVAL
+        // An approved version is immutable: approving it again (by anyone) is NOT_PENDING_APPROVAL
         HttpResponse<String> twice = approve(port, tenantA.subject("APPROVER"), versionId);
         assertThat(twice.statusCode()).as(twice.body()).isEqualTo(409);
         assertThat(json(twice).path("refusal").asString()).isEqualTo("NOT_PENDING_APPROVAL");

@@ -29,7 +29,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * E16 F3 (design note tasks 2-5; Dipesh D2 and D4; Karan's changes 1, 2, 5, 6) against a real PostgreSQL: the migration
  * V2_4_1330 - the table and its CHECKs, the partial unique index, FORCE row-level security, no UPDATE or DELETE grant
  * for the app role, the backfill of existing {@code approvedTables} entries as PENDING_APPROVAL with the key stripped
- * from the settings, and the SECURITY DEFINER decision function (self-approval refused, state machine, target
+ * from the settings, and the SECURITY DEFINER decision function (self-approval allowed since V2_4_1420, state machine, target
  * fingerprint, actor from the session stamp, pinned search_path).
  *
  * <p>Authored by arjun-fullstack while the Docker lock was held elsewhere: NOT RUN when committed. The suite builds its
@@ -377,13 +377,24 @@ class ApprovedTableMigrationContainerTest {
     // ---------------------------------------------------------------------------------------------- task 4
 
     @Test
-    @DisplayName("D4: the requester can never approve their own request; another person can; the state machine holds")
+    @DisplayName("V2_4_1420: the requester may approve their own request (the four-eyes CHECK and branch are gone)")
+    void theRequesterMayApproveTheirOwnRequest() throws Exception {
+        String id = request(tenantA, dbSystemA, "self_check", requester);
+
+        assertThat(decide(tenantA, requester, id, "APPROVE")).isEqualTo("APPROVED");
+        assertThat(scalar("select status || '/' || decided_by from public.db_target_approved_table where id = ?::uuid",
+                id)).isEqualTo("APPROVED/" + requester);
+        assertThat(scalar("select count(*) from pg_constraint where conname = 'db_target_approved_table_four_eyes'"))
+                .as("the four-eyes CHECK is dropped").isEqualTo("0");
+        assertThat(decide(tenantA, requester, id, "APPROVE")).as("an approved row is not pending")
+                .isEqualTo("REFUSED_APPROVED");
+    }
+
+    @Test
+    @DisplayName("The state machine holds: pending is not revocable, approve once, revoke once, a revoked row stays revoked")
     void theDecisionFunction() throws Exception {
         String id = request(tenantA, dbSystemA, "func_check", requester);
 
-        assertThat(decide(tenantA, requester, id, "APPROVE")).isEqualTo("REFUSED_SELF_APPROVAL");
-        assertThat(scalar("select status from public.db_target_approved_table where id = ?::uuid", id))
-                .isEqualTo("PENDING_APPROVAL");
         assertThat(decide(tenantA, approver, id, "REVOKE")).as("a pending row is not revocable")
                 .isEqualTo("REFUSED_PENDING_APPROVAL");
         assertThat(decide(tenantA, approver, id, "APPROVE")).isEqualTo("APPROVED");

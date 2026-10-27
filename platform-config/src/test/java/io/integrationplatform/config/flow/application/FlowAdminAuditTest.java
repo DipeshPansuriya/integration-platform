@@ -147,9 +147,9 @@ class FlowAdminAuditTest {
     @Test
     void aRefusedApprovalPublishesNoAuditEvent() {
         aFlowWithLatest(new VersionInfo(V2, 2, "PENDING_APPROVAL", "$.id", SNAPSHOT, null, "SRC"));
-        when(flows.approveVersion(V2, ACTOR.toString())).thenReturn("REFUSED_AUTHOR_IS_APPROVER");
+        when(flows.approveVersion(V2, ACTOR.toString())).thenReturn("REFUSED_APPROVED");
 
-        assertThat(service.approve(FLOW, ACTOR).httpStatus()).isEqualTo(403);
+        assertThat(service.approve(FLOW, ACTOR).httpStatus()).isEqualTo(409);
         assertThat(audits()).as("the refusal is the database's record (config_version_refusal), not an action")
                 .isEmpty();
     }

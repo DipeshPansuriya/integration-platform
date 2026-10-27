@@ -1,5 +1,6 @@
 // lane qa-f3-approved-tables (2026-10-22) - E16-F3 "approved tables": a tenant's DB table is usable by a DB route
-// only after a DIFFERENT tenant approver approved the request (four-eyes), and nothing of it crosses tenants.
+// only after a tenant approver or admin approved the request (the requester may approve their own: single-user
+// workflow, V2_4_1420), and nothing of it crosses tenants.
 // Merged on main as c95fa254 (feature commits 8036f74e, ca502edd, 98b8a891, 980d1c8a, d0cf84ec); the codes asserted
 // here are read from ApprovedTableAdminController / ApprovedTableService / DbTablePublishListener / DbTestConnection
 // (see lib/approved-tables.mjs) - none is invented. Real API only, through the real console proxy; the only UI
@@ -10,7 +11,7 @@
 // Scenarios (serial; one booted app):
 //   1 setup A     DB system + approved DB target contract + a flow to it, drawn, submitted, approved
 //   2 publish     refused 400 "not approved ... f3-db-a.f3_orders" with NO request; again while PENDING_APPROVAL
-//   3 author      the requester approving their own request -> 403 REQUESTER_IS_APPROVER; row stays PENDING_APPROVAL
+//   3 (retired)   was: the requester approving their own request -> 403; inverted as test 11 (own approval is 200)
 //   4 tenant B    cannot list / request / approve A's table (404); A's list carries nothing of B
 //   5 approve     a different approver approves -> APPROVED (decidedBy != requestedBy); re-approve 409 NOT_PENDING_APPROVAL
 //   6 publish     the same publish now passes (table approved + column check against the approved contract)
@@ -113,16 +114,6 @@ test('2 a DB route cannot publish until its table is approved: refused with no r
   expect(publishRefusalProblems(pending, DB_SYSTEM.A), `still refused while ${STATUS.pending}: ${JSON.stringify(pending)}`).toEqual([]);
 });
 
-test('3 the author cannot approve their own request: 403 REQUESTER_IS_APPROVER, the row stays PENDING_APPROVAL', async ({ page }) => {
-  await open(page);
-  const own = await api(page, TENANTS.A, 'admin', 'POST', approvedTablesPath(ctx.A.systemId, ctx.A.rowId, 'approve'));
-  expect(own.status, JSON.stringify(own.data)).toBe(403);
-  expect(refusalOf(own)).toBe(REFUSAL.selfApproval);
-  const rows = await listOf(page, TENANTS.A, 'admin', ctx.A.systemId);
-  expect(rows).toHaveLength(1);
-  expect(rows[0]).toMatchObject({ id: ctx.A.rowId, status: STATUS.pending, decidedBy: null });
-});
-
 test('4 tenant B cannot list, request or approve tenant A\'s table; A\'s list carries nothing of B', async ({ page }) => {
   ctx.B = await setupDbFlow(page, TENANTS.B);
   const bRequest = await api(page, TENANTS.B, 'admin', 'POST', approvedTablesPath(ctx.B.systemId), { table: DB_TABLE });
@@ -214,4 +205,19 @@ test.fixme('10 the privilege probe refuses a DB system with no stored credential
   await open(page);
   const probe = must(await api(page, TENANTS.A, 'admin', 'POST', `/api/v1/admin/systems/${ctx.A.systemId}/test-connection`), 'A: test-connection');
   expect(probe).toMatchObject({ result: 'FAILED', reason: 'NO_CREDENTIAL' });
+});
+
+// 11 Single-user workflow (V2_4_1420): the tenant admin who requested a table approves it themselves - 200 APPROVED,
+// decidedBy == requestedBy (was 403 REQUESTER_IS_APPROVER). Runs last: it adds a row to A's list, which tests 4-8 assert exactly.
+test('11 the requester approves their own request: 200 APPROVED, decided by the requester; a second approve is 409 NOT_PENDING_APPROVAL', async ({ page }) => {
+  await open(page);
+  const requested = await api(page, TENANTS.A, 'admin', 'POST', approvedTablesPath(ctx.A.systemId), { table: 'f3_self_approved' });
+  expect(requested.status, JSON.stringify(requested.data)).toBe(201);
+  const own = await api(page, TENANTS.A, 'admin', 'POST', approvedTablesPath(ctx.A.systemId, requested.data.id, 'approve'));
+  expect(own.status, JSON.stringify(own.data)).toBe(200);
+  expect(own.data).toMatchObject({ id: requested.data.id, status: STATUS.approved });
+  expect(own.data.decidedBy, 'decided by the same person who requested it').toBe(own.data.requestedBy);
+  const again = await api(page, TENANTS.A, 'admin', 'POST', approvedTablesPath(ctx.A.systemId, requested.data.id, 'approve'));
+  expect(again.status).toBe(409);
+  expect(refusalOf(again)).toBe(REFUSAL.notPending);
 });
