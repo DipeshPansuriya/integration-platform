@@ -319,7 +319,7 @@ test('J7 a dead letter replayed from the console after the target is fixed: the 
     expect(sends[1].body, 'the replay sends the contract-translated body').toEqual(expectedTargetBody(record));
 
     await page.goto(`${bsEnv('consoleUrl')}/#/messages/${trackingId}`);
-    await expect(page.locator('[data-message-state]')).toHaveText('DELIVERED');
+    await expect(page.locator('[data-message-state]')).toHaveAttribute('data-state-raw', 'DELIVERED');
   } finally {
     await setStub(TENANTS.A.stubPath, 200); // no journey leaves a 403 behind
   }

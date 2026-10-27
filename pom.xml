@@ -31,6 +31,8 @@
     <!-- E7||E8 seam (arjun-fullstack, F5): platform-transform registered EMPTY (skeleton + api only). Lane A's spike
          (T-030..T-032) uses it test scope only; lane B1's port (T-108) fills src/main inside its own diff. -->
     <module>platform-transform</module>
+    <!-- E14 seam (arjun-fullstack): scheduler run-recording module. -->
+    <module>platform-scheduler</module>
     <!-- E12 seam (arjun-fullstack): low-conflict contract surface for logging and activity tracking. -->
     <module>platform-audit</module>
     <!-- E13 seam (arjun-fullstack): low-conflict contract surface for tracking and report reads. -->
@@ -200,6 +202,12 @@
       <dependency>
         <groupId>io.integrationplatform</groupId>
         <artifactId>platform-tracking</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <!-- E14 seam (arjun-fullstack): scheduler run-recording contract module. -->
+      <dependency>
+        <groupId>io.integrationplatform</groupId>
+        <artifactId>platform-scheduler</artifactId>
         <version>${project.version}</version>
       </dependency>
       <!-- E3 seam: OpenAPI document generation for the UI's typed client (T-158) and the contract test (T-094). -->

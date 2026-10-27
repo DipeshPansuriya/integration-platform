@@ -8,13 +8,16 @@ export const ON_MAIN = Object.freeze({
   T121: true, T143: true, T144: true, T157: true
 });
 
-/** null when every item is on main; otherwise the reason string for test.fixme. */
-export function waitsOn(...items) {
+/** The pure gate over any map (the unit test feeds it a synthetic one, so a broken gate can fail). */
+export function waitsOnIn(map, ...items) {
   if (items.length === 0) throw new Error('waitsOn: name at least one item');
-  const unknown = items.filter((item) => !(item in ON_MAIN));
+  const unknown = items.filter((item) => !(item in map));
   if (unknown.length) throw new Error(`waitsOn: unknown item(s) ${unknown.join(', ')}`);
-  const missing = items.filter((item) => !ON_MAIN[item]);
+  const missing = items.filter((item) => !map[item]);
   return missing.length
     ? `waits on ${missing.join(', ')} (not on main) - flip ON_MAIN.${missing[0]} here and in Release1Pending.java`
     : null;
 }
+
+/** null when every item is on main; otherwise the reason string for test.fixme. */
+export const waitsOn = (...items) => waitsOnIn(ON_MAIN, ...items);

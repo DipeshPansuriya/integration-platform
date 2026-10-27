@@ -3,8 +3,13 @@ package io.integrationplatform.config.flow.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -18,6 +23,25 @@ class MaskedFieldsTest {
 
     private static JsonNode json(String text) {
         return JSON.readTree(text);
+    }
+
+    @Test
+    void registryEvictionAboveTheBoundIsLoggedNotSilent() {
+        Logger log = (Logger) LoggerFactory.getLogger(MaskedFields.class);
+        ListAppender<ILoggingEvent> logged = new ListAppender<>();
+        logged.start();
+        log.addAppender(logged);
+        try {
+            for (int i = 0; i < 10_250; i++) {
+                MaskedFields.register(List.of("EVICTION-PROBE-" + i));
+            }
+        } finally {
+            log.detachAppender(logged);
+        }
+        List<ILoggingEvent> warns = logged.list.stream().filter(e -> e.getLevel() == Level.WARN).toList();
+        assertThat(warns).as("row 323 B25: eviction past the 10,000-entry bound logs the first and every 100th")
+                .hasSizeGreaterThanOrEqualTo(2);
+        assertThat(warns.get(0).getFormattedMessage()).contains("evicted");
     }
 
     @Test

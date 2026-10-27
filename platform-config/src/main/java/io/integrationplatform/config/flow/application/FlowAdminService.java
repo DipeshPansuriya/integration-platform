@@ -79,7 +79,7 @@ public class FlowAdminService {
         }
         List<String> endpointIds = resolveDestinations(destinations);
 
-        String code = "flow-" + UUID.randomUUID();
+        String code = typedCode(body, "flow-" + UUID.randomUUID()); // B26: the typed code is what intake resolves
         String name = nameFromBody(body, code); // F-1: the typed interface name is born on the flow; no name -> the code
         String interfaceId = flows.insertInterface(code, name, ordering);
         InterfaceRow created = new InterfaceRow(interfaceId, code, name, ordering, "DRAFT");
@@ -366,6 +366,13 @@ public class FlowAdminService {
         JsonNode node = body == null ? null : body.path("name");
         String text = node == null || node.isMissingNode() || node.isNull() ? null : node.asString();
         // A blank or whitespace-only name carries nothing a configurator typed: fall back, don't store "".
+        return text == null || text.isBlank() ? fallback : text.trim();
+    }
+
+    /** The typed interface code, or the mint when the body names none (B26). Uniqueness is the database's (V2_2_3). */
+    private static String typedCode(JsonNode body, String fallback) {
+        JsonNode node = body == null ? null : body.path("code");
+        String text = node == null || node.isMissingNode() || node.isNull() ? null : node.asString();
         return text == null || text.isBlank() ? fallback : text.trim();
     }
 

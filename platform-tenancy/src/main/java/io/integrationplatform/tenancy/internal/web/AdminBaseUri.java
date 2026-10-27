@@ -5,7 +5,6 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.UnknownHostException;
 import java.util.regex.Pattern;
 
 /**
@@ -99,9 +98,9 @@ final class AdminBaseUri {
         String h = unbracket(host);
         if (h.indexOf(':') >= 0) {
             try {
-                // a literal (it contains ':'), so no lookup is made
-                return privateAddress(InetAddress.getByName(h));
-            } catch (UnknownHostException notLiteral) {
+                // ofLiteral parses an address literal only and never queries DNS (it refuses a name)
+                return privateAddress(InetAddress.ofLiteral(h));
+            } catch (IllegalArgumentException notLiteral) {
                 return false;
             }
         }
