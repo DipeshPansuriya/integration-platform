@@ -30,7 +30,7 @@ if [ "$DRY_RUN" = 1 ]; then
   echo "ensure client $KC_CLIENT_ID (confidential, service account, client credentials only; created with KC_NEW_CLIENT_SECRET or a silent prompt, rotated only with --rotate),"
   echo "reconcile its service-account roles to platform-realm: manage-clients manage-realm manage-users view-clients view-realm view-users"
   [ "$WITH_MASTER_USERS" = 1 ] && echo "plus master-realm: manage-users view-users (retire-bootstrap-admin)" || echo "and NO master-realm role (add them only with --with-master-users)"
-  echo "then prove a new secret by a client-credentials login and a call into realm platform, and truncate the kcadm token"
+  echo "then prove a new secret by a client-credentials login and a call into realm platform, and delete the kcadm token file"
   exit 0
 fi
 prompt() { # NAME LABEL silent

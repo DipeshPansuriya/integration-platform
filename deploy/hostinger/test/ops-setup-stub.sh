@@ -19,7 +19,8 @@ disp() { case "$1" in auth-username-password-form) echo "Username Password Form"
 level_of() { [ "$1" = ops-browser ] && echo -1 || awk -F'|' -v a="$1" '$3==a{print $6; exit}' "$S/execs"; }   # row: parent|id|name|provider|req|level|cfg
 n=$(( $(cat "$S/counter" 2>/dev/null || echo 0) + 1 )); echo $n > "$S/counter"
 case "$verb $path" in
- "config credentials"|"config truncate") exit 0;;
+ "config credentials") exit 0;;
+ "config truncate") echo "Unmatched argument at index 1: 'truncate'" >&2; exit 2;;   # the real 26.8.1 has no such sub-command (B1)
  "get roles") [ -s "$S/roles" ] && cat "$S/roles"; exit 0;;
  "get roles/ops-operator") echo "r-1"; exit 0;;
  "create roles") echo ops-operator > "$S/roles"; exit 0;;
@@ -81,7 +82,7 @@ echo "awk is not in the keycloak container" >&2; exit 127
 # the admin-password login is the explicit fallback (KC_AUTH=password). RUN_ENV adds/overrides variables for one scenario.
 RUN_ENV=()
 run() { # scenario-dir -> runs the real script against the stub; sets RC and OUT
-  S="$1"; OUT="$(env -u KC_ADMIN_USERNAME -u KC_ADMIN_PASSWORD -u KC_AUTH -u KC_CLIENT_ID PATH="$T/noawk:$PATH" STUB_DIR="$S" KCADM="$T/kcadm" IPASS_DOMAIN=example.test KC_CLIENT_SECRET=cs OPS_KAFBAT_CLIENT_SECRET=s "${RUN_ENV[@]}" bash "$SCRIPT" 2>&1)"; RC=$?; }
+  S="$1"; mkdir -p "$S/.keycloak"; echo "token-and-secret" > "$S/.keycloak/kcadm.config"; OUT="$(env -u KC_ADMIN_USERNAME -u KC_ADMIN_PASSWORD -u KC_AUTH -u KC_CLIENT_ID PATH="$T/noawk:$PATH" HOME="$S" STUB_DIR="$S" KCADM="$T/kcadm" IPASS_DOMAIN=example.test KC_CLIENT_SECRET=cs OPS_KAFBAT_CLIENT_SECRET=s "${RUN_ENV[@]}" bash "$SCRIPT" 2>&1)"; RC=$?; }
 mk() { rm -rf "$T/$1"; mkdir -p "$T/$1"; : > "$T/$1/calls"; echo "$T/$1"; }
 
 # 1. fresh realm
@@ -135,7 +136,7 @@ S7="$(mk loginclient)"; run "$S7"
 l="$(grep '^config credentials' "$S7/calls" | head -1)"
 [ $RC -eq 0 ] && grep -q -- "--client ipass-kcadm" <<<"$l" && grep -q -- "--secret" <<<"$l" && ! grep -q -- "--user\|--password" <<<"$l" && ok "login: default is the client ipass-kcadm with a secret, no --user/--password" || bad "login default (rc=$RC): $l"
 ! grep -qE "(^| )cs( |$)" <<<"$OUT" && ok "login: the client secret is not printed" || bad "client secret in output"
-tail -1 "$S7/calls" | grep -q "config truncate" && ok "login: the kcadm token (and stored secret) is truncated at exit" || bad "login: no config truncate at exit"
+[ ! -e "$S7/.keycloak/kcadm.config" ] && ! grep -q "config truncate" "$S7/calls" && ok "login: the kcadm token (and stored secret) is removed at exit (config file deleted)" || bad "login: kcadm config file left behind or config truncate used"
 S8="$(mk loginid)"; RUN_ENV=(KC_CLIENT_ID=my-client); run "$S8"; RUN_ENV=()
 grep -q -- "--client my-client" "$S8/calls" && ok "login: KC_CLIENT_ID overrides the client id" || bad "login: client id override"
 S9="$(mk loginpw)"; RUN_ENV=(KC_AUTH=password KC_ADMIN_USERNAME=u KC_ADMIN_PASSWORD=p); run "$S9"; RUN_ENV=()

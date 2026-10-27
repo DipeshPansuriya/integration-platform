@@ -20,19 +20,24 @@ BOOT_FILE="${IPASS_BOOTSTRAP_ADMIN_FILE:-.env.bootstrap-admin}"
 K=/opt/keycloak/bin/kcadm.sh
 kc_auth_check
 : "${KC_ADMIN_USER:?set KC_ADMIN_USER to the named admin that replaces $BOOT_USER (lock-out guard)}"
-[ "$KC_ADMIN_USER" != "$BOOT_USER" ] || { echo "KC_ADMIN_USER must be a different user than $BOOT_USER" >&2; exit 2; }
+# Keycloak lower-cases user names, so Bootstrap-Admin IS bootstrap-admin (proof, N1)
+[ "$(printf '%s' "$KC_ADMIN_USER" | tr 'A-Z' 'a-z')" != "$BOOT_USER" ] || { echo "KC_ADMIN_USER must be a different user than $BOOT_USER" >&2; exit 2; }
 if [ "${DRY_RUN:-0}" = 1 ]; then
   if [ "$KC_AUTH" = client ]; then who="client $KC_CLIENT_ID (secret from KC_CLIENT_SECRET or a silent prompt)"; else who="$KC_ADMIN_USER (password prompted by kcadm)"; fi
   echo "login to master as $who; check that $KC_ADMIN_USER exists, is enabled and has the admin role; delete user $BOOT_USER from realm master; rm $BOOT_FILE; $COMPOSE up -d --no-deps --force-recreate keycloak"
   exit 0
 fi
 kc_login
-# lock-out guard: exact username match (a plain username= query is a substring search), enabled, and the admin role
-named="$($COMPOSE exec -T keycloak $K get users -r master -q "username=$KC_ADMIN_USER" -q exact=true --fields id,enabled --format csv --noquotes | tr -d '\r' | head -1)"
+# lock-out guard: exact username match (a plain username= query is a substring search), enabled, and the admin role.
+# kcadm output is captured FIRST so a failing call (HTTP 403 without the master roles) stops the run for the right reason (proof, 403 test).
+kcq() { _o="$($COMPOSE exec -T keycloak $K "$@")" || { echo "cannot read realm master ($*): does $KC_CLIENT_ID hold the master-realm roles manage-users and view-users? (keycloak/kcadm-client-setup.sh --with-master-users); nothing was deleted" >&2; exit 1; }; printf '%s\n' "$_o" | tr -d '\r'; }
+out="$(kcq get users -r master -q "username=$KC_ADMIN_USER" -q exact=true --fields id,enabled --format csv --noquotes)" || exit 1
+named="$(printf '%s\n' "$out" | head -1)"
 case "$named" in ?*,true) ;; ?*,*) echo "named admin $KC_ADMIN_USER is disabled: refusing to delete $BOOT_USER" >&2; exit 1;; *) echo "named admin $KC_ADMIN_USER not found in realm master: refusing to delete $BOOT_USER (it would lock everyone out)" >&2; exit 1;; esac
-roles="$($COMPOSE exec -T keycloak $K get-roles -r master --uusername "$KC_ADMIN_USER" --effective --fields name --format csv --noquotes | tr -d '\r')"
+roles="$(kcq get-roles -r master --uusername "$KC_ADMIN_USER" --effective --fields name --format csv --noquotes)" || exit 1
 printf '%s\n' "$roles" | grep -qx 'admin' || { echo "named admin $KC_ADMIN_USER does not hold the admin role: refusing to delete $BOOT_USER" >&2; exit 1; }
-id="$($COMPOSE exec -T keycloak $K get users -r master -q "username=$BOOT_USER" -q exact=true --fields id --format csv --noquotes | tr -d '\r' | head -1)"
+out="$(kcq get users -r master -q "username=$BOOT_USER" -q exact=true --fields id --format csv --noquotes)" || exit 1
+id="$(printf '%s\n' "$out" | head -1)"
 if [ -n "$id" ]; then $COMPOSE exec -T keycloak $K delete "users/$id" -r master; echo "deleted $BOOT_USER"; else echo "$BOOT_USER not present"; fi
 kc_logout; trap - EXIT
 rm -f "$BOOT_FILE"

@@ -17,6 +17,7 @@ case "$*" in *"-e KC_CLIENT_SECRET"*) echo "ENVSECRET: ${KC_CLIENT_SECRET:-unset
 case "$*" in *"-e KC_NEW_CLIENT_SECRET"*) echo "ENVNEW: new=${KC_NEW_CLIENT_SECRET:-unset} pw=${KC_ADMIN_PASSWORD:-unset} rotate=${ROTATE:-} master=${WITH_MASTER_USERS:-} client=${KC_CLIENT_ID:-}" >> "$FAKE_LOG"; echo "STDIN-BYTES: $(wc -c)" >> "$FAKE_LOG"; exit 0;; esac
 case "$*" in
   *KC_BOOTSTRAP_ADMIN_PASSWORD*"-n"*|*'[ -n'*) [ "${FAKE_BOOTSTRAP:-0}" = 1 ]; exit $?;;
+  *"get users"*) [ "${FAKE_FAIL_USERS:-0}" = 1 ] && { echo "HTTP 403 Forbidden" >&2; exit 1; }; case "$*" in *"username=bootstrap-admin"*) echo "${FAKE_USER_ID:-}"; exit 0;; *) echo "${FAKE_NAMED:-}"; exit 0;; esac;;
   *"get users"*"username=bootstrap-admin"*) echo "${FAKE_USER_ID:-}"; exit 0;;
   *"get users"*) echo "${FAKE_NAMED:-}"; exit 0;;
   *"get-roles"*) echo "${FAKE_NAMED_ROLES:-admin}"; exit 0;;
@@ -37,7 +38,9 @@ not_in_argv() { ! grep '^ARGS:' "$T/log" | grep -qF -- "$SECRET"; }
 no_leak() { ! grep -qF -- "$SECRET" <<<"$OUT" && ! grep -qF -- "$SECRET" "$T/rot.log" 2>/dev/null; }
 clientlogin() { grep '^ARGS:' "$T/log" | grep -q -- 'config credentials.*--realm master.*--client' && grep '^ARGS:' "$T/log" | grep -q -- '--secret'; }
 nopwlogin() { ! grep '^ARGS:' "$T/log" | grep -q -- 'config credentials.*--user'; }
-truncated() { grep '^ARGS:' "$T/log" | grep -q 'config truncate'; }
+# B1 (proof, Keycloak 26.8.1): `kcadm.sh config truncate` does not exist (config knows only credentials and truststore), so the token
+# and the stored client secret are removed by deleting the config file in the container instead; "config truncate" must not be used.
+truncated() { grep '^ARGS:' "$T/log" | grep -q 'rm -f .*kcadm.config' && ! grep '^ARGS:' "$T/log" | grep -q 'config truncate'; }
 CS="KC_CLIENT_SECRET=$SECRET"
 
 # --- retire-bootstrap-admin.sh
@@ -121,7 +124,7 @@ run l7b "$CS" ENV_FILE="$T/.env.l7" -- bash keycloak/ops-setup.sh
 grep -q "^OPS_KAFBAT_CLIENT_SECRET=." "$T/.env.l7" && ok "L7: with the secret, the generated value is still written" || bad "L7: not generated (rc=$RC) $OUT"
 
 # --- L4: the terminal is restored if the secret prompt is interrupted
-grep -q "trap .*stty" keycloak/kc-login.sh && ok "L4: kc-login.sh restores the terminal settings from a trap" || bad "L4: no stty trap in kc-login.sh"
+grep -q "trap .*stty" "$HERE/keycloak/kc-login.sh" && ok "L4: kc-login.sh restores the terminal settings from a trap" || bad "L4: no stty trap in kc-login.sh"
 
 # --- L8: the host wrapper kcadm-client-setup.sh
 AEV=(KC_ADMIN_USERNAME=adm KC_ADMIN_PASSWORD=ADMPW-marker-77 KC_NEW_CLIENT_SECRET=NEWSEC-marker-0123456789abcdefABCDEF)
@@ -141,5 +144,12 @@ run w6 "${AEV[@]}" FAKE_FAIL=1 -- bash keycloak/kcadm-client-setup.sh
 [ $RC -ne 0 ] && ! grep -q "store the client secret" <<<"$OUT" && leak_w && ok "wrapper: a failing container run fails the wrapper (no success line)" || bad "wrapper w6 (rc=$RC) $OUT"
 run w7 DRY_RUN=1 -- bash keycloak/kcadm-client-setup.sh --with-master-users
 [ $RC -eq 0 ] && [ ! -s "$T/log" ] && grep -q "ipass-kcadm" <<<"$OUT" && grep -q "master-realm: manage-users view-users" <<<"$OUT" && ok "wrapper: dry run calls nothing and names the roles" || bad "wrapper w7 (rc=$RC) $OUT"
+
+# --- proof findings (Keycloak 26.8.1): N1 Keycloak lower-cases user names, so the bootstrap-admin comparison must too;
+# a failing user lookup (403 without the master roles) must be reported as such, not as "named admin not found"
+run n1 "$CS" KC_ADMIN_USER=Bootstrap-Admin FAKE_USER_ID=u-1 -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -ne 0 ] && [ ! -s "$T/log" ] && ok "retire N1: Bootstrap-Admin (any case) is refused as the named admin, before any login" || bad "retire N1 (rc=$RC) $OUT"
+run p403 "$CS" KC_ADMIN_USER=alice FAKE_USER_ID=u-1 FAKE_FAIL_USERS=1 -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -ne 0 ] && ! grep -q 'delete users' "$T/log" && ! grep -q 'force-recreate' "$T/log" && grep -qi "master-realm" <<<"$OUT" && ! grep -qi "not found in realm" <<<"$OUT" && ok "retire 403: a failed lookup says the master roles are missing (not 'admin not found'), nothing deleted" || bad "retire 403 message (rc=$RC) $OUT"
 
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"; exit $fail

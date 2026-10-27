@@ -21,7 +21,7 @@ ID="${KC_CLIENT_ID:-ipass-kcadm}"
 NEWSEC="${KC_NEW_CLIENT_SECRET:-}"
 SRV="${KC_SERVER:-http://localhost:8080}"
 SA="service-account-$ID"
-trap '"$K" config truncate >/dev/null 2>&1 || true' EXIT
+trap 'rm -f "${HOME:-/opt/keycloak}/.keycloak/kcadm.config"' EXIT   # kcadm 26.8.1 has no `config truncate`: delete the config file (token, stored secret)
 crlf() { tr -d '\r'; }
 list() { local o; o="$("$K" "$@")" || return 1; printf '%s\n' "$o" | crlf; }
 PLATFORM_ROLES="manage-clients manage-realm manage-users view-clients view-realm view-users"
@@ -82,7 +82,7 @@ if [ "$SET_SECRET" = 0 ] && [ "$CHANGED" = 0 ]; then echo "roles unchanged"; fi
 if [ "$SET_SECRET" = 0 ] && [ "$CHANGED" = 1 ]; then echo "roles reconciled"; fi
 
 if [ "$SET_SECRET" = 1 ]; then   # prove the new secret end to end: a client-credentials login, then a call into realm platform
-  "$K" config truncate >/dev/null 2>&1 || true
+  rm -f "${HOME:-/opt/keycloak}/.keycloak/kcadm.config"
   "$K" config credentials --server "$SRV" --realm master --client "$ID" --secret "$NEWSEC" >/dev/null || { echo "the new client secret does NOT log in" >&2; exit 1; }
   "$K" get realms/platform --fields realm >/dev/null || { echo "client login works but realm platform is not readable (roles?)" >&2; exit 1; }
   echo "verified: client-credentials login works and realm platform is readable"

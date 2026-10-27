@@ -17,7 +17,7 @@ case "$KC_AUTH" in
   password) : "${KC_ADMIN_USERNAME:?}" "${KC_ADMIN_PASSWORD:?}";;
   *) echo "KC_AUTH must be client or password (got '$KC_AUTH')" >&2; exit 2;;
 esac
-trap '"$K" config truncate >/dev/null 2>&1 || true' EXIT   # no token (and no stored client secret) left in the container's writable layer
+trap 'rm -f "${HOME:-/opt/keycloak}/.keycloak/kcadm.config"' EXIT   # no token (and no stored client secret) left in the container's writable layer (kcadm 26.8.1 has no `config truncate`)
 if [ "$KC_AUTH" = client ]; then
   "$K" config credentials --server "${KC_SERVER:-http://localhost:8080}" --realm master --client "$KC_CLIENT_ID" --secret "$KC_CLIENT_SECRET" >/dev/null
 else

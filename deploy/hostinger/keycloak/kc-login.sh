@@ -63,5 +63,7 @@ kc_login() {
   trap 'kc_logout' EXIT
 }
 
-# kc_logout : removes the token (and, in client mode, the stored client secret) kcadm keeps in the container's writable layer.
-kc_logout() { ${COMPOSE:-docker compose} exec -T keycloak "${KCADM:-/opt/keycloak/bin/kcadm.sh}" config truncate >/dev/null 2>&1 || true; }
+# kc_logout : removes the token (and, in client mode, the stored client secret) kcadm keeps in the container's writable layer. Row 543
+# proof (Keycloak 26.8.1): `kcadm.sh config truncate` does not exist (config knows only credentials and truststore), so the config file
+# itself is deleted. One run at a time: concurrent scripts share this one file.
+kc_logout() { ${COMPOSE:-docker compose} exec -T keycloak sh -c 'rm -f "${HOME:-/opt/keycloak}/.keycloak/kcadm.config"' >/dev/null 2>&1 || true; }

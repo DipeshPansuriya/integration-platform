@@ -23,7 +23,7 @@ case "$verb" in
  config)
    case "$path" in
      credentials) case "$all" in *--client*) sec="${all##*--secret }"; sec="${sec%% *}"; { [ -s "$S/secret" ] && [ "$sec" = "$(cat "$S/secret")" ]; } || { echo "invalid_client" >&2; exit 1; };; esac; exit 0;;
-     truncate) exit 0;;
+     truncate) echo "Unmatched argument at index 1: 'truncate'" >&2; exit 2;;   # the real 26.8.1 has no such sub-command (B1)
    esac;;
  get)
    case "$path" in
@@ -51,7 +51,7 @@ STUB
 chmod +x "$T/kcadm"
 mk() { rm -rf "$T/$1"; mkdir -p "$T/$1"; : > "$T/$1/calls"; echo "$T/$1"; }
 RUN_ENV=(X_UNUSED=1)
-run() { S="$1"; OUT="$(env -u KC_CLIENT_ID -u ROTATE -u WITH_MASTER_USERS PATH="$PATH" STUB_DIR="$S" KCADM="$T/kcadm" KC_ADMIN_USERNAME=adm KC_ADMIN_PASSWORD=pw KC_NEW_CLIENT_SECRET=newsecret-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "${RUN_ENV[@]}" bash "$SCRIPT" 2>&1)"; RC=$?; }
+run() { S="$1"; mkdir -p "$S/.keycloak"; echo "token-and-secret" > "$S/.keycloak/kcadm.config"; OUT="$(env -u KC_CLIENT_ID -u ROTATE -u WITH_MASTER_USERS PATH="$PATH" HOME="$S" STUB_DIR="$S" KCADM="$T/kcadm" KC_ADMIN_USERNAME=adm KC_ADMIN_PASSWORD=pw KC_NEW_CLIENT_SECRET=newsecret-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "${RUN_ENV[@]}" bash "$SCRIPT" 2>&1)"; RC=$?; }
 PLATFORM="manage-clients manage-realm manage-users view-clients view-realm view-users"
 NOSECRET=(KC_NEW_CLIENT_SECRET=)
 
@@ -66,7 +66,7 @@ got="$(sort "$S1/roles-platform-realm" 2>/dev/null | xargs)"; [ "$got" = "$PLATF
 [ ! -s "$S1/roles-master-realm" ] && ok "fresh: no master-realm role without the flag (least privilege)" || bad "fresh: master roles granted by default"
 grep -q "^config credentials.*--client ipass-kcadm --secret newsecret" "$S1/calls" && ok "fresh: the new secret is verified by a real client-credentials login" || bad "fresh: no verification login"
 grep -q "^get realms/platform" "$S1/calls" && ok "fresh: and a realm call with it (platform)" || bad "fresh: no verification call"
-tail -1 "$S1/calls" | grep -q "config truncate" && ok "fresh: the kcadm token is truncated at exit" || bad "fresh: no truncate"
+[ ! -e "$S1/.keycloak/kcadm.config" ] && ! grep -q "config truncate" "$S1/calls" && ok "fresh: the kcadm token and stored secret are removed at exit (config file deleted; no 'config truncate', it does not exist in 26.8.1)" || bad "fresh: kcadm config file still there / config truncate used"
 ! grep -q "newsecret" <<<"$OUT" && ok "fresh: the secret is not printed" || bad "fresh: secret in output"
 ! grep -qE "create users|set-password|realm-admin" "$S1/calls" && ok "fresh: no user is created and the all-powerful realm-admin role is never used" || bad "fresh: user or realm-admin"
 
