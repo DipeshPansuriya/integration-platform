@@ -21,7 +21,7 @@ When this file and a document disagree, the document wins.
 
 ## Stack
 
-- **Java 25**, **Spring Boot** 4.1.1, Maven (use the wrapper `./mvnw`).
+- **Java 25**, **Spring Boot** 4.1.2, Maven (use the wrapper `./mvnw`).
 - **Apache Camel** 4.22.1 - only in `platform-routing` (R12, ADR-010).
 - **Apache Kafka** client 4.3.1 - exactly one kafka-clients version, no spring-kafka (R12, ADR-005).
 - **PostgreSQL 17**, schema owned by Flyway (ADR-002).
