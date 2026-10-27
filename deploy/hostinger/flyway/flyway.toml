@@ -14,3 +14,4 @@ validateOnMigrate = true
 # and roll back (T204); same default as the app's init-sqls.
 [environments.default]
 initSql = "SET lock_timeout = '5s'"
+# migrate.sh overrides it per run with -initSql from IPAAS_FLYWAY_LOCK_TIMEOUT (the app's variable); this is the default for a bare run of the image.

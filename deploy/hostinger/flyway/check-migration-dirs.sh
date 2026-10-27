@@ -7,7 +7,9 @@
 # duplicate would overwrite another file without a word).
 # Usage:  sh deploy/hostinger/flyway/check-migration-dirs.sh [repo-root] [dockerfile]
 #         (defaults: the repository this script is in, flyway/Dockerfile next to it)
-# Run it before every `docker build` of the Flyway image; deploy/hostinger/test/test-scripts.sh runs it on the real tree.
+# Run it before every `docker build` of the Flyway image; deploy/hostinger/test/test-flyway.sh runs it on the real tree.
+# It also fails on anything in a migration folder that is not a plain V*.sql / R*.sql file (a sub-folder or another suffix
+# would be loaded by the app but dropped from the image). COPY flags (--chown=...) are accepted.
 # Exit 0 = OK, 1 = a problem (listed), 2 = bad usage. Reads only; prints paths and versions, never file contents.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -24,7 +26,7 @@ fail=0
 find "$ROOT" \( -name node_modules -o -name target -o -name .git \) -prune -o -type d -path '*/src/main/resources/db/migration' -print \
   | sed "s#^$ROOT/##" | sort > "$TMP/dirs"
 # 2. every COPY source in the Dockerfile that points at a db/migration folder (trailing slash normalised)
-awk '$1 == "COPY" && $2 ~ /db\/migration\/?$/ { sub(/\/$/, "", $2); print $2 }' "$DOCKERFILE" | sort > "$TMP/copied"
+awk '$1 == "COPY" { for (i = 2; i <= NF; i++) if ($i !~ /^--/) { if ($i ~ /db\/migration\/?$/) { sub(/\/$/, "", $i); print $i } break } }' "$DOCKERFILE" | sort > "$TMP/copied"
 
 while IFS= read -r d; do
   grep -Fxq -- "$d" "$TMP/copied" || { echo "FAIL: $d exists but $(basename "$DOCKERFILE") does not COPY it - the pipeline would miss its migrations" >&2; fail=1; }
@@ -37,8 +39,14 @@ done < "$TMP/copied"
 : > "$TMP/files"
 while IFS= read -r d; do
   [ -d "$ROOT/$d" ] || continue
-  for f in "$ROOT/$d"/*; do
-    [ -f "$f" ] && printf '%s\t%s\n' "$(basename "$f")" "$d" >> "$TMP/files"
+  for f in "$ROOT/$d"/* "$ROOT/$d"/.[!.]*; do
+    [ -e "$f" ] || continue
+    b="$(basename "$f")"
+    if [ -d "$f" ]; then echo "FAIL: $d contains the sub-folder $b - the app would load it, the image would drop it" >&2; fail=1; continue; fi
+    case "$b" in
+      V*.sql|R*.sql) printf '%s\t%s\n' "$b" "$d" >> "$TMP/files" ;;
+      *) echo "FAIL: $d/$b is not a V*.sql or R*.sql file - the app might load it, the image would drop it" >&2; fail=1 ;;
+    esac
   done
 done < "$TMP/dirs"
 cut -f1 "$TMP/files" | sort | uniq -d | while IFS= read -r n; do
