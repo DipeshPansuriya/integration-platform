@@ -154,7 +154,7 @@ const must = (answer, what) => {
 /**
  * What a user sets up before a flow can publish (mapping-designer spec's pattern): a fresh source and target system,
  * the source's SOURCE_REQUEST contract version (the one a new flow on that source pins) and the target's
- * TARGET_REQUEST version, approved by the harness approver - never the author.
+ * TARGET_REQUEST version, approved by the harness approver (a separate login; the author may approve their own version too).
  */
 async function seedPublishableContracts(page) {
   const run = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;

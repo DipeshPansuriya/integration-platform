@@ -7,7 +7,7 @@
 // every text value (A-CUST-0001 / B-CUST-0001, A-ORD-... / B-ORD-...), so a leak search is plain text.
 //
 // Logins: tenant A rides the harness's existing TENANT_ADMIN ("default", the author) and APPROVER
-// ("approver", never the author) - boot-backend.mjs:357-365. Tenant B gets its OWN tenant admin and
+// ("approver", a separate login from the author) - boot-backend.mjs:357-365. Tenant B gets its OWN tenant admin and
 // approver (TENANT_B_PLAN, bound by boot-backend's extraTenants): the harness's other-tenant login is a
 // CONFIGURATOR that existing specs need refused the dashboard (queue-dashboard spec :133-140), so it is
 // never repurposed. Each tenant's target answers on its own path of the one WireMock.
