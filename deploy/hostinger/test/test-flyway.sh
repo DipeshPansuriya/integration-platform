@@ -78,7 +78,7 @@ IMAGE_TAG=t1
 DB_MIGRATION_PASSWORD=a"b\c
 ' > "$TMP/m4.env"
 : > "$TMP/fake.env"; TMPDIR="$TMP/fwtmp" FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker" ENV_FILE="$TMP/m4.env" sh "$FW/migrate.sh" info >/dev/null 2>&1
-check "migrate: a password with a double quote and a backslash is escaped in the TOML file" 'grep -qF "secretfile=a\\\"b\\c" "$TMP/fake.env"\'
+check "migrate: a password with a double quote and a backslash is escaped in the TOML file" 'grep -qF "secretfile=a\\\"b\\\\c" "$TMP/fake.env"'
 check "migrate: user is ipass_migrator, database from .env, container on the data network" 'grep -q "FLYWAY_USER=ipass_migrator" "$TMP/fake.log" && grep -q "jdbc:postgresql://postgres:5432/ipass_x" "$TMP/fake.log" && grep -q -- "--network ipass_ipass-data" "$TMP/fake.log"'
 IMAGE_TAG=newtag2 mig info >/dev/null 2>&1
 check "migrate: a caller-supplied IMAGE_TAG wins over the .env (compose precedence)" 'grep -q "flyway-migrate:newtag2" "$TMP/fake.log" && ! grep -q oldtag1 "$TMP/fake.log"'
