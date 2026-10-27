@@ -9,8 +9,9 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { HARNESS_APP_ENV, HARNESS_LOGINS, extraTenantPlan, mergeAppEnv, servicePlan } from '../../../scripts/boot-backend.mjs';
+import { HARNESS_APP_ENV, HARNESS_LOGINS, PG_IMAGE, extraTenantPlan, mergeAppEnv, servicePlan } from '../../../scripts/boot-backend.mjs';
 import { BS_CONSOLE_LOGINS, BS_KAFKA, BS_WIREMOCK, KAFKA_IMAGE, baseSuiteBootOptions } from '../lib/boot-options.mjs';
+import { DB_NAME, DB_SELF_TABLE, DB_TABLE } from '../lib/approved-tables.mjs';
 import { NOT_CONFIGURED, exceptionSettings } from '../lib/settings.mjs';
 import { TENANT_B_PLAN } from '../lib/tenants.mjs';
 import { STUB_IDS, WIREMOCK_IMAGE, stubMapping } from '../lib/wiremock.mjs';
@@ -80,4 +81,50 @@ test('the lock holder is named - the lock note says who holds it', () => {
 test("the console declares only the logins the base suite drives: tenant A's approver and tenant B's two", () => {
   assert.deepEqual([...BS_CONSOLE_LOGINS], ['approver', 'bs-b-admin', 'bs-b-approver']);
   assert.ok(Object.isFrozen(BS_CONSOLE_LOGINS));
+});
+
+// F3 (row 523, ADR-H-IPASS-03): the target database a DB table approval dials. Declared only when the caller asks.
+const KEK = Buffer.alloc(32, 7).toString('base64');
+const TARGET = Object.freeze({ port: 41235, kek: KEK });
+const withTarget = (over = {}) => baseSuiteBootOptions(CONFIGURED, { lockHolder: 'x', targetDb: { ...TARGET, ...over } });
+
+test('targetDb declared: the sidecar on the caller\'s port, the owner-created tables, nothing else changes in the services', () => {
+  const options = withTarget();
+  assert.deepEqual(options.services.targetDb, { image: PG_IMAGE, hostPort: 41235, database: DB_NAME, tables: [DB_TABLE, DB_SELF_TABLE] });
+  assert.deepEqual(options.services.wiremock, { ...BS_WIREMOCK, hostPort: 32768 });
+  assert.equal(options.services.kafka, BS_KAFKA);
+  assert.equal(servicePlan({ targetDb: options.services.targetDb }, '0a1b2c3d')[0].runArgs.includes('127.0.0.1:41235:5432'), true);
+});
+
+test('targetDb declared: the allow-lists name EXACTLY the new port; test (sslmode disable) joins showcase; an in-memory KEK; no 5432 / 9092', () => {
+  const env = withTarget().appEnv;
+  assert.equal(env.PLATFORM_CONFIG_DESTINATIONS_DB_ALLOWED_PORTS, '41235', 'the WireMock port stays off the DB list (scenario 9 keeps its meaning)');
+  assert.equal(env.PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS, '32768,41235');
+  assert.equal(env.SPRING_PROFILES_ACTIVE, 'showcase,test');
+  assert.equal(env.PLATFORM_CONFIG_DESTINATIONS_DB_SSLMODE, 'disable');
+  assert.equal(env.PLATFORM_CREDENTIAL_KEK_T1, KEK);
+  assert.equal(env.PLATFORM_CREDENTIAL_KEK_ACTIVE, 'T1');
+  assert.equal(env.PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS, 'target.showcase.test', 'allowed-hosts is unchanged: still the one exact exception host');
+  for (const port of [env.PLATFORM_CONFIG_DESTINATIONS_DB_ALLOWED_PORTS, ...env.PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS.split(',')]) {
+    assert.ok(!['5432', '9092'].includes(port), port);
+  }
+  assert.deepEqual(mergeAppEnv({}, env), env, 'the boot accepts every name; none is harness-owned');
+});
+
+test('targetDb NOT declared: exactly today - no test profile, no sslmode, no KEK, no port list', () => {
+  const env = baseSuiteBootOptions(CONFIGURED, { lockHolder: 'x' }).appEnv;
+  assert.equal(env.SPRING_PROFILES_ACTIVE, 'showcase');
+  for (const name of ['PLATFORM_CONFIG_DESTINATIONS_DB_ALLOWED_PORTS', 'PLATFORM_CONFIG_DESTINATIONS_DB_SSLMODE', 'PLATFORM_CREDENTIAL_KEK_T1', 'PLATFORM_CREDENTIAL_KEK_ACTIVE']) {
+    assert.ok(!(name in env), name);
+  }
+  assert.ok(!('targetDb' in baseSuiteBootOptions(CONFIGURED, { lockHolder: 'x' }).services));
+});
+
+test('targetDb refused: a port that is not one TCP port, the WireMock port, 5432 / 9092, a KEK that is not 32 random-able bytes of base64', () => {
+  for (const port of [undefined, 0, 65536, 1.5, '41235', 32768, 5432, 9092]) {
+    assert.throws(() => withTarget({ port }), /targetDb port/, String(port));
+  }
+  for (const kek of [undefined, '', 'not base64!', Buffer.alloc(16).toString('base64'), Buffer.alloc(33).toString('base64')]) {
+    assert.throws(() => withTarget({ kek }), /KEK/, String(kek));
+  }
 });

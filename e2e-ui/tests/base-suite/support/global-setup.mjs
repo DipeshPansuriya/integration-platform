@@ -10,13 +10,14 @@
 // BS_* names (boot-state.mjs). Nothing here writes a pipeline row.
 
 import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import { demoLaunchOptions } from '../../demo/demo-mode.mjs';
 import { BS_CONSOLE_LOGINS, baseSuiteBootOptions } from '../lib/boot-options.mjs';
-import { claimExceptionPort } from '../../../scripts/lib/isolation.mjs';
+import { claimExceptionPort, claimPort } from '../../../scripts/lib/isolation.mjs';
 import { assertRealResolver, exceptionSettings } from '../lib/settings.mjs';
 import { BS_STORAGE_STATE } from '../lib/suite-config.mjs';
 import { TENANT_B_PLAN } from '../lib/tenants.mjs';
@@ -29,8 +30,12 @@ export default async function globalSetup() {
   await claimExceptionPort(process.env); // L22: a busy or claimed exception port is swapped for a free one before settings are read
   const settings = exceptionSettings(process.env);
   assertRealResolver(process.env);
+  // F3 (row 523, ADR-H-IPASS-03): the target database's loopback port is claimed like the exception port (released at exit);
+  // the KEK is a random value in this process's memory only
+  const targetPort = await claimPort(undefined);
   const options = baseSuiteBootOptions(settings, {
-    lockHolder: `aditya-qa-automation base-suite pid=${process.pid} started=${new Date().toISOString()}`
+    lockHolder: `aditya-qa-automation base-suite pid=${process.pid} started=${new Date().toISOString()}`,
+    targetDb: { port: targetPort.port, kek: crypto.randomBytes(32).toString('base64') }
   });
   await bootBaseSuite(options, { wiremock: true });
 }
@@ -85,6 +90,10 @@ export async function bootBaseSuite(options, { wiremock: withWiremock }) {
     if (withWiremock) {
       process.env[BS_ENV.wiremockPort] = String(wiremock.port);
       process.env[BS_ENV.wiremockAdmin] = wiremock.adminUrl;
+    }
+    if (backend.services.targetDb) {
+      process.env[BS_ENV.targetDbContainer] = backend.services.targetDb.name;
+      process.env[BS_ENV.targetDbPort] = String(backend.services.targetDb.port);
     }
     process.env[BS_ENV.kafkaContainer] = kafka.name;
     process.env[BS_ENV.appPid] = String(backend.appPid);

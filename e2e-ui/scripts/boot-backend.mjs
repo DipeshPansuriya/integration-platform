@@ -328,7 +328,9 @@ export function mergeAppEnv(base, ...extras) {
 // ONE KRaft Kafka broker+controller (BS-09 reads its topics' headers; auto-create off like the app expects).
 const SIDECARS = Object.freeze({
   wiremock: Object.freeze({ prefix: 'ipass-ui-bs-wm', containerPort: 8080, readyPath: '/__admin/health' }),
-  kafka: Object.freeze({ prefix: 'ipass-ui-bs-kafka', containerPort: 9092 })
+  kafka: Object.freeze({ prefix: 'ipass-ui-bs-kafka', containerPort: 9092 }),
+  // F3 (row 523, ADR-H-IPASS-03): the target database a DB approval dials with the restricted account - see targetDbPlan
+  targetDb: Object.freeze({ prefix: 'ipass-ui-bs-tdb', containerPort: 5432 })
 });
 const KAFKA_TOPIC = /^platform\.[a-z0-9.-]+$/;
 const KAFKA_INTERNAL = 'localhost:19092'; // the in-container listener: topic admin and console consumer
@@ -375,6 +377,38 @@ function kafkaPlan(key, sidecar, name, image, { topics } = {}, kafkaPort) {
     appEnv: { IPASS_KAFKA_BOOTSTRAP_SERVERS: `127.0.0.1:${kafkaPort}`, IPASS_KAFKA_PUBLISH_CLIENT_ID: KAFKA_CLIENT_ID }
   };
 }
+const SQL_NAME = /^[a-z][a-z0-9_]{0,62}$/;
+
+/**
+ * F3 (row 523, ADR-H-IPASS-03 option A): the TARGET database a DB table approval dials. ApprovedTableService calls
+ * DbAccountWidth, which opens a credentialed JDBC connection to the DB system's host:port and reads the account's
+ * grants - a WireMock port cannot answer that, and no seam skips it. So the boot starts the platform's own Postgres
+ * image (PG_IMAGE: reuse, no new image) on 127.0.0.1:<hostPort> (the caller picks it: the app's destination
+ * allow-lists must name it before the JVM starts), creates `database` and `tables` as the owner, and nothing else:
+ * the narrow login accounts (INSERT and SELECT on those tables only) are created per tenant by the worker.
+ */
+function targetDbPlan(key, sidecar, name, declaration = {}) {
+  const { image, hostPort, database, tables } = declaration;
+  if (image !== PG_IMAGE) throw new Error(`boot-backend: service ${key} image must be the platform postgres ${PG_IMAGE}, got ${image}`);
+  if (!(Number.isInteger(hostPort) && hostPort >= 1 && hostPort <= 65535)) {
+    throw new Error(`boot-backend: service ${key} hostPort ${hostPort} is not a TCP port (an integer 1-65535)`);
+  }
+  if (typeof database !== 'string' || !SQL_NAME.test(database)) throw new Error(`boot-backend: service ${key} database ${database} is not a plain name`);
+  if (!Array.isArray(tables) || tables.length === 0 || new Set(tables).size !== tables.length
+    || !tables.every((table) => typeof table === 'string' && SQL_NAME.test(table))) {
+    throw new Error(`boot-backend: service ${key} tables must be a non-empty list of distinct plain names`);
+  }
+  return {
+    key,
+    name,
+    containerPort: sidecar.containerPort,
+    hostPort,
+    database,
+    runArgs: ['run', '-d', '--rm', '--name', name, '-p', `127.0.0.1:${hostPort}:${sidecar.containerPort}`,
+      '-e', 'POSTGRES_USER=owner', '-e', `POSTGRES_PASSWORD=${crypto.randomBytes(18).toString('base64url')}`, '-e', `POSTGRES_DB=${database}`, image],
+    initSql: tables.map((table) => `CREATE TABLE public.${table} (delivery_id uuid UNIQUE, payload jsonb)`)
+  };
+}
 const PINNED_IMAGE = /^[a-z0-9]+(?:[._/-][a-z0-9]+)*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$/; // R05: tag AND digest
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -402,6 +436,7 @@ export function servicePlan(services = {}, suffix, { kafkaPort } = {}) {
     const { image, mappings } = declaration;
     const sidecar = Object.hasOwn(SIDECARS, key) ? SIDECARS[key] : null;
     if (!sidecar) throw new Error(`boot-backend: unknown service ${key} - only ${Object.keys(SIDECARS).join(', ')} is declared`);
+    if (key === 'targetDb') return targetDbPlan(key, sidecar, `${sidecar.prefix}-${suffix}`, declaration);
     if (typeof image !== 'string' || !PINNED_IMAGE.test(image)) {
       throw new Error(`boot-backend: service ${key} image must be pinned by tag AND digest (R05), got ${image}`);
     }
@@ -488,14 +523,14 @@ export function schedulerStartupFailure(logChunks) {
   return text.split(/\r?\n/).find((line) => line.includes('Unexpected error while executing OnStartup tasks')) ?? null;
 }
 
-export function psql(container, sql) {
+export function psql(container, sql, database = 'platform') {
   // The initdb phase runs a temporary postgres that answers pg_isready and then shuts down
   // (measured 2026-10-05, lane D: FATAL "the database system is shutting down" after an early
   // CREATE ROLE; measured 2026-10-06 run 4: "connection to server on socket ... No such file
   // or directory" between pg_isready and the real cluster's socket). Retry transient
   // startup/shutdown states until the REAL cluster is up.
   for (let i = 0; i < 60; i++) {
-    const result = spawnSync('docker', ['exec', container, 'psql', '-U', 'owner', '-d', 'platform', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8', windowsHide: true });
+    const result = spawnSync('docker', ['exec', container, 'psql', '-U', 'owner', '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8', windowsHide: true });
     if (result.status === 0) return result.stdout.trim();
     const out = `${result.stdout ?? ''}${result.stderr ?? ''}`;
     if (!out.includes('shutting down') && !out.includes('still starting up') && !out.includes('the database system')
@@ -650,6 +685,11 @@ export default async function bootBackend({
     for (const sidecar of sidecars) {
       docker(sidecar.runArgs);
       sidecarNames.push(sidecar.name);
+      if (sidecar.key === 'targetDb') {
+        for (const statement of sidecar.initSql) psql(sidecar.name, statement, sidecar.database); // psql retries until the real cluster is up
+        serviceInfo[sidecar.key] = { name: sidecar.name, port: sidecar.hostPort, database: sidecar.database };
+        continue;
+      }
       serviceInfo[sidecar.key] = sidecar.key === 'kafka' ? await readyKafka(sidecar) : await readyWireMock(sidecar);
     }
 
