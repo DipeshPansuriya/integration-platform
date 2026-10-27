@@ -233,6 +233,76 @@ public class SystemAdminService {
                 .count();
     }
 
+    private static final java.util.Set<String> AUTH_METHODS = java.util.Set.of(
+            "NO_AUTH", "API_KEY", "BASIC", "BEARER_TOKEN", "OAUTH2_CLIENT_CREDENTIALS");
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> readEndpointAuth(String systemId) {
+        SystemDetail system = require(systemId);
+        if (!system.direction().equals("TARGET")) {
+            throw ConfigApiException.conflict("only an outbound system has a target endpoint");
+        }
+        JdbcSystemRepository.EndpointAuth auth = systems.findEndpointAuth(system.id())
+                .orElseThrow(() -> ConfigApiException.conflict("this system has no target endpoint"));
+        return endpointAuthView(auth);
+    }
+
+    @Transactional
+    public Map<String, Object> updateEndpointAuth(String systemId, JsonNode body) {
+        SystemDetail system = require(systemId);
+        if (!system.direction().equals("TARGET")) {
+            throw ConfigApiException.conflict("only an outbound system has a target endpoint");
+        }
+        JdbcSystemRepository.EndpointAuth current = systems.findEndpointAuth(system.id())
+                .orElseThrow(() -> ConfigApiException.conflict("this system has no target endpoint"));
+        List<String> errors = new ArrayList<>();
+        String authMethod = textOrNull(body, "authMethod");
+        if (authMethod == null || !AUTH_METHODS.contains(authMethod)) {
+            errors.add("authMethod must be one of " + AUTH_METHODS);
+        }
+        String authIdentity = textOrNull(body, "authIdentity");
+        String authTokenUrl = textOrNull(body, "authTokenUrl");
+        if ("BASIC".equals(authMethod) && (authIdentity == null || authIdentity.isBlank())) {
+            errors.add("authIdentity (username) is required for BASIC auth");
+        }
+        if ("API_KEY".equals(authMethod) && (authIdentity == null || authIdentity.isBlank())) {
+            errors.add("authIdentity (header name) is required for API_KEY auth");
+        }
+        if ("OAUTH2_CLIENT_CREDENTIALS".equals(authMethod)) {
+            if (authIdentity == null || authIdentity.isBlank()) {
+                errors.add("authIdentity (client ID) is required for OAUTH2_CLIENT_CREDENTIALS auth");
+            }
+            if (authTokenUrl == null || authTokenUrl.isBlank()) {
+                errors.add("authTokenUrl is required for OAUTH2_CLIENT_CREDENTIALS auth");
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new SystemValidationException(errors);
+        }
+        if (systems.updateEndpointAuth(system.id(), authMethod, authIdentity, authTokenUrl) != 1) {
+            throw ConfigApiException.notFound();
+        }
+        return endpointAuthView(new JdbcSystemRepository.EndpointAuth(
+                current.endpointId(), authMethod, authIdentity, authTokenUrl));
+    }
+
+    private static Map<String, Object> endpointAuthView(JdbcSystemRepository.EndpointAuth auth) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("endpointId", auth.endpointId());
+        result.put("authMethod", auth.authMethod());
+        result.put("authIdentity", auth.authIdentity());
+        result.put("authTokenUrl", auth.authTokenUrl());
+        return result;
+    }
+
+    private static String textOrNull(JsonNode body, String field) {
+        if (body == null) return null;
+        JsonNode value = body.get(field);
+        if (value == null || value.isNull() || !value.isString()) return null;
+        String text = value.stringValue().trim();
+        return text.isEmpty() ? null : text;
+    }
+
     @Transactional(readOnly = true)
     public boolean systemExists(String code) {
         return systems.findSystemByCode(code).isPresent();

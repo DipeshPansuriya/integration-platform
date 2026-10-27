@@ -522,7 +522,8 @@ class ApiTargetCallTest {
 
     private static TargetEndpointView view(String uri, String method, int timeoutMs, String authMethod,
             boolean idempotentReceive, Map<Integer, OutcomeClass> dictionary) {
-        return new TargetEndpointView(URI.create(uri), method, timeoutMs, authMethod, idempotentReceive, dictionary);
+        return new TargetEndpointView(URI.create(uri), method, timeoutMs, authMethod, null, null,
+                idempotentReceive, dictionary);
     }
 
     private static Stage2Send send() {

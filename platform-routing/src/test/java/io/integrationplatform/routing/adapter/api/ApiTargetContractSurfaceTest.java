@@ -28,6 +28,7 @@ class ApiTargetContractSurfaceTest {
                 "POST",
                 1_000,
                 "NO_AUTH",
+                null, null,
                 true,
                 dictionary);
         assertNotNull(view.baseUri());

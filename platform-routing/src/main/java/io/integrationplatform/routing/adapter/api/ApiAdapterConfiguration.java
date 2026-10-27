@@ -51,9 +51,14 @@ public class ApiAdapterConfiguration {
     }
 
     @Bean
+    OAuth2TokenFetcher oAuth2TokenFetcher() {
+        return new OAuth2TokenFetcher();
+    }
+
+    @Bean
     TargetCall apiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort,
             HttpSend send, ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
-            ObjectProvider<PlatformTransactionManager> transactionManager) {
+            ObjectProvider<PlatformTransactionManager> transactionManager, OAuth2TokenFetcher tokenFetcher) {
         PlatformTransactionManager transactions = transactionManager.getIfAvailable();
         if (transactions != null) {
             // E9-C9 (T71): the endpoint and body reads each run in their OWN short tenant-stamped transaction. The
@@ -67,6 +72,6 @@ public class ApiAdapterConfiguration {
         }
         return new ApiTargetCall(views, guard, bodyPort, send, ApiTargetCall.defaultBreakers(),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
-                observations.getIfAvailable(() -> ObservationRegistry.NOOP));
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP), tokenFetcher);
     }
 }

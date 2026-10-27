@@ -910,7 +910,7 @@ class DeliveryDueDispatchTest {
                 throw failure;
             }
             return Optional.of(new TargetEndpointView(URI.create("http://target.test"), "POST", 5000,
-                    "NO_AUTH", idempotentReceive, Map.of()));
+                    "NO_AUTH", null, null, idempotentReceive, Map.of()));
         }
     }
 }

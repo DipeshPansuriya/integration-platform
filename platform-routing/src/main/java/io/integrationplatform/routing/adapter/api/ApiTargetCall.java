@@ -5,6 +5,8 @@ import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.DestinationRefusedException;
 import io.integrationplatform.domain.delivery.OutcomeClass;
 import io.integrationplatform.domain.delivery.OutcomeClassifier;
+import io.integrationplatform.routing.credential.OpenedCredentials;
+import io.integrationplatform.routing.credential.TargetCallCredentialHolder;
 import io.integrationplatform.routing.stage2.Stage2Send;
 import io.integrationplatform.routing.stage2.TargetCall;
 import io.integrationplatform.routing.stage2.TargetFaultException;
@@ -21,26 +23,29 @@ import io.micrometer.observation.ObservationRegistry;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.concurrent.TimeUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.net.ssl.SSLException;
 
 /**
- * The API target adapter (E10 narrow, T-050; ADR-015: adapters live in {@code routing/adapter/**}). One call of
+ * The API target adapter (E10, T-050; ADR-015: adapters live in {@code routing/adapter/**}). One call of
  * the layer-1 route ({@code TargetCall}), in order: the endpoint's row read through {@code TargetEndpointViews}
- * (tenant-scoped) -> the destination guard (reuse - never its own URL policy; the dialled address is the pinned
- * one) -> the one {@code HttpSend} try with the endpoint's method, timeout and {@code Idempotency-Key} (the
- * delivery id, ADR-011 Decision 4) -> the answer classified ONCE by {@code OutcomeClassifier} - any failure
- * leaves as a {@code TargetFaultException} carrying its class, never a status or a raw exception, so the
- * layer-1 route's redelivery follows one register (ADR-010 section 5).
+ * (tenant-scoped) -> authentication applied from the endpoint's method and opened credentials -> the destination
+ * guard (reuse - never its own URL policy; the dialled address is the pinned one) -> the one {@code HttpSend}
+ * try with the endpoint's method, timeout and {@code Idempotency-Key} (the delivery id, ADR-011 Decision 4) ->
+ * the answer classified ONCE by {@code OutcomeClassifier} - any failure leaves as a {@code TargetFaultException}
+ * carrying its class, never a status or a raw exception, so the layer-1 route's redelivery follows one register
+ * (ADR-010 section 5).
  *
- * <p>Narrow-slice decisions: only {@code NO_AUTH} endpoints send (a credential-based method raises
- * {@code TRANSIENT} - the delivery waits for the E10 credentials slice instead of dead-lettering on a missing
- * feature); an endpoint whose request body the {@link ApiTargetBody} port cannot produce raises
- * {@code PERMANENT}; redirects are never followed (a redirect is a new destination the guard would have to
- * check first - answered as its own PERMANENT class status).
+ * <p>Supported auth methods (V2_4_1420): NO_AUTH (no credentials), BASIC (username:password),
+ * BEARER_TOKEN (static token), API_KEY (header-based key), OAUTH2_CLIENT_CREDENTIALS (token exchange).
+ * An endpoint whose request body the {@link ApiTargetBody} port cannot produce raises {@code PERMANENT};
+ * redirects are never followed (a redirect is a new destination the guard would have to check first - answered
+ * as its own PERMANENT class status).
  */
 public class ApiTargetCall implements TargetCall {
 
@@ -51,6 +56,7 @@ public class ApiTargetCall implements TargetCall {
     private final CircuitBreakerRegistry breakers;
     private final MeterRegistry meters;
     private final ObservationRegistry observations;
+    private final OAuth2TokenFetcher tokenFetcher;
 
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender) {
         this(views, guard, bodyPort, sender, defaultBreakers());
@@ -67,12 +73,19 @@ public class ApiTargetCall implements TargetCall {
     /** T96: one breaker per target endpoint; a half-open breaker lets through at most its trial-call count. */
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
             CircuitBreakerRegistry breakers) {
-        this(views, guard, bodyPort, sender, breakers, new SimpleMeterRegistry(), ObservationRegistry.NOOP);
+        this(views, guard, bodyPort, sender, breakers, new SimpleMeterRegistry(), ObservationRegistry.NOOP,
+                new OAuth2TokenFetcher());
     }
 
     /** T99 (T-167): every attempt is timed, counted by outcome and observed; breaker state is a gauge per target. */
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
             CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations) {
+        this(views, guard, bodyPort, sender, breakers, meters, observations, new OAuth2TokenFetcher());
+    }
+
+    public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
+            CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations,
+            OAuth2TokenFetcher tokenFetcher) {
         this.views = views;
         this.guard = guard;
         this.bodyPort = bodyPort;
@@ -80,6 +93,7 @@ public class ApiTargetCall implements TargetCall {
         this.breakers = breakers;
         this.meters = meters;
         this.observations = observations;
+        this.tokenFetcher = tokenFetcher;
         TaggedCircuitBreakerMetrics.ofCircuitBreakerRegistry(breakers).bindTo(meters);
     }
 
@@ -95,11 +109,6 @@ public class ApiTargetCall implements TargetCall {
                     new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(), "the send's endpoint "
                             + send.targetEndpointId() + " has no target_endpoint row for the bound tenant - the"
                             + " route resolution and the endpoint are out of step; nothing sent"));
-            if (!"NO_AUTH".equals(view.authMethod())) {
-                throw new TargetFaultException.TransientFaultException("the endpoint's auth method '"
-                        + view.authMethod() + "' is not supported in this slice (E10 credentials landing); the"
-                        + " delivery waits instead of dead-lettering on a missing feature");
-            }
             ApiTargetBody.ApiWireBody body = bodyPort.bodyFor(send).orElseThrow(() ->
                     new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(), "no transform result exists"
                             + " for delivery " + send.deliveryId() + " - the pipeline sent stage 2 without one;"
@@ -116,14 +125,12 @@ public class ApiTargetCall implements TargetCall {
             }
             Map<String, String> headers = new LinkedHashMap<>();
             headers.put("Content-Type", body.contentType());
-            // the endpoint is addressed per delivery: the key ADR-011 Decision 4 requires on every call
             headers.put("Idempotency-Key", send.deliveryId().toString());
-            // ADR-011 Decision 7, ADR-005 Decision 9: the open journey's traceparent rides the request, the same
-            // source the Kafka leg's record header carries (KafkaClientsSender) - the partner continues the trace
             String traceparent = io.integrationplatform.ingest.port.CorrelationContext.currentTraceparent();
             if (traceparent != null) {
                 headers.put("traceparent", traceparent);
             }
+            applyAuth(view, headers);
             attempt(send, view, destination, headers, body);
             outcome = OutcomeClass.SUCCESS;
         } catch (TargetFaultException failed) {
@@ -191,6 +198,81 @@ public class ApiTargetCall implements TargetCall {
         return outcome == OutcomeClass.TRANSIENT
                 ? new TargetFaultException.TransientFaultException(message)
                 : new TargetFaultException(outcome, message);
+    }
+
+    /**
+     * Applies authentication headers based on the endpoint's auth method and the opened credentials from the
+     * thread-local holder. NO_AUTH adds nothing. A credential-based method with no opened credentials (the
+     * credential slice is off) raises TRANSIENT so the delivery waits.
+     */
+    private void applyAuth(TargetEndpointView view, Map<String, String> headers) {
+        String method = view.authMethod();
+        if ("NO_AUTH".equals(method)) {
+            return;
+        }
+        OpenedCredentials credentials = TargetCallCredentialHolder.get();
+        if (credentials == null) {
+            throw new TargetFaultException.TransientFaultException("the endpoint's auth method '"
+                    + method + "' requires credentials but the credential gate is not active; the delivery waits");
+        }
+        switch (method) {
+            case "BASIC" -> {
+                String username = requireIdentity(view, "BASIC");
+                char[] password = requireCredential(credentials, "BASIC_PASSWORD", "BASIC");
+                byte[] encoded = Base64.getEncoder().encode(
+                        (username + ":" + new String(password)).getBytes(StandardCharsets.UTF_8));
+                headers.put("Authorization", "Basic " + new String(encoded, StandardCharsets.UTF_8));
+            }
+            case "BEARER_TOKEN" -> {
+                char[] token = requireCredential(credentials, "BEARER_TOKEN", "BEARER_TOKEN");
+                headers.put("Authorization", "Bearer " + new String(token));
+            }
+            case "API_KEY" -> {
+                String headerName = requireIdentity(view, "API_KEY");
+                char[] key = requireCredential(credentials, "API_KEY", "API_KEY");
+                headers.put(headerName, new String(key));
+            }
+            case "OAUTH2_CLIENT_CREDENTIALS" -> {
+                String clientId = requireIdentity(view, "OAUTH2_CLIENT_CREDENTIALS");
+                String tokenUrl = view.authTokenUrl();
+                if (tokenUrl == null || tokenUrl.isBlank()) {
+                    throw new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(),
+                            "the endpoint's OAUTH2_CLIENT_CREDENTIALS method requires auth_token_url but none is"
+                            + " configured; the configuration must be completed before deliveries can proceed");
+                }
+                char[] clientSecret = requireCredential(credentials, "OAUTH_CLIENT_SECRET",
+                        "OAUTH2_CLIENT_CREDENTIALS");
+                try {
+                    String accessToken = tokenFetcher.fetchToken(tokenUrl, clientId, clientSecret);
+                    headers.put("Authorization", "Bearer " + accessToken);
+                } catch (OAuth2TokenFetcher.OAuth2TokenException tokenFailed) {
+                    if (tokenFailed.isTransient()) {
+                        throw new TargetFaultException.TransientFaultException(
+                                "OAuth2 token exchange failed (transient): " + tokenFailed.getMessage());
+                    }
+                    throw new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(),
+                            "OAuth2 token exchange failed (permanent): " + tokenFailed.getMessage());
+                }
+            }
+            default -> throw new TargetFaultException.TransientFaultException("the endpoint's auth method '"
+                    + method + "' is not yet supported; the delivery waits");
+        }
+    }
+
+    private static String requireIdentity(TargetEndpointView view, String authMethod) {
+        String identity = view.authIdentity();
+        if (identity == null || identity.isBlank()) {
+            throw new TargetFaultException(OutcomeClassifier.ofDestinationRefusal(),
+                    "the endpoint's " + authMethod + " auth requires auth_identity but none is configured");
+        }
+        return identity;
+    }
+
+    private static char[] requireCredential(OpenedCredentials credentials, String field, String authMethod) {
+        return credentials.value(field).orElseThrow(() -> new TargetFaultException(
+                OutcomeClassifier.ofDestinationRefusal(),
+                "the endpoint's " + authMethod + " auth requires a sealed " + field + " credential but none"
+                + " is stored; save the credential through the target credentials admin API"));
     }
 
     /** F-4 (CWE-532): scheme, host and port only - the stored path and query are tenant-controlled and never logged. */
