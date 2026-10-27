@@ -10,3 +10,10 @@ export const SCREEN_ALLOWED_HOSTS = Object.freeze(['*.partner.test', 'partner.ex
 export function screenAppEnv() {
   return { PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: SCREEN_ALLOWED_HOSTS.join(',') };
 }
+
+/**
+ * A host the allow-list deliberately does NOT cover (neither exact nor under *.partner.test): systems-allowlist.docker.spec.mjs
+ * saves an API system on it and expects the server's allow-list refusal. Never resolved or called. unit/screen-hosts.test.mjs
+ * keeps it uncovered, so the refusal spec cannot start passing (or the save start succeeding) by a list edit.
+ */
+export const SCREEN_UNLISTED_HOST = 'unlisted.example.test';
