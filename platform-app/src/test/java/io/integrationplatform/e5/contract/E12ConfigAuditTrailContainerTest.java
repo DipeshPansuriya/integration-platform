@@ -274,6 +274,89 @@ class E12ConfigAuditTrailContainerTest {
                 .doesNotContain("https", "/v1", "/v2", "orders", "token", "secret", "?", "@");
     }
 
+    @Test
+    @DisplayName("Row 510/519: an endpoint-auth change lands one SYSTEM_ENDPOINT_AUTH_CHANGED row - actor, system id,"
+            + " method, identity, token HOST only; a configurator's refused PUT and a refused token URL land none")
+    void anEndpointAuthChangeLandsOneHostOnlyRowInTheLedger() throws Exception {
+        Tenant tenant = seed("eauth");
+        String admin = tenant.subject("TENANT_ADMIN");
+        String actor = tenant.userId("TENANT_ADMIN").toString();
+        String system = createApiSystem(admin, "sys-eauth-" + shortId());
+        String path = "/api/v1/admin/systems/" + system + "/endpoint-auth";
+
+        HttpResponse<String> forbidden = call(port, tenant.subject("CONFIGURATOR"), "PUT", path,
+                "{\"authMethod\":\"NO_AUTH\"}");
+        assertThat(forbidden.statusCode()).as("configurator: %s", forbidden.body()).isEqualTo(403);
+        assertThat(count(tenant, ConfigAuditActions.SYSTEM_ENDPOINT_AUTH_CHANGED)).as("a 403 writes no row").isZero();
+
+        HttpResponse<String> changed = call(port, admin, "PUT", path, "{\"authMethod\":\"OAUTH2_CLIENT_CREDENTIALS\","
+                + "\"authIdentity\":\"client-1\",\"authTokenUrl\":\"https://auth.partner.example/oauth/token?k=tok-secret\"}");
+        assertThat(changed.statusCode()).as("admin: %s", changed.body()).isEqualTo(200);
+        assertThat(rows(tenant, ConfigAuditActions.SYSTEM_ENDPOINT_AUTH_CHANGED)).singleElement().asString()
+                .startsWith(actor + "|system:" + system + "|")
+                .contains("OAUTH2_CLIENT_CREDENTIALS", "client-1", "auth.partner.example");
+
+        HttpResponse<String> refused = call(port, admin, "PUT", path, "{\"authMethod\":\"OAUTH2_CLIENT_CREDENTIALS\","
+                + "\"authIdentity\":\"client-1\",\"authTokenUrl\":\"https://evil.example/token\"}");
+        assertThat(refused.statusCode()).as("off-list token URL: %s", refused.body()).isEqualTo(400);
+        assertThat(count(tenant, ConfigAuditActions.SYSTEM_ENDPOINT_AUTH_CHANGED))
+                .as("a refused save writes no row").isEqualTo(1);
+        assertThat(rowText(tenant, ConfigAuditActions.SYSTEM_ENDPOINT_AUTH_CHANGED))
+                .as("host only: no scheme, path, query in the ledger")
+                .doesNotContain("https", "/oauth", "tok-secret", "?");
+    }
+
+    @Test
+    @DisplayName("Row 510/519: an OAuth2 token URL aimed at a loopback sink is refused at save (400), the stored URL is"
+            + " untouched and the sink's journal shows 0 requests")
+    void aRefusedOAuth2TokenUrlNeverReachesTheSink() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger journal = new java.util.concurrent.atomic.AtomicInteger();
+        com.sun.net.httpserver.HttpServer sink = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0), 0);
+        sink.createContext("/", exchange -> {
+            journal.incrementAndGet();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        sink.start();
+        try {
+            Tenant tenant = seed("eauthsink");
+            String admin = tenant.subject("TENANT_ADMIN");
+            String system = createApiSystem(admin, "sys-sink-" + shortId());
+            String path = "/api/v1/admin/systems/" + system + "/endpoint-auth";
+            String good = "https://auth.partner.example/oauth/token";
+            HttpResponse<String> saved = call(port, admin, "PUT", path, oauth2Body(good));
+            assertThat(saved.statusCode()).as("positive control: %s", saved.body()).isEqualTo(200);
+
+            int sinkPort = sink.getAddress().getPort();
+            for (String hostile : List.of("http://localhost:" + sinkPort + "/token",
+                    "http://127.0.0.1:" + sinkPort + "/token", "https://localhost:" + sinkPort + "/token",
+                    "https://127.0.0.1:" + sinkPort + "/token", "https://[::1]:" + sinkPort + "/token",
+                    "https://evil.example@127.0.0.1:" + sinkPort + "/token")) {
+                HttpResponse<String> response = call(port, admin, "PUT", path, oauth2Body(hostile));
+                assertThat(response.statusCode()).as("%s -> %s", hostile, response.body()).isEqualTo(400);
+            }
+            HttpResponse<String> after = call(port, admin, "GET", path, null);
+            assertThat(E5ContractFixture.json(after).path("authTokenUrl").asString()).as("stored URL untouched")
+                    .isEqualTo(good);
+            assertThat(journal.get()).as("sink journal").isZero();
+        } finally {
+            sink.stop(0);
+        }
+    }
+
+    private String createApiSystem(String adminSubject, String code) throws Exception {
+        HttpResponse<String> created = call(port, adminSubject, "POST", "/api/v1/admin/systems",
+                systemJson(code, "https://one.partner.example/v1/orders"));
+        assertThat(created.statusCode()).as("create: %s", created.body()).isEqualTo(201);
+        return E5ContractFixture.json(created).path("id").asString();
+    }
+
+    private static String oauth2Body(String tokenUrl) {
+        return "{\"authMethod\":\"OAUTH2_CLIENT_CREDENTIALS\",\"authIdentity\":\"client-1\",\"authTokenUrl\":\""
+                + tokenUrl + "\"}";
+    }
+
     private static String systemJson(String code, String baseUrl) {
         return "{\"code\":\"" + code + "\",\"name\":\"" + code + "\",\"direction\":\"OUTBOUND\",\"type\":\"API\","
                 + "\"settings\":{\"baseUrl\":\"" + baseUrl + "\",\"timeoutMs\":3000}}";
