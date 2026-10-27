@@ -69,6 +69,8 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       KAFKA_LOG_RETENTION_HOURS: "168"
+      # data on the volume: the image default log.dirs is under /tmp, so without this every recreate wipes topics and offsets
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
       TZ: Etc/UTC
     volumes:
