@@ -120,8 +120,8 @@ public class SystemAdminController {
     @PutMapping("/{systemId}/endpoint-auth")
     public ResponseEntity<Map<String, Object>> updateEndpointAuth(@PathVariable String systemId,
             @RequestBody JsonNode body) {
-        actors.requireActor();
-        return ResponseEntity.ok(service.updateEndpointAuth(systemId, body));
+        LoginBinding actor = actors.requireActor();
+        return ResponseEntity.ok(service.updateEndpointAuth(systemId, body, actor.userId()));
     }
 
     @ApiResponses({
