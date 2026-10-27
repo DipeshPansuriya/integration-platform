@@ -228,7 +228,7 @@ class ApprovalAuditReconciliationContainerTest {
         assertThat(reported).as("three malformed events reported, the agreeing one is not").hasSize(3)
                 .noneMatch(r -> r.contains(good.toString()))
                 .filteredOn(r -> r.startsWith("FLOW_APPROVED|" + target + "|null|")).hasSize(2);
-        assertThat(reported).anyMatch(r -> r.startsWith("FLOW_APPROVED|null|true|"));
+        assertThat(reported).anyMatch(r -> r.startsWith("FLOW_APPROVED|null|t|"));
     }
 
     @Test
