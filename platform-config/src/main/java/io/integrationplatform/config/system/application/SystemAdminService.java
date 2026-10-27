@@ -1,7 +1,9 @@
 package io.integrationplatform.config.system.application;
 
 import io.integrationplatform.config.application.ConfigApiException;
+import io.integrationplatform.config.destination.ApiKeyHeaderName;
 import io.integrationplatform.config.destination.DestinationGuard;
+import io.integrationplatform.config.destination.DestinationRefusedException;
 import io.integrationplatform.config.destination.FileRoots;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository;
 import io.integrationplatform.config.internal.persistence.JdbcSystemRepository.SystemDetail;
@@ -248,7 +250,7 @@ public class SystemAdminService {
     }
 
     @Transactional
-    public Map<String, Object> updateEndpointAuth(String systemId, JsonNode body) {
+    public Map<String, Object> updateEndpointAuth(String systemId, JsonNode body, UUID actorId) {
         SystemDetail system = require(systemId);
         if (!system.direction().equals("TARGET")) {
             throw ConfigApiException.conflict("only an outbound system has a target endpoint");
@@ -262,11 +264,20 @@ public class SystemAdminService {
         }
         String authIdentity = textOrNull(body, "authIdentity");
         String authTokenUrl = textOrNull(body, "authTokenUrl");
+        if (!"OAUTH2_CLIENT_CREDENTIALS".equals(authMethod)) {
+            authTokenUrl = null; // a stale token URL never lingers behind another method
+        }
+        if (!"BASIC".equals(authMethod) && !"API_KEY".equals(authMethod)
+                && !"OAUTH2_CLIENT_CREDENTIALS".equals(authMethod)) {
+            authIdentity = null;
+        }
         if ("BASIC".equals(authMethod) && (authIdentity == null || authIdentity.isBlank())) {
             errors.add("authIdentity (username) is required for BASIC auth");
         }
         if ("API_KEY".equals(authMethod) && (authIdentity == null || authIdentity.isBlank())) {
             errors.add("authIdentity (header name) is required for API_KEY auth");
+        } else if ("API_KEY".equals(authMethod)) {
+            ApiKeyHeaderName.problem(authIdentity).ifPresent(problem -> errors.add("authIdentity: " + problem));
         }
         if ("OAUTH2_CLIENT_CREDENTIALS".equals(authMethod)) {
             if (authIdentity == null || authIdentity.isBlank()) {
@@ -274,6 +285,11 @@ public class SystemAdminService {
             }
             if (authTokenUrl == null || authTokenUrl.isBlank()) {
                 errors.add("authTokenUrl is required for OAUTH2_CLIENT_CREDENTIALS auth");
+            } else if (!tokenUrlAllowed(authTokenUrl)) {
+                // row 510: the token URL receives the sealed client secret - the same destination rules as the base
+                // URL, TLS required; the text repeats neither the host nor the reason
+                errors.add("authTokenUrl is refused by the destination policy (an https address on an allow-listed"
+                        + " host is required)");
             }
         }
         if (!errors.isEmpty()) {
@@ -282,8 +298,30 @@ public class SystemAdminService {
         if (systems.updateEndpointAuth(system.id(), authMethod, authIdentity, authTokenUrl) != 1) {
             throw ConfigApiException.notFound();
         }
+        auditEndpointAuth(actorId, system.id(), current, authMethod, authIdentity, authTokenUrl);
         return endpointAuthView(new JdbcSystemRepository.EndpointAuth(
                 current.endpointId(), authMethod, authIdentity, authTokenUrl));
+    }
+
+    private boolean tokenUrlAllowed(String tokenUrl) {
+        try {
+            guard.checkSecretReceiverAtSave(new java.net.URI(tokenUrl.strip()));
+            return true;
+        } catch (java.net.URISyntaxException | DestinationRefusedException refused) {
+            return false;
+        }
+    }
+
+    /** Row 510 (CWE-778): where and how a sealed secret is sent changed - method, identity and token HOST only. */
+    private void auditEndpointAuth(UUID actorId, String systemId, JdbcSystemRepository.EndpointAuth before,
+            String method, String identity, String tokenUrl) {
+        UUID tenantId = tenant.get().orElseThrow(() -> new IllegalStateException("no tenant bound"));
+        events.publishEvent(ConfigAuditActions.event(ConfigAuditActions.SYSTEM_ENDPOINT_AUTH_CHANGED, tenantId, actorId,
+                List.of(ConfigAuditActions.target("system", systemId)),
+                ConfigAuditActions.state("authMethod", before.authMethod(), "authIdentity", before.authIdentity(),
+                        "tokenHost", before.authTokenUrl() == null ? null : hostOnly(before.authTokenUrl())),
+                ConfigAuditActions.state("authMethod", method, "authIdentity", identity,
+                        "tokenHost", tokenUrl == null ? null : hostOnly(tokenUrl))));
     }
 
     private static Map<String, Object> endpointAuthView(JdbcSystemRepository.EndpointAuth auth) {

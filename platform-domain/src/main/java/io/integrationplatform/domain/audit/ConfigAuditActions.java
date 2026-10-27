@@ -42,6 +42,8 @@ public final class ConfigAuditActions {
     public static final String CREDENTIAL_TARGET_SAVED = "CREDENTIAL_TARGET_SAVED";
     /** A system create/update changed the delivery address of its endpoint (hosts only, never the URL). */
     public static final String SYSTEM_DESTINATION_CHANGED = "SYSTEM_DESTINATION_CHANGED";
+    /** Row 510: an outbound endpoint's authentication method, identity or token host changed (never a secret or the URL path). */
+    public static final String SYSTEM_ENDPOINT_AUTH_CHANGED = "SYSTEM_ENDPOINT_AUTH_CHANGED";
     /** E16 F3: a DB target table is requested, approved by a tenant approver or admin, or revoked. */
     public static final String DB_TABLE_REQUESTED = "DB_TABLE_REQUESTED";
     public static final String DB_TABLE_APPROVED = "DB_TABLE_APPROVED";

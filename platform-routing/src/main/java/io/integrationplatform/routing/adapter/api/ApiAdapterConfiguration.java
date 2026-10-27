@@ -51,8 +51,8 @@ public class ApiAdapterConfiguration {
     }
 
     @Bean
-    OAuth2TokenFetcher oAuth2TokenFetcher() {
-        return new OAuth2TokenFetcher();
+    OAuth2TokenFetcher oAuth2TokenFetcher(HttpSend apiTargetHttpSend) {
+        return new OAuth2TokenFetcher(apiTargetHttpSend);
     }
 
     @Bean

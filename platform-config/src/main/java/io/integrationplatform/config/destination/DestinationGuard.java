@@ -156,6 +156,42 @@ public final class DestinationGuard {
     }
 
     /**
+     * Row 510: an address that receives a SECRET - the OAuth2 token endpoint gets the tenant admin's client secret - goes
+     * through the same rules as the base URL ({@link #check(URI)}: scheme, no userinfo, literal ranges, allow-list,
+     * platform hosts, DNS decided once and pinned) and is stricter in one point: TLS is required, plain http only for
+     * the exact showcase local host and port (the lift the base URL already has).
+     */
+    public CheckedDestination checkSecretReceiver(URI address) throws DestinationRefusedException, UnknownHostException {
+        CheckedDestination destination = check(address);
+        if (!destination.tls() && !isShowcaseLocal(destination.host(), destination.port())) {
+            throw new DestinationRefusedException(Refusal.SCHEME_NOT_ALLOWED, null);
+        }
+        return destination;
+    }
+
+    /** Save-time twin of {@link #checkSecretReceiver(URI)}: the same decisions that need no DNS (never resolves). */
+    public void checkSecretReceiverAtSave(URI address) throws DestinationRefusedException {
+        Objects.requireNonNull(address, "address");
+        String scheme = address.getScheme() == null ? "" : address.getScheme().toLowerCase(Locale.ROOT);
+        if (!scheme.equals("http") && !scheme.equals("https")) {
+            throw new DestinationRefusedException(Refusal.SCHEME_NOT_ALLOWED, null);
+        }
+        if (address.getRawUserInfo() != null) {
+            throw new DestinationRefusedException(Refusal.CREDENTIALS_IN_ADDRESS, null);
+        }
+        checkHost(address.getHost());
+        int port = address.getPort() == -1 ? (scheme.equals("https") ? 443 : 80) : address.getPort();
+        if (scheme.equals("http") && !isShowcaseLocal(AllowList.normalise(address.getHost()), port)) {
+            throw new DestinationRefusedException(Refusal.SCHEME_NOT_ALLOWED, null);
+        }
+    }
+
+    /** True when the exact host and port are the showcase local destination (the only plain-http, private-range lift). */
+    public boolean isShowcaseLocal(String host, int port) {
+        return showcaseLocalHosts.contains(host) && showcaseLocalPorts.contains(port);
+    }
+
+    /**
      * @throws DestinationRefusedException the address is refused (nothing may be sent to it)
      * @throws UnknownHostException the allow-listed name does not resolve (a failure, not a refusal)
      */
@@ -192,7 +228,7 @@ public final class DestinationGuard {
         if (resolved == null || resolved.isEmpty()) {
             throw new UnknownHostException(host);
         }
-        boolean showcaseLocal = showcaseLocalHosts.contains(host) && showcaseLocalPorts.contains(port);
+        boolean showcaseLocal = isShowcaseLocal(host, port);
         for (InetAddress each : resolved) {
             refuseIfPlatform(host, Optional.of(each)); // before the showcase lift: it never lifts a platform host
             refuseIfInRange(each, showcaseLocal);
