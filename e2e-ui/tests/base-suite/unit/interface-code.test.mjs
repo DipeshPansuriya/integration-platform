@@ -1,5 +1,6 @@
-// lane qa-release (2026-10-22): the intake is addressed by the flow's GENERATED interface code (the live run showed
-// 404 INTERFACE_NOT_FOUND for the requested code "orders" while the interface row was PUBLISHED as flow-<uuid>).
+// lane qa-release (2026-10-22, reworded after PR 57): the intake is addressed by the interface code the seed recorded
+// for the flow (the live run showed 404 INTERFACE_NOT_FOUND for the requested code "orders" while the interface row was
+// PUBLISHED as a generated flow-<uuid>; since PR 57 a typed code is kept as is and only an absent one is generated).
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
