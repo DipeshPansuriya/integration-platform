@@ -1,4 +1,4 @@
-// Row 372 M10 (Dipesh approved): the mapping designer still blocks when ANY of its loads fails, but the
+// Row 372 M10 (project owner approved): the mapping designer still blocks when ANY of its loads fails, but the
 // message names which load failed - the mapping, the contracts list, or the contract versions the mapping
 // uses - in the shared plain words (refusalWords), never a bare status code.
 // Run: node --import ./tests/rules/ts-resolve.mjs --test tests/ui/review-mapping-load.test.mjs

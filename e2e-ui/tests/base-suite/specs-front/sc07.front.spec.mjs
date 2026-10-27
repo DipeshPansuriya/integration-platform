@@ -8,7 +8,7 @@
 //   SC-07.3 B's failures list and queue summary carry nothing of A (ids, markers)
 //   SC-07.4 B's admin cannot rotate A's source credential; A's secret still works after the attempt
 //   SC-07.5 B's source posting A's customerId plus forged tenant headers is REFUSED 403 and nothing lands in
-//           either tenant. Reading agreed with Dipesh (row 375, run 8 finding 2): the tenant-isolation-safe
+//           either tenant. Reading agreed with the project owner (row 375, run 8 finding 2): the tenant-isolation-safe
 //           answer is the refusal - the intake does not accept a customerId the credential is not bound to into
 //           the caller's own flow (the earlier TBD(T106) hypothesis of 202 into B's flow is withdrawn).
 

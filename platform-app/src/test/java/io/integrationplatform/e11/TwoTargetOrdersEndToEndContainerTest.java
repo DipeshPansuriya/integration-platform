@@ -61,7 +61,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * T-132 - Dipesh's example as an end-to-end test (E11-F2-S1, backlog.md:3032-3063; E11-plan lane C1), the acceptance
+ * T-132 - the two-target orders example as an end-to-end test (E11-F2-S1, backlog.md:3032-3063; E11-plan lane C1), the acceptance
  * of T106 / T-049 (intake -> Kafka -> Camel route -> transform -> API adapter):
  *
  * <pre>
@@ -93,10 +93,10 @@ import tools.jackson.databind.json.JsonMapper;
 @Tag("container")
 @Testcontainers
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
-@Import(DipeshExampleEndToEndContainerTest.TestNetwork.class)
+@Import(TwoTargetOrdersEndToEndContainerTest.TestNetwork.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-@DisplayName("E11-F2-S1 Dipesh's example works as one system (T-132, T106)")
-class DipeshExampleEndToEndContainerTest {
+@DisplayName("E11-F2-S1 the two-target orders example works as one system (T-132, T106)")
+class TwoTargetOrdersEndToEndContainerTest {
 
     private static final String PINNED_TEXT = "203.0.113.10";
     private static final int TARGET_PORT = 8080;
@@ -120,8 +120,8 @@ class DipeshExampleEndToEndContainerTest {
     static final E11TargetStub TARGETS = E11TargetStub.start();
 
     private static RestrictedLogin login;
-    private static DipeshExampleSeed.Tenant tenantA;
-    private static DipeshExampleSeed.Tenant tenantB;
+    private static TwoTargetOrdersSeed.Tenant tenantA;
+    private static TwoTargetOrdersSeed.Tenant tenantB;
     private static ClientCredentials sourceA;
     private static ClientCredentials sourceB;
     private static UUID messageA;
@@ -172,8 +172,8 @@ class DipeshExampleEndToEndContainerTest {
         sourceB = KEYCLOAK.createConfidentialClient("e11-shop-b-" + UUID.randomUUID().toString().substring(0, 8),
                 true);
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            tenantA = DipeshExampleSeed.onboard(owner, "alpha", "CUST-A", sourceA.clientId(), KEYCLOAK.issuerUri());
-            tenantB = DipeshExampleSeed.onboard(owner, "bravo", "CUST-B", sourceB.clientId(), KEYCLOAK.issuerUri());
+            tenantA = TwoTargetOrdersSeed.onboard(owner, "alpha", "CUST-A", sourceA.clientId(), KEYCLOAK.issuerUri());
+            tenantB = TwoTargetOrdersSeed.onboard(owner, "bravo", "CUST-B", sourceB.clientId(), KEYCLOAK.issuerUri());
         }
         // tenant B's Target B refuses: a 400 is PERMANENT (ADR-010 section 5) - the dead-letter leg
         TARGETS.answer(tenantB.pathB(), 400);
@@ -433,7 +433,7 @@ class DipeshExampleEndToEndContainerTest {
     private static UUID post(ClientCredentials source, String body, String traceparent) throws Exception {
         String token = KEYCLOAK.clientCredentialsToken(source.clientId(), source.secret());
         HttpRequest.Builder request = HttpRequest.newBuilder(
-                        backend.resolve("/api/v1/interfaces/" + DipeshExampleSeed.INTERFACE_CODE + "/messages"));
+                        backend.resolve("/api/v1/interfaces/" + TwoTargetOrdersSeed.INTERFACE_CODE + "/messages"));
         if (traceparent != null) {
             request.header("traceparent", traceparent);
         }
@@ -441,7 +441,7 @@ class DipeshExampleEndToEndContainerTest {
                 .timeout(Duration.ofSeconds(10))
                 .header("Authorization", "Bearer " + token)
                 .header("Content-Type", "application/json")
-                .header("X-Source-Contract-Version", DipeshExampleSeed.SOURCE_CONTRACT_LABEL)
+                .header("X-Source-Contract-Version", TwoTargetOrdersSeed.SOURCE_CONTRACT_LABEL)
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build(), HttpResponse.BodyHandlers.ofString());
@@ -452,7 +452,7 @@ class DipeshExampleEndToEndContainerTest {
 
     // --- reads: the owner sees everything (observation only); the app login proves row-level security ----------
 
-    private static int countAs(DipeshExampleSeed.Tenant stamped, String table, String idColumn, UUID messageId)
+    private static int countAs(TwoTargetOrdersSeed.Tenant stamped, String table, String idColumn, UUID messageId)
             throws Exception {
         try (Connection app = DriverManager.getConnection(POSTGRES.getJdbcUrl(), login.username(),
                 login.password())) {

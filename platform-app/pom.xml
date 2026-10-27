@@ -136,7 +136,7 @@
       <artifactId>testcontainers-junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- E11 T-132 (T106): Dipesh's example end to end runs the whole app against one Kafka broker; version from
+    <!-- E11 T-132 (T106): the two-target orders example end to end runs the whole app against one Kafka broker; version from
          the spring-boot BOM's testcontainers-bom, as platform-routing's E8 harness pins it. -->
     <dependency>
       <groupId>org.testcontainers</groupId>

@@ -1,7 +1,7 @@
-// T130 (row 323, F21 BS-B) BS-07 - Dipesh's example, single target, two tenants (backlog.md:3038-3062,
+// T130 (row 323, F21 BS-B) BS-07 - the orders example, single target, two tenants (backlog.md:3038-3062,
 // narrowed to the Target B v2.0 leg; multi-target fan-out is bypass B11). The app runs under the dev-only
 // exception's profile with its REAL host resolver; both tenants' targets are the ONE WireMock on the one
-// exception host, one path per tenant (plan section 2, Dipesh "Option 1").
+// exception host, one path per tenant (plan section 2, project-owner decision "Option 1").
 //
 // Status lives in the gate (waitsOn / lib/pending-names.mjs) and the run report _reports/2026-10-22-base-suite-run.md, not in this header (the delivery base-URL gap is ON_MAIN.DELIVERY_BASE_URL).
 // Never run against production; never a psql-seeded row.
