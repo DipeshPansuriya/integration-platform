@@ -111,6 +111,17 @@ test('targetDb declared: the allow-lists name EXACTLY the new port; test (sslmod
   assert.deepEqual(mergeAppEnv({}, env), env, 'the boot accepts every name; none is harness-owned');
 });
 
+test('F2: the FINAL composed appEnv - profiles exactly {showcase,test}, showcase-local ports exactly {exception,target}, DB ports exactly {target}', () => {
+  const env = withTarget().appEnv;
+  assert.deepEqual(env.SPRING_PROFILES_ACTIVE.split(',').sort(), ['showcase', 'test']);
+  assert.deepEqual(env.PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS.split(',').map(Number).sort((a, b) => a - b), [32768, 41235]);
+  assert.deepEqual(env.PLATFORM_CONFIG_DESTINATIONS_DB_ALLOWED_PORTS.split(','), ['41235']);
+  assert.deepEqual(env.PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS.split(','), ['target.showcase.test']);
+  // nothing the exception sets is silently replaced except the two names the target extends, on purpose
+  const replaced = Object.keys(CONFIGURED.appEnv).filter((name) => env[name] !== CONFIGURED.appEnv[name]).sort();
+  assert.deepEqual(replaced, ['PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS', 'SPRING_PROFILES_ACTIVE']);
+});
+
 test('targetDb NOT declared: exactly today - no test profile, no sslmode, no KEK, no port list', () => {
   const env = baseSuiteBootOptions(CONFIGURED, { lockHolder: 'x' }).appEnv;
   assert.equal(env.SPRING_PROFILES_ACTIVE, 'showcase');

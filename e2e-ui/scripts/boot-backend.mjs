@@ -43,10 +43,17 @@ const LOCK_PATH = process.env.DOCKER_SUITE_LOCK ?? (() => {
   return path.resolve(path.dirname(path.dirname(gitDir)), '.docker-suite.lock');
 })();
 
-function docker(args, timeout = 60000) {
-  const result = spawnSync('docker', args, { encoding: 'utf8', timeout, windowsHide: true });
+/** F1: the failure text of a docker call - argv is echoed, so a `-e NAME=value` of a secret-looking name is masked (a bare `-e NAME` stays). */
+export function dockerFailure(args, status, stderr) {
+  const shown = args.map((arg) => arg.replace(/^([A-Za-z0-9_]*(?:PASSWORD|SECRET|KEY|TOKEN)[A-Za-z0-9_]*)=.*$/s, '$1=***'));
+  return `docker ${shown.join(' ')} failed (${status}): ${(stderr ?? '').trim()}`;
+}
+
+/** `env` is ADDED to the child's environment: a secret named in argv (`-e NAME`) is passed by value this way, never on the command line. */
+function docker(args, timeout = 60000, env = undefined) {
+  const result = spawnSync('docker', args, { encoding: 'utf8', timeout, windowsHide: true, ...(env ? { env: { ...process.env, ...env } } : {}) });
   if (result.error || result.status !== 0) {
-    throw new Error(`docker ${args.join(' ')} failed (${result.status ?? result.error}): ${(result.stderr ?? '').trim()}`);
+    throw new Error(dockerFailure(args, result.status ?? result.error, result.stderr));
   }
   return result.stdout.trim();
 }
@@ -404,8 +411,9 @@ function targetDbPlan(key, sidecar, name, declaration = {}) {
     containerPort: sidecar.containerPort,
     hostPort,
     database,
+    env: { POSTGRES_PASSWORD: crypto.randomBytes(18).toString('base64url') }, // F1: by value in the spawn environment, never in argv
     runArgs: ['run', '-d', '--rm', '--name', name, '-p', `127.0.0.1:${hostPort}:${sidecar.containerPort}`,
-      '-e', 'POSTGRES_USER=owner', '-e', `POSTGRES_PASSWORD=${crypto.randomBytes(18).toString('base64url')}`, '-e', `POSTGRES_DB=${database}`, image],
+      '-e', 'POSTGRES_USER=owner', '-e', 'POSTGRES_PASSWORD', '-e', `POSTGRES_DB=${database}`, image],
     initSql: tables.map((table) => `CREATE TABLE public.${table} (delivery_id uuid UNIQUE, payload jsonb)`)
   };
 }
@@ -676,7 +684,7 @@ export default async function bootBackend({
       throw new Error('boot-backend: sourceCredentials, but the realm handed no platform-admin client secret');
     }
 
-    docker(['run', '-d', '--rm', '--name', pgName, '-P', '-e', 'POSTGRES_USER=owner', '-e', `POSTGRES_PASSWORD=${pgPassword}`, '-e', 'POSTGRES_DB=platform', PG_IMAGE]);
+    docker(['run', '-d', '--rm', '--name', pgName, '-P', '-e', 'POSTGRES_USER=owner', '-e', 'POSTGRES_PASSWORD', '-e', 'POSTGRES_DB=platform', PG_IMAGE], 60000, { POSTGRES_PASSWORD: pgPassword });
     container = pgName;
     const pgPort = Number(docker(['port', pgName, '5432']).split(':').pop());
     for (let i = 0; i < 60; i++) {
@@ -689,7 +697,7 @@ export default async function bootBackend({
     // one that will not come up fails the boot early. servicePlan declares WireMock and Kafka.
     const serviceInfo = {};
     for (const sidecar of sidecars) {
-      docker(sidecar.runArgs);
+      docker(sidecar.runArgs, 60000, sidecar.env);
       sidecarNames.push(sidecar.name);
       if (sidecar.key === 'targetDb') {
         for (const statement of sidecar.initSql) psql(sidecar.name, statement, sidecar.database); // psql retries until the real cluster is up

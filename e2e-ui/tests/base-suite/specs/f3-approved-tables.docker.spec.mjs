@@ -253,3 +253,20 @@ test('12 the stored password reaches the narrow login on the target database: te
   expect(probe.detail).toContain('SELECT');
   expect(probe.detail, 'the account is narrow').not.toContain('WIDE ACCOUNT');
 });
+
+// 13 Cross-tenant (ADR-H-IPASS-03): tenant B registers a DB system that NAMES tenant A's login on the same target, but stores no
+// password of its own. The vault read is tenant-scoped, so A's stored password is not reachable: B's approval fails closed
+// (409 DB_ACCOUNT_UNVERIFIED, NO_CREDENTIAL) and the row stays PENDING_APPROVAL.
+test('13 tenant B naming tenant A\'s login without a password of its own cannot get a table approved: 409 DB_ACCOUNT_UNVERIFIED (NO_CREDENTIAL), row stays pending', async ({ page }) => {
+  await open(page);
+  const bSystem = must(await api(page, TENANTS.B, 'admin', 'POST', '/api/v1/admin/systems',
+    dbSystemBody('f3-db-b-xt', 'F3 DB B naming A\'s login', exception, { port: targetDbPort(), account: ctx.A.login.account })), 'B: DB system naming A\'s login');
+  const requested = await api(page, TENANTS.B, 'admin', 'POST', approvedTablesPath(bSystem.id), { table: DB_TABLE });
+  expect(requested.status, JSON.stringify(requested.data)).toBe(201);
+  const approve = await api(page, TENANTS.B, 'approver', 'POST', approvedTablesPath(bSystem.id, requested.data.id, 'approve'));
+  expect(approve.status, JSON.stringify(approve.data)).toBe(409);
+  expect(String(approve.data?.error ?? '')).toMatch(/^DB_ACCOUNT_UNVERIFIED/);
+  expect(String(approve.data?.error ?? '')).toContain('NO_CREDENTIAL');
+  const rows = await listOf(page, TENANTS.B, 'approver', bSystem.id);
+  expect(rows.map((row) => [row.id, row.status]), 'the refused approval changed nothing').toEqual([[requested.data.id, STATUS.pending]]);
+});
