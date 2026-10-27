@@ -167,6 +167,22 @@ class IntakeCommitContainerTest {
     }
 
     @Test
+    @DisplayName("row 542 F2: the 404 detail never echoes the unvalidated path code (unknown and unpublished alike)")
+    void notFoundDetailDoesNotEchoTheCode() {
+        String hostile = "a%0d%0ab<script>x</script>";
+        assertThatThrownBy(() -> asAppRole(tenantA).accept(request(hostile, PINNED_LABEL, "{\"customer_code\":\"CUST-F2\"}")))
+                .isInstanceOfSatisfying(IntakeRefusedException.class, refused -> {
+                    assertThat(refused.reason()).isEqualTo(
+                            IntakeRefusedException.Reason.INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED);
+                    assertThat(refused.detail()).doesNotContain(hostile).doesNotContain("script").doesNotContain("%0d");
+                });
+        assertThatThrownBy(() -> asAppRole(tenantA).accept(request(DRAFT_CODE, PINNED_LABEL,
+                        "{\"customer_code\":\"CUST-F2\"}")))
+                .isInstanceOfSatisfying(IntakeRefusedException.class,
+                        refused -> assertThat(refused.detail()).doesNotContain(DRAFT_CODE));
+    }
+
+    @Test
     @DisplayName("a contract version off the pin is refused 422 naming the pinned version, nothing persisted")
     void contractPinMismatchRefused() throws SQLException {
         assertThatThrownBy(() -> asAppRole(tenantA).accept(request(CODE, "2.0",

@@ -118,11 +118,12 @@ public class IntakeService implements IntakeTransaction {
         IntakeStore.PublishedInterface published = store.resolvePublishedInterface(request.interfaceCode())
                 .orElseThrow(() -> new IntakeRefusedException(
                         IntakeRefusedException.Reason.INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED,
-                        "no published interface '" + request.interfaceCode() + "' on this tenant"));
+                        // row 542 / F2: the path variable is unvalidated here - never echo it back
+                        "no published interface with that code on this tenant"));
         IntakeStore.PublishedVersion version = store.resolvePublishedVersion(published)
                 .orElseThrow(() -> new IntakeRefusedException(
                         IntakeRefusedException.Reason.INTERFACE_NOT_FOUND_OR_NOT_PUBLISHED,
-                        "interface '" + request.interfaceCode() + "' has no published version"));
+                        "the interface has no published version"));
         List<JsonNode> records = request.records();
         // T-066 (T108): each payload's masked values are scrubbed from every later log line, whoever writes it.
         records.forEach(record -> MaskedFields.register(MaskedFields.valuesOf(record, version.maskedFields())));
