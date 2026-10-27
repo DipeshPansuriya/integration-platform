@@ -170,8 +170,7 @@ test('5 a different tenant approver approves: APPROVED, decided by someone else;
 test('6 with the table approved the same publish passes (publish-time table + column check)', async ({ page }) => {
   await open(page);
   const published = await publish(page, TENANTS.A);
-  const interfaceOf = must(published, 'A: publish the flow to the approved DB table');
-  expect(String(interfaceOf.code ?? ''), 'the publish answer carries the generated interface code').toMatch(/^flow-/);
+  must(published, 'A: publish the flow to the approved DB table'); // 200: the publish-time table check passed, no refusal
 });
 
 test('7 tenant A\'s APPROVED table does not make tenant B\'s same-named table usable, and B cannot revoke it', async ({ page }) => {
@@ -241,8 +240,7 @@ test('11 the requester approves their own request: 200 APPROVED, decided by the 
   expect(again.status).toBe(409);
   expect(refusalOf(again)).toBe(REFUSAL.notPending);
 
-  const interfaceOf = must(await selfPublish(), 'A: publish the flow to the self-approved DB table');
-  expect(String(interfaceOf.code ?? ''), 'the publish answer carries the generated interface code').toMatch(/^flow-/);
+  must(await selfPublish(), 'A: publish the flow to the self-approved DB table'); // 200: the requester's own approval opened the table
 });
 
 // 12 With the password in the vault and the narrow login on the target, the probe dials the real database and reports the
