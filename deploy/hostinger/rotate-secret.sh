@@ -5,8 +5,8 @@
 #   ./rotate-secret.sh DB_PASSWORD | DB_MIGRATION_PASSWORD | BACKUP_DB_PASSWORD | RESTORE_DB_PASSWORD
 #                      | KEYCLOAK_DB_PASSWORD | POSTGRES_PASSWORD
 #       -> ALTER ROLE inside the postgres container, .env updated, the dependent service re-created.
-#   KC_CLIENT_SECRET=<ipass-kcadm secret> ./rotate-secret.sh CONSOLE_OIDC_CLIENT_SECRET | PLATFORM_ADMIN_CLIENT_SECRET | OPERATOR_AGENT_CLIENT_SECRET
-#       -> kcadm (logged in as the master service-account client ipass-kcadm, row 543; secret from KC_CLIENT_SECRET or a silent prompt) sets the
+#   ./rotate-secret.sh CONSOLE_OIDC_CLIENT_SECRET | PLATFORM_ADMIN_CLIENT_SECRET | OPERATOR_AGENT_CLIENT_SECRET
+#       -> kcadm (logged in as the master service-account client ipass-kcadm, row 543; secret from a silent prompt; never typed inline, see keycloak/kc-login.sh) sets the
 #          realm client secret, .env updated. Fallback while the admin has no TOTP:  KC_ADMIN_USER=<named admin> ./rotate-secret.sh --password-login NAME
 # Not rotated here, on purpose: PLATFORM_CREDENTIAL_KEK_* (a new key means re-sealing every stored target credential;
 # see README "Rotation") and SHOWCASE_PASSWORD_* (edit .env, re-run ./seed/seed-showcase.sh).

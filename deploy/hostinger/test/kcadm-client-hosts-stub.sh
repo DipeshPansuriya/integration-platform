@@ -12,7 +12,9 @@ SECRET="cs-0123456789-marker"
 cat > "$T/fakecompose" <<'FAKE'
 #!/bin/sh
 echo "ARGS: $*" >> "$FAKE_LOG"
+[ "${FAKE_FAIL:-0}" = 1 ] && exit 7
 case "$*" in *"-e KC_CLIENT_SECRET"*) echo "ENVSECRET: ${KC_CLIENT_SECRET:-unset}" >> "$FAKE_LOG";; esac
+case "$*" in *"-e KC_NEW_CLIENT_SECRET"*) echo "ENVNEW: new=${KC_NEW_CLIENT_SECRET:-unset} pw=${KC_ADMIN_PASSWORD:-unset} rotate=${ROTATE:-} master=${WITH_MASTER_USERS:-} client=${KC_CLIENT_ID:-}" >> "$FAKE_LOG"; echo "STDIN-BYTES: $(wc -c)" >> "$FAKE_LOG"; exit 0;; esac
 case "$*" in
   *KC_BOOTSTRAP_ADMIN_PASSWORD*"-n"*|*'[ -n'*) [ "${FAKE_BOOTSTRAP:-0}" = 1 ]; exit $?;;
   *"get users"*"username=bootstrap-admin"*) echo "${FAKE_USER_ID:-}"; exit 0;;
@@ -95,5 +97,49 @@ run ops2 KC_ADMIN_USERNAME=alice KC_ADMIN_PASSWORD=pw -- bash keycloak/ops-setup
 [ $RC -eq 0 ] && grep '^ARGS:' "$T/log" | grep -q -- '-e KC_ADMIN_PASSWORD' && ok "ops-setup: --password-login passes the admin password by name" || bad "ops-setup password mode (rc=$RC) $OUT"
 run ops3 DRY_RUN=1 -- bash keycloak/ops-setup.sh
 grep -q "ipass-kcadm" <<<"$OUT" && ok "ops-setup: dry run names the client" || bad "ops-setup dry run: $OUT"
+
+# --- L3: the password fallback is loud; the client path is quiet
+run l3a KC_ADMIN_USER=alice "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh --password-login
+grep -q "WARNING" <<<"$OUT" && grep -qi "TOTP" <<<"$OUT" && ok "L3: --password-login prints a warning (works only while the admin has no TOTP)" || bad "L3: no warning: $OUT"
+run l3b "$CS" KC_ADMIN_USER=alice "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh
+! grep -q "WARNING" <<<"$OUT" && ok "L3: the client path prints no password warning" || bad "L3: warning in client mode"
+run l3c KC_AUTH=bogus-value-xyz -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -ne 0 ] && ! grep -q "bogus-value-xyz" <<<"$OUT" && ok "L6: a bad KC_AUTH is refused without echoing the value" || bad "L6: KC_AUTH echoed or accepted (rc=$RC) $OUT"
+
+# --- L6: KC_CLIENT_ID is validated before it reaches a shell string
+run l6a "$CS" "KC_CLIENT_ID=x'; echo pwned; '" KC_ADMIN_USER=alice "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -ne 0 ] && [ ! -s "$T/log" ] && ok "L6: a KC_CLIENT_ID with shell characters is refused before any call" || bad "L6: client id accepted (rc=$RC) $OUT"
+run l6b "$CS" KC_CLIENT_ID=other.kcadm_1-x KC_ADMIN_USER=alice "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -eq 0 ] && grep -q -- "--client 'other.kcadm_1-x'" "$T/log" && ok "L6: a normal custom client id is used" || bad "L6: custom client id (rc=$RC) $OUT"
+
+# --- L7: ops-setup reads the client secret BEFORE it writes the generated secret into .env
+printf 'IPASS_DOMAIN=example.test\n' > "$T/.env.l7"
+run l7 ENV_FILE="$T/.env.l7" -- bash keycloak/ops-setup.sh
+[ $RC -ne 0 ] && ! grep -q "OPS_KAFBAT_CLIENT_SECRET" "$T/.env.l7" && [ ! -s "$T/log" ] && ok "L7: no client secret -> ops-setup stops BEFORE .env is changed" || bad "L7: .env changed or call made (rc=$RC) $(cat "$T/.env.l7")"
+printf 'IPASS_DOMAIN=example.test\n' > "$T/.env.l7"
+run l7b "$CS" ENV_FILE="$T/.env.l7" -- bash keycloak/ops-setup.sh
+grep -q "^OPS_KAFBAT_CLIENT_SECRET=." "$T/.env.l7" && ok "L7: with the secret, the generated value is still written" || bad "L7: not generated (rc=$RC) $OUT"
+
+# --- L4: the terminal is restored if the secret prompt is interrupted
+grep -q "trap .*stty" keycloak/kc-login.sh && ok "L4: kc-login.sh restores the terminal settings from a trap" || bad "L4: no stty trap in kc-login.sh"
+
+# --- L8: the host wrapper kcadm-client-setup.sh
+AEV=(KC_ADMIN_USERNAME=adm KC_ADMIN_PASSWORD=ADMPW-marker-77 KC_NEW_CLIENT_SECRET=NEWSEC-marker-0123456789abcdefABCDEF)
+leak_w() { ! grep '^ARGS:' "$T/log" | grep -qE "ADMPW-marker|NEWSEC-marker" && ! grep -qE "ADMPW-marker|NEWSEC-marker" <<<"$OUT"; }
+run w1 -- bash keycloak/kcadm-client-setup.sh
+[ $RC -ne 0 ] && grep -qi "terminal" <<<"$OUT" && [ ! -s "$T/log" ] && ok "wrapper: no input and no terminal -> stops before any call" || bad "wrapper w1 (rc=$RC) $OUT"
+run w2 "${AEV[@]}" -- bash keycloak/kcadm-client-setup.sh
+[ $RC -eq 0 ] && grep '^ARGS:' "$T/log" | grep -q -- "-e KC_ADMIN_PASSWORD -e KC_CLIENT_ID -e KC_NEW_CLIENT_SECRET" && leak_w && grep -q "^ENVNEW: new=NEWSEC-marker-0123456789abcdefABCDEF pw=ADMPW-marker-77 rotate=0 master=0 client=ipass-kcadm" "$T/log" && ok "wrapper: secrets travel by environment name only; default flags 0; default client id" || bad "wrapper w2 (rc=$RC) $OUT $(cat "$T/log")"
+n=$(sed -n 's/^STDIN-BYTES: *//p' "$T/log"); [ "${n:-0}" -gt 1000 ] && ok "wrapper: the container script is fed on stdin (bash -s)" || bad "wrapper: stdin not fed ($n)"
+run w3 "${AEV[@]}" -- bash keycloak/kcadm-client-setup.sh --rotate --with-master-users
+[ $RC -eq 0 ] && grep -q "rotate=1 master=1" "$T/log" && leak_w && ok "wrapper: --rotate and --with-master-users reach the container as ROTATE=1 / WITH_MASTER_USERS=1" || bad "wrapper w3 (rc=$RC) $OUT"
+run w4 "${AEV[@]}" -- bash keycloak/kcadm-client-setup.sh --bogus
+[ $RC -eq 2 ] && [ ! -s "$T/log" ] && ok "wrapper: an unknown flag is refused (rc 2), nothing called" || bad "wrapper w4 (rc=$RC) $OUT"
+run w5 "${AEV[@]}" "KC_CLIENT_ID=a b;c" -- bash keycloak/kcadm-client-setup.sh
+[ $RC -ne 0 ] && [ ! -s "$T/log" ] && ok "wrapper: an unsafe KC_CLIENT_ID is refused before any call" || bad "wrapper w5 (rc=$RC) $OUT"
+run w6 "${AEV[@]}" FAKE_FAIL=1 -- bash keycloak/kcadm-client-setup.sh
+[ $RC -ne 0 ] && ! grep -q "store the client secret" <<<"$OUT" && leak_w && ok "wrapper: a failing container run fails the wrapper (no success line)" || bad "wrapper w6 (rc=$RC) $OUT"
+run w7 DRY_RUN=1 -- bash keycloak/kcadm-client-setup.sh --with-master-users
+[ $RC -eq 0 ] && [ ! -s "$T/log" ] && grep -q "ipass-kcadm" <<<"$OUT" && grep -q "master-realm: manage-users view-users" <<<"$OUT" && ok "wrapper: dry run calls nothing and names the roles" || bad "wrapper w7 (rc=$RC) $OUT"
 
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"; exit $fail

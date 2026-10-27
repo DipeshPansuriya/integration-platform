@@ -34,6 +34,7 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
 fi
 umask 077
 [ -s "$ENV_FILE" ] || { echo "$ENV_FILE is missing or empty - run in the project directory" >&2; exit 2; }
+if [ "$KC_AUTH" = client ]; then kc_read_secret; fi   # exports KC_CLIENT_SECRET (env or silent prompt) BEFORE .env is changed
 if ! grep -q '^OPS_KAFBAT_CLIENT_SECRET=.' "$ENV_FILE"; then
   v="$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | cut -c1-40)"
   [ "${#v}" -ge 32 ] || { echo "could not generate a secret (openssl)" >&2; exit 2; }
@@ -43,7 +44,6 @@ if ! grep -q '^OPS_KAFBAT_CLIENT_SECRET=.' "$ENV_FILE"; then
 fi
 set -a; . "$ENV_FILE"; set +a
 if [ "$KC_AUTH" = client ]; then
-  kc_read_secret                                    # exports KC_CLIENT_SECRET (env or silent prompt)
   LOGIN_ENV=(-e KC_AUTH -e KC_CLIENT_ID -e KC_CLIENT_SECRET)
 else
   if [ -z "${KC_ADMIN_USERNAME:-}" ] || [ -z "${KC_ADMIN_PASSWORD:-}" ]; then

@@ -7,10 +7,13 @@
 #     --rotate             set a NEW secret on the existing client (then prove it by a login)
 #     --with-master-users  also grant master-realm manage-users/view-users (needed ONLY by retire-bootstrap-admin.sh); re-run
 #                          without the flag afterwards to take them away again
-# It logs in ONCE as the named master admin (password): so run it BEFORE that admin enrols TOTP, or create the client in the console
+# ORDER (the whole chain needs the admin password, so finish it BEFORE the named admin enrols TOTP; afterwards use the console):
+#   1. create:  --with-master-users     2. keycloak/retire-bootstrap-admin.sh     3. drop the master roles: run WITHOUT --with-master-users
+#   4. rotate the secret: --rotate (the old secret held master power)     5. only now enrol TOTP on the named admin
+# It logs in ONCE as the named master admin (password), also for steps 3 and 4. Or create the client in the console
 # (see the row 543 runbook). Idempotent: an existing client keeps its secret and its roles are reconciled to the exact set in
 # keycloak/kcadm-client-setup-kcadm.sh. Secrets never touch a file: the admin password and the client secret come from the
-# environment (KC_ADMIN_USERNAME, KC_ADMIN_PASSWORD, KC_NEW_CLIENT_SECRET - at least 32 characters, from your password manager) or a
+# environment (KC_ADMIN_USERNAME, KC_ADMIN_PASSWORD, KC_NEW_CLIENT_SECRET - at least 32 characters, from your password manager; never typed inline, the shell history keeps it) or a
 # silent prompt, travel into the container as environment NAMES, and are never printed. Store the client secret in the password manager.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -21,6 +24,7 @@ for a in "$@"; do case "$a" in
   --dry-run) DRY_RUN=1;; --rotate) ROTATE=1;; --with-master-users) WITH_MASTER_USERS=1;;
   *) echo "usage: kcadm-client-setup.sh [--dry-run] [--rotate] [--with-master-users]" >&2; exit 2;; esac; done
 KC_CLIENT_ID="${KC_CLIENT_ID:-ipass-kcadm}"
+case "$KC_CLIENT_ID" in ""|*[!A-Za-z0-9._-]*) echo "KC_CLIENT_ID may contain only letters, digits, . _ -" >&2; exit 2;; esac
 if [ "$DRY_RUN" = 1 ]; then
   echo "would log in once to realm master as the named admin (KC_ADMIN_USERNAME/KC_ADMIN_PASSWORD from the environment, else prompted silently),"
   echo "ensure client $KC_CLIENT_ID (confidential, service account, client credentials only; created with KC_NEW_CLIENT_SECRET or a silent prompt, rotated only with --rotate),"
@@ -38,7 +42,7 @@ prompt KC_ADMIN_USERNAME "named master admin user" plain
 prompt KC_ADMIN_PASSWORD "password of that admin" silent
 # the container script decides whether a secret is needed (new client or --rotate); a re-run on an existing client needs none
 if [ -z "${KC_NEW_CLIENT_SECRET:-}" ] && [ -t 0 ]; then
-  printf 'new client secret, at least 32 characters - leave empty if %s already exists and you are not rotating (not echoed): ' "$KC_CLIENT_ID" >&2
+  printf 'new client secret, at least 32 characters - REQUIRED for the first run; leave empty only if %s already exists and you are not rotating (not echoed): ' "$KC_CLIENT_ID" >&2
   read -r -s KC_NEW_CLIENT_SECRET || true; echo >&2
   if [ -n "${KC_NEW_CLIENT_SECRET:-}" ]; then
     read -r -s -p "repeat it (not echoed): " again; echo >&2
