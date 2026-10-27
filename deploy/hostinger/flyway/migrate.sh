@@ -64,6 +64,9 @@ if [ -z "${FLYWAY_IMAGE:-}" ]; then
   FW_EXPECT_REVISION="${FW_EXPECT_REVISION:-$TAG}"      # the image must carry this commit (label from flyway/build-image.sh); an explicit FLYWAY_IMAGE skips the tag-derived check
 fi
 FW_EXPECT_IMAGE_ID="${FLYWAY_IMAGE_ID:-}"
+if [ -z "${FW_EXPECT_REVISION:-}" ] && [ -z "$FW_EXPECT_IMAGE_ID" ]; then
+  echo "WARNING: image revision NOT verified (FLYWAY_IMAGE is set explicitly and neither FW_EXPECT_REVISION nor FLYWAY_IMAGE_ID is given): this image gets the database password unchecked" >&2
+fi
 NETWORK="${FLYWAY_NETWORK:-ipass_ipass-data}"
 
 # one Flyway container, one action; extra Flyway arguments precede the action name. The container is started by flyway-run.sh

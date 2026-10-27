@@ -26,8 +26,17 @@ ENV_FILE="${ENV_FILE:-$STACK_DIR/.env}"
 export ENV_FILE
 LOCK_DIR="$STACK_DIR/.deploy.lock"
 tmp=""
-cleanup_deploy() { [ -z "$tmp" ] || rm -f "$tmp"; rmdir "$LOCK_DIR" 2>/dev/null || true; }
-mkdir "$LOCK_DIR" 2>/dev/null || { echo "ERROR: another deploy.sh is running (or died without cleaning up): $LOCK_DIR exists. Check with ps; remove the folder only if no deploy is running." >&2; exit 2; }
+cleanup_deploy() { [ -z "$tmp" ] || rm -f "$tmp"; if [ "$HAVE_LOCK" = 1 ]; then rm -f "$LOCK_DIR/pid"; rmdir "$LOCK_DIR" 2>/dev/null || true; fi; }
+HAVE_LOCK=0
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  old="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+  if [ -n "$old" ] && ! kill -0 "$old" 2>/dev/null; then
+    echo "NOTE: stale deploy lock (process $old is gone): taking it over"; rm -f "$LOCK_DIR/pid"; rmdir "$LOCK_DIR" 2>/dev/null; mkdir "$LOCK_DIR" 2>/dev/null || old=""
+    [ -n "$old" ] || { echo "ERROR: cannot take over the stale lock $LOCK_DIR" >&2; exit 2; }
+  else echo "ERROR: another deploy.sh is running (or died without cleaning up): $LOCK_DIR exists. Check with ps; remove the folder only if no deploy is running." >&2; exit 2
+  fi
+fi
+HAVE_LOCK=1; echo $$ > "$LOCK_DIR/pid"
 trap cleanup_deploy EXIT
 trap 'cleanup_deploy; exit 130' INT TERM
 [ -r "$ENV_FILE" ] || { echo "ERROR: cannot read $ENV_FILE" >&2; exit 2; }
@@ -35,6 +44,7 @@ trap 'cleanup_deploy; exit 130' INT TERM
 NEW_TAG="${IMAGE_TAG:-}"
 [ -n "$NEW_TAG" ] || { echo "ERROR: IMAGE_TAG must be set to the short commit of the merged main, e.g.  IMAGE_TAG=ab12cd34 ./deploy.sh" >&2; exit 2; }
 case "$NEW_TAG" in
+  *[!0-9a-f]*|?|??|???|????|?????|??????) echo "ERROR: IMAGE_TAG must be the first 7 or more lowercase hex characters of the commit (as flyway/build-image.sh requires)" >&2; exit 2 ;;
   latest) echo "ERROR: IMAGE_TAG must not be 'latest'" >&2; exit 2 ;;
   *[!A-Za-z0-9._-]*|-*|.*) echo "ERROR: IMAGE_TAG may contain only letters, digits, '.', '_' and '-'" >&2; exit 2 ;;
 esac
