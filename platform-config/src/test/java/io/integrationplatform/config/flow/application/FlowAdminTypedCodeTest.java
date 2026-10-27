@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.dao.DuplicateKeyException;
@@ -137,6 +138,7 @@ class FlowAdminTypedCodeTest {
     @ValueSource(strings = {"has space", "a/b", "a?b", "a#b", "a%2Fb", "a\\b", "a:b", "a;b", "a@b", "a\"b", "a'b",
             "a<b>", "a\nb", "a\u0000b", "../x", "-lead", ".lead", "_lead", "café", "نظام",
             "a😀", "; drop table interface; --",
+            ".", "..", ".a", "...", "ok\nx", "ok\r\nx", "ok\u00a0", "a\rb", // row 542 F4: dot-only, dot-lead, inner CR/LF
             "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijkl"}) // the last is 64 characters
     void aCodeThatCouldNotBeAddressedIsRefusedBeforeAnySql(String illegal) {
         aWorkingRepository();
@@ -145,6 +147,55 @@ class FlowAdminTypedCodeTest {
 
         refusedAs400NamingTheCode(() -> createWith(body));
         verify(flows, never()).insertInterface(anyString(), anyString(), anyString());
+    }
+
+    /**
+     * Row 542 / F4 (Karan): pins what the pattern really does for the forward-looking cases. Accepted today, on
+     * purpose: nothing derives a file name, topic or route id from the code, so a trailing dot, a Windows device name
+     * and {@code a..b} are harmless. A later feature that uses the code in such a sink must change this list.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            a.      | a.
+            CON     | CON
+            nul.txt | nul.txt
+            a..b    | a..b
+            a.b     | a.b
+            a_b     | a_b
+            """)
+    void theForwardLookingShapesAreAcceptedAsTheyAre(String typed, String stored) {
+        aWorkingRepository();
+        ObjectNode body = createBody();
+        body.put("code", typed);
+
+        assertThat(createWith(body).code()).isEqualTo(stored);
+    }
+
+    /** A trailing newline is not refused: {@code typedCode} trims first, so the stored code never carries it. */
+    @ParameterizedTest
+    @ValueSource(strings = {"ok\n", "ok\r\n", " ok\t"})
+    void aTrailingNewlineIsTrimmedNotStored(String typed) {
+        aWorkingRepository();
+        ObjectNode body = createBody();
+        body.put("code", typed);
+
+        assertThat(createWith(body).code()).isEqualTo("ok");
+    }
+
+    @Test
+    void aCaseVariantOfAnExistingCodeIsTheSameNamed409() {
+        aWorkingRepository();
+        // row 542 / F1, V2_4_1480: unique index (tenant_id, lower(code)) raises the same DuplicateKeyException
+        when(flows.insertInterface(anyString(), anyString(), anyString()))
+                .thenThrow(new DuplicateKeyException("interface_code_ci_unique"));
+        ObjectNode body = createBody();
+        body.put("code", "Orders");
+
+        assertThatThrownBy(() -> createWith(body)).isInstanceOfSatisfying(ConfigApiException.class, e -> {
+            assertThat(e.httpStatus()).isEqualTo(409);
+            assertThat(String.valueOf(e.body().get("error"))).contains("Orders").contains("already")
+                    .contains("ignoring case");
+        });
     }
 
     @ParameterizedTest

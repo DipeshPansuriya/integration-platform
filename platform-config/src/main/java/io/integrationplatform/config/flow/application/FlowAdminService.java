@@ -86,8 +86,9 @@ public class FlowAdminService {
         try {
             interfaceId = flows.insertInterface(code, name, ordering);
         } catch (DuplicateKeyException clash) {
-            // F17: the unique key is (tenant, code) (V2_2_3) - name the field, the generic 409 does not
-            throw ConfigApiException.conflict("an interface with the code '" + code + "' already exists in this tenant");
+            // F17: the unique key is (tenant, code) (V2_2_3), and (tenant, lower(code)) since V2_4_1480 (row 542 F1)
+            throw ConfigApiException.conflict("an interface with the code '" + code
+                    + "' already exists in this tenant (codes are compared ignoring case)");
         }
         InterfaceRow created = new InterfaceRow(interfaceId, code, name, ordering, "DRAFT");
         maskedFields.ifPresent(paths -> flows.updateMaskedFields(interfaceId, MaskedFields.toJson(paths)));
