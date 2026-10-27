@@ -15,7 +15,7 @@ SHA="$(git rev-parse HEAD)"
 case "$TAG" in *[!0-9a-f]*|????|???|??|?|??????) echo "ERROR: tag '$TAG' must be at least 7 lowercase hex characters (the start of the commit sha)" >&2; exit 2 ;; esac
 case "$SHA" in "$TAG"*) ;; *) echo "ERROR: tag $TAG is not the start of HEAD ($SHA): check out the commit you are releasing" >&2; exit 2 ;; esac
 PATHS="$(git ls-tree -r --name-only HEAD | grep -E '(^deploy/hostinger/flyway/|/src/main/resources/db/migration/)')"
-DIRTY="$(git status --porcelain --untracked-files=all -- deploy/hostinger/flyway ':(glob)**/src/main/resources/db/migration')"
+DIRTY="$(git status --porcelain --untracked-files=all -- deploy/hostinger/flyway ':(glob)**/src/main/resources/db/migration/**')"
 [ -z "$DIRTY" ] || { echo "ERROR: uncommitted or untracked changes in the migration folders or flyway/ - commit or remove them, the image must match the commit:" >&2; echo "$DIRTY" >&2; exit 2; }
 CTX="$(mktemp -d)"; trap 'rm -rf "$CTX"' EXIT INT TERM
 # shellcheck disable=SC2086

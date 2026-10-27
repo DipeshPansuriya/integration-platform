@@ -239,7 +239,7 @@ check "build-image: an untracked migration file refuses the build (exit 2), no d
 rm -f "$B/platform-app/src/main/resources/db/migration/V1_0_99__uncommitted.sql"; :
 bi 1234567 reg.example/ipass/flyway-migrate >"$TMP/bi3.out" 2>&1; rc=$?
 check "build-image: a tag that is not the start of HEAD is refused (exit 2)" '[ $rc -eq 2 ] && grep -q "is not the start of HEAD" "$TMP/bi3.out" && ! grep -q "^build" "$TMP/fake.log"'
-check "build-image: POSIX sh syntax, no BOM, LF only" 'sh -n "$FW/build-image.sh" && ! grep -q "$(printf "")" "$FW/build-image.sh"'
+check "build-image: POSIX sh syntax, no BOM, LF only" 'sh -n "$FW/build-image.sh" && ! od -An -c "$FW/build-image.sh" | grep -q "\\\\r" && [ "$(head -c3 "$FW/build-image.sh" | od -An -tx1 | tr -d " ")" != efbbbf ]'
 
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail
