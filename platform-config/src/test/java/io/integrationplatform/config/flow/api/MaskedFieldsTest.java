@@ -31,17 +31,38 @@ class MaskedFieldsTest {
         ListAppender<ILoggingEvent> logged = new ListAppender<>();
         logged.start();
         log.addAppender(logged);
+        MaskedFields.resetRegistryForTest();
         try {
+            // 10,000 fit; the next 250 each evict the oldest entry, so evictions 1..250 happen
             for (int i = 0; i < 10_250; i++) {
                 MaskedFields.register(List.of("EVICTION-PROBE-" + i));
             }
+            List<ILoggingEvent> warns = logged.list.stream().filter(e -> e.getLevel() == Level.WARN).toList();
+
+            // bounded: the first and every 100th of 250 evictions is 3 lines (1, 100, 200) - not one line per eviction
+            assertThat(warns).as("row 323 B25: eviction past the 10,000-entry bound logs the first and every 100th")
+                    .hasSize(3);
+            assertThat(warns).extracting(ILoggingEvent::getFormattedMessage)
+                    .satisfiesExactly(
+                            first -> assertThat(first).contains("full at 10000 entries").contains("(1 evicted since start)"),
+                            second -> assertThat(second).contains("(100 evicted since start)"),
+                            third -> assertThat(third).contains("(200 evicted since start)"));
+
+            // value-free: neither the formatted line nor any format argument carries an evicted (or any probe) value
+            for (ILoggingEvent warn : warns) {
+                assertThat(warn.getFormattedMessage()).doesNotContain("EVICTION-PROBE");
+                assertThat(warn.getMessage()).doesNotContain("EVICTION-PROBE");
+                assertThat(warn.getArgumentArray()).as("format arguments").doesNotContain("EVICTION-PROBE-0")
+                        .allSatisfy(arg -> assertThat(String.valueOf(arg)).doesNotContain("EVICTION-PROBE"));
+            }
+
+            // the eviction is real: the oldest value no longer scrubs, the newest still does
+            assertThat(MaskedFields.scrub("EVICTION-PROBE-0")).isEqualTo("EVICTION-PROBE-0");
+            assertThat(MaskedFields.scrub("EVICTION-PROBE-10249")).isEqualTo(MaskedFields.MARKER);
         } finally {
             log.detachAppender(logged);
+            MaskedFields.resetRegistryForTest();   // 10,000 probe values and the count must not leak into later tests
         }
-        List<ILoggingEvent> warns = logged.list.stream().filter(e -> e.getLevel() == Level.WARN).toList();
-        assertThat(warns).as("row 323 B25: eviction past the 10,000-entry bound logs the first and every 100th")
-                .hasSizeGreaterThanOrEqualTo(2);
-        assertThat(warns.get(0).getFormattedMessage()).contains("evicted");
     }
 
     @Test
