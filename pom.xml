@@ -4,11 +4,11 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <!-- Stack fixed by the approved plan: Java 25, Spring Boot 4.1.1, Camel 4.22.1, kafka-clients 4.3.1. -->
+  <!-- Stack fixed by the approved plan: Java 25, Spring Boot 4.1.2, Camel 4.22.1, kafka-clients 4.3.1. -->
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>4.1.1</version>
+    <version>4.1.2</version>
     <relativePath/>
   </parent>
 
