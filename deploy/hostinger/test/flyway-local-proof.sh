@@ -19,6 +19,7 @@ PGIMG='postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c
 N="fwproof-$$"; IMG="ipass/flyway-migrate:proof-$$"
 LOCK=""
 . "$HERE/flyway/flyway-run.sh"
+export IPASS_FLYWAY_TEST=1      # the probes and the step-11 container use FW_DOCKER_ARGS, which production refuses
 # the main lock is usually held by a long suite; a light run takes a numbered slot like test/edge-ops.sh does
 for l in "$LOCKROOT" "$LOCKROOT-3" "$LOCKROOT-4" "$LOCKROOT-5" "$LOCKROOT-6"; do
   if mkdir "$l" 2>/dev/null; then LOCK="$l"; break; fi

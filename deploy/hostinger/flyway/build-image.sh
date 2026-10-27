@@ -17,7 +17,8 @@ case "$SHA" in "$TAG"*) ;; *) echo "ERROR: tag $TAG is not the start of HEAD ($S
 PATHS="$(git ls-tree -r --name-only HEAD | grep -E '(^deploy/hostinger/flyway/|/src/main/resources/db/migration/)')"
 DIRTY="$(git status --porcelain --untracked-files=all -- deploy/hostinger/flyway ':(glob)**/src/main/resources/db/migration/**')"
 [ -z "$DIRTY" ] || { echo "ERROR: uncommitted or untracked changes in the migration folders or flyway/ - commit or remove them, the image must match the commit:" >&2; echo "$DIRTY" >&2; exit 2; }
-CTX="$(mktemp -d)"; trap 'rm -rf "$CTX"' EXIT INT TERM
+CTX="$(mktemp -d)"; trap 'rm -rf "$CTX"' EXIT
+trap 'exit 130' INT TERM
 # shellcheck disable=SC2086
 git archive HEAD $PATHS | tar -x -C "$CTX"
 sh "$CTX/deploy/hostinger/flyway/check-migration-dirs.sh" "$CTX" "$CTX/deploy/hostinger/flyway/Dockerfile" || { echo "ERROR: the migration-folder guard failed" >&2; exit 2; }

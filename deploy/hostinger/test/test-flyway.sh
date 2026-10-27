@@ -80,8 +80,8 @@ DB_MIGRATION_PASSWORD=a"b\c
 : > "$TMP/fake.env"; TMPDIR="$TMP/fwtmp" FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker" ENV_FILE="$TMP/m4.env" sh "$FW/migrate.sh" info >/dev/null 2>&1
 check "migrate: a password with a double quote and a backslash is escaped in the TOML file" 'grep -qF "secretfile=a\\\"b\\\\c" "$TMP/fake.env"'
 check "migrate: user is ipass_migrator, database from .env, container on the data network" 'grep -q "FLYWAY_USER=ipass_migrator" "$TMP/fake.log" && grep -q "jdbc:postgresql://postgres:5432/ipass_x" "$TMP/fake.log" && grep -q -- "--network ipass_ipass-data" "$TMP/fake.log"'
-IMAGE_TAG=newtag2 mig info >/dev/null 2>&1
-check "migrate: a caller-supplied IMAGE_TAG wins over the .env (compose precedence)" 'grep -q "flyway-migrate:newtag2" "$TMP/fake.log" && ! grep -q oldtag1 "$TMP/fake.log"'
+IMAGE_TAG=abc1234 mig info >/dev/null 2>&1
+check "migrate: a caller-supplied IMAGE_TAG wins over the .env (compose precedence)" 'grep -q "flyway-migrate:abc1234" "$TMP/fake.log" && ! grep -q oldtag1 "$TMP/fake.log"'
 mig validate >/dev/null 2>&1
 check "migrate: validate is a single read-only action" '[ "$(wc -l < "$TMP/fake.log")" -eq 1 ] && grep -q " validate\$" "$TMP/fake.log"'
 mig migrate >/dev/null 2>&1
@@ -130,20 +130,20 @@ dep() { rm -rf "$TMP/stack"; mkdir -p "$TMP/stack/flyway"; cp "$HERE/deploy.sh" 
   printf 'POSTGRES_DB=ipass\nIMAGE_TAG=oldtag1\nDB_MIGRATION_PASSWORD=s3cr3tvalue\n' > "$TMP/stack/.env"
   : > "$TMP/fake.log"; : > "$TMP/fake.env"
   FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker2" HEALTH_TIMEOUT=2 HEALTH_INTERVAL=1 "$@" sh "$TMP/stack/deploy.sh"; }
-dep env IMAGE_TAG=newtag2 >"$TMP/d1.out" 2>&1; rc=$?
-check "deploy: happy path exits 0, .env now carries the new tag, the old tag is recorded and backed up" '[ $rc -eq 0 ] && grep -q "^IMAGE_TAG=newtag2\$" "$TMP/stack/.env" && grep -q "oldtag1" "$TMP/d1.out" && grep -q "^IMAGE_TAG=oldtag1\$" "$TMP/stack/release-backups"/*/.env.bak'
+dep env IMAGE_TAG=abc1234 >"$TMP/d1.out" 2>&1; rc=$?
+check "deploy: happy path exits 0, .env now carries the new tag, the old tag is recorded and backed up" '[ $rc -eq 0 ] && grep -q "^IMAGE_TAG=abc1234\$" "$TMP/stack/.env" && grep -q "oldtag1" "$TMP/d1.out" && grep -q "^IMAGE_TAG=oldtag1\$" "$TMP/stack/release-backups"/*/.env.bak'
 check "deploy: order is backup, then info, validate, migrate, only then compose up" 'b=$(grep -n "compose exec" "$TMP/fake.log" | head -1 | cut -d: -f1); i=$(grep -n " info\$" "$TMP/fake.log" | head -1 | cut -d: -f1); v=$(grep -n " validate\$" "$TMP/fake.log" | head -1 | cut -d: -f1); m=$(grep -n " migrate\$" "$TMP/fake.log" | head -1 | cut -d: -f1); u=$(grep -n "compose up" "$TMP/fake.log" | head -1 | cut -d: -f1); [ -n "$b" ] && [ "$b" -lt "$i" ] && [ "$i" -lt "$v" ] && [ "$v" -lt "$m" ] && [ "$m" -lt "$u" ]'
-check "deploy: the Flyway container uses the NEW tag (the caller IMAGE_TAG is not overwritten by .env)" 'grep -q "flyway-migrate:newtag2" "$TMP/fake.log" && ! grep -q "flyway-migrate:oldtag1" "$TMP/fake.log"'
+check "deploy: the Flyway container uses the NEW tag (the caller IMAGE_TAG is not overwritten by .env)" 'grep -q "flyway-migrate:abc1234" "$TMP/fake.log" && ! grep -q "flyway-migrate:oldtag1" "$TMP/fake.log"'
 check "deploy: the password is in no command line and no output; .env keeps its other lines" '! grep -q s3cr3tvalue "$TMP/fake.log" "$TMP/d1.out" && grep -q "^DB_MIGRATION_PASSWORD=s3cr3tvalue\$" "$TMP/stack/.env"'
-dep env IMAGE_TAG=newtag2 FAKE_FAIL_BACKUP=1 >"$TMP/d2.out" 2>&1; rc=$?
+dep env IMAGE_TAG=abc1234 FAKE_FAIL_BACKUP=1 >"$TMP/d2.out" 2>&1; rc=$?
 check "deploy: a failed backup aborts before any migration or compose up (exit 3)" '[ $rc -eq 3 ] && ! grep -q "flyway-migrate" "$TMP/fake.log" && ! grep -q "compose up" "$TMP/fake.log" && grep -q "^IMAGE_TAG=oldtag1\$" "$TMP/stack/.env"'
-dep env IMAGE_TAG=newtag2 FAKE_FAIL_ACTION=migrate >"$TMP/d3.out" 2>&1; rc=$?
+dep env IMAGE_TAG=abc1234 FAKE_FAIL_ACTION=migrate >"$TMP/d3.out" 2>&1; rc=$?
 check "deploy: a failed migrate prints MIGRATION FAILED, exits 5, never touches the app or the tag" '[ $rc -eq 5 ] && grep -q "MIGRATION FAILED" "$TMP/d3.out" && ! grep -q "compose up" "$TMP/fake.log" && grep -q "^IMAGE_TAG=oldtag1\$" "$TMP/stack/.env"'
-dep env IMAGE_TAG=newtag2 FAKE_FAIL_ACTION=validate >"$TMP/d4.out" 2>&1; rc=$?
+dep env IMAGE_TAG=abc1234 FAKE_FAIL_ACTION=validate >"$TMP/d4.out" 2>&1; rc=$?
 check "deploy: a failed validate stops the release (non-zero), no migrate, no compose up" '[ $rc -ne 0 ] && ! grep -q " migrate\$" "$TMP/fake.log" && ! grep -q "compose up" "$TMP/fake.log"'
-dep env IMAGE_TAG=newtag2 FAKE_HEALTH=starting >"$TMP/d5.out" 2>&1; rc=$?
+dep env IMAGE_TAG=abc1234 FAKE_HEALTH=starting >"$TMP/d5.out" 2>&1; rc=$?
 check "deploy: a service that never becomes healthy makes the script exit non-zero (6) with the rollback steps" '[ $rc -eq 6 ] && grep -qi "not healthy" "$TMP/d5.out" && grep -q "oldtag1" "$TMP/d5.out"'
-dep env IMAGE_TAG=newtag2 FAKE_NO_IMAGE=1 >"$TMP/d6.out" 2>&1; rc=$?
+dep env IMAGE_TAG=abc1234 FAKE_NO_IMAGE=1 >"$TMP/d6.out" 2>&1; rc=$?
 check "deploy: a missing Flyway image stops before anything changes (exit 4)" '[ $rc -eq 4 ] && ! grep -q "compose up" "$TMP/fake.log" && grep -q "^IMAGE_TAG=oldtag1\$" "$TMP/stack/.env"'
 dep env -u IMAGE_TAG >"$TMP/d7.out" 2>&1; rc=$?
 check "deploy: no IMAGE_TAG exits 2" '[ $rc -eq 2 ]'
@@ -161,15 +161,15 @@ check "migrate: a lock timeout that is not a plain Postgres duration is refused 
 printf 'POSTGRES_DB=ipass\nIMAGE_TAG=t1\nDB_MIGRATION_PASSWORD=ab$cd\n' > "$TMP/m3.env"
 FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker" ENV_FILE="$TMP/m3.env" sh "$FW/migrate.sh" info >"$TMP/m3.out" 2>&1; rc=$?
 check "migrate: a password with \$ (compose would interpolate it, this script would not) is refused with a reason, value not printed" '[ $rc -eq 2 ] && grep -qi "compose" "$TMP/m3.out" && ! grep -q "ab.cd" "$TMP/m3.out"'
-dep env IMAGE_TAG=newtag2 FAKE_FAIL_UP=1 >"$TMP/d8.out" 2>&1; rc=$?
+dep env IMAGE_TAG=abc1234 FAKE_FAIL_UP=1 >"$TMP/d8.out" 2>&1; rc=$?
 check "deploy: a failing 'compose up' exits 6, prints the rollback note, and puts the old tag back in the env file" '[ $rc -eq 6 ] && grep -q "oldtag1" "$TMP/d8.out" && grep -qi "restored" "$TMP/d8.out" && grep -q "^IMAGE_TAG=oldtag1\$" "$TMP/stack/.env"'
-dep env IMAGE_TAG=newtag2 FAKE_FAIL_PULL=1 >"$TMP/d9.out" 2>&1; rc=$?
-check "deploy: images that exist only locally (docker save | load) work: no explicit compose pull, so a failing pull cannot stop the release" '[ $rc -eq 0 ] && ! grep -q "compose pull" "$TMP/fake.log" && grep -q "^IMAGE_TAG=newtag2\$" "$TMP/stack/.env"'
+dep env IMAGE_TAG=abc1234 FAKE_FAIL_PULL=1 >"$TMP/d9.out" 2>&1; rc=$?
+check "deploy: images that exist only locally (docker save | load) work: no explicit compose pull, so a failing pull cannot stop the release" '[ $rc -eq 0 ] && ! grep -q "compose pull" "$TMP/fake.log" && grep -q "^IMAGE_TAG=abc1234\$" "$TMP/stack/.env"'
 dep_export() { rm -rf "$TMP/stack"; mkdir -p "$TMP/stack/flyway"; cp "$HERE/deploy.sh" "$TMP/stack/deploy.sh"; cp "$FW/migrate.sh" "$FW/flyway-run.sh" "$TMP/stack/flyway/"; : > "$TMP/stack/compose.yaml"
   printf 'POSTGRES_DB=ipass\nexport IMAGE_TAG="oldtag1"\nDB_MIGRATION_PASSWORD=s3cr3tvalue\n' > "$TMP/stack/.env"; : > "$TMP/fake.log"; : > "$TMP/fake.env"
-  FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker2" HEALTH_TIMEOUT=2 HEALTH_INTERVAL=1 IMAGE_TAG=newtag2 sh "$TMP/stack/deploy.sh"; }
+  FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker2" HEALTH_TIMEOUT=2 HEALTH_INTERVAL=1 IMAGE_TAG=abc1234 sh "$TMP/stack/deploy.sh"; }
 dep_export >"$TMP/d10.out" 2>&1; rc=$?
-check "deploy: an 'export IMAGE_TAG=\"...\"' line is read as the old tag and rewritten in place (one IMAGE_TAG line, no duplicate)" '[ $rc -eq 0 ] && grep -q "oldtag1 -> newtag2" "$TMP/d10.out" && [ "$(grep -c "IMAGE_TAG=" "$TMP/stack/.env")" -eq 1 ] && grep -q "^export IMAGE_TAG=newtag2\$" "$TMP/stack/.env"'
+check "deploy: an 'export IMAGE_TAG=\"...\"' line is read as the old tag and rewritten in place (one IMAGE_TAG line, no duplicate)" '[ $rc -eq 0 ] && grep -q "oldtag1 -> abc1234" "$TMP/d10.out" && [ "$(grep -c "IMAGE_TAG=" "$TMP/stack/.env")" -eq 1 ] && grep -q "^export IMAGE_TAG=abc1234\$" "$TMP/stack/.env"'
 
 # --- row 538 hardening: release-backups permissions and pruning
 mkbk() { mkdir -p "$TMP/stack/release-backups"; for n in 1 2 3 4 5 6 7; do mkdir -p "$TMP/stack/release-backups/2020010${n}T000000Z"; echo old > "$TMP/stack/release-backups/2020010${n}T000000Z/.env.bak"; done; mkdir -p "$TMP/stack/release-backups/keepme-notes"; }
@@ -179,7 +179,7 @@ IMAGE_TAG=oldtag1
 DB_MIGRATION_PASSWORD=s3cr3tvalue
 ' > "$TMP/stack/.env"; chmod 644 "$TMP/stack/.env"; mkbk
   : > "$TMP/fake.log"; : > "$TMP/fake.env"
-  FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker2" HEALTH_TIMEOUT=2 HEALTH_INTERVAL=1 TMPDIR="$TMP/fwtmp" IMAGE_TAG=newtag2 "$@" sh "$TMP/stack/deploy.sh"; }
+  FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker2" HEALTH_TIMEOUT=2 HEALTH_INTERVAL=1 TMPDIR="$TMP/fwtmp" IMAGE_TAG=abc1234 "$@" sh "$TMP/stack/deploy.sh"; }
 dep_pre env >"$TMP/b1.out" 2>&1; rc=$?
 cur="$(ls -d "$TMP/stack/release-backups"/2*Z | tail -1)"
 check "deploy: release-backups is mode 700, the release dir 700, .env.bak and compose.yaml.bak mode 600 (sources were 644)" '[ $rc -eq 0 ] && [ "$(modeof "$TMP/stack/release-backups")" = 700 ] && [ "$(modeof "$cur")" = 700 ] && [ "$(modeof "$cur/.env.bak")" = 600 ] && [ "$(modeof "$cur/compose.yaml.bak")" = 600 ]'
@@ -199,7 +199,7 @@ FAKE_REVISION= mig info >"$TMP/l2.out" 2>&1; rc=$?
 check "migrate: an image with no revision label is refused (exit 4)" '[ $rc -eq 4 ] && grep -q "no org.opencontainers.image.revision label" "$TMP/l2.out"'
 FLYWAY_IMAGE_ID=sha256:other mig info >"$TMP/l3.out" 2>&1; rc=$?
 check "migrate: FLYWAY_IMAGE_ID pins the exact image id (a different id is refused, exit 4)" '[ $rc -eq 4 ] && grep -q "expected sha256:other" "$TMP/l3.out"'
-dep env IMAGE_TAG=newtag2 FAKE_REVISION=deadbeef0000 >"$TMP/l4.out" 2>&1; rc=$?
+dep env IMAGE_TAG=abc1234 FAKE_REVISION=deadbeef0000 >"$TMP/l4.out" 2>&1; rc=$?
 check "deploy: a stale/foreign Flyway image (wrong revision label) stops the release before any migration or tag change" '[ $rc -ne 0 ] && ! grep -q "^run " "$TMP/fake.log" && ! grep -q "compose up" "$TMP/fake.log" && grep -q "^IMAGE_TAG=oldtag1\$" "$TMP/stack/.env"'
 printf 'POSTGRES_DB=ipass?x=1
 IMAGE_TAG=t1
@@ -212,10 +212,10 @@ check "deploy: the run lock is released after a successful run, no .env temp fil
 dep_pre env FAKE_FAIL_ACTION=migrate >/dev/null 2>&1
 check "deploy: the run lock is released also when the release fails" '[ ! -e "$TMP/stack/.deploy.lock" ]'
 rm -rf "$TMP/stack"; mkdir -p "$TMP/stack/flyway" "$TMP/stack/.deploy.lock"; cp "$HERE/deploy.sh" "$TMP/stack/"; : > "$TMP/stack/.env"; : > "$TMP/stack/compose.yaml"
-IMAGE_TAG=newtag2 DOCKER="$TMP/fakedocker2" sh "$TMP/stack/deploy.sh" >"$TMP/p2.out" 2>&1; rc=$?
+IMAGE_TAG=abc1234 DOCKER="$TMP/fakedocker2" sh "$TMP/stack/deploy.sh" >"$TMP/p2.out" 2>&1; rc=$?
 check "deploy: a second deploy.sh while one runs (lock folder present) is refused (exit 2) and leaves the lock of the first alone" '[ $rc -eq 2 ] && grep -q "another deploy.sh is running" "$TMP/p2.out" && [ -d "$TMP/stack/.deploy.lock" ]'
 dep_pre env FAKE_FAIL_UP=1 >"$TMP/p3.out" 2>&1; rc=$?
-check "deploy: after a failed 'up -d' the output says some services may already run the new tag, lists compose ps, and warns against a plain up -d" '[ $rc -eq 6 ] && grep -q "SOME services may already run newtag2" "$TMP/p3.out" && grep -q "compose ps" "$TMP/fake.log" && grep -q "Do NOT run another plain" "$TMP/p3.out"'
+check "deploy: after a failed 'up -d' the output says some services may already run the new tag, lists compose ps, and warns against a plain up -d" '[ $rc -eq 6 ] && grep -q "SOME services may already run abc1234" "$TMP/p3.out" && grep -q "compose ps" "$TMP/fake.log" && grep -q "Do NOT run another plain" "$TMP/p3.out"'
 check "rotate-secret: warns that release-backups still hold the old value" 'grep -q "release-backups/\*/.env.bak copies still hold the OLD" "$HERE/rotate-secret.sh"'
 # build-image.sh: clean-tree wrapper with a fake docker, in a throwaway git repo shaped like the real one
 cat > "$TMP/fakebuild" <<'FAKE'
@@ -240,6 +240,22 @@ rm -f "$B/platform-app/src/main/resources/db/migration/V1_0_99__uncommitted.sql"
 bi 1234567 reg.example/ipass/flyway-migrate >"$TMP/bi3.out" 2>&1; rc=$?
 check "build-image: a tag that is not the start of HEAD is refused (exit 2)" '[ $rc -eq 2 ] && grep -q "is not the start of HEAD" "$TMP/bi3.out" && ! grep -q "^build" "$TMP/fake.log"'
 check "build-image: POSIX sh syntax, no CR, no BOM" 'sh -n "$FW/build-image.sh" && [ "$(tr -d "\\r" < "$FW/build-image.sh" | wc -c)" = "$(wc -c < "$FW/build-image.sh")" ] && [ "$(head -c3 "$FW/build-image.sh" | od -An -tx1 | tr -d " ")" != efbbbf ]'
+
+# --- row 538 re-check (Karan N3 N5 N9)
+dep env IMAGE_TAG=newtag2 >"$TMP/n1.out" 2>&1; rc=$?
+check "deploy: a tag that is not 7+ lowercase hex characters is refused (exit 2), also a short hex tag" '[ $rc -eq 2 ] && ! dep env IMAGE_TAG=abc12 >/dev/null 2>&1 && ! dep env IMAGE_TAG=ABC1234 >/dev/null 2>&1'
+dep_pre env >/dev/null 2>&1
+check "deploy: the lock folder holds the pid while running and is gone afterwards" '[ ! -e "$TMP/stack/.deploy.lock" ]'
+rm -rf "$TMP/stack"; mkdir -p "$TMP/stack/flyway" "$TMP/stack/.deploy.lock"; cp "$HERE/deploy.sh" "$TMP/stack/"; cp "$FW/migrate.sh" "$FW/flyway-run.sh" "$TMP/stack/flyway/"; : > "$TMP/stack/compose.yaml"; printf 'POSTGRES_DB=ipass\nIMAGE_TAG=oldtag1\nDB_MIGRATION_PASSWORD=zz\n' > "$TMP/stack/.env"
+echo 999999 > "$TMP/stack/.deploy.lock/pid"
+: > "$TMP/fake.log"; FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker2" HEALTH_TIMEOUT=2 HEALTH_INTERVAL=1 TMPDIR="$TMP/fwtmp" IMAGE_TAG=abc1234 sh "$TMP/stack/deploy.sh" >"$TMP/n2.out" 2>&1; rc=$?
+check "deploy: a lock whose pid is gone is detected as stale and taken over, the release then runs" '[ $rc -eq 0 ] && grep -q "stale deploy lock" "$TMP/n2.out" && [ ! -e "$TMP/stack/.deploy.lock" ]'
+mkdir -p "$TMP/stack/.deploy.lock"; echo $$ > "$TMP/stack/.deploy.lock/pid"
+FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker2" IMAGE_TAG=abc1234 sh "$TMP/stack/deploy.sh" >"$TMP/n3.out" 2>&1; rc=$?
+check "deploy: a lock whose pid is alive (this test) is respected (exit 2) and left in place" '[ $rc -eq 2 ] && grep -q "another deploy.sh is running" "$TMP/n3.out" && [ -d "$TMP/stack/.deploy.lock" ]'
+FLYWAY_IMAGE=custom/img:1 mig info >"$TMP/n4.out" 2>&1
+check "migrate: FLYWAY_IMAGE without an expectation prints the loud 'revision NOT verified' warning" 'grep -q "image revision NOT verified" "$TMP/n4.out"'
+check "flyway-run: the Linux check script exists and the production path has no recursive chown, no uid 1001" '[ -f "$HERE/test/flyway-run-linux.sh" ] && ! grep -q "chown -R" "$FW/flyway-run.sh" && ! grep -qE "(^|[^0-9])1001([^0-9]|$)" "$FW/flyway-run.sh"'
 
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail
