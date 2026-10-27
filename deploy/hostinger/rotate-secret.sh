@@ -34,7 +34,6 @@ plan() {
     DB_MIGRATION_PASSWORD)  KIND=db; TARGET=ipass_migrator; SERVICES=platform-app;;
     BACKUP_DB_PASSWORD)     KIND=db; TARGET=ipass_backup; SERVICES=pg-backup;;
     RESTORE_DB_PASSWORD)    KIND=db; TARGET=ipass_restore; SERVICES="";;
-    OUTSIDE_DB_PASSWORD)    KIND=db; TARGET=ipass_outside; SERVICES="";;
     KEYCLOAK_DB_PASSWORD)   KIND=db; TARGET="${KEYCLOAK_DB_USERNAME:-keycloak}"; SERVICES="keycloak pg-backup";;
     POSTGRES_PASSWORD)      KIND=db; TARGET="${POSTGRES_USER:-ipass_admin}"; SERVICES="";;
     CONSOLE_OIDC_CLIENT_SECRET)  KIND=client; TARGET=platform-console; SERVICES=platform-app;;

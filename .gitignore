@@ -3,6 +3,8 @@ node_modules/
 .codegraph/
 *.log
 .env*
+# outside Postgres door: the TLS private key and certificate are made on the server, never committed (row 473 M5)
+deploy/hostinger/outside/tls/
 .idea/
 .vscode/
 .claude/worktrees/

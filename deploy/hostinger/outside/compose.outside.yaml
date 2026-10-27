@@ -1,30 +1,104 @@
-# Opt-in override for the outside Postgres door (Phase 2; design and runbook: outside/OUTSIDE-ACCESS.md). Never part of
-# compose.yaml. Add it as the LAST -f:  docker compose -f compose.yaml -f demo/compose.demo.yaml -f outside/compose.outside.yaml ...
-# Needs IPASS_PGFRONT_SUBNET (the CIDR rendered into outside/pg_hba.conf) and outside/tls/{server.crt,server.key}.
-# ipass-data stays internal and is not touched; postgres gains ONE more INTERNAL network; only pg-front is published.
+# The outside Postgres door (option A, ledger row 473): a SEPARATE demo database `pg-demo` that holds a snapshot copy of one
+# demo tenant, fronted by the TCP proxy `pg-front`. This file is its OWN compose project (name: ipass-outside): it does not
+# extend or touch compose.yaml, so the live postgres, its networks, its roles and its pg_hba.conf are never part of it.
+# Design, apply order, rollback: outside/OUTSIDE-ACCESS.md.
+#   docker compose --env-file .env -f outside/compose.outside.yaml up -d
+# Needs DEMO_ADMIN_PASSWORD in .env (outside-role.sh env) and outside/tls/{server.crt,server.key} (make-tls-cert.sh).
+name: ipass-outside
+
 services:
-  postgres:
-    # command is replaced as a whole: the two base flags first, then TLS, scram, our hba_file, short auth timeout, connection log
-    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=50",
-              "-c", "ssl=on", "-c", "ssl_cert_file=/tls/server.crt", "-c", "ssl_key_file=/tls/server.key",
-              "-c", "ssl_min_protocol_version=TLSv1.2", "-c", "password_encryption=scram-sha-256",
-              "-c", "hba_file=/etc/postgresql/pg_hba.conf", "-c", "authentication_timeout=10s",
-              "-c", "log_connections=on", "-c", "log_disconnections=on"]
+  pg-demo:
+    image: postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb   # same image as the live postgres
+    restart: unless-stopped
+    # Root start (the image's own entrypoint then drops to the postgres user). The wrapper copies the key out of the bind mount
+    # into a private tmpfs with the owner/mode postgres insists on, so host-side ownership of ./tls can never break TLS (row 473 H1).
+    command:
+      - sh
+      - -c
+      - >-
+        install -m 600 -o postgres -g postgres /tls/server.key /run/tls/server.key &&
+        install -m 644 -o postgres -g postgres /tls/server.crt /run/tls/server.crt &&
+        exec docker-entrypoint.sh postgres "$$@"
+      - sh
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/run/tls/server.crt
+      - -c
+      - ssl_key_file=/run/tls/server.key
+      - -c
+      - ssl_min_protocol_version=TLSv1.2
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - authentication_timeout=10s
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
+      - -c
+      - log_statement=none
+      - -c
+      - log_min_error_statement=panic          # no statement text (a password literal, a client's SQL) is ever written to a log
+      - -c
+      - shared_buffers=32MB
+      - -c
+      - max_connections=15
+      - -c
+      - superuser_reserved_connections=3       # 12 slots for logins; the proxy admits at most 12 (haproxy.cfg)
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=16MB
+      - -c
+      - temp_file_limit=32MB                   # per session; superuser-only, a client cannot lift it
+      - -c
+      - max_wal_size=128MB
+      - -c
+      - max_worker_processes=4
+      - -c
+      - max_parallel_workers_per_gather=0
+    environment:
+      POSTGRES_USER: ipass_demo_admin          # reachable only through the container socket (pg_hba.conf has no network rule for it)
+      POSTGRES_DB: ipass_demo
+      POSTGRES_PASSWORD: ${DEMO_ADMIN_PASSWORD:?run outside/outside-role.sh env first}
+      TZ: Etc/UTC
+      PGTZ: Etc/UTC
+    healthcheck:   # fail closed: unhealthy (so pg-front does not start) unless the hba file parsed cleanly, has exactly 3 rules and ends in reject
+      test: ["CMD-SHELL", "pg_isready -q -U ipass_demo_admin -d ipass_demo && psql -U ipass_demo_admin -d ipass_demo -tAc \"select count(*) = 3 and count(*) filter (where error is not null) = 0 and (array_agg(auth_method order by line_number desc))[1] = 'reject' from pg_hba_file_rules\" | grep -qx t"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     volumes:
-      - ./outside/tls:/tls:ro
-      - ./outside/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
-    networks: [ipass-data, ipass-pgfront]
+      - pg-demo-data:/var/lib/postgresql/data
+      - ./tls:/tls:ro
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    tmpfs:
+      - /run/tls:mode=0755
+    networks: [ipass-pgfront]
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.25
+    pids_limit: 100
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, FOWNER, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: ${IPASS_LOG_DRIVER:-journald}
 
   pg-front:
     image: haproxy:3.0.11-alpine@sha256:e49b7beb96f4dba79f9a671515b469a6e516a2b88ff0681a820b184bba1effbd
     pull_policy: missing
     restart: unless-stopped
     depends_on:
-      postgres: {condition: service_healthy}
+      pg-demo: {condition: service_healthy}
     ports:
-      - "0.0.0.0:5432:5432"        # IPv4 only on purpose: an IPv6 publish goes through docker-proxy and hides the client address
+      - "0.0.0.0:5432:5432"        # the ONLY published port; IPv4 only on purpose (an IPv6 publish goes through docker-proxy and hides the client address)
     volumes:
-      - ./outside/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     read_only: true
     tmpfs: [/tmp]
     networks: [ipass-pgfront, ipass-pgpublic]
@@ -35,12 +109,13 @@ services:
     logging:
       driver: ${IPASS_LOG_DRIVER:-journald}
 
+volumes:
+  pg-demo-data:
+
 networks:
-  ipass-pgfront:                  # proxy <-> postgres only; internal, fixed subnet so pg_hba can name it
+  ipass-pgfront:                  # proxy <-> demo database only; internal (no route out), nothing of the live stack is on it
     internal: true
-    ipam:
-      config:
-        - subnet: ${IPASS_PGFRONT_SUBNET:?set IPASS_PGFRONT_SUBNET}
   ipass-pgpublic:                 # the only non-internal network of this change; pg-front alone is on it
     driver_opts:
-      com.docker.network.bridge.enable_ip_masquerade: "false"   # no outbound NAT: the proxy cannot reach the internet
+      com.docker.network.bridge.name: br-ipass-pgpub                  # fixed so pg-throttle.sh can name it
+      com.docker.network.bridge.enable_ip_masquerade: "false"         # no outbound NAT; pg-throttle.sh also drops NEW connections from this bridge
