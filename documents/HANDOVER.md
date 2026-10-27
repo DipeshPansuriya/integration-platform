@@ -4,6 +4,10 @@ This document is written for a team, and for that team's AI coding agents, takin
 briefing. It was written on 2026-10-26 against `origin/main 5b9a6c36`; `main` has moved on since (at least one later
 code-only commit), so check `git log 5b9a6c36..origin/main` for anything newer.
 
+**Updated 2026-10-28 against `origin/main 83b5483a`** (PR #70). Section 4.8 summarises pull requests #44 to #70; the
+test status, hosted state and security text in sections 4.7, 8, 9, 10 and 13 were brought in line with it. Text in
+other sections that still says `5b9a6c36` is the 26-Oct baseline.
+
 How to read the evidence:
 
 - A claim about the code carries `path:line`, relative to the repository root.
@@ -320,6 +324,14 @@ and the dashboard counts reflect queued, processed, converted and failed. The tw
 | Release 1 browser journey | PASS, 6 steps | `8732c738` (tree equals `0b4cbf04`) | verdict report `:42` |
 | Nested appointment live proof | 6/6; `e2e-ui` unit tests 84/84 | `1b07586d` (2026-10-25) | `ws/_reports/2026-10-25-t215-nested-live.md` |
 | Hosted kit offline tests (`deploy/hostinger/test/test-scripts.sh`) | 111 passed, 0 failed | hosted deploy of `4e0730a6`, 2026-10-26 | hosted deploy record of 2026-10-26 |
+| Hosted kit offline tests, re-run 2026-10-28 | 132 passed, 1 failed: "every .sh under deploy/hostinger is mode 100755 in the git index" (four scripts from PR #68 are `100644`: `flyway/build-image.sh`, `flyway/flyway-run.sh`, `test/flyway-run-linux.sh`, `test/flyway-run-linux-inner.sh`); open, see section 13.3 | docs branch cut from `83b5483a` | run on that branch in this update |
+| **Latest verification (rows 534, 545, 548)** - unit reactor `./mvnw -o test` incl. arch-test | 14/14 modules, **2670 tests, 0 failed**, 4 skipped; EndpointMatrixCoverageTest 8/8 | `0ce45faf` (2026-10-27); 2670/0/0 again on `1fb34727` | `ws/_reports/2026-10-27-main-0ce45faf-full-verification.md`; hub memory of row 545 |
+| Latest - base suite | **32 passed, 0 failed** (f3 scenarios 1-13 green) | `32304a08` | same report |
+| Latest - screens suite | **155 passed, 0 failed**, 1 skipped (existing `fixme`) of 156 | `32304a08` | same report |
+| Latest - e2e-full gate | **`GATE: PASS`** | `32304a08` | same report |
+| Latest - `ConsoleLoginContainerTest` + `RoleMatrixContainerTest` | 19/19 | `32304a08` | same report |
+| Latest - e2e-ui `openapi-contract` (`npm run test:container`) | 1 of 3 passed on `32304a08` (drift and reach failed); **3/3 after PR #70** (drift, reach, compile) | `83b5483a` | PR #70 description (its own run); the QA re-run is not on file (not verified independently) |
+| Latest - console offline tests | `ui` 392/392 and `e2e-ui` 112/112 (the 3 red `ui` tests of 27-Oct are green; `ui` was 389/389 on `0ce45faf`) | `83b5483a` | PR #70 description; verification report for 389/112 |
 
 Two count notes:
 
@@ -331,6 +343,40 @@ Two count notes:
 - Measured from source on `5b9a6c36` (2026-10-26, `git grep "@Test"`): `@Test` methods per module are app 455,
   config 477, routing 601, tenancy 287, delivery 211, ingest 153, e2e 64, arch-test 63, domain 28, transform 22,
   audit 5, tracking 1. These are source counts, not run results.
+
+### 4.8 Merged since the last entry: PRs #44 to #70 (to `main 83b5483a`, 2026-10-28)
+
+Source: `git log e8b9c410..83b5483a` (26 commits, PRs #45 to #70; #44 is the last one this document had already covered) and the
+PR descriptions. Grouped, not a changelog.
+
+- **Security and config.** H-1: the runtime-editable outbound allow-list surface was removed again (#46, row 510; it had
+  come back through PR 40 cut from the old PR 34); the OAuth2 token URL goes through `DestinationGuard`, and endpoint
+  auth edit is TENANT_ADMIN only, audited, with header-name checks (#48); endpoint-auth follow-ups (#55, #54, and #70 for the
+  generated client). Typed code rules: the flow interface code is validated and pinned (#57, row 482) and intake no longer
+  echoes an unvalidated code in a 404 (#66, row 542). Credential hand-over survives a thread hop and `/me` names roles (#63).
+- **Approvals.** Single-user self-approval (one TENANT_ADMIN can author, approve and publish; #39, before this range)
+  gets an explicit `selfApproved` flag on approval audit events (#50) and a tenant-B-cannot-approve-tenant-A test (#64);
+  the f3 same-user DB-table approval has a browser proof with a target-Postgres sidecar (#51, #60).
+- **Payload purge (E14 T-142).** `PAYLOAD_PURGE` body: 30-day day-partition drop (#47) with a conservative guard that keeps
+  a day holding any message that is not ROUTED, V2_4_1460 (#52); ADR-012 ratified (#56). **The default is OFF**
+  (`platform-app/src/main/java/io/integrationplatform/app/scheduler/PayloadPurgeMode.java:14-16`: a missing or unknown value is OFF; the live app logged
+  `mode=OFF` at its start on 2026-10-27).
+- **Pending migrations.** `V2_4_1470` (`CHECK` on `public.interface.code`, **`NOT VALID`**) and `V2_4_1480` (unique index on
+  `(tenant_id, lower(code))`) from #66 are on `main` and **not yet applied on the VPS** (row 547 `info`: 59 applied,
+  2 pending). The `CHECK` is added `NOT VALID` on purpose: `VALIDATE CONSTRAINT interface_code_charset` on
+  `public.interface` is a per-environment follow-up, run after a read-only count of violations is 0 (it was 0 on the
+  hosted database and on local compose on 27-Oct).
+- **Deploy kit.** Standalone Flyway CLI migration pipeline for the VPS (#59), its review rounds and hardening (#61, #65, #68),
+  nginx 1.30.6 and Keycloak 26.8.1 pins (#45), Spring Boot 4.1.2 (#49). The deploy docs now require a test gate instead of a
+  bare `-DskipTests` (#69, row 550). `test-scripts.sh` matches the post-row-489 edge (#62).
+- **Build.** The `-Pcontainer` surefire fork timeout is **3600 s** (was 1800; `pom.xml:330`, #67, row 546), as in `-Pe2e-full`;
+  the default profile stays 1800 (`pom.xml:93`).
+- **Docs and tests.** ADR-011/012/010 notes (#56, #53), pin of the V2_4_1440 revoke (#58), regenerated
+  `ui/openapi.json` and `ui/src/api/openapi.d.ts` (#70).
+- **Hosted state.** Live app and ui images are `1fb34727` (row 545 deploy, 2026-10-27: V2_4_1460 applied, smoke all passed; it
+  is `0ce45faf` plus PR #61 and #62, and the diff is `deploy/hostinger/` only). The row 545 record says the public edge image was
+  untouched at that deploy (not re-verified here). **A release of current `main` to the VPS
+  (row 553) is in flight and is not claimed done here.** Check the server `.env` pins for the real value.
 
 ## 5. Release 2
 
@@ -629,16 +675,19 @@ redeploy and rollback, the ops address, the master realm, security status and op
 | `https://auth.dipeshpansuriya.tech/realms/platform/account` | 200 | Keycloak login and account (realm `platform`) |
 | `https://ops.dipeshpansuriya.tech/kafka/` | 302 to login | The ops address: Kafbat, read-only, no message bodies, password plus OTP, role `ops-operator` |
 
-Not public on any host: Keycloak `/admin` and the master realm, `/actuator`, `/metrics`, `/health`, `/v3`, swagger,
-Postgres 5432, Kafka 9092 and the WireMock admin. Reach those over SSH only.
+**Public by decision since 2026-10-27 (row 489; intentional, an accepted risk of the project owner, not a security pass):**
+Keycloak `/admin` and the `master` realm on the auth host (no one-time code on the master admin until T220); `/actuator`,
+`/v3` and `/swagger-ui` on the app host (the app decides what answers); the WireMock admin and UI at `/__admin/` on the ops
+host (anonymous, writable); the demo Postgres door on 5432; Kafka on 9092 (plaintext, no authentication, no ACLs).
+Keycloak itself is not served on ops (404). Detail: `deploy/hostinger/README.md` "Live state" and
+[deployment.md](deployment.md) section 2. The three links above were verified on 2026-10-26, before that change.
 
-**Current hosted state** (2026-10-26):
+**Current hosted state** (2026-10-28):
 
-- The running app tag is whatever `IPASS_APP_IMAGE` in the server `.env` says; read it with
-  `grep '^IPASS_.*_IMAGE=' .env` (names and tags only). This document does not state a fixed tag.
-- Docker Hub also holds a newer app image `4e0730a6`, pushed on 26 October, whose deployment is not confirmed here.
-  The runbook of the same morning lists app `8ead16cc` and ui `3105c3d3`
-  (`ws/_documents/2026-10-26-hosted-deployment-runbook.md:32`).
+- Live app and ui images: `1fb34727` (row 545, 2026-10-27). A release of current `main` (row 553) is in flight and
+  **not claimed done**; the authority is the server `.env`, read with `grep '^IPASS_.*_IMAGE=' .env` (names and tags only).
+  The 26-Oct notes (app `8ead16cc` / ui `3105c3d3` in the runbook, `4e0730a6` on Docker Hub) are superseded.
+- Migrations `V2_4_1470` and `V2_4_1480` are pending on the VPS (section 4.8). `PAYLOAD_PURGE` is OFF.
 - Images are on Docker Hub. `deploy/hostinger/README.md:27` and `:29` also document a private-registry prefix form; the
   hosted copy uses the Docker Hub overrides.
 
@@ -659,7 +708,10 @@ Postgres 5432, Kafka 9092 and the WireMock admin. Reach those over SSH only.
 | R1/F7 Kafka plaintext to an advertised internal node | Conditional High | **Accepted** for Release 1 with the plaintext switch off everywhere and no egress policy; not closed. The deployed value is not verified | `ws/_documents/2026-10-22-release1-security-statement-and-risk-acceptance.md:33-42` |
 | R3 DB targets `sslmode=require` without chain verification | - | Accepted for Release 1 | same, `:30` |
 | R2 existing KAFKA rows without protocol fail TLS (migration or release note) | - | Open, owner decision | same, `:40` |
-| H1 Keycloak console public with a single factor | High | **Closed** 2026-10-26 (route removed) | runbook `:63` |
+| H1 Keycloak console public with a single factor | High | Closed 2026-10-26 (route removed); **public again by decision on 2026-10-27 (row 489)**, single factor until T220; accepted risk of the project owner | runbook `:63`; `deploy/hostinger/README.md` "Live state" |
+| Row 489 surface: Kafka 9092 plaintext without authentication, demo Postgres door 5432, anonymous writable WireMock admin on ops, actuator / `/v3` / swagger on the app host | - | Public by the project owner's decision; accepted risk; not a pass | `deploy/hostinger/README.md` "Live state" |
+| H-1 runtime-editable outbound allow-list | High | **Closed** (surface removed in PR #46; app writes revoked by `V2_4_1440`; ADR-010 note) | section 4.8 |
+| Typed code sinks (flow interface code, intake 404 echo) | - | Closed in PR #57 and #66 (the `CHECK` is `NOT VALID` until validated per environment) | section 4.8 |
 | N1 request splitting into Kafbat; N2 double-encoding bypass | - | **Closed** (edge refuses `%` and dot segments) | runbook `:64` |
 | M1 h2c Upgrade hang | Medium | **Closed** | runbook `:65` |
 | L5 platform audience on `ops-kafbat` | Low | Closed in code and setup; token check **not verified** (needs a login) | runbook `:66` |
@@ -675,7 +727,7 @@ Postgres 5432, Kafka 9092 and the WireMock admin. Reach those over SSH only.
 
 ### 9.2 Hosted hardening done on 25-26 October
 
-All of this is from the T219 work: `ws/_documents/2026-10-26-hosted-deployment-runbook.md` sections 3, 4 and 6, and
+All of this is from the T219 work (the Keycloak admin bullet is superseded by row 489, see below): `ws/_documents/2026-10-26-hosted-deployment-runbook.md` sections 3, 4 and 6, and
 `deploy/hostinger/README.md` "Operator address".
 
 - The ops address serves only Kafbat at `/kafka/`, behind a Keycloak login (client `ops-kafbat`, auth-code only,
@@ -683,8 +735,9 @@ All of this is from the T219 work: `ws/_documents/2026-10-26-hosted-deployment-r
 - On ops: GET only on the API; 404 for messages, serdes, smartfilters, produce and actuator; 404 for any path with `%`,
   `;`, backslash, `//` or dot segments (including directly before a query string); no `Upgrade` or `Connection`
   forwarded.
-- Keycloak `/admin` and the master realm are 404 on every public host; admin work is done with `kcadm.sh` in the
-  container over SSH.
+- Keycloak `/admin` and the master realm were 404 on every public host on 25-26 October; since 2026-10-27 (row 489) the
+  auth host serves them on purpose (accepted risk of the project owner). They are still not served on ops. Admin work is
+  still done with `kcadm.sh` in the container over SSH.
 - The master realm has a named admin only, brute-force detection on, `bootstrap-admin` removed and the frontend URL
   unset.
 - Auth and login paths are rate-limited, including the trailing-slash forms.
@@ -740,10 +793,10 @@ export MAVEN_OPTS=-Xmx768m                          # AGENTS.md:61; an uncapped 
 |---|---|---|---|
 | Unit tests and arch rules | `./mvnw test` | No (R03: container tests are excluded by default) | BUILD SUCCESS. arch-test 66/0 at `347a1466` |
 | One module | `./mvnw -pl <module> -am test` | No | - |
-| Container suite | `./mvnw -Pcontainer test` (runs only `@Tag("container")`) | Yes, take the lock | 1,902 tests, 0 failed, 5 skipped at `347a1466` |
+| Container suite | `./mvnw -Pcontainer test` (runs only `@Tag("container")`) | Yes, take the lock | 1,902 tests, 0 failed, 5 skipped at `347a1466`. The surefire fork timeout in this profile is 3600 s since PR #67 (`pom.xml:330`); it was 1800 s and killed the platform-app fork with no assertion failure |
 | Full end-to-end gate (project-close gate) | `build-checks/e2e-full-gate.sh` (wraps `./mvnw -o -Pe2e-full -pl platform-app -am test` with the lock and the verdict) | Yes | `GATE: PASS` 10/10 at `347a1466` (`documents/e2e-full.md`) |
 | Release 1 Java scenarios | `node e2e-ui/scripts/run-release1-gate.mjs <log>` (Maven `-Pcontainer -pl platform-e2e -Dtest=Release1ScenariosContainerTest` plus its own Artemis, backend boot and seed) | Yes | `RELEASE 1 GATE: PASS` |
-| Build the deployable jar | `./mvnw -pl platform-app -am package -DskipTests` | No | - |
+| Build the deployable jar | `./mvnw -pl platform-app -am package -DskipTests` (for a deploy, only after the test gate in [deployment.md](deployment.md) section 6 step 1: run `./mvnw -o test` on the SHA or cite a green SHA whose diff touches only deploy scripts or docs; PR #69) | No | - |
 | Build checks | `bash build-checks/check-dependency-tree.sh`, `check-planted-violations.sh`, `check-agent-guidance.sh`, `check-provenance.sh`, `test-e2e-full-gate.sh` | No | Exit 0 |
 
 Notes:
@@ -763,15 +816,16 @@ Notes:
 | Install | `cd ui && npm ci && cd ../e2e-ui && npm ci` | - |
 | Dev server | `cd ui && npm run dev` | - |
 | Build (type check, Vite build, licence check) | `cd ui && npm run build` | Exit 0 |
-| All offline unit tests | `cd ui && npm test` (ui's own tests, then `e2e-ui` unit tests) | 387 + 112 = 499 tests at `7b916dd7` (2026-10-27); 3 `ui` tests red, see below |
-| ui-only unit tests | `cd ui && npm run test:product` | 387 run, 384 pass, 3 fail at `7b916dd7`: `ui/tests/ui/no-allow-list-editor.test.mjs:39-41` and the allow-list endpoint test still forbid the Settings page that PR #34 added (decision open) |
+| All offline unit tests | `cd ui && npm test` (ui's own tests, then `e2e-ui` unit tests) | `ui` 392/392 and `e2e-ui` 112/112 at `83b5483a` (PR #70 description); the 3 tests red at `7b916dd7` are green since |
+| ui-only unit tests | `cd ui && npm run test:product` | 389/389 at `0ce45faf`, 392/392 at `83b5483a`. At `7b916dd7` 3 failed because tests still forbade the Settings page of PR #34; the allow-list editor was removed in PR #46 and they are green |
 | Regenerate the typed API client from OpenAPI | `cd ui && npm run generate:client` | `tsc` clean |
-| Screens suite (Playwright, real backend) | `cd e2e-ui && npm run test:screens` | 128/128 at `0b4cbf04`; `playwright test --list` shows 156 tests in 20 files at `7b916dd7` (listed, not run) |
-| Base suite | `cd e2e-ui && IPASS_BS_EXCEPTION_PROFILE=showcase IPASS_BS_EXCEPTION_HOST=localhost IPASS_BS_EXCEPTION_HOST_VAR=PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS IPASS_BS_EXCEPTION_PORT=8089 npx playwright test -c playwright.base-suite.config.mjs` (all four `IPASS_BS_EXCEPTION_*` are required, else every scenario fails NOT_CONFIGURED: `e2e-ui/tests/base-suite/lib/settings.mjs:7-21`; environment list below the table) | BS-10, BS-11.3 and BS-11.3b gave 20/20 at `0b4cbf04`; `--list` shows 30 tests in 11 files at `7b916dd7` (listed, not run; the f3 scenarios 5-9 and 11 need a DB-target seam) |
+| Screens suite (Playwright, real backend) | `cd e2e-ui && npm run test:screens` | 155 passed, 0 failed, 1 skipped of 156 at `32304a08` (2026-10-27; 128/128 at `0b4cbf04`) |
+| Base suite | `cd e2e-ui && IPASS_BS_EXCEPTION_PROFILE=showcase IPASS_BS_EXCEPTION_HOST=localhost IPASS_BS_EXCEPTION_HOST_VAR=PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS IPASS_BS_EXCEPTION_PORT=8089 npx playwright test -c playwright.base-suite.config.mjs` (all four `IPASS_BS_EXCEPTION_*` are required, else every scenario fails NOT_CONFIGURED: `e2e-ui/tests/base-suite/lib/settings.mjs:7-21`; environment list below the table) | 32 passed, 0 failed at `32304a08` (2026-10-27; the f3 specs use a target-Postgres sidecar since PR #60; 20/20 at `0b4cbf04`) |
 | Security specs | `cd e2e-ui && npx playwright test -c playwright.security.config.mjs` | 13/13 at `0b4cbf04`; `--list` 13 at `7b916dd7` |
 | Release 1 browser journey | `cd e2e-ui && npm run test:release1-journey -- <log>` | PASS, 6 steps |
 | e2e-full UI leg | `cd e2e-ui && npm run test:e2e-full-ui` | not verified |
-| Mocked UI / OpenAPI contract / perf | `npm run test:mocked`, `test:container`, `test:perf` (in `e2e-ui`) | not verified |
+| OpenAPI contract | `cd e2e-ui && npm run test:container` | 3/3 after PR #70 (drift, reach, compile) |
+| Mocked UI / perf | `npm run test:mocked`, `test:perf` (in `e2e-ui`) | not verified |
 | Local trial stack (backend, console, seeded user) | `cd e2e-ui && npm run trial` | - |
 
 Environment for the base suite and the other Docker-backed Playwright runs (the boot script reads these; `e2e-ui/scripts/boot-backend.mjs`):
@@ -793,7 +847,8 @@ Every `ui` script name still works and delegates to `e2e-ui`. To pass extra argu
 
 Run these from the repository root (full table in [deployment.md](deployment.md) section 4):
 
-- `bash deploy/hostinger/test/test-scripts.sh`: offline, no Docker. Last known 111 passed, 0 failed (2026-10-26).
+- `bash deploy/hostinger/test/test-scripts.sh`: offline, no Docker. 132 passed, 1 failed on 2026-10-28 (the file-mode check, section 4.7); 111 passed, 0 failed on 2026-10-26.
+- `bash deploy/hostinger/test/test-flyway.sh`: offline, about two minutes; run it whenever `flyway/`, `deploy.sh` or a `db/migration` folder changes (`deploy/hostinger/README.md`).
 - `NGINX_TEST_TAG=<tag> bash deploy/hostinger/test/edge-ratelimit.sh` and `.../edge-ops.sh`: nginx behaviour; take
   the Docker lock.
 - `IMAGE_TAG=<sc> bash deploy/hostinger/test/smoke.sh`: the whole stack with dummy secrets. Heavy; takes the lock.
@@ -988,7 +1043,7 @@ Report the counts (run, failed, errors, skipped) and the commit id.
 | `ui/node_modules` in a fresh git worktree | A worktree has no `node_modules`. Run `npm ci` there. Linking the main checkout's folder with a Windows directory junction is a local convenience that is **not verified** for this repository; never commit `node_modules` |
 | `edge.conf` change has no effect on the server | It is a single-file bind mount. Run `docker compose up -d --force-recreate --no-deps edge`; `nginx -s reload` is not enough. The same applies to `kafbat/kafbat-roles.yml` (`deploy/hostinger/README.md`, "Operator address") |
 | `ops-setup.sh` re-enables the `ops-kafbat` client | Do not re-run it if you disabled the client on purpose |
-| Keycloak admin console over an SSH tunnel does not log in | That is by design (strict hostname). Use `kcadm.sh` in the container; do not set the master realm frontend URL without a decision |
+| Keycloak admin console over an SSH tunnel does not log in | By design (strict hostname) as of 26-Oct. Since row 489 the console is public on the auth host (`https://auth.<domain>/admin/`), so use that URL or `kcadm.sh` in the container; do not set the master realm frontend URL without a decision |
 | App healthy but scheduled jobs missing | The app DB login must be granted `ipaas_app` before the first start (outside Flyway); otherwise the job register stays empty (tracker T198, B35) |
 | App refuses to start | K1 guard: the DB login is superuser, bypasses RLS or owns the tables. Use the restricted login |
 | Release 1 scenarios error under plain `-Pcontainer` | By design; use the gate runner |
@@ -1031,7 +1086,7 @@ Release 2 work. "Tnnn" and "Bnnn" are project tracker items (section 14).
 | 1 | **R1/F7 Kafka plaintext** (standing conditional High) and the **per-environment probes P1-P9** | Any external exposure without them reopens the High or leaves deployed config unproven | Project owner / operator, with the security reviewer | Run P1-P9 per environment and record the plaintext switch value before each promotion (`ws/_reports/2026-10-23-security-statement-refresh.md:139-147`) |
 | 2 | **Release 1 security statement is not a pass** | No "secure" claim can go outward | Security reviewer | Recompute the case map from filed runs at one release commit; close the audit legs; re-run the gate at the tip |
 | 3 | **M2: Kafbat in front of a plaintext, ACL-less broker; the Kafka login layer** | Wide internal reach behind one login | Architect, then security reviewer | Design SASL/SCRAM plus ACL (Describe/Read only for Kafbat) and its own network before real tenant traffic (`ws/_reports/2026-10-25-t219-ops-security.md:116`) |
-| 4 | **T220: master realm admin OTP** | The master admin is single-factor (console reachable over SSH only) | Project owner (needs an authenticator at hand) | SSH tunnel plus a temporary frontend URL, pg dump first, about 20 minutes (runbook `:76`) |
+| 4 | **T220: master realm admin OTP** | The master admin is single-factor and, since row 489 (2026-10-27), the console is reachable from the internet on the auth host | Project owner (needs an authenticator at hand) | Temporary frontend URL, pg dump first, about 20 minutes (runbook `:76`; the SSH tunnel is no longer the only path) |
 | 5 | **Operator users for the ops address** | None exist, so the operator login end to end (and the L5 token check) is untested | Project owner | Create named users in realm `platform` with role `ops-operator` and required action `CONFIGURE_TOTP`; enrol in person |
 | 6 | **N4: case-sensitive blocks in `edge.conf`** (Low) | Case-altered paths fall through to the GET-only catch-all | Developer (kit), security reviewer | Case-insensitive matching at the next edge change, bundled with M2; add case variants to `test/edge-ops.sh` (`ws/_reports/2026-10-26-t219-ops-security-recheck2.md:94-96`) |
 | 7 | **T207: 405/406/404 raised before a controller is chosen bypass `ConfigApiExceptionHandler`** (`@RestControllerAdvice basePackages=io.integrationplatform.config`) | Inconsistent error bodies app-wide | Architect (design call), then developer | Decide: widen or drop `basePackages` app-wide; test 405/406/type-mismatch (tracker T207, T196) |
@@ -1075,6 +1130,10 @@ workspace are left out.
 8. Any test result on `5b9a6c36`. No suite was re-run for this document; every count is from the dated report cited.
 9. The deployed value of `kafka-allow-plaintext` in any environment.
 10. The L5 audience token check on `ops-kafbat` (needs a login).
+11. Whether the row 553 release of `main` has reached the VPS; the live pin `1fb34727` is from the row 545 record, not re-read from the server.
+12. The row 489 surface after later edits: the row 547 run recorded `public-smoke.sh` 13 PASS on 2026-10-28; this update re-ran nothing against the VPS.
+13. The QA-side re-run of `openapi-contract` after PR #70 (the 3/3 is the PR description's own evidence), and a `-Pcontainer` run with the 3600 s timeout.
+14. The mode of four PR #68 scripts (`100644` in the index; the `test-scripts.sh` check expects `100755`); not changed by this docs update.
 
 ## 14. Glossary
 
