@@ -1,9 +1,9 @@
 ---
 type: ADR
 title: "ADR-011 - Target types, contract registry and version graph, bulk at intake, ordering, Kafka records carry ids only, background tenant from the row"
-status: "Accepted (team, 2026-10-02) - Dipesh may reverse; Amendment 2026-10-27 Proposed - awaiting the project owner's written acceptance"
+status: "Accepted (team, 2026-10-02) - the project owner may reverse; Amendment 2026-10-27 Accepted - the project owner accepted the residual risk in writing on 2026-10-27"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy. 2026-10-22 - E16 F3 amendment (approved tables, D1-D4) and F3 hardening addendum (S1, S2, S3, S5, residuals). 2026-10-27 - Amendment: author/approver separation of duties removed for flow versions, contract versions and DB-table approvals (V2_4_1420); Proposed - awaiting the project owner's written acceptance"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy. 2026-10-22 - E16 F3 amendment (approved tables, D1-D4) and F3 hardening addendum (S1, S2, S3, S5, residuals). 2026-10-27 - Amendment: author/approver separation of duties removed for flow versions, contract versions and DB-table approvals (V2_4_1420); Accepted - the project owner accepted the residual risk in writing on 2026-10-27"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -426,7 +426,7 @@ both reports are static reads (neither reviewer ran them).
 
 ## Amendment 2026-10-27 - single-user self-approval: author/approver separation of duties removed
 
-**Status: Proposed - awaiting the project owner's written acceptance.** Built on branch `feat/single-user-self-approval`
+**Status: Accepted - the project owner accepted the residual risk in writing on 2026-10-27.** Built on branch `feat/single-user-self-approval`
 (`94aac35f` tests first, `cfb30de1` change); plan `_documents/PLAN-single-user-self-approval.md` in the project
 workspace. This amendment supersedes, for the three approvals below, every statement above that an author or a
 requester cannot approve their own work (Decision 2 table check, Decision 3 rule 1, amendment 2026-10-22 D4 and
