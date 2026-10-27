@@ -313,7 +313,7 @@ and the dashboard counts reflect queued, processed, converted and failed. The tw
 | Full end-to-end gate `-Pe2e-full` | 14 tests in 5 classes, 0 failed; GATE PASS 10/10 required scenarios (all five target types, three hour-long outages, memory budget) | `347a1466` | same |
 | arch-test | 66 tests, 0 failed | `347a1466` | same |
 | Release 1 Java scenarios SC-01 to SC-09 | PASS, 10 tests | `6ce6c561` (same tree as `347a1466`) | `ws/_reports/2026-10-24-release1-verdict-and-proof.md:35` |
-| UI offline `npm test` | 428/428 (383 + 45) at that commit; 495/495 (383 + 112) on `main` after PR #32, 2026-10-27 | `0b4cbf04`; `main` after #32 | `ws/_reports/2026-10-24-g7-ui-gates-0b4cbf04.md`; run of 2026-10-27 (`npm test` in `ui/` and `e2e-ui/`) |
+| UI offline `npm test` | 428/428 (383 + 45) at that commit; 499 tests (387 + 112) on `7b916dd7`, 2026-10-27, of which 3 `ui` tests fail (see section 10.4) | `0b4cbf04`; `main` after #32 | `ws/_reports/2026-10-24-g7-ui-gates-0b4cbf04.md`; run of 2026-10-27 (`npm test` in `ui/` and `e2e-ui/`) |
 | Base suite (BS-10 Replay, BS-11.3, BS-11.3b) | 20/20 | `0b4cbf04` | same |
 | Screens suite | 128/128 | `0b4cbf04` | same |
 | Playwright security specs | 13/13 | `0b4cbf04` | same |
@@ -323,8 +323,8 @@ and the dashboard counts reflect queued, processed, converted and failed. The tw
 
 Two count notes:
 
-- `e2e-ui` unit test count: 112 on `main` after PR #32 (`npm test` in `e2e-ui/`, 2026-10-27; `ui`
-  `npm test` = 383 own tests + 112 here = 495, all passing). Earlier figures were 45 at tag `release-1` (`0b4cbf04`,
+- `e2e-ui` unit test count: 112 passing on `7b916dd7` (`npm test` in `e2e-ui/`, 2026-10-27); `ui` `npm run test:product` ran 387,
+  384 passing. Read counts from the run summary; they move with every added test. Earlier figures were 45 at tag `release-1` (`0b4cbf04`,
   `e2e-ui/README.md:17`; 383 + 45 = 428) and 84 at `1b07586d` (2026-10-25 report). On `5b9a6c36` the `test` script in
   `e2e-ui/package.json` named five files that were not on `main` (section 13, item 16), so `npm test` failed there;
   the T224 branch restored them and is merged (`930360b0`), so `main` runs the full script (111 at that merge, 112 after PR #32).
@@ -763,16 +763,28 @@ Notes:
 | Install | `cd ui && npm ci && cd ../e2e-ui && npm ci` | - |
 | Dev server | `cd ui && npm run dev` | - |
 | Build (type check, Vite build, licence check) | `cd ui && npm run build` | Exit 0 |
-| All offline unit tests | `cd ui && npm test` (ui's own tests, then `e2e-ui` unit tests) | 428/428 at `0b4cbf04` |
-| ui-only unit tests | `cd ui && npm run test:product` | 383 at `0b4cbf04` (`e2e-ui/README.md:24`) |
+| All offline unit tests | `cd ui && npm test` (ui's own tests, then `e2e-ui` unit tests) | 387 + 112 = 499 tests at `7b916dd7` (2026-10-27); 3 `ui` tests red, see below |
+| ui-only unit tests | `cd ui && npm run test:product` | 387 run, 384 pass, 3 fail at `7b916dd7`: `ui/tests/ui/no-allow-list-editor.test.mjs:39-41` and the allow-list endpoint test still forbid the Settings page that PR #34 added (decision open) |
 | Regenerate the typed API client from OpenAPI | `cd ui && npm run generate:client` | `tsc` clean |
-| Screens suite (Playwright, real backend) | `cd e2e-ui && npm run test:screens` | 128/128 at `0b4cbf04` |
-| Base suite | `cd e2e-ui && npx playwright test -c playwright.base-suite.config.mjs` | BS-10, BS-11.3 and BS-11.3b gave 20/20 at `0b4cbf04` |
-| Security specs | `cd e2e-ui && npx playwright test -c playwright.security.config.mjs` | 13/13 at `0b4cbf04` |
+| Screens suite (Playwright, real backend) | `cd e2e-ui && npm run test:screens` | 128/128 at `0b4cbf04`; `playwright test --list` shows 156 tests in 20 files at `7b916dd7` (listed, not run) |
+| Base suite | `cd e2e-ui && IPASS_BS_EXCEPTION_PROFILE=showcase IPASS_BS_EXCEPTION_HOST=localhost IPASS_BS_EXCEPTION_HOST_VAR=PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS IPASS_BS_EXCEPTION_PORT=8089 npx playwright test -c playwright.base-suite.config.mjs` (all four `IPASS_BS_EXCEPTION_*` are required, else every scenario fails NOT_CONFIGURED: `e2e-ui/tests/base-suite/lib/settings.mjs:7-21`; environment list below the table) | BS-10, BS-11.3 and BS-11.3b gave 20/20 at `0b4cbf04`; `--list` shows 30 tests in 11 files at `7b916dd7` (listed, not run; the f3 scenarios 5-9 and 11 need a DB-target seam) |
+| Security specs | `cd e2e-ui && npx playwright test -c playwright.security.config.mjs` | 13/13 at `0b4cbf04`; `--list` 13 at `7b916dd7` |
 | Release 1 browser journey | `cd e2e-ui && npm run test:release1-journey -- <log>` | PASS, 6 steps |
 | e2e-full UI leg | `cd e2e-ui && npm run test:e2e-full-ui` | not verified |
 | Mocked UI / OpenAPI contract / perf | `npm run test:mocked`, `test:container`, `test:perf` (in `e2e-ui`) | not verified |
 | Local trial stack (backend, console, seeded user) | `cd e2e-ui && npm run trial` | - |
+
+Environment for the base suite and the other Docker-backed Playwright runs (the boot script reads these; `e2e-ui/scripts/boot-backend.mjs`):
+
+- `IPASS_BS_EXCEPTION_PROFILE=showcase`, `IPASS_BS_EXCEPTION_HOST=localhost`,
+  `IPASS_BS_EXCEPTION_HOST_VAR=PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS`, `IPASS_BS_EXCEPTION_PORT=8089`: the
+  dev-only outbound exception (the one local WireMock). WireMock is published on 8089 and the console on 4173 when free;
+  an overlapping run claims another port (`boot-backend.mjs:609`).
+- `DOCKER_SUITE_LOCK=<path>`: use a numbered lock slot such as `.docker-suite.lock-1` instead of the default
+  `.docker-suite.lock` (`boot-backend.mjs:40`).
+- `JAVA_TOOL_OPTIONS=-Duser.timezone=Etc/UTC` (R04; the boot adds it to its children too, `boot-backend.mjs:180`).
+- A JDK 25: `JAVA_HOME`, else `java` on PATH, else the newest JDK 25 under `~/.jdks` (`boot-backend.mjs:221-244`).
+- The base-suite boot also sets `IPASS_DB_TARGET_ENABLED=true` for the app (`e2e-ui/tests/base-suite/lib/boot-options.mjs`).
 
 Every `ui` script name still works and delegates to `e2e-ui`. To pass extra arguments, run the script inside `e2e-ui`
 (`e2e-ui/README.md:23`).

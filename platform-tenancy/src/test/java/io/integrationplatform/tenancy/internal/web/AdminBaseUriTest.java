@@ -42,6 +42,22 @@ class AdminBaseUriTest {
     }
 
     @Test
+    @DisplayName("An IPv4-mapped private IPv6 literal is read as its IPv4 address and accepted like it (JDK 25 ofLiteral)")
+    void ipv4MappedPrivateLiteralIsAccepted() {
+        assertThat(resolve("http://[::ffff:10.0.0.1]")).isEqualTo("http://[::ffff:10.0.0.1]");
+    }
+
+    @Test
+    @Tag("negative")
+    @DisplayName("An IPv6 literal with an unknown zone id is not a literal: refused, no DNS lookup, value not echoed")
+    void ipv6LiteralWithAnUnknownScopeNameIsRefused() {
+        String base = "http://[fe80::1%25nosuch]";
+        assertThatThrownBy(() -> resolve(base)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("KEYCLOAK_ADMIN_BASE_URI").hasMessageContaining("plain http")
+                .hasMessageNotContaining(base).hasMessageNotContaining("nosuch").hasNoCause();
+    }
+
+    @Test
     @DisplayName("Trailing slashes are dropped; the whitespace around the value is stripped")
     void slashesAndWhitespace() {
         assertThat(resolve("  http://keycloak:8080///  ")).isEqualTo("http://keycloak:8080");

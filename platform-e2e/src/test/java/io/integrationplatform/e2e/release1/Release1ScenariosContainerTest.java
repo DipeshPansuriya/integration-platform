@@ -10,6 +10,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Tag;
@@ -45,6 +47,16 @@ class Release1ScenariosContainerTest {
     private static Network network;
     private static GenericContainer<?> wiremock;
     private static GenericContainer<?> artemis;
+
+    /** Needs a running backend (-De2e.baseUrl, set by the gate runner): without one the class is skipped, not red,
+     *  so a plain -Pcontainer run stays green. */
+    @BeforeAll
+    static void needsARunningBackend() {
+        String baseUrl = System.getProperty(E2eNames.BASE_URL_PROPERTY);
+        Assumptions.assumeTrue(baseUrl != null && !baseUrl.isBlank(),
+                "Release 1 scenarios need a running backend: pass -D" + E2eNames.BASE_URL_PROPERTY + "=http://127.0.0.1:<port> "
+                        + "(the gate runner does)");
+    }
 
     private static synchronized void harness() {
         if (E2eNames.externalWiremock() != null) {

@@ -20,7 +20,8 @@ import org.junit.jupiter.params.provider.ValueSource;
  * compose/compose.yaml; the default services stay profile-free.
  * <ul>
  * <li>both services exist, carry {@code profiles: ["e2e"]}, use the {@link E2eImages} pins, run in UTC, publish
- * loopback-only ports and have a healthcheck;</li>
+ * loopback-only ports (the host port is an {@code IPASS_*_PORT} variable whose default is the old fixed port, so
+ * overlapping docker suites can pick their own) and have a healthcheck;</li>
  * <li>{@code @security} Artemis credentials come from variable names only (R07) and anonymous login is off;</li>
  * <li>the default services (postgres, keycloak, kafka, kafbat) carry no profile.</li>
  * </ul>
@@ -41,7 +42,7 @@ class ComposeE2eProfileTest {
         assertThat(artemis.value("profiles")).as("artemis runs only with --profile e2e").isEqualTo(E2E_PROFILE);
         assertThat(artemis.value("image")).as("compose artemis image").isEqualTo(E2eImages.ARTEMIS);
         assertThat(artemis.nestedMap("environment")).containsEntry("TZ", "Etc/UTC");
-        assertThat(artemis.nestedList("ports")).containsExactly("\"127.0.0.1:61616:61616\"", "\"127.0.0.1:8161:8161\"");
+        assertThat(artemis.nestedList("ports")).containsExactly("\"127.0.0.1:${IPASS_ARTEMIS_PORT:-61616}:61616\"", "\"127.0.0.1:${IPASS_ARTEMIS_CONSOLE_PORT:-8161}:8161\"");
         assertThat(artemis.nestedMap("healthcheck").get("test"))
                 .as("compose and the harness agree on ready: the same artemis check node --up probe")
                 .contains(E2eContainers.ARTEMIS_CLI + " check node --up");
@@ -69,7 +70,7 @@ class ComposeE2eProfileTest {
         assertThat(wiremock.value("profiles")).as("wiremock runs only with --profile e2e").isEqualTo(E2E_PROFILE);
         assertThat(wiremock.value("image")).as("compose wiremock image").isEqualTo(E2eImages.WIREMOCK);
         assertThat(wiremock.nestedMap("environment")).containsEntry("TZ", "Etc/UTC");
-        assertThat(wiremock.nestedList("ports")).containsExactly("\"127.0.0.1:8089:8080\"");
+        assertThat(wiremock.nestedList("ports")).containsExactly("\"127.0.0.1:${IPASS_WIREMOCK_PORT:-8089}:8080\"");
         assertThat(wiremock.nestedMap("healthcheck").get("test")).as("wiremock healthcheck reads its admin health")
                 .contains("http://localhost:8080/__admin/health");
     }
