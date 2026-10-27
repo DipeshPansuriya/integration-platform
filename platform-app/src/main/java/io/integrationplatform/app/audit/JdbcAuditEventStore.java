@@ -16,7 +16,7 @@ import tools.jackson.databind.json.JsonMapper;
  * E12 N3 (T-067 narrow): the append half of the audit ledger - the outbox writer and the relay for
  * {@code public.audit_event} (V2_2_1220), through the transactional outbox {@code public.audit_outbox} (V2_4_3,
  * row278 D2/M3). Row 544: the application role no longer inserts into the ledger or stamps {@code relayed_at}; in
- * {@link RelayMode#DEFINER} the relay moves rows only through {@code public.audit_relay_move} (V2_4_1470). R15: an append, never an update or a delete (the table grants refuse both; there is no UPDATE or
+ * {@link RelayMode#DEFINER} the relay moves rows only through {@code public.audit_relay_move} (V2_4_1490). R15: an append, never an update or a delete (the table grants refuse both; there is no UPDATE or
  * DELETE statement here). The tenant is taken only from {@link TenantContext} (R08) through the scoped base, and
  * the statement runs inside the caller's tenant-stamped transaction (R11) - the writer opens that transaction
  * fresh after commit. {@code target_ids} becomes a jsonb array of the event's target references (the delivery id

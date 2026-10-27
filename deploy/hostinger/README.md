@@ -135,8 +135,8 @@ The role names are the cluster's, so the restore (as the superuser, without `--n
 What changes: the application role (`ipaas_app`, which `ipass_app` is a member of) can no longer INSERT into `audit_event` or UPDATE
 `audit_outbox.relayed_at`. A committed `audit_outbox` row reaches the ledger only through `public.audit_relay_move(bigint)` (SECURITY
 DEFINER, owner `ipass_migrator`), which stamps `relayed_at` and inserts the ledger row in one statement. Flow and contract approvals
-read the approver from the `app.actor_id` the application stamps in the same transaction. Migrations: `V2_4_1470` (`platform-app`,
-audit) and `V2_4_1480` (`platform-config`, approvals); numbers are provisional until the integrator assigns them.
+read the approver from the `app.actor_id` the application stamps in the same transaction. Migrations: `V2_4_1490` (`platform-app`,
+audit) and `V2_4_1500` (`platform-config`, approvals); numbers are provisional until the integrator assigns them.
 
 **Release order (one release, the app is stopped during the migration).** The previous app cannot work against these migrations (its
 relay needs the revoked privileges; it never stamps an actor, so approvals answer `REFUSED_NO_ACTOR`), and `deploy.sh` runs Flyway
@@ -144,7 +144,7 @@ while the old app still serves, so stop it first. In `/docker/ipass`:
 
 1. Baseline: run the reconciliation query below once on the current data (findings go to the owner, they are not fixed here).
 2. `docker compose stop platform-app` (business writes pause; nothing is written, so no audit event is lost).
-3. `IMAGE_TAG=<sc> ./deploy.sh` - backup, `info`, `validate`, `migrate` (applies V2_4_1470 then V2_4_1480 as `ipass_migrator`), tag switch,
+3. `IMAGE_TAG=<sc> ./deploy.sh` - backup, `info`, `validate`, `migrate` (applies V2_4_1490 then V2_4_1500 as `ipass_migrator`), tag switch,
    `up -d` (the new app's own Flyway finds nothing pending; the relay delivers any pending backlog), health.
 4. Post-checks (below).
 
@@ -156,9 +156,9 @@ old direct statement and logs one WARN at start; any other value stops the app f
 
 **Rollback (two steps, in this order).**
 1. `docker compose stop platform-app`; run the block between `-- ROLLBACK-BEGIN` and `-- ROLLBACK-END` in the header of
-   `V2_4_1470__audit_relay_move_and_lockdown.sql` as `ipass_migrator` (re-grants the two privileges, drops the function).
+   `V2_4_1490__audit_relay_move_and_lockdown.sql` as `ipass_migrator` (re-grants the two privileges, drops the function).
 2. Set `IPAAS_AUDIT_RELAY_MODE=LEGACY` in `.env`, then `docker compose up -d`.
-If the app **image** is also rolled back, additionally run the rollback block of `V2_4_1480__approval_actor_from_session.sql` (restores the
+If the app **image** is also rolled back, additionally run the rollback block of `V2_4_1500__approval_actor_from_session.sql` (restores the
 previous approval function bodies) before starting the old tag. Flyway history rows stay; a later roll-forward uses a new migration
 number, never an edit, and `repair` is not needed (no checksum changed). The last resort is the pre-release dump (see "Update and roll back").
 

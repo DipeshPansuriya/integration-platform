@@ -180,7 +180,7 @@ services:
       IPASS_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       IPASS_KAFKA_PUBLISH_CLIENT_ID: ipass-relay
       IPASS_KAFKA_PLATFORM_TOPICS: platform.message.accepted,platform.delivery.due,platform.poison
-      # row 544: DEFINER (default) = audit relay through audit_relay_move; LEGACY only after the V2_4_1470 rollback SQL
+      # row 544: DEFINER (default) = audit relay through audit_relay_move; LEGACY only after the V2_4_1490 rollback SQL
       IPAAS_AUDIT_RELAY_MODE: ${IPAAS_AUDIT_RELAY_MODE:-DEFINER}
       ROUTING_CORE_ALLOWED_SCHEMES: http,https
       # ADR Decision 5 point 9: the one allow-listed demo destination. Empty = every destination refused.
