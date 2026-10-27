@@ -8,6 +8,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -35,9 +36,17 @@ public class RunRecordingSchedulerListener implements SchedulerListener {
     private final JobIncidentSink sink;
     private final JobDefinitionRepository repository;
     private final MeterRegistry meters;
+    private final JobRunCounts counts;
 
     public RunRecordingSchedulerListener(JobIncidentSink sink, JobDefinitionRepository repository,
             MeterRegistry meters) {
+        this(sink, repository, meters, new JobRunCounts());
+    }
+
+    @Autowired
+    public RunRecordingSchedulerListener(JobIncidentSink sink, JobDefinitionRepository repository,
+            MeterRegistry meters, JobRunCounts counts) {
+        this.counts = counts;
         this.sink = sink;
         this.repository = repository;
         this.meters = meters;
@@ -64,8 +73,10 @@ public class RunRecordingSchedulerListener implements SchedulerListener {
                     : complete.getCause().map(cause -> cause.getClass().getName()).orElse("Error");
             boolean late = started.isAfter(scheduledFor.plusSeconds(lateThresholdSeconds));
 
+            // the counts the body reported on this executor thread (aggregate only; no payload, no tenant)
+            String runCounts = counts.take();
             sink.recordRun(new JobRunRow(jobType, scheduledFor, started, finished, execution.pickedBy,
-                    failed ? "FAILED" : "SUCCEEDED", late, errorClass, null));
+                    failed ? "FAILED" : "SUCCEEDED", late, errorClass, runCounts));
             if (failed) {
                 sink.raiseAlert(jobType, scheduledFor, "FAILED", errorClass,
                         overMaxRun ? "run over its max_run_seconds" : "run failed");

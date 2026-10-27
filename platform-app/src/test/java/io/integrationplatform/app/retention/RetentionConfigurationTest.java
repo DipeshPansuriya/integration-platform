@@ -27,6 +27,8 @@ class RetentionConfigurationTest {
             assertThat(retention.metrics()).isEqualTo(Period.ofMonths(13));
             assertThat(retention.traces()).isEqualTo(Duration.ofDays(7));
             assertThat(retention.audit()).isEqualTo(Period.ofYears(7));
+            assertThat(retention.payload()).as("ADR-014 Decision 3, decided by Dipesh 2026-10-12")
+                    .isEqualTo(Period.ofDays(30));
         });
     }
 }
