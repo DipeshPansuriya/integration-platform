@@ -14,7 +14,6 @@ import org.springframework.stereotype.Component;
 public class SystemEndpointRoles implements ApiOperationRules {
 
     private static final String SYSTEMS = "/api/v1/admin/systems";
-    private static final String ALLOWED_HOSTS = "/api/v1/admin/settings/allowed-hosts";
 
     @Override
     public List<Rule> rules() {
@@ -29,9 +28,6 @@ public class SystemEndpointRoles implements ApiOperationRules {
                 new Rule("GET", SYSTEMS + "/{systemId}/approved-tables", Operation.READ_CONFIGURATION),
                 new Rule("POST", SYSTEMS + "/{systemId}/approved-tables", Operation.EDIT_CONFIGURATION),
                 new Rule("POST", SYSTEMS + "/{systemId}/approved-tables/{id}/approve", Operation.APPROVE_DB_TABLE),
-                new Rule("POST", SYSTEMS + "/{systemId}/approved-tables/{id}/revoke", Operation.APPROVE_DB_TABLE),
-                new Rule("GET", ALLOWED_HOSTS, Operation.READ_CONFIGURATION),
-                new Rule("POST", ALLOWED_HOSTS, Operation.EDIT_CONFIGURATION),
-                new Rule("DELETE", ALLOWED_HOSTS, Operation.EDIT_CONFIGURATION));
+                new Rule("POST", SYSTEMS + "/{systemId}/approved-tables/{id}/revoke", Operation.APPROVE_DB_TABLE));
     }
 }

@@ -27,7 +27,6 @@ import { ContractVersions } from './pages/ContractVersions';
 // F10-narrow seam (arjun-fullstack, row278 plan step 8): route + menu entry for lane D's queue
 // dashboard; the page file is the whole slice's UI - this shell line stays one route + one menu line.
 import { QueueDashboard } from './pages/QueueDashboard';
-import { Settings } from './pages/Settings';
 // T112 (row327 lane D): #/failures (menu, beside Queue) and #/messages/<trackingId> (reached from Failures).
 import { Failures } from './pages/Failures';
 import { MessageDetail } from './pages/MessageDetail';
@@ -49,7 +48,7 @@ import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
 
 type Route = {
-  page: 'home' | 'login' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue' | 'failures' | 'messages' | 'activity' | 'reports' | 'settings';
+  page: 'home' | 'login' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue' | 'failures' | 'messages' | 'activity' | 'reports';
   flowId: string | null;
   ruleSetId?: string | null;
   routeId?: string | null;
@@ -103,12 +102,6 @@ const NAV_GROUPS: Array<{ title: string; entries: NavEntry[] }> = [
     ],
   },
   {
-    title: 'Settings',
-    entries: [
-      { label: 'Allowed hosts', nav: 'settings', hash: '#/settings', page: 'settings' },
-    ],
-  },
-  {
     title: 'Admin tools',
     entries: adminToolEntries(),
   },
@@ -148,7 +141,6 @@ function parseHash(): Route {
   if (hash.startsWith('activity')) return { page: 'activity', flowId: null };
   if (hash.startsWith('reports')) return { page: 'reports', flowId: null };
   if (hash.startsWith('contracts')) return { page: 'contracts', flowId: null };
-  if (hash.startsWith('settings')) return { page: 'settings', flowId: null };
   const ruleSet = /^rules\/(.+)$/.exec(hash);
   if (ruleSet) return { page: 'rules', flowId: null, ruleSetId: safeDecode(ruleSet[1]) };
   if (hash.startsWith('rules')) return { page: 'rules', flowId: null, ruleSetId: null };
@@ -442,7 +434,6 @@ export function App() {
             </Suspense>
           )}
           {route.page === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
-          {route.page === 'settings' && <Settings />}
           {route.page === 'home' &&
             (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard />)}
         </main>
