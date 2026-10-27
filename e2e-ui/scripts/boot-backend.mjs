@@ -29,8 +29,8 @@ import { sessionHeaders, sessionLogin, startKeycloak } from './keycloak-harness.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '..', '..'); // the test project (e2e-ui) is one level below the repo root, like ui/ was
 export const UI = path.join(REPO, 'ui'); // L29: the console project (build, dist, vite config); the suites live in ../e2e-ui
-// R05 + F4 (row 554, CWE-1357): tag AND digest, like WireMock and Kafka. The digest is the local image's RepoDigest (docker image inspect postgres:17.11-alpine, measured 2026-10-27, re-checked 2026-10-28).
-export const PG_IMAGE = 'postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24';
+// R05 + F4 (row 554, CWE-1357): tag AND digest, like WireMock and Kafka. Row 558: the digest is the one deploy/hostinger/compose.yaml runs in production (OCI index, verified with docker buildx imagetools inspect 2026-10-28); a unit row keeps the two equal.
+export const PG_IMAGE = 'postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb';
 const AUDIENCE = 'integration-platform-api';
 /** The console's origin in the screen and perf protocols (tests/screens/console-server.mjs). */
 export const CONSOLE_ORIGIN = `http://127.0.0.1:${CONSOLE_PORT_DEFAULT}`;
