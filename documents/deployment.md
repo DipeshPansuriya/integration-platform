@@ -1,13 +1,13 @@
 # IPASS - deployment
 
-How the integration platform is built, run and operated: the local development stack, and the hosted instance (showcase/staging copy on a personal VPS, ADR-H-IPASS-01). State as verified from outside on 26-Oct (tasks T218 and T219). This document is the whole picture; the step-by-step first-install runbook and the scripts live in [`deploy/hostinger/README.md`](../deploy/hostinger/README.md) and are not repeated here.
+How the integration platform is built, run and operated: the local development stack, and the hosted instance (showcase/staging copy on a personal VPS, ADR-H-IPASS-01). State as verified from outside on 26-Oct (tasks T218 and T219); on 27-Oct row 489 made more of it public (Keycloak admin console and `master` realm, actuator, `/v3`, swagger, the WireMock admin, a Postgres door on 5432, Kafka on 9092) - see "Public by decision (row 489)" in section 2. That is intentional and an accepted risk of the project owner, not a fault. This document is the whole picture; the step-by-step first-install runbook and the scripts live in [`deploy/hostinger/README.md`](../deploy/hostinger/README.md) and are not repeated here.
 
 **Conventions.** `<domain>` is the value of `IPASS_DOMAIN` in the server `.env`; `<vps>` is the server's SSH host name or address; the stack directory on the server is `/docker/ipass`. No server address, key or secret value is written in this repository: secrets exist only in the server `.env` (root-only), in `.env.kc-admin`, and in the owner's password manager, and are named here by variable name only.
 
 ## Contents
 
 1. [Two ways to run it](#1-two-ways-to-run-it)
-2. [Links, what is not public, services, images](#2-links-what-is-not-public-services-images)
+2. [Links, what is public and what is not, services, images](#2-links-what-is-public-and-what-is-not-services-images)
 3. [Local stack](#3-local-stack)
 4. [Hosted kit: files, seed data, tests](#4-hosted-kit-files-seed-data-tests)
 5. [Edge rules](#5-edge-rules)
@@ -24,9 +24,9 @@ How the integration platform is built, run and operated: the local development s
 | Where | A developer machine, `compose/compose.yaml` | The VPS, `deploy/hostinger/compose.yaml` (+ optional `demo/compose.demo.yaml`) |
 | What | PostgreSQL, Keycloak, Kafka and the engineers' Kafbat; the application runs from the IDE or Maven | The whole product: edge, ui, platform-app, Keycloak, Postgres, Kafka, Kafbat, backups; images from a registry |
 | Data | Test data | Fictional showcase data only (two tenants, four users) |
-| Exposure | None (local) | Three public links behind the host's Traefik; everything else internal |
+| Exposure | None (local) | Three public links behind the host's Traefik, plus the extra public surface of row 489 (section 2); the rest is internal |
 
-## 2. Links, what is not public, services, images
+## 2. Links, what is public and what is not, services, images
 
 ### Links
 
@@ -36,9 +36,21 @@ How the integration platform is built, run and operated: the local development s
 | `https://auth.<domain>/realms/platform/account` | 200 | Keycloak login and account page, realm `platform` |
 | `https://ops.<domain>/kafka/` | 302 to the login | Kafbat: read-only Kafka view (topic names, partitions, offsets, consumer groups, counts; no message bodies). Operators only, password + one-time code |
 
-### Deliberately not public - reach it over SSH
+### Public by decision (row 489, 27-Oct) - an accepted risk of the project owner
 
-Closed on every public host: Keycloak `/admin` and the `master` realm, `/actuator`, `/metrics`, `/health`, `/v3`, swagger, Postgres 5432, Kafka 9092, the WireMock admin. Nothing publishes a port; only 22/80/443 answer on the VPS. From `ssh <user>@<vps>` and `cd /docker/ipass`:
+The project owner decided on 27-Oct to make the remaining services public. This is intentional, not a fault, and not a security pass (state: `deploy/hostinger/README.md` "Live state"):
+
+- `auth.<domain>` serves all of Keycloak, the admin console (`/admin`) and the `master` realm included; the `master` admin has no one-time code yet (T220).
+- `ipass.<domain>` passes `/actuator`, `/v3` and `/swagger-ui` to the app; the app decides what answers (health anonymously, login for `/v3/api-docs`, the rest refused).
+- `ops.<domain>` also serves the WireMock admin and UI at `/__admin/`, anonymous and writable (demo stack only).
+- TCP 5432 (demo Postgres door, read-only role, TLS) and 9092 (Kafka front, plaintext, no authentication, no ACLs) answer when the two overlays are applied; the provider firewall allows 22, 80, 443, 5432, 9092.
+- Keycloak is not served on ops (404 there); any other path on the app host that is not listed goes to the ui.
+
+No config value changed in the 28-Oct docs sync; this section only states what the edge and compose files already do.
+
+### Still internal - reach it over SSH
+
+From `ssh <user>@<vps>` and `cd /docker/ipass`:
 
 | Need | How (inside the stack, nothing opened to the internet) |
 |---|---|
@@ -118,9 +130,9 @@ The folder `deploy/hostinger/` holds the compose file, `edge/edge.conf`, the Key
 `deploy/hostinger/edge/edge.conf` (nginx) is the path allow-list in front of the app, Keycloak and Kafbat; Traefik only does TLS and host routing.
 
 - Login, token and `login-actions/authenticate` paths are rate-limited (about 10 requests a minute per client, burst 5, 429 beyond); the trailing-slash forms are limited too. The client key is the last `X-Forwarded-For` entry, the one Traefik appends.
-- `ipass.<domain>`: `/api`, `/oauth2`, `/login`, `/logout` go to the app, everything else to the ui; `/actuator`, `/v3`, swagger answer 404.
-- `auth.<domain>`: Keycloak, except `/admin` and the `master` realm (404 here and unrouted in Traefik too).
-- `ops.<domain>`: only Kafbat under `/kafka/` - GET only on the API; 404 for messages, serdes, smartfilters, produce, actuator; 404 for any path containing `%`, `;`, a backslash, `//` or a dot segment (the query string is excluded); the request URI is forwarded unchanged; no `Upgrade`/`Connection` header is forwarded to Keycloak or Kafbat.
+- `ipass.<domain>`: `/api`, `/oauth2`, `/login`, `/logout` and, since row 489, `/actuator`, `/v3`, `/swagger-ui` go to the app (the app decides what answers), everything else to the ui.
+- `auth.<domain>`: all of Keycloak, the admin console (`/admin`) and the `master` realm included (row 489: intentionally public, risk accepted by the project owner). Before 27-Oct these were 404.
+- `ops.<domain>`: Kafbat under `/kafka/` (and, row 489, the WireMock admin at `/__admin/`, anonymous) - GET only on the API; 404 for messages, serdes, smartfilters, produce, actuator; 404 for any path containing `%`, `;`, a backslash, `//` or a dot segment (the query string is excluded); the request URI is forwarded unchanged; no `Upgrade`/`Connection` header is forwarded to Keycloak or Kafbat.
 - Known Low (N4): the literal blocks are case-sensitive; no anonymous impact; fix with the next edge change.
 - **After ANY `edge.conf` change, force-recreate the edge** (section 6). A reload is not enough.
 
@@ -132,8 +144,8 @@ The folder `deploy/hostinger/` holds the compose file, `edge/edge.conf`, the Key
 4. **Recreate only what changed**: `docker compose -f compose.yaml -f demo/compose.demo.yaml up -d <service>` (add `--no-deps`; `--force-recreate` when the image tag did not change). Wait until the services are `healthy`.
    - **`edge/edge.conf` changed: force-recreate the edge** (`up -d --force-recreate --no-deps edge`). `nginx -s reload` is not enough: the config is a single-file bind mount, so replacing the file on disk leaves the running container on the old file. Check with `docker compose exec edge nginx -T | grep <a line you changed>`.
    - `kafbat/kafbat-roles.yml` is a single-file mount too: recreate `kafbat` after changing it.
-5. **Verify from outside** (not from the server): the links table above; `https://auth.<domain>/admin/` and `/realms/master/...` are 404; on ops `/admin/`, `/realms/master/...` and any `%`-path are 404; `/kafka/` is 302 to the login.
-6. **Post-deploy credential check (app image or Keycloak change):** sign in as a showcase admin, issue one source credential, check the response is 201, then revoke it (200). A 503 / `credential.source_refused` means the app cannot reach the Keycloak admin API. This is the check that proves `KEYCLOAK_ADMIN_BASE_URI` works. On the hosted instance that variable is **unset in `.env`**, so it takes the internal default `http://keycloak:8080` (the public edge hides `/admin`); `./check-issuer-override.sh` guards the one case where it must be set.
+5. **Verify from outside** (not from the server): the links table above; `https://auth.<domain>/admin/` and `/realms/master/...` answer (public by row 489, expected); on ops `/admin/`, `/realms/master/...` and any `%`-path are 404; `/kafka/` is 302 to the login.
+6. **Post-deploy credential check (app image or Keycloak change):** sign in as a showcase admin, issue one source credential, check the response is 201, then revoke it (200). A 503 / `credential.source_refused` means the app cannot reach the Keycloak admin API. This is the check that proves `KEYCLOAK_ADMIN_BASE_URI` works. On the hosted instance that variable is **unset in `.env`**, so it takes the internal default `http://keycloak:8080` (the auth host does serve `/admin` since row 489, but the app keeps the internal address); `./check-issuer-override.sh` guards the one case where it must be set.
 7. **Roll back** to the backup directory (below). If the same step fails twice, stop and find out why before a third try.
 
 ### 6.1 Rollback by backup directory
@@ -180,23 +192,24 @@ What the operator sees: `https://ops.<domain>/kafka/` redirects to the Keycloak 
 
 ## 8. Master realm state and the console
 
-Realm `master` holds the named admin only. State on 26-Oct: `bootstrap-admin` is absent; brute-force detection is on (5 failures, 60 s wait, 15 min maximum); the realm Frontend URL is unset; the named admin has a password but **no one-time code yet** (pending T220). The browser console is not reachable from the internet and an SSH tunnel does not complete its login by default (strict hostname sends the master login to the auth host, where it is 404 by design). Admin work therefore uses `kcadm.sh` in the container, as the scripts here do. Enrolling the admin's one-time code needs a controlled, time-boxed step (temporary Frontend URL over a tunnel, database dump first, cleared again afterwards); it is planned, not done.
+Realm `master` holds the named admin only. State on 26-Oct: `bootstrap-admin` is absent; brute-force detection is on (5 failures, 60 s wait, 15 min maximum); the realm Frontend URL is unset; the named admin has a password but **no one-time code yet** (pending T220). Since row 489 (27-Oct) the browser console is served on the auth host (`https://auth.<domain>/admin/`), intentionally public and an accepted risk of the project owner, so the master login is reachable from the internet with a password only until T220 is done; the 26-Oct text below about the SSH tunnel is superseded for reachability (not re-verified here). Admin work still uses `kcadm.sh` in the container, as the scripts here do. Enrolling the admin's one-time code needs a controlled, time-boxed step (temporary Frontend URL over a tunnel, database dump first, cleared again afterwards); it is planned, not done.
 
 ## 9. Security status and known gaps
 
-The Release 1 security statement is **partly executed, lane runs plus review**; it is not a security pass, and nothing here is a green light for external exposure. For the hosted instance:
+The Release 1 security statement is **partly executed, lane runs plus review**; it is not a security pass, and nothing here is a green light for external exposure. The 27-Oct row 489 surface (section 2) is open by the owner's decision and is not listed as closed below. For the hosted instance:
 
 | Item | Status |
 |---|---|
-| Keycloak console public with a single factor (H1) | Closed: no route to the console or master realm on any public host |
+| Keycloak console public with a single factor (H1) | Closed on 26-Oct (route removed); **reopened on purpose on 27-Oct by row 489**: the console and master realm are public again, single factor until T220, accepted risk of the project owner |
 | Request splitting and double-encoding bypass on ops (N1, N2) | Closed: the ops edge refuses `%`, `;`, backslash, `//` and dot segments in the path |
 | `Upgrade: h2c` hang on Keycloak (M1) | Closed: no `Upgrade`/`Connection` forwarded to Keycloak or Kafbat |
 | Platform API audience on the `ops-kafbat` tokens (L5) | Removed in the setup; the token itself is not checked yet (needs a login) |
 | Master admin one-time code | Open: T220, needs the owner at the PC |
 | Edge literal blocks are case-sensitive (N4) | Open, Low (anonymous impact none); fix with the next edge change |
 | Kafbat can reach a PLAINTEXT, ACL-less broker (M2) | Open: design for SASL/ACL and a separate Kafbat network |
+| Kafka on 9092, demo Postgres door on 5432, WireMock admin on ops, actuator / `/v3` / swagger on the app host (row 489) | Public by the owner's decision; Kafka is plaintext with no authentication or ACLs; the WireMock admin is anonymous and writable; accepted risk of the project owner, not a pass |
 | Kafka plaintext on the internal network (R1/F7) | Standing conditional High; per-environment probes P1-P9 open before any external exposure |
-| No Traefik access log | Known gap: earlier hits on `/admin` from other addresses cannot be proven absent |
+| No Traefik access log | Known gap: earlier hits on `/admin` from other addresses cannot be proven absent (the console is public again since row 489) |
 
 Also open: operator users do not exist yet (the end-to-end operator login is untested); `.env.kc-admin` sits in the stack directory and should move to the credential store; secret rotation is the owner's.
 

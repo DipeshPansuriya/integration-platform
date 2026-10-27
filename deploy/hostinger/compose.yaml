@@ -161,7 +161,7 @@ services:
       DB_MIGRATION_USERNAME: ipass_migrator   # Flyway owner, in-app at startup (ADR Decision 3)
       DB_MIGRATION_PASSWORD: ${DB_MIGRATION_PASSWORD:?set DB_MIGRATION_PASSWORD}
       OIDC_ISSUER_URI: ${OIDC_ISSUER_URI:-https://auth.${IPASS_DOMAIN}/realms/platform}
-      # the public edge hides /admin: the app reaches Keycloak's admin REST API on the internal service address
+      # the auth host also serves /admin now (row 489), but the app still reaches Keycloak's admin REST API on the internal service address
       # (tokens and the issuer stay the public URL above). If the issuer is overridden to an
       # external identity provider, ALSO set this admin base to that provider's internal admin address: the default
       # below points at the bundled Keycloak only (check-issuer-override.sh fails when it is missing).
@@ -260,8 +260,8 @@ services:
     <<: *hardened
 
   # The only service on the shared `web` network: Traefik terminates TLS and sends both hostnames here. Same pinned nginx
-  # image as `ui`, its own config (edge/edge.conf): app paths -> platform-app, auth host -> keycloak minus /admin and the
-  # master realm, everything else -> ui, actuator and OpenAPI -> 404.
+  # image as `ui`, its own config (edge/edge.conf): app paths -> platform-app, auth host -> all of keycloak (admin console and
+  # master realm included, row 489), everything else -> ui; actuator, /v3 and /swagger-ui are passed to the app (row 489), which decides what answers.
   edge:
     image: ${IPASS_UI_IMAGE:-${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/ui:${IMAGE_TAG:?set IMAGE_TAG}}
     pull_policy: missing
