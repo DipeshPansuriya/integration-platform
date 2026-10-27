@@ -655,6 +655,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/systems/{systemId}/endpoint-auth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["readEndpointAuth"];
+        put: operations["updateEndpointAuth"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/systems/{systemId}/source-credentials": {
         parameters: {
             query?: never;
@@ -3205,6 +3221,121 @@ export interface operations {
                     "*/*": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    readEndpointAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                systemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoint's auth settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description NO_BOUND_USER, or the role does not allow the operation */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the row is not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not an outbound system, or no target endpoint */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    updateEndpointAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                systemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonNode"];
+            };
+        };
+        responses: {
+            /** @description Saved: the updated auth settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Every validation error is listed (errors) and joined (error) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description NO_BOUND_USER, or the role does not allow the operation */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not found: the row is not visible to the bound tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description Not an outbound system, or no target endpoint */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
                 };
             };
         };
