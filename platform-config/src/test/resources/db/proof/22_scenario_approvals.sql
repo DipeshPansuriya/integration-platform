@@ -5,7 +5,10 @@
 BEGIN;
 SELECT set_config('app.tenant_id', '0000000a-0000-4000-8000-00000000000a', true);
 
--- The author approves their own version (the only granted database path).
+-- The author approves their own version (the only granted database path). Row 544 (V2_4_1480): the approver is
+-- the session actor the application stamps in the same transaction.
+SELECT set_config('app.actor_id', 'b7e8c2d0-aaaa-4000-8000-0000000000a1', true);
+
 DO $$
 DECLARE
     outcome text;
@@ -42,6 +45,7 @@ COMMIT;
 -- A second user then finds the version already decided (the state check answers first).
 BEGIN;
 SELECT set_config('app.tenant_id', '0000000a-0000-4000-8000-00000000000a', true);
+SELECT set_config('app.actor_id', 'b7e8c2d0-aaaa-4000-8000-0000000000a2', true);
 
 DO $$
 DECLARE
@@ -77,6 +81,8 @@ EXCEPTION WHEN OTHERS THEN
     INSERT INTO public.proof_probe VALUES ('t020_two_user_version_submitted', 'NONE', SQLSTATE, left(SQLERRM, 200));
 END $$;
 
+SELECT set_config('app.actor_id', 'b7e8c2d0-aaaa-4000-8000-0000000000a2', true);
+
 DO $$
 DECLARE
     outcome text;
@@ -103,6 +109,39 @@ BEGIN
     END IF;
 EXCEPTION WHEN OTHERS THEN
     INSERT INTO public.proof_probe VALUES ('t020_other_user_approval_recorded', 'NONE', SQLSTATE,
+                                           left(SQLERRM, 200));
+END $$;
+COMMIT;
+
+-- Row 544 (V2_4_1480): no stamped actor is refused, and so is an argument that disagrees with the stamp; neither
+-- writes a refusal row or changes the version.
+BEGIN;
+SELECT set_config('app.tenant_id', '0000000a-0000-4000-8000-00000000000a', true);
+
+DO $$
+DECLARE
+    outcome text;
+BEGIN
+    outcome := config_approve_version('b7e8c2d0-8888-4000-8000-000000000004',
+                                      'b7e8c2d0-aaaa-4000-8000-0000000000a2'::uuid);
+    INSERT INTO public.proof_probe VALUES ('r544_no_actor_refused', 'REFUSED_NO_ACTOR', outcome,
+                                           'no app.actor_id stamped in this transaction');
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO public.proof_probe VALUES ('r544_no_actor_refused', 'REFUSED_NO_ACTOR', SQLSTATE, left(SQLERRM, 200));
+END $$;
+
+SELECT set_config('app.actor_id', 'b7e8c2d0-aaaa-4000-8000-0000000000a1', true);
+
+DO $$
+DECLARE
+    outcome text;
+BEGIN
+    outcome := config_approve_version('b7e8c2d0-8888-4000-8000-000000000004',
+                                      'b7e8c2d0-aaaa-4000-8000-0000000000a2'::uuid);
+    INSERT INTO public.proof_probe VALUES ('r544_actor_mismatch_refused', 'REFUSED_ACTOR_MISMATCH', outcome,
+                                           'stamp names U1, argument names U2');
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO public.proof_probe VALUES ('r544_actor_mismatch_refused', 'REFUSED_ACTOR_MISMATCH', SQLSTATE,
                                            left(SQLERRM, 200));
 END $$;
 COMMIT;
