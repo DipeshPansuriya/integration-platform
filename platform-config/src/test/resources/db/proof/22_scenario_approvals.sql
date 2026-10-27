@@ -65,13 +65,13 @@ DO $$
 BEGIN
     INSERT INTO public.interface_version (id, tenant_id, interface_id, version, business_key_rule,
                                           source_contract_version_id, author_id, snapshot)
-        VALUES ('b7e8c2d0-8888-4000-8000-000000000003', '0000000a-0000-4000-8000-00000000000a',
+        VALUES ('b7e8c2d0-8888-4000-8000-000000000004', '0000000a-0000-4000-8000-00000000000a',
                 'b7e8c2d0-5555-4000-8000-000000000001', 2,
                 'body.orderId, mandatory + unique per 30 days', 'b7e8c2d0-4444-4000-8000-000000000001',
                 'b7e8c2d0-aaaa-4000-8000-0000000000a1', '{"interface": "CTS_TO_ERP_INVOICES", "routes": 2}'::jsonb);
     UPDATE public.interface_version
         SET status = 'PENDING_APPROVAL', change_note = 'second cut, approved by another user'
-        WHERE id = 'b7e8c2d0-8888-4000-8000-000000000003';
+        WHERE id = 'b7e8c2d0-8888-4000-8000-000000000004';
     INSERT INTO public.proof_probe VALUES ('t020_two_user_version_submitted', 'NONE', 'NONE', 'U1 submitted version 2');
 EXCEPTION WHEN OTHERS THEN
     INSERT INTO public.proof_probe VALUES ('t020_two_user_version_submitted', 'NONE', SQLSTATE, left(SQLERRM, 200));
@@ -81,7 +81,7 @@ DO $$
 DECLARE
     outcome text;
 BEGIN
-    outcome := config_approve_version('b7e8c2d0-8888-4000-8000-000000000003',
+    outcome := config_approve_version('b7e8c2d0-8888-4000-8000-000000000004',
                                       'b7e8c2d0-aaaa-4000-8000-0000000000a2'::uuid);
     INSERT INTO public.proof_probe VALUES ('t020_approve_by_other_user', 'APPROVED', outcome,
                                            'U2 approves a pending version authored by U1');
@@ -93,7 +93,7 @@ END $$;
 DO $$
 BEGIN
     IF (SELECT status || '/' || author_id::text || '/' || approver_id::text FROM public.interface_version
-            WHERE id = 'b7e8c2d0-8888-4000-8000-000000000003')
+            WHERE id = 'b7e8c2d0-8888-4000-8000-000000000004')
            = 'APPROVED/b7e8c2d0-aaaa-4000-8000-0000000000a1/b7e8c2d0-aaaa-4000-8000-0000000000a2' THEN
         INSERT INTO public.proof_probe VALUES ('t020_other_user_approval_recorded', 'NONE', 'NONE',
                                                'APPROVED, author U1, approver U2');
