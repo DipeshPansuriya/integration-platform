@@ -10,12 +10,14 @@ import java.time.Period;
  * <p>Fixed figures, not properties: they are agreed policy, and the audit figure is also the cutoff the database purge
  * ({@code public.audit_purge_expired()}, the {@code *__audit_retention.sql} migration) applies with no argument, so an
  * override here could only make the two disagree. {@code AuditRetentionMigrationTest} keeps them equal.
+ * Payload (E14 T-142, ADR-014 Decision 3, decided by Dipesh 2026-10-12): message, payload and delivery day partitions
+ * are dropped after 30 days by PAYLOAD_PURGE; the database function enforces the same floor ({@code PayloadPurgeContainerTest}).
  * ponytail: the log, metric and trace figures are declared here but not yet enforced - no log shipper, metrics store
  * or trace backend runs in compose today (row327 Open, mahesh-architect's call).
  */
-public record RetentionPolicy(Duration logs, Period metrics, Duration traces, Period audit) {
+public record RetentionPolicy(Duration logs, Period metrics, Duration traces, Period audit, Period payload) {
 
     /** The agreed figures. */
     public static final RetentionPolicy AGREED = new RetentionPolicy(Duration.ofDays(30), Period.ofMonths(13),
-            Duration.ofDays(7), Period.ofYears(7));
+            Duration.ofDays(7), Period.ofYears(7), Period.ofDays(30));
 }
