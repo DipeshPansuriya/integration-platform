@@ -178,6 +178,18 @@ class FlowAdminAuditTest {
     }
 
     @Test
+    void aMissingOrMismatchedActorStampIsAServerErrorNeverANotPendingConflict() {
+        aFlowWithLatest(new VersionInfo(V2, 2, "PENDING_APPROVAL", "$.id", SNAPSHOT, null, "SRC"));
+        when(flows.approveVersion(V2, ACTOR.toString())).thenReturn("REFUSED_NO_ACTOR", "REFUSED_ACTOR_MISMATCH");
+
+        assertThatThrownBy(() -> service.approve(FLOW, ACTOR)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("REFUSED_NO_ACTOR");
+        assertThatThrownBy(() -> service.approve(FLOW, ACTOR)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("REFUSED_ACTOR_MISMATCH");
+        assertThat(audits()).isEmpty();
+    }
+
+    @Test
     void publishPublishesOnePublishedEventBesideTheRoutingAnnouncement() {
         aFlowWithLatest(new VersionInfo(V3, 3, "APPROVED", "$.id", SNAPSHOT, null, "SRC"));
         when(flows.publishVersion(V3)).thenReturn(1);

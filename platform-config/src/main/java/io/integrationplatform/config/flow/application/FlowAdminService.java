@@ -238,6 +238,9 @@ public class FlowAdminService {
                         ConfigApiException.body("id", interfaceRow.id(), "version", pending.version()));
             }
             case "VERSION_NOT_FOUND" -> new ApprovalOutcome(404, ConfigApiException.notFound().body());
+            // row 544: a stamping bug, not a business refusal - never mislabelled NOT_PENDING_APPROVAL
+            case "REFUSED_NO_ACTOR", "REFUSED_ACTOR_MISMATCH" -> throw new IllegalStateException(
+                    "the approval actor was not stamped consistently: " + result);
             default -> new ApprovalOutcome(409, ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL").body());
         };
     }
