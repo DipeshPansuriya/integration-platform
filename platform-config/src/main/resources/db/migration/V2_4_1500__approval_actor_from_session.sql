@@ -1,8 +1,7 @@
 -- Row 544 (audit tamper-evidence, option A): the approver of a flow version or a contract version comes from the
 -- session actor the application stamped in the same transaction (app.actor_id), exactly as the DB-table approval
--- already does (config_decide_db_table_approval, V2_4_1420) - one source for "who approved". Version provisional: the
--- integrator renumbers it at the seam (V2_4_1480 is the highest in platform-config; V2_4_1490 is the audit migration
--- in platform-app). It names no audit table, so platform-config-only database runs stay valid.
+-- already does (config_decide_db_table_approval, V2_4_1420) - one source for "who approved". Numbered after
+-- V2_4_1480 (the highest in platform-config); V2_4_1490 is the audit migration in platform-app. It names no audit table, so platform-config-only database runs stay valid.
 --
 -- Both functions keep their 2-argument signature (grants and owner are kept by CREATE OR REPLACE). New first step,
 -- before any lookup, no refusal row, no state change:

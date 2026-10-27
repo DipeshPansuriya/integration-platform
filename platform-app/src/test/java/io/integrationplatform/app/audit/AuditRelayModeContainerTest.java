@@ -55,7 +55,7 @@ class AuditRelayModeContainerTest {
     private PlatformTransactionManager transactionManager;
 
     @Autowired
-    private BoundTenant boundTenant;
+    private AuditContainerSupport.BoundTenant boundTenant;
 
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
@@ -67,18 +67,8 @@ class AuditRelayModeContainerTest {
 
         @Bean
         @Primary
-        BoundTenant boundTenant() {
-            return new BoundTenant();
-        }
-    }
-
-    static final class BoundTenant implements TenantContext {
-
-        private final ThreadLocal<UUID> bound = new ThreadLocal<>();
-
-        @Override
-        public Optional<UUID> currentTenantId() {
-            return Optional.ofNullable(bound.get());
+        AuditContainerSupport.BoundTenant boundTenant() {
+            return new AuditContainerSupport.BoundTenant();
         }
     }
 
@@ -99,7 +89,7 @@ class AuditRelayModeContainerTest {
 
     @Test
     void legacyModeMovesRowsWithTheDirectStatementAfterTheRollbackSqlRegrantedThePrivileges() throws SQLException {
-        boundTenant.bound.set(TENANT_A);
+        boundTenant.bind(TENANT_A);
         try {
             Integer moved = new TransactionTemplate(transactionManager).execute(status -> {
                 store.append(new AuditEvent(TENANT_A, "legacy-actor", "LEGACY_MODE", List.of("k:1"), null, null,
@@ -108,7 +98,7 @@ class AuditRelayModeContainerTest {
             });
             assertThat(moved).isEqualTo(1);
         } finally {
-            boundTenant.bound.remove();
+            boundTenant.unbind();
         }
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
             assertThat(AuditContainerSupport.count(owner,

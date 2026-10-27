@@ -63,7 +63,7 @@ class AuditRelayDeliveryContainerTest {
     private PlatformTransactionManager transactionManager;
 
     @Autowired
-    private TestBoundTenantContext boundTenant;
+    private AuditContainerSupport.BoundTenant boundTenant;
 
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
@@ -75,26 +75,8 @@ class AuditRelayDeliveryContainerTest {
 
         @Bean
         @Primary
-        TestBoundTenantContext testBoundTenantContext() {
-            return new TestBoundTenantContext();
-        }
-    }
-
-    static final class TestBoundTenantContext implements TenantContext {
-
-        private final ThreadLocal<UUID> bound = new ThreadLocal<>();
-
-        void bind(UUID tenantId) {
-            bound.set(tenantId);
-        }
-
-        void unbind() {
-            bound.remove();
-        }
-
-        @Override
-        public Optional<UUID> currentTenantId() {
-            return Optional.ofNullable(bound.get());
+        AuditContainerSupport.BoundTenant boundTenantContext() {
+            return new AuditContainerSupport.BoundTenant();
         }
     }
 

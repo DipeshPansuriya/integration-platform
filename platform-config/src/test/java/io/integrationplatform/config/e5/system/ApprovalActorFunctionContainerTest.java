@@ -30,7 +30,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * with the argument ({@code REFUSED_ACTOR_MISMATCH}), both with no state change and no refusal row; the existing
  * verdicts are unchanged.
  *
- * <p>Authored while the Docker lock was held elsewhere: NOT RUN when committed.
  */
 @Tag("container")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)

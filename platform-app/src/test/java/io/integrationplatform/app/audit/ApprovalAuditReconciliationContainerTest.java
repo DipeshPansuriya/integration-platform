@@ -210,6 +210,28 @@ class ApprovalAuditReconciliationContainerTest {
     }
 
     @Test
+    @Tag("negative")
+    void malformedAfterStateNonBooleanFlagAndNonArrayTargetsAreReportedAndDoNotAbortTheRun() throws Exception {
+        UUID target = flowVersion(U1, U1);
+        event(TENANT_A, "FLOW_APPROVED", "interface_version", target, "not json");
+        event(TENANT_A, "FLOW_APPROVED", "interface_version", target, "{\"selfApproved\":\"maybe\"}");
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement()) {
+            sql.execute("insert into public.audit_event (tenant_id, actor, action, target_ids, after_state, event_at)"
+                    + " values ('" + TENANT_A + "', 'rec-actor', 'FLOW_APPROVED', '{\"k\":1}'::jsonb,"
+                    + " '{\"selfApproved\":true}', now())");
+        }
+        UUID good = flowVersion(U1, U2);
+        event(TENANT_A, "FLOW_APPROVED", "interface_version", good, claim(false));
+
+        List<String> reported = reconcile(TENANT_A);
+
+        assertThat(reported).as("three malformed events reported, the agreeing one is not").hasSize(3)
+                .noneMatch(r -> r.contains(good.toString()))
+                .filteredOn(r -> r.startsWith("FLOW_APPROVED|" + target + "|null|")).hasSize(2);
+        assertThat(reported).anyMatch(r -> r.startsWith("FLOW_APPROVED|null|true|"));
+    }
+
+    @Test
     void anotherTenantsRunSeesNothingOfThisTenantsEvents() throws Exception {
         UUID lied = flowVersion(U1, U2);
         event(TENANT_A, "FLOW_APPROVED", "interface_version", lied, claim(true));

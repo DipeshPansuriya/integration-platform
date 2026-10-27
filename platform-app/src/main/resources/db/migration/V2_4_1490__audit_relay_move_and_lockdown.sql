@@ -1,8 +1,7 @@
 -- Row 544 (audit tamper-evidence, option A): the application role may no longer write the audit ledger or mark an
 -- outbox row relayed by itself. The ONLY way a committed audit_outbox row reaches public.audit_event is
 -- public.audit_relay_move(bigint), a SECURITY DEFINER function that sets relayed_at and inserts the ledger row in ONE
--- statement (both or neither). Version provisional: the integrator renumbers it at the seam (V2_4_1480 is the highest
--- on main when this was written).
+-- statement (both or neither). Numbered after V2_4_1480, the highest on main when this was written.
 --
 -- 1. audit_outbox.trace_id (nullable): the activity writer's trace id now rides the outbox and the move copies it.
 --    ADD COLUMN without a default is metadata-only and the previous application ignores it.

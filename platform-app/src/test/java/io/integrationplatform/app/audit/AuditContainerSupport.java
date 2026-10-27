@@ -20,6 +20,25 @@ final class AuditContainerSupport {
     static final UUID TENANT_A = UUID.fromString("0000000a-0000-4000-8000-0000000000a1");
     static final UUID TENANT_B = UUID.fromString("0000000b-0000-4000-8000-0000000000b1");
 
+    /** A thread-bound tenant context the tests bind per step. */
+    static final class BoundTenant implements io.integrationplatform.tenancy.TenantContext {
+
+        private final ThreadLocal<UUID> bound = new ThreadLocal<>();
+
+        void bind(UUID tenantId) {
+            bound.set(tenantId);
+        }
+
+        void unbind() {
+            bound.remove();
+        }
+
+        @Override
+        public java.util.Optional<UUID> currentTenantId() {
+            return java.util.Optional.ofNullable(bound.get());
+        }
+    }
+
     private AuditContainerSupport() {
     }
 

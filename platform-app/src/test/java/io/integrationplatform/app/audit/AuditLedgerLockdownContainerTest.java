@@ -34,6 +34,9 @@ class AuditLedgerLockdownContainerTest {
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestImages.POSTGRES);
 
+    /** A throwaway role in a throwaway container; random so a secret scan has nothing to match. */
+    private static final String OUTSIDER_PASSWORD = java.util.UUID.randomUUID().toString();
+
     private static PlatformTestWiring.RestrictedLogin login;
     private static final AtomicBoolean SEEDED = new AtomicBoolean();
 
@@ -115,10 +118,10 @@ class AuditLedgerLockdownContainerTest {
     @Tag("negative")
     void aRoleOutsideTheApplicationRoleCannotExecuteTheMove() throws SQLException {
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement()) {
-            sql.execute("create role row544_outsider login password 'outsider-pw-544' nosuperuser nobypassrls");
+            sql.execute("create role row544_outsider login password '" + OUTSIDER_PASSWORD + "' nosuperuser nobypassrls");
         }
         try (Connection outsider = DriverManager.getConnection(POSTGRES.getJdbcUrl(), "row544_outsider",
-                "outsider-pw-544")) {
+                OUTSIDER_PASSWORD)) {
             assertDenied(outsider, "select public.audit_relay_move(1)");
         } finally {
             try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql =
