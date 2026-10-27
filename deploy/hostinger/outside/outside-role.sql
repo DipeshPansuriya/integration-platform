@@ -52,7 +52,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ipass_outsid
 -- abuse classes of the review (H3), confined to this instance and closed anyway: advisory locks, large objects
 SELECT format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', p.oid::regprocedure)
   FROM pg_proc p WHERE p.pronamespace = 'pg_catalog'::regnamespace
-   AND (p.proname LIKE 'pg\_advisory\_%' OR p.proname LIKE 'lo\_%' OR p.proname IN ('loread', 'lowrite')) \gexec
+   AND (p.proname LIKE 'pg\_%advisory\_%' OR p.proname LIKE 'lo\_%' OR p.proname IN ('loread', 'lowrite')) \gexec
 
 -- fail loudly if the result is not what the design says
 DO $$
