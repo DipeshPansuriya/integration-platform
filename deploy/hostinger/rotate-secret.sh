@@ -5,8 +5,9 @@
 #   ./rotate-secret.sh DB_PASSWORD | DB_MIGRATION_PASSWORD | BACKUP_DB_PASSWORD | RESTORE_DB_PASSWORD
 #                      | KEYCLOAK_DB_PASSWORD | POSTGRES_PASSWORD
 #       -> ALTER ROLE inside the postgres container, .env updated, the dependent service re-created.
-#   KC_ADMIN_USER=<named admin> ./rotate-secret.sh CONSOLE_OIDC_CLIENT_SECRET | PLATFORM_ADMIN_CLIENT_SECRET | OPERATOR_AGENT_CLIENT_SECRET
-#       -> kcadm sets the realm client secret (the admin password is prompted by kcadm, never passed here), .env updated.
+#   KC_CLIENT_SECRET=<ipass-kcadm secret> ./rotate-secret.sh CONSOLE_OIDC_CLIENT_SECRET | PLATFORM_ADMIN_CLIENT_SECRET | OPERATOR_AGENT_CLIENT_SECRET
+#       -> kcadm (logged in as the master service-account client ipass-kcadm, row 543; secret from KC_CLIENT_SECRET or a silent prompt) sets the
+#          realm client secret, .env updated. Fallback while the admin has no TOTP:  KC_ADMIN_USER=<named admin> ./rotate-secret.sh --password-login NAME
 # Not rotated here, on purpose: PLATFORM_CREDENTIAL_KEK_* (a new key means re-sealing every stored target credential;
 # see README "Rotation") and SHOWCASE_PASSWORD_* (edit .env, re-run ./seed/seed-showcase.sh).
 # DRY_RUN=1 prints the plan. ROTATE_SOURCE_ONLY=1 defines the functions only (tests).
@@ -52,18 +53,22 @@ apply_db() { # role, value
     NEWPW="$2" $COMPOSE exec -T -e NEWPW postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v role='"$1"' -v pw="$NEWPW"'
 }
 
-apply_client() { # clientId, value (the admin password is prompted by kcadm on a terminal)
-  : "${KC_ADMIN_USER:?set KC_ADMIN_USER to a named realm admin (the bootstrap admin is retired)}"
+apply_client() { # clientId, value (login: master service-account client ipass-kcadm; --password-login = named admin, prompted by kcadm)
   K=/opt/keycloak/bin/kcadm.sh
-  $COMPOSE exec keycloak $K config credentials --server http://localhost:8080 --realm master --user "$KC_ADMIN_USER"
+  kc_login
   id="$($COMPOSE exec -T keycloak $K get clients -r platform -q "clientId=$1" --fields id --format csv --noquotes | tr -d '\r' | head -1)"
   [ -n "$id" ] || { echo "client $1 not found in realm platform" >&2; return 1; }
   NEWPW="$2" $COMPOSE exec -T -e NEWPW keycloak sh -c "$K update clients/$id -r platform -s \"secret=\$NEWPW\""
 }
 
 if [ "${ROTATE_SOURCE_ONLY:-0}" != 1 ]; then
-  name="${1:?usage: rotate-secret.sh NAME (see the header of this file)}"
+  . "$(dirname "$0")/keycloak/kc-login.sh"
+  kc_parse_flags "$@"; shift "$KC_SHIFT"
+  name="${1:?usage: rotate-secret.sh [--password-login] NAME (see the header of this file)}"
   plan "$name" || exit 2
+  kc_auth_check || exit 2
+  # a Keycloak-client secret needs a login: check the inputs now, before anything is generated or changed
+  [ "$KIND" != client ] || [ "${DRY_RUN:-0}" = 1 ] || kc_require_login_inputs || exit 2
   if [ "${DRY_RUN:-0}" = 1 ]; then
     echo "would generate a new $name, apply it to $KIND $TARGET, write it to $ENV_FILE, re-create: ${SERVICES:-nothing}, log a fingerprint to $LOG"
     exit 0

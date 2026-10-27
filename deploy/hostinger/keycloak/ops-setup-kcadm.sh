@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs INSIDE the keycloak container (fed by ops-setup.sh through `bash -s`); also run directly by test/ops-setup-stub.sh
-# with KCADM pointing at a stub. Environment (names only, never printed): IPASS_DOMAIN, KC_ADMIN_USERNAME,
+# with KCADM pointing at a stub. Environment (names only, never printed): IPASS_DOMAIN, KC_AUTH (client|password), KC_CLIENT_ID, KC_CLIENT_SECRET, KC_ADMIN_USERNAME,
 # KC_ADMIN_PASSWORD, OPS_KAFBAT_CLIENT_SECRET. Builds, in realm `platform`: role ops-operator, client ops-kafbat, the
 # `roles` mapper, and the browser flow ops-browser (password -> deny anyone WITHOUT ops-operator -> OTP). Safe to re-run:
 # the flow is verified on every run, rebuilt completely when it has drifted, and bound to the client ONLY after it verifies.
@@ -8,9 +8,21 @@ set -euo pipefail
 shopt -s inherit_errexit 2>/dev/null || true
 K="${KCADM:-/opt/keycloak/bin/kcadm.sh}"
 R=platform
-: "${IPASS_DOMAIN:?}" "${KC_ADMIN_USERNAME:?}" "${KC_ADMIN_PASSWORD:?}" "${OPS_KAFBAT_CLIENT_SECRET:?}"
-trap '"$K" config truncate >/dev/null 2>&1 || true' EXIT   # no admin token left in the container's writable layer
-"$K" config credentials --server "${KC_SERVER:-http://localhost:8080}" --realm master --user "$KC_ADMIN_USERNAME" --password "$KC_ADMIN_PASSWORD" >/dev/null
+: "${IPASS_DOMAIN:?}" "${OPS_KAFBAT_CLIENT_SECRET:?}"
+# Row 543 - login. Default: the master service-account client (client credentials; the named admin has TOTP and kcadm cannot send a
+# code). KC_AUTH=password is the explicit fallback (admin user + password). Anything else is refused; the check runs before any change.
+KC_AUTH="${KC_AUTH:-client}"; KC_CLIENT_ID="${KC_CLIENT_ID:-ipass-kcadm}"
+case "$KC_AUTH" in
+  client)   : "${KC_CLIENT_SECRET:?client login needs KC_CLIENT_SECRET (or use KC_AUTH=password)}";;
+  password) : "${KC_ADMIN_USERNAME:?}" "${KC_ADMIN_PASSWORD:?}";;
+  *) echo "KC_AUTH must be client or password (got '$KC_AUTH')" >&2; exit 2;;
+esac
+trap '"$K" config truncate >/dev/null 2>&1 || true' EXIT   # no token (and no stored client secret) left in the container's writable layer
+if [ "$KC_AUTH" = client ]; then
+  "$K" config credentials --server "${KC_SERVER:-http://localhost:8080}" --realm master --client "$KC_CLIENT_ID" --secret "$KC_CLIENT_SECRET" >/dev/null
+else
+  "$K" config credentials --server "${KC_SERVER:-http://localhost:8080}" --realm master --user "$KC_ADMIN_USERNAME" --password "$KC_ADMIN_PASSWORD" >/dev/null
+fi
 REDIR="https://ops.${IPASS_DOMAIN}/kafka/login/oauth2/code/keycloak"
 crlf() { tr -d '\r'; }
 # capture kcadm output FIRST (so a failing call stops the script), then parse it
