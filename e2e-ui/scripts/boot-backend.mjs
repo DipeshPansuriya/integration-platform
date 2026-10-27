@@ -523,6 +523,12 @@ export function schedulerStartupFailure(logChunks) {
   return text.split(/\r?\n/).find((line) => line.includes('Unexpected error while executing OnStartup tasks')) ?? null;
 }
 
+/** A psql failure that is only the cluster's start-up window (initdb's temporary server, the database not created yet). */
+export function transientPsqlFailure(out) {
+  return ['shutting down', 'still starting up', 'the database system', 'No such file or directory', 'Connection refused'].some((text) => out.includes(text))
+    || /FATAL: {2}database "[a-z0-9_]+" does not exist/.test(out);
+}
+
 export function psql(container, sql, database = 'platform') {
   // The initdb phase runs a temporary postgres that answers pg_isready and then shuts down
   // (measured 2026-10-05, lane D: FATAL "the database system is shutting down" after an early
@@ -533,10 +539,10 @@ export function psql(container, sql, database = 'platform') {
     const result = spawnSync('docker', ['exec', container, 'psql', '-U', 'owner', '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8', windowsHide: true });
     if (result.status === 0) return result.stdout.trim();
     const out = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-    if (!out.includes('shutting down') && !out.includes('still starting up') && !out.includes('the database system')
-      && !out.includes('No such file or directory') && !out.includes('Connection refused')) {
+    if (!transientPsqlFailure(out)) {
       throw new Error(`psql failed (${result.status}): ${out.trim()}`);
     }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500); // the cluster is still coming up: pause between tries
   }
   throw new Error('psql: the real postgres cluster never became ready');
 }

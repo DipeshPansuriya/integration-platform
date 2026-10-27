@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { PG_IMAGE, servicePlan } from '../../../scripts/boot-backend.mjs';
+import { PG_IMAGE, servicePlan, transientPsqlFailure } from '../../../scripts/boot-backend.mjs';
 
 const DECLARED = Object.freeze({ image: PG_IMAGE, hostPort: 41235, database: 'f3orders', tables: Object.freeze(['f3_orders', 'f3_self_approved']) });
 const plan = (over = {}) => servicePlan({ targetDb: { ...DECLARED, ...over } }, '0a1b2c3d')[0];
@@ -48,4 +48,14 @@ test('targetDb refused before anything starts: other image, bad port, bad names,
   for (const hostPort of [undefined, 0, 65536, 1.5, '41235']) bad({ hostPort }, /hostPort/);
   for (const database of ['', 'F3 orders', "x'; drop", undefined]) bad({ database }, /database/);
   for (const tables of [undefined, [], ['f3 orders'], ['f3_orders', 'f3_orders'], ['x; drop'], 'f3_orders']) bad({ tables }, /tables/);
+});
+
+test('psql retries the start-up window of a fresh cluster, including the database not created yet (measured: first targetDb boot)', () => {
+  for (const out of ['FATAL:  the database system is shutting down', 'FATAL:  the database system is starting up', 'connection to server on socket failed: No such file or directory',
+    'connection to server failed: Connection refused', 'FATAL:  database "f3orders" does not exist']) {
+    assert.equal(transientPsqlFailure(out), true, out);
+  }
+  for (const out of ['ERROR:  syntax error at or near "CREAT"', 'ERROR:  relation "f3_orders" already exists', 'ERROR:  role "x" does not exist', '']) {
+    assert.equal(transientPsqlFailure(out), false, out);
+  }
 });
