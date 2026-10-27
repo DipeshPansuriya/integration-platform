@@ -84,7 +84,7 @@ One Docker suite at a time on the build PC (the PC-wide Docker lock). Locally Ka
 
 **Symptom.** Saving a system with an external `https` host answers "The save was refused: settings.baseUrl is refused: the host is not on the destination allow-list". That is by design: the outbound allow-list is empty by default and an empty list refuses every destination (fail closed, an SSRF guard). Nothing is reachable until the operator - you, locally - lists the host.
 
-**Fix.** Set `platform.config.destinations.allowed-hosts` (env form `PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS`), a comma-separated list of exact host names or `*.domain` (sub-domains only, not the bare domain; case-insensitive; never a public suffix such as `*.com`). The list is deployment configuration, read when the application starts: no console screen or API edits it (that waits for the operator login, ADR-009), so every change needs a restart:
+**Fix.** Set `platform.config.destinations.allowed-hosts` (env form `PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS`), a comma-separated list of exact host names or `*.domain` (sub-domains only, not the bare domain; case-insensitive; keep it to hosts you control, not a public suffix such as `*.com` - this is operator guidance, `AllowList` does not enforce it). The list is deployment configuration, read when the application starts: no console screen or API edits it (that waits for the operator login, ADR-009), so every change needs a restart. The database table `operator_allowed_host` is dormant (left from the removed PR #34 screen): nothing reads or writes it, so rows in it have no effect:
 
 ```
 PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS=uat.example.com,*.partner.example

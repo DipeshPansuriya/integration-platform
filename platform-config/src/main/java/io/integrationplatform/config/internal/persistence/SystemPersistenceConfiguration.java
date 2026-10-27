@@ -228,14 +228,4 @@ class SystemPersistenceConfiguration {
                 () -> tenantContexts.getIfAvailable(() -> () -> Optional.empty()).currentTenantId(),
                 allowKafkaPlaintext, events);
     }
-
-    /**
-     * Dormant until the operator login exists (ADR-009, row 484): the {@code operator_allowed_host} table and this
-     * repository stay, but nothing reads or writes them - the destination allow-list is the deployment property
-     * {@link #ALLOWED_HOSTS} only (ADR-010, T97), so no tenant role and no stored row can widen it.
-     */
-    @Bean
-    JdbcOperatorAllowedHostRepository jdbcOperatorAllowedHostRepository(JdbcClient jdbcClient) {
-        return new JdbcOperatorAllowedHostRepository(jdbcClient);
-    }
 }
