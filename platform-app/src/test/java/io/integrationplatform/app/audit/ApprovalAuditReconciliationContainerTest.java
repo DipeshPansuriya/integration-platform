@@ -202,11 +202,11 @@ class ApprovalAuditReconciliationContainerTest {
         List<String> reported = reconcile(TENANT_A);
 
         assertThat(reported).hasSize(5)
-                .anyMatch(r -> r.equals("FLOW_APPROVED|" + liedFlow + "|true|false"))
-                .anyMatch(r -> r.equals("CONTRACT_VERSION_APPROVED|" + liedContract + "|false|true"))
-                .anyMatch(r -> r.equals("DB_TABLE_APPROVED|" + liedTable + "|true|false"))
+                .anyMatch(r -> r.equals("FLOW_APPROVED|" + liedFlow + "|t|f"))
+                .anyMatch(r -> r.equals("CONTRACT_VERSION_APPROVED|" + liedContract + "|f|t"))
+                .anyMatch(r -> r.equals("DB_TABLE_APPROVED|" + liedTable + "|t|f"))
                 .anyMatch(r -> r.startsWith("FLOW_APPROVED|" + noFlag + "|null|"))
-                .anyMatch(r -> r.startsWith("FLOW_APPROVED|" + vanished + "|false|"));
+                .anyMatch(r -> r.startsWith("FLOW_APPROVED|" + vanished + "|f|"));
     }
 
     @Test
