@@ -30,10 +30,10 @@ export const approvedTablesPath = (systemId, rowId, action) =>
  * exception (WireMock) port unless the system points at the target database (`target.port`), and `account` is the
  * restricted login the privilege probe dials with (default: the fixed name the unit rows use).
  */
-export function dbSystemBody(code, name, exception, { port = exception.port, account = DB_ACCOUNT } = {}) {
+export function dbSystemBody(code, name, exception, { port = exception.port, account = DB_ACCOUNT, table = DB_TABLE } = {}) {
   return {
     code, name, direction: 'OUTBOUND', type: 'DB',
-    settings: { host: exception.host, port, database: DB_NAME, user: account, table: DB_TABLE }
+    settings: { host: exception.host, port, database: DB_NAME, user: account, table }
   };
 }
 

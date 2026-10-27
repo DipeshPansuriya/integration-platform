@@ -21,6 +21,11 @@ test('dbSystemBody is an OUTBOUND DB system on the exception host with a plain-i
   assert.equal('approvedTables' in body.settings, false, 'the UI/API dropped approvedTables');
 });
 
+test('dbSystemBody takes the target port, the tenant\'s own account and the table', () => {
+  const body = dbSystemBody('f3-db-self', 'F3 DB self', { host: 'localhost', port: 8089 }, { port: 41235, account: 'f3_etl_a_0a1b2c3d', table: 'f3_self_approved' });
+  assert.deepEqual(body.settings, { host: 'localhost', port: 41235, database: 'f3orders', user: 'f3_etl_a_0a1b2c3d', table: 'f3_self_approved' });
+});
+
 test('refusalOf reads only the named refusal code', () => {
   assert.equal(refusalOf({ status: 409, data: { refusal: 'NOT_PENDING_APPROVAL' } }), 'NOT_PENDING_APPROVAL');
   assert.equal(refusalOf({ status: 404, data: { error: 'not found' } }), null);

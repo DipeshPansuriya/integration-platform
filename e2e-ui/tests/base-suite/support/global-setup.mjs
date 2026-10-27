@@ -34,7 +34,7 @@ export default async function globalSetup() {
   // the KEK is a random value in this process's memory only
   const targetPort = await claimPort(undefined);
   const options = baseSuiteBootOptions(settings, {
-    lockHolder: `aditya-qa-automation base-suite pid=${process.pid} started=${new Date().toISOString()}`,
+    lockHolder: `qa-automation base-suite pid=${process.pid} started=${new Date().toISOString()}`,
     targetDb: { port: targetPort.port, kek: crypto.randomBytes(32).toString('base64') }
   });
   await bootBaseSuite(options, { wiremock: true });
