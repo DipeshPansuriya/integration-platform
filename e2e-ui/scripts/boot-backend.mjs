@@ -29,7 +29,8 @@ import { sessionHeaders, sessionLogin, startKeycloak } from './keycloak-harness.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '..', '..'); // the test project (e2e-ui) is one level below the repo root, like ui/ was
 export const UI = path.join(REPO, 'ui'); // L29: the console project (build, dist, vite config); the suites live in ../e2e-ui
-export const PG_IMAGE = 'postgres:17.11-alpine'; // R05: the exact tag compose/compose.yaml + TestImages.java use
+// R05 + F4 (row 554, CWE-1357): tag AND digest, like WireMock and Kafka. The digest is the local image's RepoDigest (docker image inspect postgres:17.11-alpine, measured 2026-10-27, re-checked 2026-10-28).
+export const PG_IMAGE = 'postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24';
 const AUDIENCE = 'integration-platform-api';
 /** The console's origin in the screen and perf protocols (tests/screens/console-server.mjs). */
 export const CONSOLE_ORIGIN = `http://127.0.0.1:${CONSOLE_PORT_DEFAULT}`;
@@ -417,7 +418,7 @@ function targetDbPlan(key, sidecar, name, declaration = {}) {
     initSql: tables.map((table) => `CREATE TABLE public.${table} (delivery_id uuid UNIQUE, payload jsonb)`)
   };
 }
-const PINNED_IMAGE = /^[a-z0-9]+(?:[._/-][a-z0-9]+)*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$/; // R05: tag AND digest
+export const PINNED_IMAGE = /^[a-z0-9]+(?:[._/-][a-z0-9]+)*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$/; // R05: tag AND digest
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isStubMapping(mapping) {
@@ -444,10 +445,10 @@ export function servicePlan(services = {}, suffix, { kafkaPort } = {}) {
     const { image, mappings } = declaration;
     const sidecar = Object.hasOwn(SIDECARS, key) ? SIDECARS[key] : null;
     if (!sidecar) throw new Error(`boot-backend: unknown service ${key} - only ${Object.keys(SIDECARS).join(', ')} is declared`);
-    if (key === 'targetDb') return targetDbPlan(key, sidecar, `${sidecar.prefix}-${suffix}`, declaration);
     if (typeof image !== 'string' || !PINNED_IMAGE.test(image)) {
       throw new Error(`boot-backend: service ${key} image must be pinned by tag AND digest (R05), got ${image}`);
     }
+    if (key === 'targetDb') return targetDbPlan(key, sidecar, `${sidecar.prefix}-${suffix}`, declaration);
     if (key === 'kafka') return kafkaPlan(key, sidecar, `${sidecar.prefix}-${suffix}`, image, declaration, kafkaPort);
     if (!Array.isArray(mappings)) throw new Error(`boot-backend: service ${key} needs its stub mappings (an array)`);
     for (const mapping of mappings) {

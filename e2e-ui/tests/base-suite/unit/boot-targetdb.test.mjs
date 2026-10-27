@@ -9,6 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import * as boot from '../../../scripts/boot-backend.mjs';
 import { PG_IMAGE, dockerFailure, servicePlan, transientPsqlFailure } from '../../../scripts/boot-backend.mjs';
 
 const DECLARED = Object.freeze({ image: PG_IMAGE, hostPort: 41235, database: 'f3orders', tables: Object.freeze(['f3_orders', 'f3_self_approved']) });
@@ -68,4 +69,16 @@ test('F1: a failed docker call never prints a secret - a -e NAME=value for a pas
   assert.match(text, /POSTGRES_PASSWORD=\*\*\*/);
   assert.match(text, /POSTGRES_USER=owner/, 'a plain setting stays readable');
   assert.match(text, /failed \(125\): port is already allocated$/);
+});
+
+// F4 (row 554, CWE-1357): the targetDb sidecar and the platform postgres were the only images pinned by tag alone.
+test('F4: PG_IMAGE is pinned by tag AND digest (the PINNED_IMAGE rule WireMock and Kafka already obey)', () => {
+  assert.ok(boot.PINNED_IMAGE instanceof RegExp, 'the pin rule is exported so this test uses the real one');
+  assert.match(PG_IMAGE, boot.PINNED_IMAGE);
+  assert.match(PG_IMAGE, /^postgres:17\.11-alpine@sha256:[0-9a-f]{64}$/);
+});
+
+test('F4: a tag-only image for targetDb is refused with the pin message, even though it names the same tag', () => {
+  assert.throws(() => plan({ image: 'postgres:17.11-alpine' }), /pinned by tag AND digest/);
+  assert.throws(() => plan({ image: 'postgres:17.11-alpine@sha256:' + 'a'.repeat(64) }), /image/, 'a pinned image that is not PG_IMAGE is still refused');
 });

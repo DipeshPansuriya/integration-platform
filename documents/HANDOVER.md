@@ -4,7 +4,7 @@ This document is written for a team, and for that team's AI coding agents, takin
 briefing. It was written on 2026-10-26 against `origin/main 5b9a6c36`; `main` has moved on since (at least one later
 code-only commit), so check `git log 5b9a6c36..origin/main` for anything newer.
 
-**Updated 2026-10-28 against `origin/main 83b5483a`** (PR #70). Section 4.8 summarises pull requests #44 to #70; the
+**Updated 2026-10-28 against `origin/main 83b5483a`** (PR #70), plus PR #72 and #73 that landed on `main` while this update was open. Section 4.8 summarises pull requests #44 to #73; the
 test status, hosted state and security text in sections 4.7, 8, 9, 10 and 13 were brought in line with it. Text in
 other sections that still says `5b9a6c36` is the 26-Oct baseline.
 
@@ -344,9 +344,9 @@ Two count notes:
   config 477, routing 601, tenancy 287, delivery 211, ingest 153, e2e 64, arch-test 63, domain 28, transform 22,
   audit 5, tracking 1. These are source counts, not run results.
 
-### 4.8 Merged since the last entry: PRs #44 to #70 (to `main 83b5483a`, 2026-10-28)
+### 4.8 Merged since the last entry: PRs #44 to #73 (to `main f5fd0b95`, 2026-10-28)
 
-Source: `git log e8b9c410..83b5483a` (26 commits, PRs #45 to #70; #44 is the last one this document had already covered) and the
+Source: `git log e8b9c410..f5fd0b95` (28 commits, PRs #45 to #70 plus #72 and #73; #44 is the last one this document had already covered) and the
 PR descriptions. Grouped, not a changelog.
 
 - **Security and config.** H-1: the runtime-editable outbound allow-list surface was removed again (#46, row 510; it had
@@ -368,7 +368,9 @@ PR descriptions. Grouped, not a changelog.
   hosted database and on local compose on 27-Oct).
 - **Deploy kit.** Standalone Flyway CLI migration pipeline for the VPS (#59), its review rounds and hardening (#61, #65, #68),
   nginx 1.30.6 and Keycloak 26.8.1 pins (#45), Spring Boot 4.1.2 (#49). The deploy docs now require a test gate instead of a
-  bare `-DskipTests` (#69, row 550). `test-scripts.sh` matches the post-row-489 edge (#62).
+  bare `-DskipTests` (#69, row 550). `test-scripts.sh` matches the post-row-489 edge (#62). The kcadm deploy scripts log in with a
+  master-realm service-account client instead of the admin password (#72, row 543); the e2e-ui Postgres image is pinned by tag and
+  digest (#73, row 554). The test counts in section 4.7 were measured at or before `83b5483a`, not re-run after #72 and #73.
 - **Build.** The `-Pcontainer` surefire fork timeout is **3600 s** (was 1800; `pom.xml:330`, #67, row 546), as in `-Pe2e-full`;
   the default profile stays 1800 (`pom.xml:93`).
 - **Docs and tests.** ADR-011/012/010 notes (#56, #53), pin of the V2_4_1440 revoke (#58), regenerated
