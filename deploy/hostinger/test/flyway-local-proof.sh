@@ -155,7 +155,7 @@ probe() { # name expected-timeout extra-flyway-args...
   printf "DO \$\$ BEGIN IF current_setting('lock_timeout') <> '%s' THEN RAISE EXCEPTION 'lock_timeout=%%', current_setting('lock_timeout'); END IF; END \$\$;\n" "$want" > "$TMP/probe-$pn/V1__probe.sql"
   FLYWAY_PASSWORD="$PW_MIG" MSYS_NO_PATHCONV=1 docker run --rm --network "$N" -v "$(cygpath -w "$TMP/probe-$pn" 2>/dev/null || echo "$TMP/probe-$pn"):/probe:ro" \
     -e FLYWAY_URL=jdbc:postgresql://postgres:5432/ipass -e FLYWAY_USER=ipass_migrator -e FLYWAY_PASSWORD "$IMG" \
-    -locations=filesystem:/probe "-schemas=probe_$pn" "-table=h_$pn" "$@" migrate 2>&1 | grep -E "Successfully applied|lock_timeout=|ERROR" | head -2
+    -locations=filesystem:/probe "-schemas=probe_$pn" "-table=h_$pn" "$@" migrate 2>&1 | grep -E "Successfully applied|lock_timeout=|ERROR" | head -6
   return "${PIPESTATUS[0]}"
 }
 probe a 5s > "$TMP/pa.out"; rc=$?; cat "$TMP/pa.out"; expect "bare image run (flyway.toml initSql): SHOW lock_timeout = 5s inside the migration" test $rc -eq 0
