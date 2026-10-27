@@ -1,0 +1,25 @@
+# Row 503 (task A): re-applies the 5432 throttle (chain IPASS-PG) and the pg-front no-egress rule after a reboot or a Docker restart.
+# Without it both DOCKER-USER rules are gone after a reboot: the demo Postgres door is then not rate limited.
+# Install path (reviewed and run by the owner, never by an agent): /etc/systemd/system/ipass-pg-throttle.service.
+# Commands and removal: deploy/hostinger/README.md, section "Firewall rules survive a reboot".
+[Unit]
+Description=iPass outside Postgres door: 5432 throttle (IPASS-PG) and no-egress rule (DOCKER-USER)
+Documentation=file:///docker/ipass/outside/OUTSIDE-ACCESS.md
+# network-online.target: pg-throttle.sh reads the external interface from the default route.
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+# A restart of docker.service restarts this unit too (stop = rules off, start = rules on).
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh /docker/ipass/outside/pg-throttle.sh on
+# Fails the unit (visible in systemctl status) if a rule is missing after `on`.
+ExecStartPost=/bin/sh /docker/ipass/outside/pg-throttle.sh check
+ExecStop=/bin/sh /docker/ipass/outside/pg-throttle.sh off
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
