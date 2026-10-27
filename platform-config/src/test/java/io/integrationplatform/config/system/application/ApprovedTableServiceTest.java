@@ -165,6 +165,7 @@ class ApprovedTableServiceTest {
         assertThat(event.who()).isEqualTo(APPROVER.toString());
         assertThat(event.before()).contains("PENDING_APPROVAL");
         assertThat(event.after()).contains("APPROVED").contains("orders_in");
+        assertThat(event.after()).as("a two-user approval is flagged as such").contains("\"selfApproved\":false");
     }
 
     @Test
@@ -181,6 +182,8 @@ class ApprovedTableServiceTest {
         assertThat(view).containsEntry("status", "APPROVED");
         assertThat(audits()).hasSize(1);
         assertThat(audits().getFirst().who()).isEqualTo(REQUESTER.toString());
+        assertThat(audits().getFirst().after()).as("the self-approval is explicit in the trail")
+                .contains("\"selfApproved\":true");
         verify(width).refusalFor(any(), anyString());
     }
 

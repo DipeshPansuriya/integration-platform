@@ -462,8 +462,27 @@ honest limits, addendum S1, residual (a)). Those statements stay above as histor
   5. **Audit by actor** - every request, approval, revoke and publish leaves an `AuditEvent` with the actor stamped
      from the validated session; this is now the only attribution.
 - **Reversible by migration.** Re-add the three constraints and restore the three functions from `V2_2_4:124-148`,
-  `V2_2_5_1:25-45` and `V2_4_1330` in a new migration; prerequisite: no row has `approver_id = author_id` or
-  `decided_by = requested_by` (repoint those first). Recipe: `V2_4_1420__allow_self_approval.sql:21-27`.
+  `V2_2_5_1:25-45` and `V2_4_1330` in a new migration (never by editing `V2_4_1420`, which is applied and
+  checksummed). Add the constraints `NOT VALID` if any row was self-approved while this amendment was live; see
+  Rollback below. The comment block in `V2_4_1420__allow_self_approval.sql` lists the plain `ADD CONSTRAINT`
+  statements; where it and the Rollback below differ, the Rollback below governs.
+- **Rollback (manual; Flyway Community has no undo).**
+  1. Re-add `interface_version.approver_not_author`, `contract_version.approver_not_author` and
+     `db_target_approved_table_four_eyes` with `NOT VALID`, and restore the three functions (branches that refuse
+     author / requester) from the files named above.
+  2. `NOT VALID` checks only rows inserted or updated after the constraint exists, so rows self-approved while this
+     amendment was live are not scanned and the audit history is not falsified. Do not run `VALIDATE CONSTRAINT`
+     while such rows exist: it scans every row and fails on them.
+  3. Caveat: `NOT VALID` does not exempt old rows from UPDATEs. PostgreSQL still evaluates the CHECK on the new row
+     image of every UPDATE, so an UPDATE of a previously self-approved row fails with `23514` while
+     `approver_id = author_id` (interface and contract versions) or `decided_by = requested_by` (approved tables)
+     holds, even when the UPDATE does not touch those columns: publish, supersede or archive of a self-approved
+     version, and revoke of a self-approved table (the revoke keeps `decided_by`).
+  4. Remedy, at rollback time as the schema owner: list the self-approved rows first (`approver_id = author_id`;
+     `decided_by = requested_by`), then either leave them un-updatable on purpose or repoint `approver_id` /
+     `decided_by` to a real second person. Repointing rewrites the recorded history of who approved: do it
+     knowingly, row by row, and log each change (row id, old value, new value, reason, date) in the change record;
+     never as a bulk fix.
 - **Revisit if.** A tenant gets a second admin or approver who should be required; a regulated tenant or partner asks
   for four-eyes; any security incident traced to a single admin session; or the project owner does not accept this amendment
   (then revert by migration as above before merge).

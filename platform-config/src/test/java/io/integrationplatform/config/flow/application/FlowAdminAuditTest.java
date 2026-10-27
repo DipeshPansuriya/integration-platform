@@ -134,6 +134,7 @@ class FlowAdminAuditTest {
     void approvePublishesOneApprovedEvent() {
         aFlowWithLatest(new VersionInfo(V2, 2, "PENDING_APPROVAL", "$.id", SNAPSHOT, null, "SRC"));
         when(flows.approveVersion(V2, ACTOR.toString())).thenReturn("APPROVED");
+        when(flows.authorOf(V2)).thenReturn("66666666-6666-6666-6666-666666666666");
 
         service.approve(FLOW, ACTOR);
 
@@ -141,7 +142,29 @@ class FlowAdminAuditTest {
         assertThat(event.action()).isEqualTo(ConfigAuditActions.FLOW_APPROVED);
         assertThat(event.targetIds()).containsExactly("interface:" + FLOW, "interface_version:" + V2);
         assertThat(event.before()).isEqualTo("{\"status\":\"PENDING_APPROVAL\"}");
-        assertThat(event.after()).isEqualTo("{\"status\":\"APPROVED\"}");
+        assertThat(event.after()).isEqualTo("{\"status\":\"APPROVED\",\"selfApproved\":false}");
+    }
+
+    @Test
+    void anApprovalByTheAuthorIsFlaggedSelfApproved() {
+        aFlowWithLatest(new VersionInfo(V2, 2, "PENDING_APPROVAL", "$.id", SNAPSHOT, null, "SRC"));
+        when(flows.approveVersion(V2, ACTOR.toString())).thenReturn("APPROVED");
+        when(flows.authorOf(V2)).thenReturn(ACTOR.toString());
+
+        service.approve(FLOW, ACTOR);
+
+        assertThat(theOneAudit().after()).isEqualTo("{\"status\":\"APPROVED\",\"selfApproved\":true}");
+    }
+
+    @Test
+    void anApprovalByAnotherUserIsFlaggedNotSelfApproved() {
+        aFlowWithLatest(new VersionInfo(V2, 2, "PENDING_APPROVAL", "$.id", SNAPSHOT, null, "SRC"));
+        when(flows.approveVersion(V2, ACTOR.toString())).thenReturn("APPROVED");
+        when(flows.authorOf(V2)).thenReturn("66666666-6666-6666-6666-666666666666");
+
+        service.approve(FLOW, ACTOR);
+
+        assertThat(theOneAudit().after()).isEqualTo("{\"status\":\"APPROVED\",\"selfApproved\":false}");
     }
 
     @Test
