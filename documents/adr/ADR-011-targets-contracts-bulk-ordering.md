@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ADR-011 - Target types, contract registry and version graph, bulk at intake, ordering, Kafka records carry ids only, background tenant from the row"
-status: "Accepted (team, 2026-10-02) - the project owner may reverse; Amendment 2026-10-27 Accepted - the project owner accepted the residual risk in writing on 2026-10-27"
+status: "Accepted (team, 2026-10-02) - the project owner may reverse; Amendment 2026-10-27 Accepted - the project owner accepted the residual risk in writing on 2026-10-27 (hub memory m-075db1); text checked against main e12f2949 and acknowledged by mahesh-architect 2026-10-27 (row 524)"
 date: 2026-10-02
 revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy. 2026-10-22 - E16 F3 amendment (approved tables, D1-D4) and F3 hardening addendum (S1, S2, S3, S5, residuals). 2026-10-27 - Amendment: author/approver separation of duties removed for flow versions, contract versions and DB-table approvals (V2_4_1420); Accepted - the project owner accepted the residual risk in writing on 2026-10-27"
 author: "mahesh-architect (ledger row 278, phase 0)"
@@ -426,8 +426,10 @@ both reports are static reads (neither reviewer ran them).
 
 ## Amendment 2026-10-27 - single-user self-approval: author/approver separation of duties removed
 
-**Status: Accepted - the project owner accepted the residual risk in writing on 2026-10-27.** Built on branch `feat/single-user-self-approval`
-(`94aac35f` tests first, `cfb30de1` change); plan `_documents/PLAN-single-user-self-approval.md` in the project
+**Status: Accepted - the project owner accepted the residual risk in writing on 2026-10-27** (hub memory m-075db1,
+recorded by Mira; ledger row 486). Built on branch `feat/single-user-self-approval` (`94aac35f` tests first,
+`cfb30de1` change), merged to main as PR 39 (`dfafc420`); the explicit `selfApproved` audit flag followed in PR 50
+(`5714d52e`); plan `_documents/PLAN-single-user-self-approval.md` in the project
 workspace. This amendment supersedes, for the three approvals below, every statement above that an author or a
 requester cannot approve their own work (Decision 2 table check, Decision 3 rule 1, amendment 2026-10-22 D4 and
 honest limits, addendum S1, residual (a)). Those statements stay above as history, each marked where it is superseded.
@@ -460,7 +462,24 @@ honest limits, addendum S1, residual (a)). Those statements stay above as histor
   4. **Target hash** - an approval counts only while the system's live settings still hash to it (fingerprint incl.
      `sslmode`, S5); a repoint invalidates it.
   5. **Audit by actor** - every request, approval, revoke and publish leaves an `AuditEvent` with the actor stamped
-     from the validated session; this is now the only attribution.
+     from the validated session; this is now the only attribution. Since PR 50 each approval event also carries
+     `selfApproved` (true when the approver is the author or requester), so a one-person lifecycle is visible in
+     the trail without a join.
+- **Architect's acknowledgement (mahesh-architect, 2026-10-27, row 524) - the text matches main `e12f2949`.**
+  - The actor is still recorded on every approval: it comes from the validated session in each controller
+    (`platform-config/src/main/java/io/integrationplatform/config/flow/adapter/in/FlowAdminController.java:159`,
+    `.../contract/adapter/in/ContractVersionAdminController.java:165`,
+    `.../system/adapter/in/ApprovedTableAdminController.java:76`) and is written as the event's actor, never
+    taken from the request body.
+  - `selfApproved` is set at the three approval points: flow versions
+    (`platform-config/src/main/java/io/integrationplatform/config/flow/application/FlowAdminService.java:225-228`),
+    contract versions (`.../contract/application/ContractAdminService.java:162-165`) and DB-table approvals
+    (`.../system/application/ApprovedTableService.java:265-266`, written at `:301-309`; a revoke carries no flag).
+    Tests: `FlowAdminAuditTest`, `ContractAdminAuditTest`, `ApprovedTableServiceTest` and the real-database trail
+    `platform-app/src/test/java/io/integrationplatform/e5/contract/E12ConfigAuditTrailContainerTest.java`.
+  - The role check is unchanged: approving needs `APPROVE_VERSION` / `APPROVE_DB_TABLE` (TENANT_ADMIN, APPROVER).
+    Only the "not the author / not the requester" rule went, as the Decision bullet says.
+  - Nothing in this amendment changes tenant isolation: every approval still runs under the stamped tenant.
 - **Reversible by migration.** Re-add the three constraints and restore the three functions from `V2_2_4:124-148`,
   `V2_2_5_1:25-45` and `V2_4_1330` in a new migration (never by editing `V2_4_1420`, which is applied and
   checksummed). Add the constraints `NOT VALID` if any row was self-approved while this amendment was live; see

@@ -175,6 +175,11 @@ dies mid-call, the stale-claim rule recovers the delivery (ADR-011 Decision 5).
   application role holds none (grant-inspection test; a call as the application role fails with
   42501). They are not T5 functions: they neither resolve nor return a tenant. They run in the job
   `AUDIT_PARTITION_MAINTENANCE`, the fifth member of ADR-012's job-type register.
+- **Amended 2026-10-27 (ADR-012 amendment 2026-10-27, ratified):** a third T6 function,
+  `payload_purge_days(cutoff, dry_run)` (`V2_4_1450`, guard made conservative by `V2_4_1460`), same shape -
+  definer owned by the table owner, pinned `search_path`, 5-second lock timeout, `EXECUTE` to
+  `ipaas_maintenance` only, no tenant in or out. It runs in the job `PAYLOAD_PURGE`, ships `OFF`, and keeps any
+  day that holds a delivery not `DELIVERED` or a message not `ROUTED`, for every tenant, suspended ones included.
 
 ## 6. Deployment view (development compose today: section 9)
 
