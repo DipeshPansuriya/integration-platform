@@ -255,7 +255,7 @@ FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker2" I
 check "deploy: a lock whose pid is alive (this test) is respected (exit 2) and left in place" '[ $rc -eq 2 ] && grep -q "another deploy.sh is running" "$TMP/n3.out" && [ -d "$TMP/stack/.deploy.lock" ]'
 FLYWAY_IMAGE=custom/img:1 mig info >"$TMP/n4.out" 2>&1
 check "migrate: FLYWAY_IMAGE without an expectation prints the loud 'revision NOT verified' warning" 'grep -q "image revision NOT verified" "$TMP/n4.out"'
-check "flyway-run: the Linux check script exists and the production path has no recursive chown, no uid 1001" '[ -f "$HERE/test/flyway-run-linux.sh" ] && ! grep -q "chown -R" "$FW/flyway-run.sh" && ! grep -q 1001 "$FW/flyway-run.sh"'
+check "flyway-run: the Linux check script exists and the production path has no recursive chown, no uid 1001" '[ -f "$HERE/test/flyway-run-linux.sh" ] && ! grep -q "chown -R" "$FW/flyway-run.sh" && ! grep -qE "(^|[^0-9])1001([^0-9]|$)" "$FW/flyway-run.sh"'
 
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail
