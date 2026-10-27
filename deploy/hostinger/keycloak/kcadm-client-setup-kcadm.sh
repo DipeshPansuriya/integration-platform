@@ -34,7 +34,7 @@ if [ -z "$CID" ]; then
   [ "${#NEWSEC}" -ge 32 ] || { echo "KC_NEW_CLIENT_SECRET (at least 32 characters) is needed to create $ID" >&2; exit 2; }
   CID="$("$K" create clients -r master -i -s "clientId=$ID" -s 'name=Repo scripts kcadm login (service account)' -s enabled=true -s protocol=openid-connect \
     -s publicClient=false -s serviceAccountsEnabled=true -s standardFlowEnabled=false -s implicitFlowEnabled=false -s directAccessGrantsEnabled=false \
-    -s clientAuthenticatorType=client-secret -s "secret=$NEWSEC" | crlf)"
+    -s clientAuthenticatorType=client-secret -s 'redirectUris=[]' -s 'webOrigins=[]' -s "secret=$NEWSEC" | crlf)"
   [ -n "$CID" ] || { echo "client id not returned" >&2; exit 1; }
   echo "client $ID created (service account, client credentials only)"; SET_SECRET=1
 elif [ "${ROTATE:-0}" = 1 ]; then
@@ -45,15 +45,36 @@ else
   echo "client $ID present, secret unchanged"
 fi
 
-CHANGED=0
+
+# M3: read the security-relevant settings back (new AND existing client) and repair drift. A value that cannot be read back counts as drift.
+FLAGS=(enabled=true publicClient=false serviceAccountsEnabled=true standardFlowEnabled=false implicitFlowEnabled=false
+  directAccessGrantsEnabled=false 'clientAuthenticatorType="client-secret"' 'redirectUris=[]' 'webOrigins=[]')
+DRIFT=(); FIX=()
+read_drift() {
+  local p f want got; DRIFT=(); FIX=()
+  for p in "${FLAGS[@]}"; do
+    f="${p%%=*}"; want="${p#*=}"
+    got="$(list get "clients/$CID" -r master --fields "$f" | tr -d ' \n')" || { echo "kcadm error reading $f of client $ID" >&2; exit 1; }
+    if [ "$got" != "{\"$f\":$want}" ]; then DRIFT+=("$f"); FIX+=(-s "$f=${want//\"/}"); fi
+  done
+}
+read_drift
+if [ "${#DRIFT[@]}" -gt 0 ]; then
+  "$K" update "clients/$CID" -r master "${FIX[@]}" >/dev/null
+  echo "client $ID drift repaired: ${DRIFT[*]}"
+  read_drift
+  [ "${#DRIFT[@]}" -eq 0 ] || { echo "client $ID still differs after the repair: ${DRIFT[*]}" >&2; exit 1; }
+fi
+
+CHANGED=0; MASTER_DROPPED=0
 sync_roles() { # target-client roles-wanted-as-words : adds the missing, removes the extra
   local cc="$1" want=" $2 " have r
   have="$(list get-roles -r master --uusername "$SA" --cclientid "$cc" --fields name --format csv --noquotes)" || { echo "kcadm error reading roles of $SA on $cc" >&2; exit 1; }
   local add=() del=()
-  for r in $2; do grep -qx -- "$r" <<<"$have" || add+=(--rolename "$r"); done
+  for r in $2; do grep -qxF -- "$r" <<<"$have" || add+=(--rolename "$r"); done
   while IFS= read -r r; do [ -z "$r" ] && continue; case "$want" in *" $r "*) ;; *) del+=(--rolename "$r");; esac; done <<<"$have"
   if [ "${#add[@]}" -gt 0 ]; then "$K" add-roles -r master --uusername "$SA" --cclientid "$cc" "${add[@]}"; echo "$cc: granted ${add[*]//--rolename/}"; CHANGED=1; fi
-  if [ "${#del[@]}" -gt 0 ]; then "$K" remove-roles -r master --uusername "$SA" --cclientid "$cc" "${del[@]}"; echo "$cc: removed ${del[*]//--rolename/}"; CHANGED=1; fi
+  if [ "${#del[@]}" -gt 0 ]; then "$K" remove-roles -r master --uusername "$SA" --cclientid "$cc" "${del[@]}"; echo "$cc: removed ${del[*]//--rolename/}"; CHANGED=1; if [ "$cc" = master-realm ]; then MASTER_DROPPED=1; fi; fi
 }
 sync_roles platform-realm "$PLATFORM_ROLES"
 sync_roles master-realm "$MASTER_ROLES"
@@ -67,3 +88,10 @@ if [ "$SET_SECRET" = 1 ]; then   # prove the new secret end to end: a client-cre
   echo "verified: client-credentials login works and realm platform is readable"
 fi
 echo "kcadm-client-setup done"
+if [ -n "$MASTER_ROLES" ]; then
+  echo "REMINDER: $SA now holds master-realm manage-users/view-users (a master takeover primitive). Order, all BEFORE the named admin enrols TOTP:"
+  echo "  1. keycloak/retire-bootstrap-admin.sh   2. this script again WITHOUT --with-master-users   3. this script with --rotate   4. only then TOTP"
+fi
+if [ "$MASTER_DROPPED" = 1 ]; then
+  echo "REMINDER: the master-realm roles are gone, but the OLD secret held master power: rotate it now (--rotate with a NEW secret) BEFORE the named admin enrols TOTP (after TOTP this script cannot log in; use the console)."
+fi

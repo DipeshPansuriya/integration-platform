@@ -14,9 +14,9 @@ cat > "$T/kcadm" <<'STUB'
 S="${STUB_DIR:?}"; echo "$*" >> "$S/calls"
 verb="$1"; path="${2:-}"
 all="$*"
-cc=""; roles=(); args=("$@"); i=0
+cc=""; roles=(); kvs=(); fields=""; args=("$@"); i=0
 while [ $i -lt ${#args[@]} ]; do
-  case "${args[$i]}" in --cclientid) cc="${args[$((i+1))]}";; --rolename) roles+=("${args[$((i+1))]}");; esac
+  case "${args[$i]}" in --cclientid) cc="${args[$((i+1))]}";; --rolename) roles+=("${args[$((i+1))]}");; -s) kvs+=("${args[$((i+1))]}");; --fields) fields="${args[$((i+1))]}";; esac
   i=$((i+1))
 done
 case "$verb" in
@@ -28,16 +28,19 @@ case "$verb" in
  get)
    case "$path" in
      clients) [ -e "$S/lookup-fails" ] && { echo "HTTP 500" >&2; exit 1; }; [ -e "$S/client" ] && echo c-1; exit 0;;
-     clients/c-1) echo '{ "id" : "c-1", "serviceAccountsEnabled" : true }'; exit 0;;
+     clients/c-1) [ -e "$S/readfail" ] && { echo "HTTP 500" >&2; exit 1; }; v="$(grep "^$fields=" "$S/flags" | sed 's/^[^=]*=//')"; [ -n "$v" ] || exit 0; [ "$v" = '[]' ] && v='[ ]'; case "$v" in true|false|\[*) ;; *) v="\"$v\"";; esac; printf '{
+  "%s" : %s
+}
+' "$fields" "$v"; exit 0;;
      realms/platform) echo '{ "realm" : "platform" }'; exit 0;;
    esac;;
  create)
    case "$path" in
-     clients) echo c-1 > "$S/client"; echo "$all" > "$S/create-args"; s="${all##*secret=}"; s="${s%% *}"; echo "$s" > "$S/secret"; echo c-1; exit 0;;
+     clients) echo c-1 > "$S/client"; echo "$all" > "$S/create-args"; : > "$S/flags"; for kv in "${kvs[@]}"; do case "$kv" in secret=*) ;; *) echo "$kv" >> "$S/flags";; esac; done; s="${all##*secret=}"; s="${s%% *}"; echo "$s" > "$S/secret"; echo c-1; exit 0;;
    esac;;
  update)
    case "$path" in
-     clients/c-1) echo "$all" >> "$S/update-args"; case "$all" in *secret=*) s="${all##*secret=}"; s="${s%% *}"; echo "$s" > "$S/secret";; esac; exit 0;;
+     clients/c-1) echo "$all" >> "$S/update-args"; for kv in "${kvs[@]}"; do case "$kv" in secret=*) echo "${kv#secret=}" > "$S/secret";; *) k="${kv%%=*}"; { grep -v "^$k=" "$S/flags"; echo "$kv"; } > "$S/f.n"; mv "$S/f.n" "$S/flags";; esac; done; exit 0;;
    esac;;
  get-roles) f="$S/roles-$cc"; [ -s "$f" ] && cat "$f"; exit 0;;
  add-roles) for r in "${roles[@]}"; do echo "$r" >> "$S/roles-$cc"; done; exit 0;;
@@ -97,5 +100,29 @@ S6="$(mk lookupfail)"; touch "$S6/lookup-fails"; run "$S6"
 # 7. custom client id
 S7="$(mk cid)"; RUN_ENV=(KC_CLIENT_ID=other-kcadm); run "$S7"; RUN_ENV=(X_UNUSED=1)
 grep -q -- "--uusername service-account-other-kcadm" "$S7/calls" && ok "KC_CLIENT_ID overrides the client id (service-account user follows)" || bad "client id override"
+
+# 8. M3 (Karan): an existing client's security flags are read back and repaired on drift
+grep -q -- "redirectUris=\[\]" <<<"$(cat "$S1/create-args")" && grep -q -- "webOrigins=\[\]" <<<"$(cat "$S1/create-args")" && ok "M3: create sets empty redirectUris and webOrigins explicitly" || bad "M3: create without explicit empty redirect lists"
+grep -q "^get clients/c-1.*--fields publicClient" "$S2/calls" && grep -q "^get clients/c-1.*--fields redirectUris" "$S2/calls" && ok "M3: a re-run reads the flags and the redirect lists back" || bad "M3: no read-back in re-run: $(cat "$S2/calls")"
+cp -r "$S1" "$T/flagdrift"; S8="$T/flagdrift"; : > "$S8/calls"; rm -f "$S8/update-args"
+sed -i 's/^publicClient=.*/publicClient=true/; s/^directAccessGrantsEnabled=.*/directAccessGrantsEnabled=true/; s/^standardFlowEnabled=.*/standardFlowEnabled=true/' "$S8/flags"
+sed -i 's#^redirectUris=.*#redirectUris=["https://evil.example/*"]#; s#^webOrigins=.*#webOrigins=["*"]#' "$S8/flags"
+sec_before="$(cat "$S8/secret")"
+RUN_ENV=("${NOSECRET[@]}"); run "$S8"; RUN_ENV=(X_UNUSED=1)
+bad_left="$(grep -E '^(publicClient=true|directAccessGrantsEnabled=true|standardFlowEnabled=true|redirectUris=\["|webOrigins=\[")' "$S8/flags" | xargs)"
+[ $RC -eq 0 ] && [ -z "$bad_left" ] && grep -q "^publicClient=false" "$S8/flags" && grep -q "^redirectUris=\[\]" "$S8/flags" && ok "M3: drifted flags and redirect URIs are repaired" || bad "M3: drift not repaired (rc=$RC left=[$bad_left]) $OUT"
+for f in publicClient directAccessGrantsEnabled standardFlowEnabled redirectUris webOrigins; do grep -q "$f" <<<"$OUT" && ok "M3: drift of $f is reported" || bad "M3: $f drift not reported: $OUT"; done
+[ "$(cat "$S8/secret")" = "$sec_before" ] && ! grep -qE "https://evil|newsecret|$sec_before" <<<"$OUT" && ok "M3: the secret is untouched and nothing secret is printed" || bad "M3: secret changed or printed"
+S8b="$T/flagdrift2"; cp -r "$S1" "$S8b"; : > "$S8b/calls"; touch "$S8b/readfail"; RUN_ENV=("${NOSECRET[@]}"); run "$S8b"; RUN_ENV=(X_UNUSED=1)
+[ $RC -ne 0 ] && ! grep -q "kcadm-client-setup done" <<<"$OUT" && ok "M3: a failing read-back aborts the run (no false 'present')" || bad "M3: read failure ignored (rc=$RC)"
+S8c="$T/flagdrift3"; cp -r "$S1" "$S8c"; : > "$S8c/calls"; sed -i '/^serviceAccountsEnabled=/d' "$S8c/flags"
+RUN_ENV=("${NOSECRET[@]}"); run "$S8c"; RUN_ENV=(X_UNUSED=1)
+grep -q "^serviceAccountsEnabled=true" "$S8c/flags" && ok "M3: a flag that cannot be read back is treated as drift and set" || bad "M3: missing flag not repaired"
+
+# 9. M5 / M2: reminders about the order (create -> retire -> drop master roles -> rotate -> TOTP)
+S9="$(mk remind)"; RUN_ENV=(WITH_MASTER_USERS=1); run "$S9"; RUN_ENV=(X_UNUSED=1)
+grep -qi "master-realm" <<<"$OUT" && grep -qi "retire-bootstrap-admin" <<<"$OUT" && grep -qi "TOTP" <<<"$OUT" && ok "M5: a run that grants master roles ends with a loud reminder (retire, drop roles, rotate, then TOTP)" || bad "M5: no reminder after master grant: $OUT"
+cp -r "$S9" "$T/drop"; : > "$T/drop/calls"; RUN_ENV=("${NOSECRET[@]}"); run "$T/drop"; RUN_ENV=(X_UNUSED=1)
+grep -qi "rotate" <<<"$OUT" && grep -qi "TOTP" <<<"$OUT" && ok "M5: the run that drops the master roles tells you to rotate the secret before TOTP" || bad "M5: no rotate reminder after dropping master roles: $OUT"
 
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"; exit $fail
