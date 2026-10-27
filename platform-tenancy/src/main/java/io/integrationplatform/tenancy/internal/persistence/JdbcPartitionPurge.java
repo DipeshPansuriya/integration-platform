@@ -14,7 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /**
  * E14 T-142 / T-189: {@link PartitionPurge} over the maintenance connection (a login that is a member of
  * {@code ipaas_maintenance}, control T6: partition DDL is never the application role's). It calls the one definer
- * function {@code public.payload_purge_days(cutoff, dry_run)} (V2_4_1440), which holds the retention floor, the
+ * function {@code public.payload_purge_days(cutoff, dry_run)} (V2_4_1450), which holds the retention floor, the
  * dead-letter guard and the drop; this class reads nothing else and no tenant.
  *
  * <p>The pool is private: it is deliberately not a {@code DataSource} bean, because a second one would make Spring
