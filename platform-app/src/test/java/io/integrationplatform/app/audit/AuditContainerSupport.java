@@ -75,6 +75,40 @@ final class AuditContainerSupport {
         }
     }
 
+    /** The full text of the one migration whose file name matches {@code glob}, e.g. {@code V*__audit_relay_move*.sql}. */
+    static String migration(String glob) throws java.io.IOException {
+        org.springframework.core.io.Resource[] found = new org.springframework.core.io.support
+                .PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/" + glob);
+        if (found.length != 1) {
+            throw new IllegalStateException("expected exactly one migration for " + glob + ", found " + found.length);
+        }
+        return found[0].getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The manual rollback SQL a migration carries in its header between the {@code -- ROLLBACK-BEGIN} and
+     * {@code -- ROLLBACK-END} marker lines (the leading comment marker removed): the documented SQL is the tested SQL.
+     */
+    static String rollbackSql(String migration) {
+        StringBuilder sql = new StringBuilder();
+        boolean inside = false;
+        for (String line : migration.split("\\R")) {
+            if (line.startsWith("-- ROLLBACK-END")) {
+                break;
+            }
+            if (inside) {
+                sql.append(line.replaceFirst("^-- ?", "")).append('\n');
+            }
+            if (line.startsWith("-- ROLLBACK-BEGIN")) {
+                inside = true;
+            }
+        }
+        if (sql.isEmpty()) {
+            throw new IllegalStateException("no ROLLBACK-BEGIN/END block in the migration");
+        }
+        return sql.toString();
+    }
+
     static long count(Connection session, String sql, Object... args) throws SQLException {
         try (PreparedStatement ps = session.prepareStatement(sql)) {
             for (int i = 0; i < args.length; i++) {
