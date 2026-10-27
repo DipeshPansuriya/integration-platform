@@ -152,7 +152,7 @@ if command -v docker >/dev/null 2>&1; then
   { cat "$TMP/c.env"; echo "IPASS_APP_IMAGE=hub.test/u/ipass-platform-app:t1"; echo "IPASS_UI_IMAGE=hub.test/u/ipass-ui:t2"; echo "IPASS_KEYCLOAK_IMAGE=hub.test/u/ipass-keycloak:26.8.0-t3"; } > "$TMP/o.env"
   ocfg="$(docker compose --env-file "$TMP/o.env" -f "$HERE/compose.yaml" config 2>/dev/null)"
   check "IPASS_APP_IMAGE / IPASS_UI_IMAGE / IPASS_KEYCLOAK_IMAGE are honoured (ui twice: ui and edge)" '[ "$(grep -c "image: hub.test/u/ipass-platform-app:t1" <<<"$ocfg")" -eq 1 ] && [ "$(grep -c "image: hub.test/u/ipass-ui:t2" <<<"$ocfg")" -eq 2 ] && [ "$(grep -c "image: hub.test/u/ipass-keycloak:26.8.0-t3" <<<"$ocfg")" -eq 1 ]'
-  check "without the overrides the prefix-based names are unchanged" 'grep -q "image: acsnewacr.azurecr.io/ipass/platform-app:abc1234" <<<"$basecfg" && [ "$(grep -c "image: acsnewacr.azurecr.io/ipass/ui:abc1234" <<<"$basecfg")" -eq 2 ] && grep -q "image: acsnewacr.azurecr.io/ipass/keycloak:26.8.0-abc1234" <<<"$basecfg"'
+  check "without the overrides the prefix-based names are unchanged" 'grep -q "image: acsnewacr.azurecr.io/ipass/platform-app:abc1234" <<<"$basecfg" && [ "$(grep -c "image: acsnewacr.azurecr.io/ipass/ui:abc1234" <<<"$basecfg")" -eq 2 ] && grep -q "image: acsnewacr.azurecr.io/ipass/keycloak:26.8.1-abc1234" <<<"$basecfg"'
   { cat "$TMP/c.env"; echo IPASS_IMAGE_PREFIX=ipass; } > "$TMP/p.env"
   check "IPASS_IMAGE_PREFIX still builds the names when no override is set" 'docker compose --env-file "$TMP/p.env" -f "$HERE/compose.yaml" config 2>/dev/null | grep -q "image: ipass/platform-app:abc1234"'
 fi
