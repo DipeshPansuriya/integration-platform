@@ -50,12 +50,12 @@ check "guard: the real tree - every db/migration folder is copied, no duplicate 
 # migrate.sh with a fake docker that logs its arguments and the password it saw in its environment
 cat > "$TMP/fakedocker" <<'FAKE'
 #!/bin/sh
-case "$1 $2" in "image inspect") img=""; for a in "$@"; do img="$a"; done; case "$*" in *--format*) t="${img##*:}"; case "$*" in *revision*) echo "${FAKE_REVISION:-${t}0123456789abcdef}";; *) echo "${FAKE_IMAGE_ID:-sha256:fakeid}";; esac; exit 0;; esac;; esac
+case "$1 $2" in "image inspect") img=""; for a in "$@"; do img="$a"; done; case "$*" in *--format*) t="${img##*:}"; case "$*" in *revision*) echo "${FAKE_REVISION-${t}0123456789abcdef}";; *) echo "${FAKE_IMAGE_ID:-sha256:fakeid}";; esac; exit 0;; esac;; esac
 echo "$*" >> "$FAKE_LOG"
 echo "pw=${FLYWAY_PASSWORD:-unset}" >> "$FAKE_ENVLOG"
 for a in "$@"; do case "$a" in *:/run/flyway-secret:ro)
   d="${a%:/run/flyway-secret:ro}"; dd="$(cygpath -u "$d" 2>/dev/null || echo "$d")"
-  echo "secretfile=$(sed -n 's/^password = "\(.*\)"$//p' "$dd/secret.toml") fmode=$(umask 077; stat -c %a "$dd/secret.toml") dmode=$(umask 077; stat -c %a "$dd")" >> "$FAKE_ENVLOG" ;; esac; done
+  echo "secretfile=$(sed -n 's/^password = "\(.*\)"$/\1/p' "$dd/secret.toml") fmode=$(umask 077; stat -c %a "$dd/secret.toml") dmode=$(umask 077; stat -c %a "$dd")" >> "$FAKE_ENVLOG" ;; esac; done
 act=""; for a in "$@"; do case "$a" in info|validate|migrate|repair) act="$a";; esac; done
 [ -n "$act" ] && [ "$act" = "${FAKE_FAIL_ACTION:-}" ] && { echo "fake flyway: $act failed" >&2; exit 1; }
 exit 0
@@ -78,7 +78,7 @@ IMAGE_TAG=t1
 DB_MIGRATION_PASSWORD=a"b\c
 ' > "$TMP/m4.env"
 : > "$TMP/fake.env"; TMPDIR="$TMP/fwtmp" FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker" ENV_FILE="$TMP/m4.env" sh "$FW/migrate.sh" info >/dev/null 2>&1
-check "migrate: a password with a double quote and a backslash is escaped in the TOML file" 'grep -qF "secretfile=a\\\"b\\c" "$TMP/fake.env"'
+check "migrate: a password with a double quote and a backslash is escaped in the TOML file" 'grep -qF "secretfile=a\\\"b\\c" "$TMP/fake.env"\'
 check "migrate: user is ipass_migrator, database from .env, container on the data network" 'grep -q "FLYWAY_USER=ipass_migrator" "$TMP/fake.log" && grep -q "jdbc:postgresql://postgres:5432/ipass_x" "$TMP/fake.log" && grep -q -- "--network ipass_ipass-data" "$TMP/fake.log"'
 IMAGE_TAG=newtag2 mig info >/dev/null 2>&1
 check "migrate: a caller-supplied IMAGE_TAG wins over the .env (compose precedence)" 'grep -q "flyway-migrate:newtag2" "$TMP/fake.log" && ! grep -q oldtag1 "$TMP/fake.log"'
@@ -112,7 +112,7 @@ cat > "$TMP/fakedocker2" <<'FAKE'
 echo "$*" >> "$FAKE_LOG"
 echo "tag=${IMAGE_TAG:-unset} pw=${FLYWAY_PASSWORD:-unset}" >> "$FAKE_ENVLOG"
 case "$1" in pull) [ "${FAKE_NO_IMAGE:-0}" = 1 ] && exit 1; exit 0;; esac
-case "$1 $2" in "image inspect") img=""; for a in "$@"; do img="$a"; done; case "$*" in *--format*) t="${img##*:}"; case "$*" in *revision*) echo "${FAKE_REVISION:-${t}0123456789abcdef}";; *) echo "${FAKE_IMAGE_ID:-sha256:fakeid}";; esac; exit 0;; esac;; esac
+case "$1 $2" in "image inspect") img=""; for a in "$@"; do img="$a"; done; case "$*" in *--format*) t="${img##*:}"; case "$*" in *revision*) echo "${FAKE_REVISION-${t}0123456789abcdef}";; *) echo "${FAKE_IMAGE_ID:-sha256:fakeid}";; esac; exit 0;; esac;; esac
 case "$1 $2" in
   "compose up") [ "${FAKE_FAIL_UP:-0}" = 1 ] && exit 1; exit 0;;
   "compose pull") [ "${FAKE_FAIL_PULL:-0}" = 1 ] && exit 1; exit 0;;
@@ -226,7 +226,7 @@ exit 0
 FAKE
 chmod +x "$TMP/fakebuild"
 B="$TMP/brepo"; rm -rf "$B"; mkdir -p "$B/deploy/hostinger/flyway"; cp "$FW"/Dockerfile "$FW"/Dockerfile.dockerignore "$FW"/flyway.toml "$FW"/check-migration-dirs.sh "$B/deploy/hostinger/flyway/"
-for m in platform-tenancy platform-config platform-delivery platform-ingest platform-app platform-routing; do mkdir -p "$B/$m/src/main/resources/db/migration"; echo "select 1;" > "$B/$m/src/main/resources/db/migration/V1_0_${#m}__$m.sql"; done
+vn=0; for m in platform-tenancy platform-config platform-delivery platform-ingest platform-app platform-routing; do vn=$((vn + 1)); mkdir -p "$B/$m/src/main/resources/db/migration"; echo "select 1;" > "$B/$m/src/main/resources/db/migration/V1_0_${vn}__$m.sql"; done
 echo uncommitted-neighbour > "$B/README.txt"
 ( cd "$B" && git init -q && git config user.email t@t && git config user.name t && git add -A && git commit -q -m init ) >/dev/null 2>&1
 HEADSHA="$(cd "$B" && git rev-parse HEAD)"; SC="$(echo "$HEADSHA" | cut -c1-8)"
@@ -236,7 +236,7 @@ check "build-image: a clean tree at the tagged commit builds, labelled with the 
 echo "select 2;" > "$B/platform-app/src/main/resources/db/migration/V1_0_99__uncommitted.sql"
 bi "$SC" reg.example/ipass/flyway-migrate >"$TMP/bi2.out" 2>&1; rc=$?
 check "build-image: an untracked migration file refuses the build (exit 2), no docker build runs" '[ $rc -eq 2 ] && grep -q "V1_0_99__uncommitted.sql" "$TMP/bi2.out" && ! grep -q "^build" "$TMP/fake.log"'
-rm -f "$B/platform-app/src/main/resources/db/migration/V1_0_99__uncommitted.sql"; echo "-- edit" >> "$B/platform-tenancy/src/main/resources/db/migration/V1_0_${#m}__platform-tenancy.sql" 2>/dev/null
+rm -f "$B/platform-app/src/main/resources/db/migration/V1_0_99__uncommitted.sql"; :
 bi 1234567 reg.example/ipass/flyway-migrate >"$TMP/bi3.out" 2>&1; rc=$?
 check "build-image: a tag that is not the start of HEAD is refused (exit 2)" '[ $rc -eq 2 ] && grep -q "is not the start of HEAD" "$TMP/bi3.out" && ! grep -q "^build" "$TMP/fake.log"'
 check "build-image: POSIX sh syntax, no BOM, LF only" 'sh -n "$FW/build-image.sh" && ! grep -q "$(printf "")" "$FW/build-image.sh"'
