@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ADR-012 - Job scheduler: db-scheduler with job definitions as our rows, platform-scoped jobs, a no-tenant operator-agent credential, alerts as durable rows plus Prometheus"
-status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - tenant admins hold no job operation; the agent polls alerts every 5 minutes, no push channel in Release 1; the no-tenant machine credential proceeds with its attack suite added to T-147. Amendment 2026-10-27 (conservative PAYLOAD_PURGE guard, guard and drop in the database as the table owner, V2_4_1450 / V2_4_1460) Ratified by mahesh-architect 2026-10-27 - Dipesh may reverse"
+status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - tenant admins hold no job operation; the agent polls alerts every 5 minutes, no push channel in Release 1; the no-tenant machine credential proceeds with its attack suite added to T-147. Amendment 2026-10-27 (conservative PAYLOAD_PURGE guard, guard and drop in the database as the table owner, V2_4_1450 / V2_4_1460) Ratified by mahesh-architect 2026-10-27 - the project owner may reverse"
 approved: "Dipesh, 2026-10-12 (hub memory m-f1fcfc)"
 date: 2026-10-11
 author: "mahesh-architect (ledger row 307 under row 278, task T-054)"
@@ -381,7 +381,7 @@ recommended:
 
 ## Amendment 2026-10-27 - PAYLOAD_PURGE guard is conservative (row 495, T-142; PR 52 `e12f2949`)
 
-**Status: Ratified - mahesh-architect, 2026-10-27 (ledger row 524). Dipesh may reverse.** Decided by Mira on
+**Status: Ratified - mahesh-architect, 2026-10-27 (ledger row 524). The project owner may reverse.** Decided by Mira on
 row 495; built by arjun-fullstack in PR 52 (`e12f2949`) on top of `V2_4_1450`. No decision above changes except
 the purge sketch of section 4, which is marked superseded where it stands.
 

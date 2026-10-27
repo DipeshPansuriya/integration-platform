@@ -34,10 +34,10 @@ Source paths starting `ws/` are in the hub repository, project workspace
 *Sources: `ws/_memory/shared.md:25` (m-703833); `ws/_specs/project-plan.md:38-40`, `:46-48`,
 `:102`, `:105`, `:110`, `:113`, `:116`, `:137-147`, `:150`, `:202`; `ws/_specs/f3-plan-brief.md:40-43`.*
 
-Dipesh's requirement: a source calls **one common API**, possibly with a **bulk** request; the
+The project owner's requirement: a source calls **one common API**, possibly with a **bulk** request; the
 platform identifies customer, interface and the applicable targets, applies **each target's own
 versioned contract and mapping**, and sends to targets of type **API, DB, MQ (a CSV file on the
-target's queue manager) and File**. His example - one call from Customer A delivering
+target's queue manager) and File**. The project owner's example - one call from Customer A delivering
 `{customer_code, order_number, total_amount}` to Target A (contract v1.0) and `{clientId,
 referenceNo, invoiceValue}` to Target B (contract v2.0) - is the acceptance test of the idea.
 Decisions already applied (Mira, reversible): bulk accepts valid records and rejects invalid
@@ -56,8 +56,8 @@ carries; and how background work finds its tenant.
 | `API` | 1 | `camel-http` | `Idempotency-Key: <delivery id>` header | The one outbound destination check of ADR-010 section 8: every resolved address checked and the checked address pinned; refused ranges reachable only through an operator allow-list entry; redirects off unless the target enables them, every hop re-checked |
 | `MQ_CSV` | 1 | `camel-csv` / `camel-bindy` to format, `camel-jms` to send | JMS correlation id = delivery id, deduplicated by the target | Queue-manager product unknown; plugged in through its JMS connection factory, chosen from an allow-list of factory classes. **Bindy stays (2026-10-20):** camel-bindy is live in the Camel 4.22.x data-format docs with no deprecation notice and the project pins camel-spring-boot 4.22.1; the 404 Vikram saw is camel-beanio, removed in 3.17 - lanes do not re-litigate this |
 | `DB` | 2 | `camel-sql` | Insert-or-update on a natural key the target declares | Only tables on the target's approved list; a restricted per-target database account with no DDL rights; parameterised statements only |
-| `FILE` | 2 | `camel-file` | Deterministic file name from the delivery id; write to a temporary name, then atomic rename | A shared folder; SFTP is out of scope unless Dipesh names it; no half-written file is ever visible |
-| `KAFKA_TOPIC` | 2 | `camel-kafka` | Idempotent producer, key = delivery id | Kept in scope by Mira's decision (`ws/_specs/project-plan.md:151`); not in Dipesh's formal list |
+| `FILE` | 2 | `camel-file` | Deterministic file name from the delivery id; write to a temporary name, then atomic rename | A shared folder; SFTP is out of scope unless the project owner names it; no half-written file is ever visible |
+| `KAFKA_TOPIC` | 2 | `camel-kafka` | Idempotent producer, key = delivery id | Kept in scope by Mira's decision (`ws/_specs/project-plan.md:151`); not in the project owner's formal list |
 
 - Each type has a **settings schema** (JSON Schema) shipped in code. A target's settings are a
   JSONB column validated against its type's schema on every save. **Adding a target of an
@@ -157,7 +157,7 @@ carries; and how background work finds its tenant.
   record, its message row, payload row and outbox row -> respond.
 - **Bulk is split here, before Kafka:** one record = one message = one Kafka record. Camel never
   splits bulk (it stays inside routing - ADR-010).
-- **Caps (team defaults, configurable per interface downward; Dipesh may change them):**
+- **Caps (team defaults, configurable per interface downward; the project owner may change them):**
   - a record over **1 MB** is rejected with a clear error (OQ-08);
   - a bulk call over **1,000 records** or over **10 MB** is refused as a whole with `413` and a
     clear error; nothing is persisted.
@@ -203,7 +203,7 @@ carries; and how background work finds its tenant.
 - **Answer to the source:** success -> `200` with the target's response mapped to the source's
   registered response contract; `PERMANENT` failure -> an error mapped through the target's
   error dictionary; anything else, or the 10 s budget reached -> `202` with the tracking id and
-  status `PENDING`, and the delivery continues on the asynchronous path. **Dipesh may reverse**
+  status `PENDING`, and the delivery continues on the asynchronous path. **The project owner may reverse**
   the `PENDING` rule (for example to a plain error on timeout) - one rule in the ingest phase.
 
 ## Decision 6 - Ordering and the head-of-line rule
@@ -223,7 +223,7 @@ carries; and how background work finds its tenant.
   with the same idempotency key). Clauses 1 and 2 below compare the **per-key sequence**, never
   a global sequence or a timestamp. When the interface's `ordering` is `NONE`, no counter row is
   taken, the message has no per-key sequence and the hold rule is skipped.
-- **Interface setting `ordering`:** `PER_KEY` (default, Dipesh's rule) or `NONE`.
+- **Interface setting `ordering`:** `PER_KEY` (default, the project owner's rule) or `NONE`.
 - **The hold rule (chosen, corrected for B3):** a delivery is held when **either**
   1. an earlier message (lower per-key sequence) with the same tenant, interface and business key
      is still `ACCEPTED` - not yet `ROUTED` or `ROUTE_FAILED` - so its deliveries do not exist yet;
@@ -339,7 +339,7 @@ dead letter from that day is unresolved.
 
 ## Amendment 2026-10-22 - who approves a DB target's tables, and where it is enforced (E16 finding F3)
 
-Dipesh decided D1-D4 on 2026-10-22; design note: option B of the E16 F3 note (`_documents/2026-10-22-design-job-state-change-and-approved-tables.md`
+The project owner decided D1-D4 on 2026-10-22; design note: option B of the E16 F3 note (`_documents/2026-10-22-design-job-state-change-and-approved-tables.md`
 in the project workspace). This amends the `DB` row of Decision 1 ("only tables on the target's approved list").
 
 - **Where the list lives.** Not in the system's `settings` (a configurator wrote both `table` and the list that was meant
@@ -400,7 +400,7 @@ both reports are static reads (neither reviewer ran them).
   beyond INSERT and SELECT appends `WIDE ACCOUNT` to the answer's `detail` text (`DbTestConnection.java:113-121`); the
   answer stays `SUCCESS` and nothing gates a send or an approval on it. Not probed: REFERENCES, column-level grants,
   CREATEROLE, the other predefined roles, privileges on other tables; a missing table reads as "none". **Open
-  decision (Dipesh):** refuse a WIDE account at approve time, or keep the probe informational - recommended: refuse,
+  decision (the project owner):** refuse a WIDE account at approve time, or keep the probe informational - recommended: refuse,
   after widening what counts as WIDE.
 - **S3 - `currentSchema=public` pinned** in `JdbcDbSender.accountProperties` (`JdbcDbSender.java:145-147`), shared by
   the send and the probe; it outranks a role-level `search_path` (test `theSchemaIsPinnedAgainstARoleSearchPath`).
@@ -412,10 +412,10 @@ both reports are static reads (neither reviewer ran them).
   (`DbTargetCall.java:138-144`); the same text also appears for other 42501 causes (missing USAGE on the schema or the
   table's sequence). Before go-live the operator lists every migrated PENDING row to the approver: DB sends stop until
   each table is approved.
-- **Known residuals - accepted risk pending Dipesh.**
+- **Known residuals - accepted risk pending the project owner.**
   (a) Code running as the app role still chooses `requested_by`, `requested_at` and `target_hash` on a PENDING row, so
   it can name another user as requester and then approve through the function with its own stamped actor; it cannot
-  insert an APPROVED row. **Open decision (Dipesh):** accept and record here, or add a `BEFORE INSERT` trigger deriving
+  insert an APPROVED row. **Open decision (the project owner):** accept and record here, or add a `BEFORE INSERT` trigger deriving
   `requested_by` from `app.actor_id` and `target_hash` from the live settings - recommended: accept; add the trigger
   only if he asks. *(Amendment 2026-10-27: (a) no longer buys anything - a requester may approve their own request -
   so the trigger is not needed for separation of duties; a forged `target_hash` is still caught at send and publish,

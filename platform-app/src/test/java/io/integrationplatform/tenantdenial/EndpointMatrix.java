@@ -322,7 +322,9 @@ final class EndpointMatrix {
             new T111DeliveryOperatorMatrix(),
             new E12ActivityMatrix(),
             // T186: job admin (operator agent only), the report reads, the E16 F3 approved tables
-            new T186JobAdminMatrix(), new T186ReportMatrix(), new T186ApprovedTableMatrix());
+            new T186JobAdminMatrix(), new T186ReportMatrix(), new T186ApprovedTableMatrix(),
+            // row 519: GET / PUT /systems/{id}/endpoint-auth (PR 40, TENANT_ADMIN-only PUT since PR 48)
+            new T519EndpointAuthMatrix());
 
     /** The whole matrix: the core entries above, then every lane's entries. */
     static final List<Entry> REGISTRY = Stream.concat(CORE.stream(),
