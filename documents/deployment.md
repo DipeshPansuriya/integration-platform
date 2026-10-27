@@ -147,7 +147,7 @@ cp -p $B/compose.yaml . && cp -p $B/edge/edge.conf edge/          # and .env onl
 docker compose -f compose.yaml -f demo/compose.demo.yaml up -d --force-recreate --no-deps edge
 docker compose -f compose.yaml -f demo/compose.demo.yaml up -d --remove-orphans   # when compose.yaml itself went back
 ```
-App rollback: set `IPASS_APP_IMAGE` back to the previous tag in `.env` and recreate `platform-app` (an older app without the separate admin address returns 503 when issuing credentials; that is the previous known state). A release whose Flyway migration already ran cannot roll the schema back: restore the pre-change dump instead.
+App rollback: set `IPASS_APP_IMAGE` back to the previous tag in `.env` and recreate `platform-app` (an older app without the separate admin address returns 503 when issuing credentials; that is the previous known state). A release whose Flyway migration already ran cannot roll the schema back: restore the pre-change dump instead. **Exception, audit option A (`V2_4_1490`, `V2_4_1500`, row 544):** an app older than these migrations cannot run against them (its audit relay needs privileges they revoke; its approvals answer `REFUSED_NO_ACTOR`). Stop `platform-app`, run the rollback blocks of both migrations as `ipass_migrator`, set `IPAAS_AUDIT_RELAY_MODE=LEGACY`, then start the old tag - see `deploy/hostinger/README.md`, "Audit ledger lockdown (option A)", and ADR-011 Amendment 2026-10-28.
 
 ## 7. Operator address on the ops host
 

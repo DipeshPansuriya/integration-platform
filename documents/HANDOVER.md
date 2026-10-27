@@ -541,7 +541,8 @@ The full table is in `documents/architecture.md:79-89`. In short:
   day-partitioned; payload is kept 30 days (ADR-014).
 - **Delivery:** `delivery` (unique `(message_id, route_id, created_at)`, with pinned versions and a claim token),
   `delivery_attempt` (append-only), `delivery_event`, plus the stage timing table.
-- **Audit:** `audit_event` (append-only).
+- **Audit:** `audit_outbox` (written in the business transaction) and `audit_event` (append-only ledger; the application role cannot
+  insert into it - rows arrive only through `audit_relay_move`, ADR-011 Amendment 2026-10-28).
 - **Scheduler:** its own schema, platform-scoped, with no `tenant_id`.
 
 The schema is owned by Flyway (`V<major>_<minor>_<n>__*.sql` under each module's `src/main/resources/db/migration`),

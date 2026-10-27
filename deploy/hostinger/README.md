@@ -227,7 +227,7 @@ relayed. Nothing is lost or duplicated; throughput under a large backlog is seri
 - The ledger is append-only for the application role. It is not tamper-proof against code execution in the app container, which today also holds
   the migration-owner login (`DB_MIGRATION_*` in the same service, in-app Flyway), nor against the migration owner / DBA, who can still alter
   rows or drop partitions.
-- Flow-version `approver_id` / `status` stay writable by the application role through the `interface_version` column grants (`V2_2_4`) - a separate residual.
+- Flow-version `approver_id` / `status` stay writable by the application role through the `interface_version` column grants (`V2_2_4`) - a separate residual, closed by one column REVOKE in the next row (see ADR-011 Amendment 2026-10-28).
 - `app.actor_id` is stamped by the application: a consistency check, not a security boundary.
 
 ## Tests (build PC)

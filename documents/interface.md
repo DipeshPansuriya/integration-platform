@@ -155,7 +155,7 @@ Base path `/api/v1/admin/contracts` [Verified] -
 | `GET /api/v1/admin/contracts/{contractId}/versions` | `200` one contract with its versions side by side; `404` | [Verified] | `ContractVersionAdminController.java:140-147` |
 | `GET /api/v1/admin/contracts/versions/{versionId}` | `200` any status - a `RETIRED` version stays readable; `404` | [Verified] | `ContractVersionAdminController.java:73-80` |
 | `POST /api/v1/admin/contracts/versions/{versionId}/submit` | `200`; `400`; `404`; `409` only a `DRAFT` submits | [Verified] | `ContractVersionAdminController.java:86-96` |
-| `POST /api/v1/admin/contracts/versions/{versionId}/approve` | `200` now `APPROVED` by the caller; the author may approve their own version (single-user workflow, `V2_4_1420`); `403` only for a missing role; `404`; `409 NOT_PENDING_APPROVAL` | [Verified] | `ContractVersionAdminController.java:153-162` |
+| `POST /api/v1/admin/contracts/versions/{versionId}/approve` | `200` now `APPROVED` by the caller (the approver recorded is the session actor the platform stamps into `app.actor_id` in the same transaction, `V2_4_1500`); the author may approve their own version (single-user workflow, `V2_4_1420`); `403` only for a missing role; `404`; `409 NOT_PENDING_APPROVAL`; `500` with a fixed text if the actor stamp is missing or differs (`REFUSED_NO_ACTOR` / `REFUSED_ACTOR_MISMATCH` - a platform defect, never a business refusal) | [Verified] | `ContractVersionAdminController.java:153-162`; `ContractAdminService.java` |
 
 ## 7. Other admin endpoints already in the console
 
