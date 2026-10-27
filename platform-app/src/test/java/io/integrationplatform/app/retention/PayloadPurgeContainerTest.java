@@ -77,6 +77,8 @@ class PayloadPurgeContainerTest {
     private final LocalDate deadLetter = today.minusDays(44);
     private final LocalDate nonFinal = today.minusDays(43);
     private final LocalDate suspendedDeadLetter = today.minusDays(42);
+    private final LocalDate routeFailed = today.minusDays(41);
+    private final LocalDate accepted = today.minusDays(40);
     private final LocalDate onTheCutoff = today.minusDays(30);
     private final LocalDate young = today.minusDays(10);
     private final LocalDate cutoff = today.minusDays(30);
@@ -108,17 +110,20 @@ class PayloadPurgeContainerTest {
                         + "', 'purge-suspended', 'SUSPENDED', 'Etc/UTC') on conflict (id) do nothing");
                 maintenance = JdbcPartitionPurge.pooled(POSTGRES.getJdbcUrl(), MAINT_LOGIN, MAINT_PASSWORD);
             }
-            seedDay(owner, clean, ACTIVE, "DELIVERED");
-            seedDay(owner, deadLetter, ACTIVE, "DEAD_LETTERED");
-            seedDay(owner, nonFinal, ACTIVE, "PENDING");
-            seedDay(owner, suspendedDeadLetter, SUSPENDED, "DEAD_LETTERED");
-            seedDay(owner, onTheCutoff, ACTIVE, "DELIVERED");
-            seedDay(owner, young, ACTIVE, "DELIVERED");
+            seedDay(owner, clean, ACTIVE, "DELIVERED", "ROUTED");
+            seedDay(owner, deadLetter, ACTIVE, "DEAD_LETTERED", "ROUTED");
+            seedDay(owner, nonFinal, ACTIVE, "PENDING", "ROUTED");
+            seedDay(owner, suspendedDeadLetter, SUSPENDED, "DEAD_LETTERED", "ROUTED");
+            seedDay(owner, routeFailed, ACTIVE, null, "ROUTE_FAILED");
+            seedDay(owner, accepted, ACTIVE, null, "ACCEPTED");
+            seedDay(owner, onTheCutoff, ACTIVE, "DELIVERED", "ROUTED");
+            seedDay(owner, young, ACTIVE, "DELIVERED", "ROUTED");
         }
     }
 
     /** One day's three partitions with one row each; recreated if an earlier test dropped them. */
-    private void seedDay(Connection owner, LocalDate day, UUID tenant, String deliveryState) throws SQLException {
+    private void seedDay(Connection owner, LocalDate day, UUID tenant, String deliveryState,
+            String messageState) throws SQLException {
         String suffix = day.format(DAY);
         try (Statement sql = owner.createStatement()) {
             for (String table : new String[] {"message", "payload", "delivery"}) {
@@ -132,14 +137,15 @@ class PayloadPurgeContainerTest {
         UUID message = UUID.randomUUID();
         String at = day + "T12:00:00Z";
         try (PreparedStatement st = owner.prepareStatement("insert into public.message (id, tenant_id, interface_id,"
-                + " interface_version_id, source_contract_version_id, business_key, accepted_at)"
-                + " values (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 'k', ?::timestamptz)")) {
+                + " interface_version_id, source_contract_version_id, business_key, state, accepted_at)"
+                + " values (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 'k', ?, ?::timestamptz)")) {
             st.setString(1, message.toString());
             st.setString(2, tenant.toString());
             for (int i = 3; i <= 5; i++) {
                 st.setString(i, UUID.randomUUID().toString());
             }
-            st.setString(6, at);
+            st.setString(6, messageState);
+            st.setString(7, at);
             st.executeUpdate();
         }
         try (PreparedStatement st = owner.prepareStatement("insert into public.payload (message_id, tenant_id,"
@@ -148,6 +154,9 @@ class PayloadPurgeContainerTest {
             st.setString(2, tenant.toString());
             st.setString(3, at);
             st.executeUpdate();
+        }
+        if (deliveryState == null) {
+            return;
         }
         try (PreparedStatement st = owner.prepareStatement("insert into public.delivery (tenant_id, state, created_at)"
                 + " values (?::uuid, ?, ?::timestamptz)")) {
@@ -186,10 +195,12 @@ class PayloadPurgeContainerTest {
         assertThat(wholeDay(deadLetter)).as("1 dead letter: whole day kept, replayable").isTrue();
         assertThat(wholeDay(nonFinal)).as("1 non-final delivery: whole day kept").isTrue();
         assertThat(wholeDay(suspendedDeadLetter)).as("a suspended tenant's dead letter still guards its day").isTrue();
+        assertThat(wholeDay(routeFailed)).as("a ROUTE_FAILED message: we cannot prove it final, day kept").isTrue();
+        assertThat(wholeDay(accepted)).as("a never-routed ACCEPTED message: day kept").isTrue();
         assertThat(wholeDay(onTheCutoff)).as("the cutoff day itself is inside the 30 days: kept").isTrue();
         assertThat(wholeDay(young)).as("10 days old: untouched").isTrue();
         assertThat(outcome.dropped()).contains(clean).doesNotContain(deadLetter, nonFinal, onTheCutoff, young);
-        assertThat(outcome.kept()).contains(deadLetter, nonFinal, suspendedDeadLetter);
+        assertThat(outcome.kept()).contains(deadLetter, nonFinal, suspendedDeadLetter, routeFailed, accepted);
         assertThat(outcome.dryRun()).isFalse();
     }
 
@@ -199,7 +210,7 @@ class PayloadPurgeContainerTest {
 
         assertThat(outcome.dryRun()).isTrue();
         assertThat(outcome.dropped()).contains(clean);
-        assertThat(outcome.kept()).contains(deadLetter, nonFinal, suspendedDeadLetter);
+        assertThat(outcome.kept()).contains(deadLetter, nonFinal, suspendedDeadLetter, routeFailed, accepted);
         assertThat(wholeDay(clean)).as("dry run: still there").isTrue();
     }
 

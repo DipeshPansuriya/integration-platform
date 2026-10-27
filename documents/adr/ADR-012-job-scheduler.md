@@ -374,3 +374,8 @@ recommended:
 2. **Decided:** the agent polls the alert API every 5 minutes; no push channel in Release 1.
 3. **Decided:** the machine-only agent credential proceeds; its attack suite is added to the
    Release 1 security review (T-147); the human operator login stays deferred.
+
+
+## Amendment 2026-10-27 - PAYLOAD_PURGE guard is conservative (row 495, T-142)
+
+No decision above changes. The T-142 / T-189 row of the criteria table (`:316`) keeps a day only for a `DEAD_LETTERED` or non-final delivery. The built guard (`V2_4_1450__payload_purge.sql` and `V2_4_1460__payload_purge_conservative_guard.sql`, function `public.payload_purge_days`) is stricter, by Mira on row 495: it also keeps a day that holds any message that is not `ROUTED` (`ACCEPTED` = never routed, `ROUTE_FAILED` = may need a fix and replay), because the payload is the only copy and we cannot prove such a day final. The guard and the drop run in the database as the table owner, so the guard sees every tenant, inactive ones included (the sketch in section 4 looped active tenants as the app role). The job ships `OFF` (`ipaas.retention.payload-purge.mode`); `DRY_RUN` reports, `ENFORCE` drops, and only a deployment sets it. **Gives up:** a day with one stuck message is never purged until that message is resolved. **Status:** Mahesh ratifies. [Decided - Mira, reversible]
