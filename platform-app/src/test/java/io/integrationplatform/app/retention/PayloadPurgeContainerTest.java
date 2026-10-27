@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.integrationplatform.PlatformTestWiring;
 import io.integrationplatform.TestImages;
+import io.integrationplatform.app.scheduler.GrantAppRoleFlywayCallback;
 import io.integrationplatform.tenancy.internal.persistence.JdbcPartitionPurge;
 import io.integrationplatform.tenancy.port.PartitionPurge;
 import java.sql.Connection;
@@ -20,7 +21,11 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.flywaydb.core.api.callback.Callback;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -41,7 +46,18 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@Import(PayloadPurgeContainerTest.GrantAppRoleWiring.class)
 class PayloadPurgeContainerTest {
+
+    /** The app login joins ipaas_app right after Flyway: the application reads operator_allowed_host at start. */
+    @TestConfiguration(proxyBeanMethods = false)
+    static class GrantAppRoleWiring {
+        @Bean
+        Callback grantAppRoleFlywayCallback() {
+            return new GrantAppRoleFlywayCallback(POSTGRES, login);
+        }
+    }
+
 
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestImages.POSTGRES);
@@ -85,7 +101,6 @@ class PayloadPurgeContainerTest {
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement()) {
             if (!POSTGRES.getJdbcUrl().equals(preparedFor)) {
                 preparedFor = POSTGRES.getJdbcUrl();
-                PlatformTestWiring.grantApplicationRole(POSTGRES, login);
                 sql.execute("create role " + MAINT_LOGIN + " login nosuperuser nobypassrls password '" + MAINT_PASSWORD
                         + "' in role ipaas_maintenance");
                 sql.execute("insert into public.tenant (id, code, status, time_zone) values ('" + ACTIVE
