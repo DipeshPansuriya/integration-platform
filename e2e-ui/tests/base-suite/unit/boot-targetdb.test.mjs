@@ -8,6 +8,7 @@
 // lock is released.
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import * as boot from '../../../scripts/boot-backend.mjs';
 import { PG_IMAGE, dockerFailure, servicePlan, transientPsqlFailure } from '../../../scripts/boot-backend.mjs';
@@ -81,4 +82,12 @@ test('F4: PG_IMAGE is pinned by tag AND digest (the PINNED_IMAGE rule WireMock a
 test('F4: a tag-only image for targetDb is refused with the pin message, even though it names the same tag', () => {
   assert.throws(() => plan({ image: 'postgres:17.11-alpine' }), /pinned by tag AND digest/);
   assert.throws(() => plan({ image: 'postgres:17.11-alpine@sha256:' + 'a'.repeat(64) }), /image/, 'a pinned image that is not PG_IMAGE is still refused');
+});
+
+// Row 558: the harness must test the build production runs - every postgres line in the Hostinger compose carries PG_IMAGE's digest.
+test('row 558: PG_IMAGE is the exact postgres image deploy/hostinger/compose.yaml pins (harness tests the production build)', () => {
+  const compose = readFileSync(new URL('../../../../deploy/hostinger/compose.yaml', import.meta.url), 'utf8');
+  const images = [...compose.matchAll(/^\s*image:\s*(postgres:\S+)\s*$/gm)].map((m) => m[1]);
+  assert.ok(images.length >= 1, 'the Hostinger compose names at least one postgres image');
+  for (const image of images) assert.equal(image, PG_IMAGE);
 });

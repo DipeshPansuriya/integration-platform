@@ -6,7 +6,7 @@ package io.integrationplatform;
  */
 public final class TestImages {
 
-    /** PostgreSQL 17.11 on Alpine; verified with docker manifest inspect and docker pull (index digest sha256:b0f9560a2de0...). */
+    /** PostgreSQL 17.11 on Alpine; verified with docker manifest inspect and docker pull (index digest sha256:eee6c6e1b089... as pinned by deploy/hostinger). */
     public static final String POSTGRES = "postgres:17.11-alpine";
 
     /** Keycloak 26.8.0 (E4, T-097): the newest stable tag docker pull confirmed on 2026-10-07; compose uses the same. */
