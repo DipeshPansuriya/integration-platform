@@ -1,4 +1,4 @@
-// F10-narrow (lane D, row278 release-base plan step 8, sanctioned Dipesh 2026-10-13) - the queue
+// F10-narrow (lane D, row278 release-base plan step 8, sanctioned by the project owner 2026-10-13) - the queue
 // dashboard screens, FAILING FIRST.
 //
 // The narrow scope: live counts only. A console user opens #/queue and sees, per flow and day,

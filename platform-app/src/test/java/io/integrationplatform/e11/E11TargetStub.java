@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * The targets of Dipesh's example (T-132), in-process: one plain HTTP server on the loopback address that every
+ * The targets of the two-target orders example (T-132), in-process: one plain HTTP server on the loopback address that every
  * target endpoint of the suite reaches through the suite's test network (the {@code *.e11.test} names resolve to a
  * TEST-NET-3 documentation address the destination guard accepts, and the suite's dialer connects only that pinned
  * address to this server). Each target endpoint has its own path; each path answers its configured status and every

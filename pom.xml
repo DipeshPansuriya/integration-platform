@@ -75,7 +75,7 @@
          platform (win32-x86-64/zen_uniffi.dll included) and binds it through java.lang.foreign. -->
     <zen-engine.version>2.1.1</zen-engine.version>
 
-    <!-- E7 seam (arjun-fullstack, F5): ADR-006 (Accepted, Dipesh 2026-10-12) - the transformation engine is the
+    <!-- E7 seam (arjun-fullstack, F5): ADR-006 (Accepted by the project owner 2026-10-12) - the transformation engine is the
          JSONata language through Dashjoin's Java port, called directly by platform-transform (E7 T-108). Apache-2.0
          (LICENSE of dashjoin/jsonata-java on GitHub, release 0.9.10 on Maven Central). Pinning is the seam; the
          engine-candidate additions for the spike stay in lane A's diff (test scope, platform-transform/pom.xml). -->
@@ -231,7 +231,7 @@
         <artifactId>jsonata</artifactId>
         <version>${jsonata.version}</version>
       </dependency>
-      <!-- E14 seam (arjun-fullstack, F8): ADR-012 Decision 1 (Accepted, Dipesh 2026-10-12) - the scheduler engine;
+      <!-- E14 seam (arjun-fullstack, F8): ADR-012 Decision 1 (Accepted by the project owner 2026-10-12) - the scheduler engine;
            its task table is created by Flyway (V2_2_1400, scheduler schema), never auto-created. -->
       <dependency>
         <groupId>com.github.kagkarlsson</groupId>

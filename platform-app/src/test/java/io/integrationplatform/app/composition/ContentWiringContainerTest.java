@@ -24,7 +24,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * content - so no DB/FILE delivery dead-letters PERMANENT for want of a message (Varun B4, Aditya E18). A full
  * delivery-through-the-file-system scenario (seed a FILE system with rootPath and fileNamePattern, a pinned JSONata
  * mapping, post, assert the file lands as {@code <pattern>} with the transformed bytes) extends
- * {@code DipeshExampleEndToEndContainerTest}'s seed and belongs to the QA lane.
+ * {@code TwoTargetOrdersEndToEndContainerTest}'s seed and belongs to the QA lane.
  */
 @Tag("container")
 @Testcontainers

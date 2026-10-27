@@ -12,7 +12,7 @@
 //   -> intake refusal (record 13, amount not a number): a CONTRACT refusal 400/422 naming amount (never the 403 identity
 //      gate), a green control (same body, valid amount: 202); 0 hits in the answer and the log slice
 //   -> screens (T112): detail + failures for 11 and 12 - 0 hits in the DOM and in every /api/ response
-//      the screens loaded. The mask itself is checked at API level only (Dipesh, option 1): the T112 screens
+//      the screens loaded. The mask itself is checked at API level only (project-owner decision, option 1): the T112 screens
 //      carry no payload field, so there is no "screen shows the mask" leg.
 //
 // Gates (lib/pending-names.mjs ON_MAIN via waitsOn): BS-11.0 and 11.3 need T108; 11.1, 11.2 and 11.4 also need

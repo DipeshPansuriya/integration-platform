@@ -13,7 +13,7 @@
 // Row 278 close-E7 (T-162 gaps, FAILING FIRST) - the screens a human uses in the 30-minute trial:
 //   T93 open a mapping from the screens    - Mappings menu -> the run's "orders" flow -> its Target B
 //                                            route -> "Open mapping": clicks only, no typed address.
-//   T92 run a sample on the saved mapping  - Dipesh's example on Target B; the output is shown.
+//   T92 run a sample on the saved mapping  - the two-target orders example on Target B; the output is shown.
 //   T92 the refusals are shown              - not JSON / unsaved drawing: refused, no call; a server
 //                                            refusal shows the server's message.
 //
@@ -382,7 +382,7 @@ test('T103: the Mappings landing is a worklist with worded mapping badges', asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
-// T92 (row 278 close-E7, T-162 gap 1): Dipesh's example on the Target B route - draw, save, run a sample.
+// T92 (row 278 close-E7, T-162 gap 1): the two-target orders example on the Target B route - draw, save, run a sample.
 test('T92: Customer A v1.0 -> Target B v2.0 drawn and saved, "Run sample" shows the mapped output', async ({ page }) => {
   await openCanvas(page, ROUTE_B);
   await page.locator('[data-field="source-version"]').selectOption(SOURCE_VERSION_ID);

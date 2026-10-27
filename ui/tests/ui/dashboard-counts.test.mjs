@@ -81,8 +81,8 @@ test('status badges always carry the word (never colour alone) - 01-tokens statu
 });
 
 test('greeting by the local hour, with the session user when known', () => {
-  assert.equal(greetingFor(9, 'dipesh.p'), 'Good morning, dipesh.p');
-  assert.equal(greetingFor(14, 'dipesh.p'), 'Good afternoon, dipesh.p');
+  assert.equal(greetingFor(9, 'ops.user'), 'Good morning, ops.user');
+  assert.equal(greetingFor(14, 'ops.user'), 'Good afternoon, ops.user');
   assert.equal(greetingFor(20, undefined), 'Good evening');
 });
 

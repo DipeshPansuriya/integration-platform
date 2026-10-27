@@ -1,6 +1,6 @@
 // T130 (row 323, F21 BS-B): the ONE place the base suite reads the dev-only outbound exception from.
 //
-// Dipesh "Option 1" (2026-10-16 20:38 IST): BS-07, BS-10 and BS-12 reach the one local WireMock only
+// Project-owner decision "Option 1" (2026-10-16 20:38 IST): BS-07, BS-10 and BS-12 reach the one local WireMock only
 // through the dev-only exception row 278 built - the `showcase` profile, one exact host, no wildcard, the
 // app's REAL host resolver (plan section 2). The four settings are DECIDED (karan-security note
 // 2026-10-22-e15-exception-settings.md): profile `showcase` (SystemPersistenceConfiguration.java:64), host

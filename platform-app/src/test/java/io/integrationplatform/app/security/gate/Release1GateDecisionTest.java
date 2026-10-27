@@ -53,7 +53,7 @@ class Release1GateDecisionTest {
     }
 
     @Test
-    void scenario2_anOpenCriticalOrHigh_blocksRelease_andIsNamedForDipesh() {
+    void scenario2_anOpenCriticalOrHigh_blocksRelease_andIsNamedForTheProjectOwner() {
         for (Severity blocking : List.of(Severity.CRITICAL, Severity.HIGH)) {
             Decision d = Release1Gate.decide(FOUR_AREAS, List.of(pass("S1-A1"), pass("S6-A1"), pass("S8-A1"),
                     new CaseResult("S2-A1", Verdict.FAIL, blocking, "_reports/t147-s2-a1.md")));

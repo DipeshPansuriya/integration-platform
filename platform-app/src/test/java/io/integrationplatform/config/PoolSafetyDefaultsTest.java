@@ -45,7 +45,7 @@ class PoolSafetyDefaultsTest {
     @Test
     void fourInstancesAtThePoolSizeStayInsideThePostgresConnectionLimit() {
         // T181: the design caps the sizing for 4 instances; max_connections=100 keeps 20 for the owner login,
-        // sessions and admin tooling. More instances or a bigger pool is a Dipesh decision, not a quiet edit.
+        // sessions and admin tooling. More instances or a bigger pool is a project-owner decision, not a quiet edit.
         int pool = Integer.parseInt(valueOf("spring.datasource.hikari.maximum-pool-size"));
         assertThat(pool * 4).as("4 instances x pool size").isLessThanOrEqualTo(80);
     }
