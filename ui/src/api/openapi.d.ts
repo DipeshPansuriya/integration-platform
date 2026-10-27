@@ -1005,6 +1005,7 @@ export interface components {
             valueNode?: boolean;
         };
         Me: {
+            roles?: string[];
             tenantCode?: string;
             /** Format: uuid */
             tenantId?: string;
