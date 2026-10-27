@@ -43,7 +43,7 @@ export function baseSuiteBootOptions(settings, { lockHolder } = {}) {
   return {
     extraTenants: [TENANT_B_PLAN],
     services: { wiremock: { ...BS_WIREMOCK, hostPort: exception.port }, kafka: BS_KAFKA },
-    appEnv: { ...exception.appEnv },
+    appEnv: { ...exception.appEnv, IPASS_DB_TARGET_ENABLED: 'true' },
     sourceCredentials: true,
     lockHolder
   };

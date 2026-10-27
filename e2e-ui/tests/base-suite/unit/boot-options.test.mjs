@@ -57,7 +57,7 @@ test('configured: tenant B, the declared WireMock, the exception through mergeAp
     extraTenants: [TENANT_B_PLAN],
     services: { wiremock: { ...BS_WIREMOCK, hostPort: 32768 }, kafka: BS_KAFKA },
     appEnv: { SPRING_PROFILES_ACTIVE: 'showcase', SHOWCASE_TARGET_HOST: 'target.showcase.test',
-      PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '32768', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'target.showcase.test', ROUTING_CORE_ALLOWED_SCHEMES: 'http,https' },
+      PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS: '32768', PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS: 'target.showcase.test', ROUTING_CORE_ALLOWED_SCHEMES: 'http,https', IPASS_DB_TARGET_ENABLED: 'true' },
     sourceCredentials: true,
     lockHolder: 'aditya-qa-automation base-suite'
   });
@@ -79,4 +79,10 @@ test('the lock holder is named - the lock note says who holds it', () => {
 test("the console declares only the logins the base suite drives: tenant A's approver and tenant B's two", () => {
   assert.deepEqual([...BS_CONSOLE_LOGINS], ['approver', 'bs-b-admin', 'bs-b-approver']);
   assert.ok(Object.isFrozen(BS_CONSOLE_LOGINS));
+});
+
+test('the DB target slice is switched on for the suite: a DB route needs its route template (IPASS_DB_TARGET_ENABLED)', () => {
+  const options = baseSuiteBootOptions(CONFIGURED, { lockHolder: 'unit' });
+  assert.equal(options.appEnv.IPASS_DB_TARGET_ENABLED, 'true');
+  assert.ok(!HARNESS_APP_ENV.includes('IPASS_DB_TARGET_ENABLED'), 'not harness-owned, so appEnv may add it');
 });
