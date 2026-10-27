@@ -3,7 +3,10 @@ package io.integrationplatform.app.audit;
 import io.integrationplatform.tenancy.TenantContext;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -22,10 +25,19 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Configuration(proxyBeanMethods = false)
 class AuditPersistenceConfiguration {
 
+    private static final Logger LOG = LoggerFactory.getLogger(AuditPersistenceConfiguration.class);
+
     @Bean
-    JdbcAuditEventStore auditEventStore(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts) {
+    JdbcAuditEventStore auditEventStore(JdbcClient jdbcClient, ObjectProvider<TenantContext> tenantContexts,
+            @Value("${ipaas.audit.relay.mode:DEFINER}") String relayMode) {
+        // row 544 D-5: DEFINER (default) or LEGACY; any other value fails the start
+        RelayMode mode = RelayMode.parse(relayMode);
+        if (mode == RelayMode.LEGACY) {
+            LOG.warn("ipaas.audit.relay.mode=LEGACY: the audit relay uses the direct UPDATE+INSERT statement; it works"
+                    + " only after the V2_4_1470 rollback SQL re-granted the two privileges");
+        }
         TenantContext bound = tenantContexts.getIfAvailable();
-        return new JdbcAuditEventStore(jdbcClient, bound != null ? bound : neverBound());
+        return new JdbcAuditEventStore(jdbcClient, bound != null ? bound : neverBound(), mode);
     }
 
     @Bean

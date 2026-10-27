@@ -13,9 +13,11 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * E12 write side (T-043 / T-069): appends one activity event to the audit ledger ({@code public.audit_event},
- * V2_2_1220 + {@code trace_id}, V2_4_1270) in the CALLER's tenant-stamped transaction, so it commits or rolls back
- * with the business action - the same atomicity the config edits get from the outbox, without a second hop. The
+ * E12 write side (T-043 / T-069): appends one activity event to the audit OUTBOX ({@code public.audit_outbox},
+ * V2_4_3 + {@code trace_id}, V2_4_1470) in the CALLER's tenant-stamped transaction, so it commits or rolls back
+ * with the business action. Row 544 (Q1): the application role can no longer insert into the ledger
+ * ({@code public.audit_event}) itself; the relay moves the row there through {@code audit_relay_move}, so an activity
+ * entry is readable from the ledger once the relay has run (no production caller exists today). The
  * tenant is taken only from {@link TenantContext} (R08): an entry names none, and with none bound this throws
  * {@code NoTenantBoundException} before any SQL runs. The row inserts through the parentless-append idiom of
  * {@code JdbcAuditEventStore} (a {@code values} scoping row the base's predicate filters; RLS WITH CHECK is the
@@ -47,7 +49,7 @@ public final class JdbcActivityWriter extends TenantScopedRepository implements 
         bound.put("trace_id", entry.traceId());
 
         int rows = update(
-                "insert into public.audit_event (tenant_id, actor, action, target_ids, before_state, after_state,"
+                "insert into public.audit_outbox (tenant_id, actor, action, target_ids, before_state, after_state,"
                         + " event_at, trace_id)"
                         + " select :own_tenant::uuid, :actor, :action, :target_ids::jsonb, :before_state,"
                         + " :after_state, :event_at, :trace_id"
