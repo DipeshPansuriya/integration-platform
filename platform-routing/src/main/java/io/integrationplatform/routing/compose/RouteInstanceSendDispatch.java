@@ -3,6 +3,7 @@ package io.integrationplatform.routing.compose;
 import io.integrationplatform.delivery.port.SendOutcomes;
 import io.integrationplatform.domain.delivery.OutcomeClass;
 import io.integrationplatform.routing.credential.CredentialedDelivery;
+import io.integrationplatform.routing.credential.TargetCallCredentialHolder;
 import io.integrationplatform.routing.stage2.LayerOneRouteBuilder;
 import io.integrationplatform.routing.stage2.Stage2Send;
 import io.integrationplatform.routing.stage2.bulkhead.Stage2SendDispatch;
@@ -95,7 +96,14 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
         Exchange done = credentialed == null ? producer.send(instance.consumerUri(),
                 exchange -> exchange.getIn().setBody(send))
                 : credentialed.send(send.deliveryId(), send.claimToken(), send.targetEndpointId(),
-                        opened -> producer.send(instance.consumerUri(), e -> e.getIn().setBody(send)))
+                        opened -> {
+                            TargetCallCredentialHolder.set(opened);
+                            try {
+                                return producer.send(instance.consumerUri(), e -> e.getIn().setBody(send));
+                            } finally {
+                                TargetCallCredentialHolder.clear();
+                            }
+                        })
                         .value();
         if (done == null) {
             return false; // the store already moved the delivery - no call left the process, no attempt row written

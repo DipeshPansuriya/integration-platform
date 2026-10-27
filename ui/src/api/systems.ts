@@ -3,7 +3,7 @@
 // answers {id, code, name, direction, type, settings}; a refused save answers 400 with EVERY
 // validation error listed in `errors` (and joined in `error`); 404 is the tenant-isolation answer.
 
-import { api } from './client';
+import { api, consoleFetch } from './client';
 import { refusalWords } from './refusal-words';
 import type { ApiAnswer } from './flows';
 
@@ -137,6 +137,98 @@ export async function testConnection(systemId: string): Promise<ListedAnswer<Tes
   });
   return listedAnswer(data as unknown as TestConnectionResult, error, response);
 }
+
+// --- Auth method constants and types ---
+
+export const AUTH_METHODS = ['NO_AUTH', 'BASIC', 'BEARER_TOKEN', 'API_KEY', 'OAUTH2_CLIENT_CREDENTIALS'] as const;
+export type AuthMethod = (typeof AUTH_METHODS)[number];
+
+export const AUTH_METHOD_LABELS: Record<AuthMethod, string> = {
+  NO_AUTH: 'No authentication',
+  BASIC: 'Basic (username + password)',
+  BEARER_TOKEN: 'Bearer token',
+  API_KEY: 'API key (custom header)',
+  OAUTH2_CLIENT_CREDENTIALS: 'OAuth2 client credentials'
+};
+
+export type EndpointAuthView = {
+  endpointId: string;
+  authMethod: string;
+  authIdentity: string | null;
+  authTokenUrl: string | null;
+};
+
+export type CredentialFieldView = {
+  field: string;
+  credentialId: string;
+  value: string;
+  updatedAt: string;
+};
+
+export type TargetCredentialView = {
+  targetEndpointId: string;
+  targetType: string | null;
+  fields: CredentialFieldView[];
+  allowedFields: string[];
+};
+
+export async function readEndpointAuth(systemId: string): Promise<ListedAnswer<EndpointAuthView>> {
+  const response = await consoleFetch(`/api/v1/admin/systems/${encodeURIComponent(systemId)}/endpoint-auth`);
+  const body = await response.json().catch(() => null);
+  if (response.ok && body) return { ok: true, data: body as EndpointAuthView };
+  const errors = Array.isArray(body?.errors) ? body.errors.map(String) : body?.error ? [body.error] : [];
+  return { ok: false, status: response.status, errors };
+}
+
+export async function updateEndpointAuth(systemId: string, auth: {
+  authMethod: string;
+  authIdentity: string | null;
+  authTokenUrl: string | null;
+}): Promise<ListedAnswer<EndpointAuthView>> {
+  const response = await consoleFetch(`/api/v1/admin/systems/${encodeURIComponent(systemId)}/endpoint-auth`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(auth)
+  });
+  const data = await response.json().catch(() => null);
+  if (response.ok && data) return { ok: true, data: data as EndpointAuthView };
+  const errors = Array.isArray(data?.errors) ? data.errors.map(String) : data?.error ? [data.error] : [];
+  return { ok: false, status: response.status, errors };
+}
+
+export async function readTargetCredentials(endpointId: string): Promise<ListedAnswer<TargetCredentialView>> {
+  const response = await consoleFetch(`/api/v1/admin/target-endpoints/${encodeURIComponent(endpointId)}/credentials`);
+  const body = await response.json().catch(() => null);
+  if (response.ok && body) return { ok: true, data: body as TargetCredentialView };
+  const errors = Array.isArray(body?.errors) ? body.errors.map(String) : body?.error ? [body.error] : [];
+  return { ok: false, status: response.status, errors };
+}
+
+export async function saveTargetCredentials(endpointId: string, fields: Record<string, string>): Promise<ListedAnswer<TargetCredentialView>> {
+  const response = await consoleFetch(`/api/v1/admin/target-endpoints/${encodeURIComponent(endpointId)}/credentials`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields })
+  });
+  const data = await response.json().catch(() => null);
+  if (response.ok && data) return { ok: true, data: data as TargetCredentialView };
+  const errors = Array.isArray(data?.errors) ? data.errors.map(String) : data?.error ? [data.error] : [];
+  return { ok: false, status: response.status, errors };
+}
+
+export const CREDENTIAL_FIELDS_BY_AUTH: Record<AuthMethod, { field: string; label: string; placeholder: string }[]> = {
+  NO_AUTH: [],
+  BASIC: [{ field: 'basicPassword', label: 'Password', placeholder: 'Enter password' }],
+  BEARER_TOKEN: [{ field: 'bearerToken', label: 'Token', placeholder: 'Enter bearer token' }],
+  API_KEY: [{ field: 'apiKey', label: 'API key value', placeholder: 'Enter API key' }],
+  OAUTH2_CLIENT_CREDENTIALS: [{ field: 'oauthClientSecret', label: 'Client secret', placeholder: 'Enter client secret' }]
+};
+
+export const AUTH_IDENTITY_LABEL: Partial<Record<AuthMethod, string>> = {
+  BASIC: 'Username',
+  API_KEY: 'Header name (e.g. X-Api-Key)',
+  OAUTH2_CLIENT_CREDENTIALS: 'Client ID'
+};
 
 /**
  * The settings object a form sends: only the type's own fields, blanks left out (the API names a

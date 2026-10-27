@@ -20,8 +20,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 public class JdbcTargetEndpointViews extends TenantScopedRepository implements TargetEndpointViews {
 
     private static final String SELECT_ENDPOINT = """
-            select te.base_url, te.http_method, te.timeout_ms, te.auth_method, te.idempotent_receive,
-                   te.error_dictionary,
+            select te.base_url, te.http_method, te.timeout_ms, te.auth_method,
+                   te.auth_identity, te.auth_token_url,
+                   te.idempotent_receive, te.error_dictionary,
                    (select s.settings -> 'errorDictionary' from public.system s
                     where s.tenant_id = te.tenant_id and s.id = te.system_id) as settings_error_dictionary
             from public.target_endpoint te""";
@@ -35,10 +36,13 @@ public class JdbcTargetEndpointViews extends TenantScopedRepository implements T
         List<TargetEndpointRow> rows = query(SELECT_ENDPOINT,
                 "te.id = :id::uuid", Map.of("id", endpointId.toString()),
                 (rs, rowNum) -> new TargetEndpointRow(rs.getString("base_url"), rs.getString("http_method"),
-                        rs.getInt("timeout_ms"), rs.getString("auth_method"), rs.getBoolean("idempotent_receive"),
+                        rs.getInt("timeout_ms"), rs.getString("auth_method"),
+                        rs.getString("auth_identity"), rs.getString("auth_token_url"),
+                        rs.getBoolean("idempotent_receive"),
                         rs.getString("error_dictionary"), rs.getString("settings_error_dictionary")));
         return rows.stream().findFirst().map(row -> new TargetEndpointView(URI.create(row.baseUrl()), row.httpMethod(),
-                row.timeoutMs(), row.authMethod(), row.idempotentReceive(),
+                row.timeoutMs(), row.authMethod(), row.authIdentity(), row.authTokenUrl(),
+                row.idempotentReceive(),
                 dictionary(row.errorDictionary(), row.settingsErrorDictionary())));
     }
 
@@ -72,6 +76,7 @@ public class JdbcTargetEndpointViews extends TenantScopedRepository implements T
     }
 
     private record TargetEndpointRow(String baseUrl, String httpMethod, int timeoutMs, String authMethod,
+            String authIdentity, String authTokenUrl,
             boolean idempotentReceive, String errorDictionary, String settingsErrorDictionary) {
     }
 }

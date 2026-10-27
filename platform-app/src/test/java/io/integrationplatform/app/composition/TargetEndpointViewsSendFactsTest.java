@@ -25,7 +25,7 @@ class TargetEndpointViewsSendFactsTest {
 
     private final TargetEndpointViews views = id -> KNOWN.equals(id)
             ? Optional.of(new TargetEndpointView(URI.create("https://target.example"), "POST", 4_500, "NO_AUTH",
-                    true, Map.of()))
+                    null, null, true, Map.of()))
             : Optional.empty();
 
     @Test

@@ -73,7 +73,9 @@ function currentTheme(): Theme {
 
 // Nav groups in the order a configuration is actually done (00-§2). Dashboard is the
 // Overview entry (route `#/`; the dashboard screen itself is lane A's work).
-const NAV_GROUPS: Array<{ title: string; entries: Array<{ label: string; nav: string; hash: string; page: Route['page'] }> }> = [
+type NavEntry = { label: string; nav: string; hash: string; page: Route['page']; external?: undefined }
+  | { label: string; nav: string; href: string; external: true };
+const NAV_GROUPS: Array<{ title: string; entries: NavEntry[] }> = [
   {
     title: 'Overview',
     entries: [
@@ -106,7 +108,28 @@ const NAV_GROUPS: Array<{ title: string; entries: Array<{ label: string; nav: st
       { label: 'Allowed hosts', nav: 'settings', hash: '#/settings', page: 'settings' },
     ],
   },
+  {
+    title: 'Admin tools',
+    entries: adminToolEntries(),
+  },
 ];
+
+function adminToolEntries(): NavEntry[] {
+  const h = window.location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1') {
+    return [
+      { label: 'Keycloak', nav: 'keycloak', href: 'http://localhost:8180/admin/master/console/', external: true },
+      { label: 'Kafka UI', nav: 'kafbat', href: 'http://localhost:8090', external: true },
+    ];
+  }
+  const parts = h.split('.');
+  const domain = parts.length > 1 ? parts.slice(1).join('.') : h;
+  const proto = window.location.protocol;
+  return [
+    { label: 'Keycloak', nav: 'keycloak', href: `${proto}//auth.${domain}/admin/master/console/`, external: true },
+    { label: 'Kafka UI', nav: 'kafbat', href: `${proto}//ops.${domain}/kafka/`, external: true },
+  ];
+}
 
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#\/?/, '');
@@ -361,6 +384,25 @@ export function App() {
             <div className="nav-group" key={group.title}>
               <p className="nav-title" aria-hidden="true">{group.title}</p>
               {group.entries.map((entry) => {
+                if (entry.external) {
+                  return (
+                    <a
+                      key={entry.nav}
+                      className="nav-item"
+                      data-nav={entry.nav}
+                      data-initial={entry.label.charAt(0)}
+                      href={entry.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`${entry.label} (opens in new tab)`}
+                    >
+                      <span className="nav-label">{entry.label}</span>
+                      <svg className="nav-external-icon" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M6 3H3v10h10v-3M9 2h5v5M14 2L7 9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </a>
+                  );
+                }
                 const active = route.page === entry.page;
                 return (
                   <a

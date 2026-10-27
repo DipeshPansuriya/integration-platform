@@ -92,6 +92,14 @@ public final class JdbcSystemRepository extends TenantScopedRepository {
     private static final String READ_ENDPOINT_BASE_URL =
             "select te.base_url from public.target_endpoint te";
 
+    private static final String READ_ENDPOINT_AUTH =
+            "select te.id::text as id, te.auth_method, te.auth_identity, te.auth_token_url"
+            + " from public.target_endpoint te";
+
+    private static final String UPDATE_ENDPOINT_AUTH =
+            "update public.target_endpoint set auth_method = :auth_method,"
+            + " auth_identity = :auth_identity, auth_token_url = :auth_token_url";
+
     private static final String READ_ENDPOINT_OF_SYSTEM =
             "select te.id::text as id from public.target_endpoint te";
 
@@ -157,6 +165,23 @@ public final class JdbcSystemRepository extends TenantScopedRepository {
     public int updateEndpointBaseUrl(String systemId, String baseUrl) {
         return update(UPDATE_ENDPOINT_BASE_URL, "system_id = :system_id::uuid",
                 Params.of("system_id", systemId, "base_url", baseUrl));
+    }
+
+    public record EndpointAuth(String endpointId, String authMethod, String authIdentity, String authTokenUrl) {
+    }
+
+    public Optional<EndpointAuth> findEndpointAuth(String systemId) {
+        return first(query(READ_ENDPOINT_AUTH, "te.system_id = :system_id::uuid",
+                Params.of("system_id", systemId),
+                (RowMapper<EndpointAuth>) (rs, n) -> new EndpointAuth(
+                        rs.getString("id"), rs.getString("auth_method"),
+                        rs.getString("auth_identity"), rs.getString("auth_token_url"))));
+    }
+
+    public int updateEndpointAuth(String systemId, String authMethod, String authIdentity, String authTokenUrl) {
+        return update(UPDATE_ENDPOINT_AUTH, "system_id = :system_id::uuid",
+                Params.of("system_id", systemId, "auth_method", authMethod,
+                        "auth_identity", authIdentity, "auth_token_url", authTokenUrl));
     }
 
     /** The endpoint a route points at for this system (E3: one default endpoint per registered system). */

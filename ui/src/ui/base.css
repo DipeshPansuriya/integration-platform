@@ -325,6 +325,13 @@ summary:focus-visible {
 .shell-collapsed .nav-item-active {
   justify-content: flex-start;
 }
+.nav-external-icon {
+  margin-left: auto;
+  opacity: 0.45;
+  flex: none;
+}
+.nav-item:hover .nav-external-icon { opacity: 0.8; }
+.shell-collapsed .nav-external-icon { display: none; }
 
 /* --- Content column --- */
 .content {

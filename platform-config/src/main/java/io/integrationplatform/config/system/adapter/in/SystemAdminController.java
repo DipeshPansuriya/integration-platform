@@ -94,6 +94,37 @@ public class SystemAdminController {
     }
 
     @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "The endpoint's auth settings"),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or the role does not allow the operation",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "404", description = "Not found: the row is not visible to the bound tenant",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "409", description = "Not an outbound system, or no target endpoint",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+    @GetMapping("/{systemId}/endpoint-auth")
+    public ResponseEntity<Map<String, Object>> readEndpointAuth(@PathVariable String systemId) {
+        actors.requireActor();
+        return ResponseEntity.ok(service.readEndpointAuth(systemId));
+    }
+
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Saved: the updated auth settings"),
+        @ApiResponse(responseCode = "400", description = "Every validation error is listed (errors) and joined (error)",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or the role does not allow the operation",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "404", description = "Not found: the row is not visible to the bound tenant",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "409", description = "Not an outbound system, or no target endpoint",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+    @PutMapping("/{systemId}/endpoint-auth")
+    public ResponseEntity<Map<String, Object>> updateEndpointAuth(@PathVariable String systemId,
+            @RequestBody JsonNode body) {
+        actors.requireActor();
+        return ResponseEntity.ok(service.updateEndpointAuth(systemId, body));
+    }
+
+    @ApiResponses({
         @ApiResponse(responseCode = "200", description = "The result: SUCCESS (httpStatus, responseTimeMs), REFUSED"
                 + " (reason, before any data is sent), FAILED (reason), NOT_AVAILABLE_YET (the type's test arrives with"
                 + " its adapter) or NOT_CONFIGURED"),

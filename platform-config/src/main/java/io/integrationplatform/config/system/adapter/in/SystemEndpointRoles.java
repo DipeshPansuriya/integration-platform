@@ -22,6 +22,8 @@ public class SystemEndpointRoles implements ApiOperationRules {
                 new Rule("GET", SYSTEMS, Operation.READ_CONFIGURATION),
                 new Rule("GET", SYSTEMS + "/{systemId}", Operation.READ_CONFIGURATION),
                 new Rule("PUT", SYSTEMS + "/{systemId}", Operation.EDIT_CONFIGURATION),
+                new Rule("GET", SYSTEMS + "/{systemId}/endpoint-auth", Operation.READ_CONFIGURATION),
+                new Rule("PUT", SYSTEMS + "/{systemId}/endpoint-auth", Operation.EDIT_CONFIGURATION),
                 new Rule("POST", SYSTEMS + "/{systemId}/test-connection", Operation.EDIT_CONFIGURATION),
                 // E16 F3: a configurator requests a DB table; only a tenant admin / approver approves or revokes one
                 new Rule("GET", SYSTEMS + "/{systemId}/approved-tables", Operation.READ_CONFIGURATION),

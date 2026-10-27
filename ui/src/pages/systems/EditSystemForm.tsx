@@ -5,6 +5,7 @@
 import { useState, type FormEvent } from 'react';
 import { clientSettingsErrors, extraSettingsOf, formFromSettings, settingsForEdit, updateSystem, type SystemView } from '../../api/systems';
 import { ERRORS_ID, SettingsFields, TypeField, ValidationErrors, type FormValues } from './SystemFields';
+import { EndpointAuthForm } from './EndpointAuthForm';
 import { topFieldHasError } from './systems-view';
 import { useDrawerSaved } from '../../ui/Drawer';
 
@@ -18,6 +19,7 @@ export function EditSystemForm({ system, onSaved }: { system: SystemView; onSave
   const markSaved = useDrawerSaved(); // row 372 M4: only an accepted save lifts the drawer's discard guard
 
   const extras = extraSettingsOf(type, system.settings, system.type);
+  const isOutboundApi = system.direction === 'OUTBOUND' && (system.type === 'API' || type.trim() === 'API');
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -52,6 +54,7 @@ export function EditSystemForm({ system, onSaved }: { system: SystemView; onSave
   };
 
   return (
+    <>
     <form data-form="edit-system" data-system-id={system.id} onSubmit={onSubmit}>
       <p className="systems-muted" data-required-legend>
         Required fields are marked *
@@ -89,5 +92,9 @@ export function EditSystemForm({ system, onSaved }: { system: SystemView; onSave
       {saved && <p role="status" className="systems-alert systems-alert-success" data-saved="true">System saved.</p>}
       <ValidationErrors errors={errors} />
     </form>
+    {isOutboundApi && (
+      <EndpointAuthForm systemId={system.id} />
+    )}
+    </>
   );
 }
