@@ -116,7 +116,10 @@ docker exec "$N-pg" sh -c "cat /tmp/ipass-drill.dump | pg_restore -U ipass_admin
 expect "restore exit 0" test $? -eq 0
 mig info > "$TMP/i3.out" 2>&1
 expect "after the restore: $EXPECTED migrations Success, none Pending" bash -c "[ \"\$(grep -c '| Success' '$TMP/i3.out')\" -eq $EXPECTED ] && ! grep -q '| Pending' '$TMP/i3.out'"
-expect "database owner and a table owner are ipass_migrator again" bash -c "[ \"\$(docker exec '$N-pg' psql -U ipass_admin -d ipass -Atc \"select pg_get_userbyid(datdba) || ',' || (select tableowner from pg_tables where tablename='flyway_schema_history')\" | tr -d '\r')\" = ipass_migrator,ipass_migrator ]"
+dbo="$(docker exec "$N-pg" psql -U ipass_admin -d ipass -Atc "select pg_get_userbyid(datdba) from pg_database where datname='ipass'" | tr -d '')"
+tbo="$(docker exec "$N-pg" psql -U ipass_admin -d ipass -Atc "select tableowner from pg_tables where tablename='flyway_schema_history'" | tr -d '')"
+echo "database owner=$dbo, flyway_schema_history owner=$tbo"
+expect "database owner and a table owner are ipass_migrator again" test "$dbo,$tbo" = ipass_migrator,ipass_migrator
 mig migrate >/dev/null 2>&1; expect "migrate after the restore is a no-op (exit 0)" test $? -eq 0
 
 if [ "${KEEP:-0}" = 1 ]; then
