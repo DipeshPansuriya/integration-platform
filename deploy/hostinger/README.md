@@ -35,7 +35,9 @@ The compose `image:` names are overridable per service: `IPASS_APP_IMAGE`, `IPAS
 ## Build (build PC; step 6 of the ADR; an outward push needs the project owner's approval)
 
 ```
-JAVA_HOME=<jdk25> ./mvnw -B -pl platform-app -am package -DskipTests
+# Gate first: run the tests on the SHA you build (JAVA_HOME=<jdk25> ./mvnw -B -o test), or cite a green SHA whose
+# `git diff --name-only <green-sha> <deploy-sha>` touches only deploy/ scripts or docs. Never package untested app code.
+JAVA_HOME=<jdk25> ./mvnw -B -pl platform-app -am package -DskipTests   # only after the gate above is met
 (cd ui && npm ci && npx vite build)
 docker build -f platform-app/Dockerfile -t <registry>/ipass/platform-app:<sc> .
 docker build -f ui/Dockerfile -t <registry>/ipass/ui:<sc> .
