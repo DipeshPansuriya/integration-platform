@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.integrationplatform.PlatformTestWiring;
 import io.integrationplatform.TestImages;
-import io.integrationplatform.e11.DipeshExampleSeed;
+import io.integrationplatform.e11.TwoTargetOrdersSeed;
 import io.integrationplatform.identity.ConsoleBrowser;
 import io.integrationplatform.identity.KeycloakRealmContainer;
 import io.integrationplatform.identity.KeycloakRealmContainer.ClientCredentials;
@@ -82,8 +82,8 @@ class SecurityGateS4IdentityContainerTest {
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private static final AtomicBoolean SEEDED = new AtomicBoolean();
     private static PlatformTestWiring.RestrictedLogin login;
-    private static DipeshExampleSeed.Tenant tenantA;
-    private static DipeshExampleSeed.Tenant tenantB;
+    private static TwoTargetOrdersSeed.Tenant tenantA;
+    private static TwoTargetOrdersSeed.Tenant tenantB;
     private static ClientCredentials sourceA;
     private static ClientCredentials agent;
     private static ClientCredentials strangerAgent;
@@ -132,9 +132,9 @@ class SecurityGateS4IdentityContainerTest {
         adminA = KEYCLOAK.createUser("s4-admin-" + suffix);
         readerA = KEYCLOAK.createUser("s4-reader-" + suffix);
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            tenantA = DipeshExampleSeed.onboard(owner, "alpha", "T171S4-CUST-A", sourceA.clientId(),
+            tenantA = TwoTargetOrdersSeed.onboard(owner, "alpha", "T171S4-CUST-A", sourceA.clientId(),
                     KEYCLOAK.issuerUri());
-            tenantB = DipeshExampleSeed.onboard(owner, "bravo", "T171S4-CUST-B", sourceB.clientId(),
+            tenantB = TwoTargetOrdersSeed.onboard(owner, "bravo", "T171S4-CUST-B", sourceB.clientId(),
                     KEYCLOAK.issuerUri());
             try (PreparedStatement st = owner.prepareStatement(
                     "INSERT INTO scheduler.operator_credential (issuer, client_id, status) VALUES (?, ?, 'ACTIVE')")) {
@@ -228,10 +228,10 @@ class SecurityGateS4IdentityContainerTest {
     }
 
     private HttpResponse<String> intake(String bearer) throws Exception {
-        return call("POST", "/api/v1/interfaces/" + DipeshExampleSeed.INTERFACE_CODE + "/messages", bearer,
+        return call("POST", "/api/v1/interfaces/" + TwoTargetOrdersSeed.INTERFACE_CODE + "/messages", bearer,
                 "{\"customerId\":\"T171S4-CUST-A\",\"orderId\":\"S4-" + UUID.randomUUID() + "\",\"amount\":1}",
                 Map.of("Content-Type", "application/json", "Idempotency-Key", UUID.randomUUID().toString(),
-                        "X-Source-Contract-Version", DipeshExampleSeed.SOURCE_CONTRACT_LABEL));
+                        "X-Source-Contract-Version", TwoTargetOrdersSeed.SOURCE_CONTRACT_LABEL));
     }
 
     private void assertOpaque(String what, HttpResponse<String> response) {

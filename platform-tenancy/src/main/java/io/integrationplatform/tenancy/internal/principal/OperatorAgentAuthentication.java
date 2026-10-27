@@ -6,7 +6,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
 /**
- * E14 seam (arjun-fullstack, F8; ADR-012 section 5, Accepted by Dipesh 2026-10-12): a request whose validated machine
+ * E14 seam (arjun-fullstack, F8; ADR-012 section 5, Accepted by the project owner 2026-10-12): a request whose validated machine
  * token was resolved to an entry of {@code scheduler.operator_credential} - the platform's first no-tenant principal.
  * Deliberately NEITHER a {@link TenantBoundAuthentication} nor a {@link SourceBoundAuthentication}: it binds no tenant
  * and no source system, so every tenant-owned query errors under row-level security and every existing operation

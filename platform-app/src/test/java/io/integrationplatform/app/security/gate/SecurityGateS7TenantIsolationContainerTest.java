@@ -30,7 +30,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.transaction.PlatformTransactionManager;
 import io.integrationplatform.delivery.port.Stage1Deliveries;
 import io.integrationplatform.delivery.replay.DeliveryOperatorActions;
-import io.integrationplatform.e11.DipeshExampleSeed;
+import io.integrationplatform.e11.TwoTargetOrdersSeed;
 import io.integrationplatform.identity.KeycloakRealmContainer;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -231,11 +231,11 @@ class SecurityGateS7TenantIsolationContainerTest {
                 "s7a3-a-" + UUID.randomUUID().toString().substring(0, 8), true);
         KeycloakRealmContainer.ClientCredentials sourceB = KEYCLOAK.createConfidentialClient(
                 "s7a3-b-" + UUID.randomUUID().toString().substring(0, 8), true);
-        DipeshExampleSeed.Tenant a;
-        DipeshExampleSeed.Tenant b;
+        TwoTargetOrdersSeed.Tenant a;
+        TwoTargetOrdersSeed.Tenant b;
         try (java.sql.Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            a = DipeshExampleSeed.onboard(owner, "alpha", "S7-CUST-A", sourceA.clientId(), KEYCLOAK.issuerUri());
-            b = DipeshExampleSeed.onboard(owner, "bravo", "S7-CUST-B", sourceB.clientId(), KEYCLOAK.issuerUri());
+            a = TwoTargetOrdersSeed.onboard(owner, "alpha", "S7-CUST-A", sourceA.clientId(), KEYCLOAK.issuerUri());
+            b = TwoTargetOrdersSeed.onboard(owner, "bravo", "S7-CUST-B", sourceB.clientId(), KEYCLOAK.issuerUri());
         }
         String idempotencyKey = UUID.randomUUID().toString();
         // B submits one record; A submits its own with the SAME idempotency key (a "cross-tenant message id")
@@ -273,11 +273,11 @@ class SecurityGateS7TenantIsolationContainerTest {
             String idempotencyKey) throws Exception {
         String token = KEYCLOAK.clientCredentialsToken(source.clientId(), source.secret());
         return HTTP.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/interfaces/"
-                        + DipeshExampleSeed.INTERFACE_CODE + "/messages"))
+                        + TwoTargetOrdersSeed.INTERFACE_CODE + "/messages"))
                 .timeout(Duration.ofSeconds(30))
                 .header("Authorization", "Bearer " + token)
                 .header("Content-Type", "application/json")
-                .header("X-Source-Contract-Version", DipeshExampleSeed.SOURCE_CONTRACT_LABEL)
+                .header("X-Source-Contract-Version", TwoTargetOrdersSeed.SOURCE_CONTRACT_LABEL)
                 .header("Idempotency-Key", idempotencyKey)
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build(), HttpResponse.BodyHandlers.ofString());

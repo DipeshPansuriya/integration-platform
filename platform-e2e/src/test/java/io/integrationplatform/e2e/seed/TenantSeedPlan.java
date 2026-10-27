@@ -9,7 +9,7 @@ import java.util.Set;
 import java.util.random.RandomGenerator;
 
 /**
- * Row 327 T157 (Dipesh option 1, memory m-68d957): what the TEST-ONLY tenant B seed creates for SC-07 and SEC-01 - a
+ * Row 327 T157 (project-owner option 1, memory m-68d957): what the TEST-ONLY tenant B seed creates for SC-07 and SEC-01 - a
  * second tenant next to tenant A with exactly one {@code TENANT_ADMIN} user, one {@code READ_ONLY} user and one
  * client-credentials source credential. Every code, login and password is generated per run and held in memory only
  * (R07: no literal secret in any file). The roles are names of {@code public.role_grant}'s closed CHECK set

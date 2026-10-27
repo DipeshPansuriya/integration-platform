@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
  *   <li>Scenario 1: each of the four areas needs at least one recorded verdict (PASS or FAIL) with evidence.
  *       BLOCKED and TBD rows are not verdicts; they neither fail nor satisfy the gate.</li>
  *   <li>Scenario 2: an open Critical or High FAIL keeps Release 1 open; its case id is returned so the finding
- *       goes to Dipesh directly.</li>
+ *       goes to the project owner directly.</li>
  * </ul>
  */
 public final class Release1Gate {
@@ -70,7 +70,7 @@ public final class Release1Gate {
         }
     }
 
-    /** The roll-up: whether Release 1 may close, what blocks it, and what goes to Dipesh directly. */
+    /** The roll-up: whether Release 1 may close, what blocks it, and what goes to the project owner directly. */
     public record Decision(boolean releaseMayClose, Set<Area> areasWithoutVerdict, List<String> openCriticalOrHigh) {
         public Decision {
             areasWithoutVerdict = Set.copyOf(areasWithoutVerdict);

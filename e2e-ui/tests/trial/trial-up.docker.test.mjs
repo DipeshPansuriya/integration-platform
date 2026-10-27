@@ -5,7 +5,7 @@
 // one-docker-suite-at-a-time lock, seeds the trial tenant through the real API and serves the built
 // console on 127.0.0.1:4173. This test then signs in AS THE TRIAL USER through the realm's real
 // login form and does what the T-162 trial does by hand: find flow "orders", its one route to
-// Target B and that route's mapping; save Dipesh's three links with the contract binding; run his
+// Target B and that route's mapping; save the example's three links with the contract binding; run its
 // sample. stop() must release the lock and remove the postgres container.
 //
 // The password: a throwaway value generated here and handed in as IPASS_TRIAL_PASSWORD - in memory

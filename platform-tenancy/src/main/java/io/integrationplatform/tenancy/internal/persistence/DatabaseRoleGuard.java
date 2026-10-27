@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 /**
- * K1 (T146, Dipesh m-263aac): the application's database login must not be able to bypass row-level security -
+ * K1 (T146, project-owner decision m-263aac): the application's database login must not be able to bypass row-level security -
  * not a superuser, not BYPASSRLS, and not the owner (or a member of an owner role) of any table in any application
  * schema. Otherwise every tenant-isolation control collapses silently, so the application refuses to start in every
  * environment instead of running unprotected.

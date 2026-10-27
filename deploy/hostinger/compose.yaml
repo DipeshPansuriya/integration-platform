@@ -1,7 +1,7 @@
 # iPass showcase/staging copy on the Hostinger VPS (ADR-H-IPASS-01). Deployed to /docker/ipass next to the existing
 # Traefik (external network `web`, resolver `letsencrypt`, entrypoint `websecure` - house guide section 2/4).
 # Variable NAMES only here; values live in the server's root-only .env (bootstrap-env.sh generates it). No `latest`.
-# Not routed on purpose: /v3, /actuator, Keycloak /admin and the master realm. Nothing publishes a port.
+# Row 489 (27-Oct, Dipesh's decision): /actuator, /v3, Keycloak /admin and the master realm ARE routed now (history: runbook section 3). Nothing here publishes a port except by an overlay.
 # Only the `edge` proxy joins the shared `web` network (Traefik -> edge); edge reaches app/ui/keycloak over the
 # internal `ipass-front` network and enforces the path allow-list itself, so no other stack on `web` can reach the app,
 # the actuator or Keycloak's admin directly. The app alone has outbound reach (`ipass-egress`) for allow-listed destinations.
@@ -69,6 +69,8 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       KAFKA_LOG_RETENTION_HOURS: "168"
+      # data on the volume: the image default log.dirs is under /tmp, so without this every recreate wipes topics and offsets
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
       TZ: Etc/UTC
     volumes:
@@ -292,9 +294,9 @@ services:
       - traefik.http.middlewares.ipass-sec.headers.customFrameOptionsValue=DENY
       - traefik.http.middlewares.ipass-sec.headers.contentSecurityPolicy=frame-ancestors 'none'
       - traefik.http.middlewares.ipass-sec.headers.referrerPolicy=same-origin
-      # the auth host: /admin and the master realm stay unrouted at Traefik too (edge refuses them as well).
+      # the auth host: all of Keycloak, admin console and master realm included (row 489 chunk C; was unrouted before).
       # Keycloak sets its own CSP and frame options: HSTS + nosniff only here
-      - traefik.http.routers.ipass-auth.rule=Host(`auth.${IPASS_DOMAIN}`) && !PathPrefix(`/admin`) && !PathPrefix(`/realms/master`)
+      - traefik.http.routers.ipass-auth.rule=Host(`auth.${IPASS_DOMAIN}`)
       - traefik.http.routers.ipass-auth.entrypoints=websecure
       - traefik.http.routers.ipass-auth.tls.certresolver=letsencrypt
       - traefik.http.routers.ipass-auth.middlewares=ipass-sec-kc

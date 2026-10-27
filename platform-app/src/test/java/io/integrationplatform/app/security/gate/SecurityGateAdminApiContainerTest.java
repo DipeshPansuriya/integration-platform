@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.integrationplatform.PlatformTestWiring;
 import io.integrationplatform.TestImages;
-import io.integrationplatform.e11.DipeshExampleSeed;
+import io.integrationplatform.e11.TwoTargetOrdersSeed;
 import io.integrationplatform.identity.ConsoleBrowser;
 import io.integrationplatform.identity.KeycloakRealmContainer;
 import io.integrationplatform.identity.KeycloakRealmContainer.RealmUser;
@@ -43,7 +43,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * T171 gate cases over the admin API with a console session (TENANT_ADMIN of tenant A, tenant B beside it), the
- * Dipesh example tenants as the seed: S5-A1 (malformed and oversized mapping save), S5-A2 (JSONata handling on the
+ * two-target orders example tenants as the seed: S5-A1 (malformed and oversized mapping save), S5-A2 (JSONata handling on the
  * save and sample-run path), S5-A4 (content-hash spoofing; the publish pin-check leg is NOT driven here - see the
  * method), S5-A5 (cross-tenant mapping-version reference), S5-A6 (hostile lookup keys), S8-A2 (write-only secret API)
  * and S8-A3 (snapshot holds ids only). Container tag: runs only under {@code -Pcontainer}.
@@ -68,8 +68,8 @@ class SecurityGateAdminApiContainerTest {
             BACKEND + "/login/oauth2/code/keycloak", BACKEND + "/");
 
     private static PlatformTestWiring.RestrictedLogin login;
-    private static DipeshExampleSeed.Tenant tenantA;
-    private static DipeshExampleSeed.Tenant tenantB;
+    private static TwoTargetOrdersSeed.Tenant tenantA;
+    private static TwoTargetOrdersSeed.Tenant tenantB;
     private static RealmUser adminA;
     private static UUID adminAUserId;
     private static UUID lookupA = UUID.randomUUID();
@@ -127,9 +127,9 @@ class SecurityGateAdminApiContainerTest {
         var clientB = KEYCLOAK.createConfidentialClient("t171adm-b-" + suffix, true);
         adminA = KEYCLOAK.createUser("adm-admin-" + suffix);
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            tenantA = DipeshExampleSeed.onboard(owner, "alpha", "T171ADM-CUST-A", clientA.clientId(),
+            tenantA = TwoTargetOrdersSeed.onboard(owner, "alpha", "T171ADM-CUST-A", clientA.clientId(),
                     KEYCLOAK.issuerUri());
-            tenantB = DipeshExampleSeed.onboard(owner, "bravo", "T171ADM-CUST-B", clientB.clientId(),
+            tenantB = TwoTargetOrdersSeed.onboard(owner, "bravo", "T171ADM-CUST-B", clientB.clientId(),
                     KEYCLOAK.issuerUri());
             adminAUserId = UUID.randomUUID();
             execute(owner, "INSERT INTO app_user (id, tenant_id, issuer, subject, status) VALUES"
@@ -151,7 +151,7 @@ class SecurityGateAdminApiContainerTest {
     }
 
     /** Any user id of the tenant, for the rule_set author column (tenant B has none of ours: use one from its flows). */
-    private static UUID authorOf(Connection owner, DipeshExampleSeed.Tenant t) throws Exception {
+    private static UUID authorOf(Connection owner, TwoTargetOrdersSeed.Tenant t) throws Exception {
         String id = scalar(owner, "select author_id::text from public.contract_version where tenant_id = '"
                 + t.id() + "' limit 1");
         return UUID.fromString(id);
@@ -190,7 +190,7 @@ class SecurityGateAdminApiContainerTest {
     private record Facts(String mappingId, String source, String target) {
     }
 
-    private static Facts mappingOf(DipeshExampleSeed.Tenant t) throws Exception {
+    private static Facts mappingOf(TwoTargetOrdersSeed.Tenant t) throws Exception {
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement st = owner.createStatement();
                 ResultSet rs = st.executeQuery("select id::text, source_contract_version_id::text,"
                         + " target_contract_version_id::text from public.mapping where route_id = '" + t.routeA() + "'")) {

@@ -257,8 +257,8 @@ public final class DestinationGuard {
             return Optional.empty();
         }
         try {
-            return Optional.of(InetAddress.getByName(text)); // a literal: parsed, never looked up
-        } catch (UnknownHostException malformed) {
+            return Optional.of(InetAddress.ofLiteral(text)); // a literal: parsed, never looked up or resolved
+        } catch (IllegalArgumentException notALiteral) {
             return Optional.empty();
         }
     }

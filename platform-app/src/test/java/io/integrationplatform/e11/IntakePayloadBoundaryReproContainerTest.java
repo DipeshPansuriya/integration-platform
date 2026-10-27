@@ -44,7 +44,7 @@ import tools.jackson.databind.json.JsonMapper;
  * Scenario: 1 MB with a short business key (padding in a payload field) -> 202, message and payload commit
  * </pre>
  *
- * <p>Wiring mirrors {@code DipeshExampleEndToEndContainerTest} minus Kafka and the targets: the outbox relay is
+ * <p>Wiring mirrors {@code TwoTargetOrdersEndToEndContainerTest} minus Kafka and the targets: the outbox relay is
  * conditional on the Kafka bootstrap servers, so intake alone runs end to end here (no relay, no WireMock).
  */
 @Tag("container")
@@ -104,7 +104,7 @@ class IntakePayloadBoundaryReproContainerTest {
         source = KEYCLOAK.createConfidentialClient("bs064-src-" + UUID.randomUUID().toString().substring(0, 8),
                 true);
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            tenantAId = DipeshExampleSeed.onboard(owner, "alpha", "CUST-A", source.clientId(),
+            tenantAId = TwoTargetOrdersSeed.onboard(owner, "alpha", "CUST-A", source.clientId(),
                     KEYCLOAK.issuerUri()).id();
         }
     }
@@ -161,11 +161,11 @@ class IntakePayloadBoundaryReproContainerTest {
             throws Exception {
         String token = KEYCLOAK.clientCredentialsToken(caller.clientId(), caller.secret());
         return HTTP.send(HttpRequest.newBuilder(backend.resolve(
-                        "/api/v1/interfaces/" + DipeshExampleSeed.INTERFACE_CODE + "/messages"))
+                        "/api/v1/interfaces/" + TwoTargetOrdersSeed.INTERFACE_CODE + "/messages"))
                 .timeout(Duration.ofSeconds(30))
                 .header("Authorization", "Bearer " + token)
                 .header("Content-Type", "application/json")
-                .header("X-Source-Contract-Version", DipeshExampleSeed.SOURCE_CONTRACT_LABEL)
+                .header("X-Source-Contract-Version", TwoTargetOrdersSeed.SOURCE_CONTRACT_LABEL)
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build(), HttpResponse.BodyHandlers.ofString());

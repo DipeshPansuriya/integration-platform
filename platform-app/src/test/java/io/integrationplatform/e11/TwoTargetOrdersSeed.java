@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Dipesh's example as onboarding rows (backlog.md:3032-3046, E11-F2-S1; E11-plan lane C1): one tenant's source
+ * The two-target orders example as onboarding rows (backlog.md:3032-3046, E11-F2-S1; E11-plan lane C1): one tenant's source
  * system and credential, the source contract {@code orders} v1.0, Target A with contract v1.0
  * {@code {customer_code, order_number, total_amount}} and Target B with contract v2.0
  * {@code {clientId, referenceNo, invoiceValue}}, the published interface {@code orders} whose two routes carry one
@@ -23,7 +23,7 @@ import java.util.UUID;
  * console's publish writes); the live route and mapping rows equal it, as a publish leaves them. The source's
  * {@code customer_id} is the {@code customerId} the source posts (E4-F1-S2 body cross-check).
  */
-public final class DipeshExampleSeed {
+public final class TwoTargetOrdersSeed {
 
     /** Target A, contract v1.0: {customer_code, order_number, total_amount}. */
     static final String EXPRESSION_A =
@@ -42,7 +42,7 @@ public final class DipeshExampleSeed {
             UUID endpointA, UUID endpointB, UUID routeA, UUID routeB, String pathA, String pathB) {
     }
 
-    private DipeshExampleSeed() {
+    private TwoTargetOrdersSeed() {
     }
 
     /** The URL path each target endpoint of the tenant is addressed on (one stub path per target). */
@@ -50,7 +50,7 @@ public final class DipeshExampleSeed {
         return "/" + word + "/" + target;
     }
 
-    /** Onboards Dipesh's example for one tenant. The tenant row is written first (the directory owns it). */
+    /** Onboards the two-target orders example for one tenant. The tenant row is written first (the directory owns it). */
     public static Tenant onboard(Connection owner, String word, String customerId, String clientId, String issuer)
             throws Exception {
         UUID tenantId = UUID.randomUUID();

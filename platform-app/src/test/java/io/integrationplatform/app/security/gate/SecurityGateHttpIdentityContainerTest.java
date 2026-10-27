@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.integrationplatform.PlatformTestWiring;
 import io.integrationplatform.TestImages;
-import io.integrationplatform.e11.DipeshExampleSeed;
+import io.integrationplatform.e11.TwoTargetOrdersSeed;
 import io.integrationplatform.identity.KeycloakRealmContainer;
 import io.integrationplatform.identity.KeycloakRealmContainer.ClientCredentials;
 import java.net.URI;
@@ -72,8 +72,8 @@ class SecurityGateHttpIdentityContainerTest {
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private static final AtomicBoolean GRANTED = new AtomicBoolean();
     private static PlatformTestWiring.RestrictedLogin login;
-    private static DipeshExampleSeed.Tenant tenantA;
-    private static DipeshExampleSeed.Tenant tenantB;
+    private static TwoTargetOrdersSeed.Tenant tenantA;
+    private static TwoTargetOrdersSeed.Tenant tenantB;
     private static ClientCredentials sourceA;
 
     @LocalServerPort
@@ -101,9 +101,9 @@ class SecurityGateHttpIdentityContainerTest {
             ClientCredentials sourceB = KEYCLOAK.createConfidentialClient(
                     "t171-b-" + UUID.randomUUID().toString().substring(0, 8), true);
             try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-                tenantA = DipeshExampleSeed.onboard(owner, "alpha", "T171-CUST-A", sourceA.clientId(),
+                tenantA = TwoTargetOrdersSeed.onboard(owner, "alpha", "T171-CUST-A", sourceA.clientId(),
                         KEYCLOAK.issuerUri());
-                tenantB = DipeshExampleSeed.onboard(owner, "bravo", "T171-CUST-B", sourceB.clientId(),
+                tenantB = TwoTargetOrdersSeed.onboard(owner, "bravo", "T171-CUST-B", sourceB.clientId(),
                         KEYCLOAK.issuerUri());
             }
         }
@@ -123,7 +123,7 @@ class SecurityGateHttpIdentityContainerTest {
     }
 
     private String intakePath() {
-        return "/api/v1/interfaces/" + DipeshExampleSeed.INTERFACE_CODE + "/messages";
+        return "/api/v1/interfaces/" + TwoTargetOrdersSeed.INTERFACE_CODE + "/messages";
     }
 
     private HttpResponse<String> call(String method, String pathAndQuery, String bearer, String body,
@@ -143,7 +143,7 @@ class SecurityGateHttpIdentityContainerTest {
         return call("POST", intakePath(), bearer,
                 "{\"customerId\":\"" + customerId + "\",\"orderId\":\"T171-" + UUID.randomUUID() + "\",\"amount\":1}",
                 Map.of("Content-Type", "application/json", "Idempotency-Key", UUID.randomUUID().toString(),
-                        "X-Source-Contract-Version", DipeshExampleSeed.SOURCE_CONTRACT_LABEL));
+                        "X-Source-Contract-Version", TwoTargetOrdersSeed.SOURCE_CONTRACT_LABEL));
     }
 
     private String tokenOf(ClientCredentials source) {
@@ -324,9 +324,9 @@ class SecurityGateHttpIdentityContainerTest {
         ClientCredentials withoutAudience = KEYCLOAK.createConfidentialClient(
                 "t171-noaud-" + UUID.randomUUID().toString().substring(0, 8), false);
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
-            DipeshExampleSeed.onboard(owner, "aud-" + UUID.randomUUID().toString().substring(0, 6), "T171-AUD-1",
+            TwoTargetOrdersSeed.onboard(owner, "aud-" + UUID.randomUUID().toString().substring(0, 6), "T171-AUD-1",
                     withAudience.clientId(), KEYCLOAK.issuerUri());
-            DipeshExampleSeed.onboard(owner, "noaud-" + UUID.randomUUID().toString().substring(0, 6), "T171-AUD-2",
+            TwoTargetOrdersSeed.onboard(owner, "noaud-" + UUID.randomUUID().toString().substring(0, 6), "T171-AUD-2",
                     withoutAudience.clientId(), KEYCLOAK.issuerUri());
         }
         assertThat(intake(tokenOf(withAudience), "T171-AUD-1").statusCode())
@@ -404,7 +404,7 @@ class SecurityGateHttpIdentityContainerTest {
         long bBefore = messageCount(tenantB.id());
         long aBefore = messageCount(tenantA.id());
         Map<String, String> json = Map.of("Content-Type", "application/json", "Idempotency-Key", UUID.randomUUID().toString(),
-                "X-Source-Contract-Version", DipeshExampleSeed.SOURCE_CONTRACT_LABEL);
+                "X-Source-Contract-Version", TwoTargetOrdersSeed.SOURCE_CONTRACT_LABEL);
         String bodyB = "{\"customerId\":\"T171-CUST-B\",\"orderId\":\"T171-TAMPER\",\"amount\":1}";
         String bodyA = "{\"customerId\":\"T171-CUST-A\",\"orderId\":\"T171-TAMPER-A\",\"amount\":1}";
         int accepted = 0;

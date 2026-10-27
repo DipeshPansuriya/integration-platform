@@ -8,7 +8,7 @@ import java.util.Random;
 import org.junit.jupiter.api.Test;
 
 /**
- * Row 327 T157 (Dipesh option 1, memory m-68d957), the pure part of the tenant B seed: SC-07 and SEC-01 need a real
+ * Row 327 T157 (project-owner option 1, memory m-68d957), the pure part of the tenant B seed: SC-07 and SEC-01 need a real
  * second tenant B next to tenant A with exactly one TENANT_ADMIN user, one READ_ONLY user and one client-credentials
  * source credential. Codes and logins are generated per run; no literal password exists anywhere (R07).
  */

@@ -54,7 +54,7 @@ test('bodyProblems: a leak and a missing mask marker are both problems', () => {
   assert.deepEqual(bodyProblems([]), [], 'an empty list carries no leak');
 });
 
-test('the T108 names are measured on main; the screen leg is dropped (Dipesh, option 1): no screen mask names', () => {
+test('the T108 names are measured on main; the screen leg is dropped (project-owner decision, option 1): no screen mask names', () => {
   assert.equal(maskName('maskApiMarker'), '[MASKED]', 'MaskedFields.java:33');
   assert.equal(maskName('maskDeclareApi'), 'PUT /api/v1/admin/flows/{flowId}', 'FlowAdminController.java:112');
   for (const key of ['maskScreenField', 'maskScreenMarker']) {

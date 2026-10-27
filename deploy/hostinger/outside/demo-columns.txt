@@ -1,0 +1,12 @@
+# The ONLY data that leaves the live database for the demo copy: table|tenant filter column|columns, one table per line.
+# Column lists mirror the Phase 1 inventory. Credentials, secrets, tokens, hashes, payloads, users and roles are not listed,
+# so they are never selected: the demo database does not even have such columns. A new column is added here on purpose.
+tenant|id|id,code,status,time_zone
+system|tenant_id|id,tenant_id,code,name,direction,type
+target_endpoint|tenant_id|id,tenant_id,system_id,code,name,base_url,http_method,auth_method,timeout_ms,circuit_failure_threshold,circuit_open_seconds,idempotent_receive
+interface|tenant_id|id,tenant_id,code,name,mode,ordering,current_version,published_version,status,created_at,updated_at
+route|tenant_id|id,tenant_id,interface_id,target_endpoint_id,sequence,is_primary,status,created_at,updated_at
+message|tenant_id|id,tenant_id,interface_id,interface_version_id,source_contract_version_id,business_key,key_seq,state,accepted_at,routed_at,updated_at
+delivery|tenant_id|id,tenant_id,state,created_at,updated_at,next_attempt_at,dead_letter_class,bulkhead_deferrals,interface_id,business_key,key_seq,target_id
+delivery_attempt|tenant_id|id,tenant_id,delivery_id,layer,outcome_class,started_at,finished_at,created_at
+delivery_daily_aggregate|tenant_id|tenant_id,day,interface_id,target_id,successes,failures_transient,failures_ambiguous,failures_permanent,retries_made,retried_then_succeeded,still_stuck,refreshed_at
