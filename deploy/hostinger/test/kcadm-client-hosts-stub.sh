@@ -15,7 +15,9 @@ echo "ARGS: $*" >> "$FAKE_LOG"
 case "$*" in *"-e KC_CLIENT_SECRET"*) echo "ENVSECRET: ${KC_CLIENT_SECRET:-unset}" >> "$FAKE_LOG";; esac
 case "$*" in
   *KC_BOOTSTRAP_ADMIN_PASSWORD*"-n"*|*'[ -n'*) [ "${FAKE_BOOTSTRAP:-0}" = 1 ]; exit $?;;
-  *"get users"*) echo "${FAKE_USER_ID:-}"; exit 0;;
+  *"get users"*"username=bootstrap-admin"*) echo "${FAKE_USER_ID:-}"; exit 0;;
+  *"get users"*) echo "${FAKE_NAMED:-}"; exit 0;;
+  *"get-roles"*) echo "${FAKE_NAMED_ROLES:-admin}"; exit 0;;
   *"get clients"*) echo cid-1; exit 0;;
   *"create users"*) echo new-id; exit 0;;
 esac
@@ -37,18 +39,36 @@ truncated() { grep '^ARGS:' "$T/log" | grep -q 'config truncate'; }
 CS="KC_CLIENT_SECRET=$SECRET"
 
 # --- retire-bootstrap-admin.sh
-run retire "$CS" KC_ADMIN_USER=ignored -- sh keycloak/retire-bootstrap-admin.sh; 
+run retire "$CS" KC_ADMIN_USER=ignored "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh; 
 [ $RC -eq 0 ] && clientlogin && nopwlogin && ok "retire: default login is the service-account client (no --user)" || bad "retire: default login (rc=$RC) $OUT"
 grep -q "^ENVSECRET: $SECRET" "$T/log" && not_in_argv && no_leak && ok "retire: the secret travels in the environment only (not argv, not output)" || bad "retire: secret handling"
 truncated && ok "retire: kcadm token truncated" || bad "retire: no config truncate"
-run retire2 FAKE_USER_ID=u-1 -- sh keycloak/retire-bootstrap-admin.sh
+run retire2 KC_ADMIN_USER=alice FAKE_USER_ID=u-1 -- sh keycloak/retire-bootstrap-admin.sh
 [ $RC -ne 0 ] && grep -qi "KC_CLIENT_SECRET\|terminal\|secret" <<<"$OUT" && ! grep -q 'config credentials' "$T/log" && ok "retire: no secret and no terminal -> stops before any login" || bad "retire: missing secret not refused (rc=$RC)"
-run retire3 KC_ADMIN_USER=alice -- sh keycloak/retire-bootstrap-admin.sh --password-login
+run retire3 KC_ADMIN_USER=alice "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh --password-login
 [ $RC -eq 0 ] && grep '^ARGS:' "$T/log" | grep -q -- 'config credentials.*--user alice' && ! grep -q -- '--client' "$T/log" && ok "retire: --password-login keeps the named-admin password path" || bad "retire: password fallback (rc=$RC) $OUT"
-run retire4 KC_ADMIN_USER=alice KC_AUTH=password -- sh keycloak/retire-bootstrap-admin.sh
+run retire4 KC_ADMIN_USER=alice "FAKE_NAMED=nid-1,true" KC_AUTH=password -- sh keycloak/retire-bootstrap-admin.sh
 [ $RC -eq 0 ] && grep '^ARGS:' "$T/log" | grep -q -- '--user alice' && ok "retire: KC_AUTH=password is the same explicit switch" || bad "retire: KC_AUTH=password"
-run retire5 "$CS" DRY_RUN=1 -- sh keycloak/retire-bootstrap-admin.sh
+run retire5 "$CS" KC_ADMIN_USER=alice DRY_RUN=1 -- sh keycloak/retire-bootstrap-admin.sh
 [ $RC -eq 0 ] && grep -q "ipass-kcadm" <<<"$OUT" && [ ! -s "$T/log" ] && ok "retire: dry run names the service-account client and calls nothing" || bad "retire: dry run ($OUT)"
+
+# --- M1 (Karan): client mode must prove a named admin exists before bootstrap-admin is deleted (lock-out guard)
+run m1a "$CS" FAKE_USER_ID=u-1 -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -ne 0 ] && grep -q "KC_ADMIN_USER" <<<"$OUT" && [ ! -s "$T/log" ] && ok "retire M1: client mode without KC_ADMIN_USER stops before any login or delete" || bad "retire M1a (rc=$RC) $OUT"
+run m1b "$CS" KC_ADMIN_USER=bootstrap-admin FAKE_USER_ID=u-1 -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -ne 0 ] && [ ! -s "$T/log" ] && ok "retire M1: the named admin may not be bootstrap-admin itself (client mode too)" || bad "retire M1b (rc=$RC) $OUT"
+run m1c "$CS" KC_ADMIN_USER=alice FAKE_USER_ID=u-1 FAKE_NAMED= -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -ne 0 ] && ! grep -q 'delete users' "$T/log" && ! grep -q 'force-recreate' "$T/log" && truncated && ok "retire M1: named admin absent -> refused, nothing deleted, token truncated" || bad "retire M1c (rc=$RC) $OUT"
+run m1d "$CS" KC_ADMIN_USER=alice FAKE_USER_ID=u-1 "FAKE_NAMED=nid-1,false" -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -ne 0 ] && ! grep -q 'delete users' "$T/log" && ok "retire M1: named admin disabled -> refused, nothing deleted" || bad "retire M1d (rc=$RC) $OUT"
+run m1e "$CS" KC_ADMIN_USER=alice FAKE_USER_ID=u-1 "FAKE_NAMED=nid-1,true" FAKE_NAMED_ROLES=default-roles-master -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -ne 0 ] && ! grep -q 'delete users' "$T/log" && ok "retire M1: named admin without the admin role -> refused, nothing deleted" || bad "retire M1e (rc=$RC) $OUT"
+run m1f "$CS" KC_ADMIN_USER=alice FAKE_USER_ID=u-1 "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh
+lookup=$(grep -n 'username=alice' "$T/log" | head -1 | cut -d: -f1); del=$(grep -n 'delete users/u-1' "$T/log" | head -1 | cut -d: -f1)
+[ $RC -eq 0 ] && [ -n "$lookup" ] && [ -n "$del" ] && [ "$lookup" -lt "$del" ] && grep -q 'exact=true' "$T/log" && ok "retire M1: named admin checked (exact match) BEFORE bootstrap-admin is deleted" || bad "retire M1f (rc=$RC lookup=$lookup del=$del) $OUT"
+grep -qi "without --with-master-users" <<<"$OUT" && grep -qi "rotate" <<<"$OUT" && grep -qi "TOTP" <<<"$OUT" && ok "retire M5: after the delete it says drop the master roles, rotate the secret, then TOTP" || bad "retire M5 reminder missing: $OUT"
+run m1g KC_ADMIN_USER=alice FAKE_USER_ID=u-1 "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh --password-login
+[ $RC -eq 0 ] && grep -q 'username=alice' "$T/log" && ok "retire M1: the same guard runs in password mode" || bad "retire M1g (rc=$RC) $OUT"
 
 # --- rotate-secret.sh (client secret)
 run rot "$CS" -- sh rotate-secret.sh CONSOLE_OIDC_CLIENT_SECRET
