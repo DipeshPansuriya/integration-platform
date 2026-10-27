@@ -80,6 +80,23 @@ docker compose -f compose/compose.yaml --profile e2e up -d      # adds artemis +
 ```
 One Docker suite at a time on the build PC (the PC-wide Docker lock). Locally Kafbat joins the operations network only and has its own login (`KAFBAT_UI_*` variables); it is the engineers' tool, not the hosted ops view (section 7).
 
+### 3.1 Local setup - allow your destination host
+
+**Symptom.** Saving a system with an external `https` host answers "The save was refused: settings.baseUrl is refused: the host is not on the destination allow-list". That is by design: the outbound allow-list is empty by default and an empty list refuses every destination (fail closed, an SSRF guard). Nothing is reachable until the operator - you, locally - lists the host.
+
+**Fix.** Set `platform.config.destinations.allowed-hosts` (env form `PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS`), a comma-separated list of exact host names or `*.domain` (sub-domains only, not the bare domain; case-insensitive):
+
+```
+PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS=uat.example.com,*.partner.example
+ROUTING_CORE_ALLOWED_SCHEMES=http,https
+```
+
+- **Local run:** put both variables in the IDE run configuration (or the shell that starts the application with Maven); the compose file above starts no application. Restart the application after a change.
+- **Hosted stack:** set `IPASS_DESTINATION_HOSTS=uat.example.com` in the server `.env` (mapped in `deploy/hostinger/compose.yaml`), then `docker compose up -d platform-app` to recreate it. The demo override defaults it to the WireMock host.
+- **Schemes:** the destination guard accepts only `http` and `https` URLs and has no scheme setting of its own. `ROUTING_CORE_ALLOWED_SCHEMES` (default: empty) is the routing stage's list; empty approves no scheme, so every delivery route build is refused. The hosted compose sets `http,https`; set it yourself locally.
+- **Still refused when listed:** a name that resolves to a loopback, private, link-local, carrier-grade-NAT, multicast or broadcast address, and the platform's own hosts. Listing `localhost` does not help.
+- **Testing against a local stub (WireMock etc.):** run with the `showcase` profile (`local`, `dev` and `test` may accompany it; any other active profile refuses to start) and set `PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_HOSTS` (exact allow-listed names, no wildcard, no IP) together with `PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS` (the stub's port; never 5432, 9092 or the app's own `server.port`/management port). The host must also be in `allowed-hosts`. Showcase only; the application logs a WARN at start.
+
 ## 4. Hosted kit: files, seed data, tests
 
 The folder `deploy/hostinger/` holds the compose file, `edge/edge.conf`, the Keycloak image recipe and scripts, the Kafbat role file, the Postgres init scripts, the backup scripts, `bootstrap-env.sh` (generates every secret on the server, prints fingerprints only), `rotate-secret.sh`, and `env.example` (names only). Its [README](../deploy/hostinger/README.md) lists every file and carries the first-install runbook (steps 0-14), update/rollback, rotation and the network notes.
