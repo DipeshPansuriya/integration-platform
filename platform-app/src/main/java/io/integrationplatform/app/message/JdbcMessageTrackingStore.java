@@ -104,7 +104,8 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
     }
 
     /**
-     * Every delivery of the message with its last attempt - latest {@code finished_at}, then highest id, the same
+     * Every delivery of the message with its last attempt - latest {@code finished_at} (an unfinished
+     * attempt ranks last), then highest id, the same
      * order as the dead-letter read below. The lateral sub-select reads only this delivery's attempts (the index is
      * {@code (tenant_id, delivery_id, started_at)}, so they are still sorted on {@code finished_at} in every daily
      * partition) and returns one row per delivery, not one per attempt (row 328 V4, V7). The base appends its tenant
@@ -119,7 +120,7 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
                         + " from public.delivery d left join lateral (select x.id as attempt_id, x.started_at,"
                         + "   x.finished_at, x.outcome_class from public.delivery_attempt x"
                         + "   where x.delivery_id = d.id and x.tenant_id = d.tenant_id"
-                        + "   order by x.finished_at desc, x.id desc limit 1) a on true",
+                        + "   order by x.finished_at desc nulls last, x.id desc limit 1) a on true",
                 "d.message_id = :message_id::uuid", Map.of("message_id", messageId.toString()),
                 (rs, n) -> new DeliveryAttemptRow(rs.getString("delivery_id"), rs.getString("target_id"),
                         rs.getString("state"), rs.getObject("attempt_id", Long.class), instant(rs, "started_at"),

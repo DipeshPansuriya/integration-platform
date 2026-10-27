@@ -196,7 +196,7 @@ public class MessageTrackingService {
         if (b.attemptId() == null) {
             return a;
         }
-        int byFinish = Comparator.<Instant>nullsLast(Comparator.naturalOrder()).compare(a.finishedAt(),
+        int byFinish = Comparator.<Instant>nullsFirst(Comparator.naturalOrder()).compare(a.finishedAt(),
                 b.finishedAt());
         if (byFinish != 0) {
             return byFinish > 0 ? a : b;
