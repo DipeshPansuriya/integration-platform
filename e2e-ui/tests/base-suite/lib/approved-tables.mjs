@@ -18,7 +18,7 @@ export const REFUSAL = Object.freeze({
 });
 
 /** The DB target contract: every column the drawn mapping sends (the publish-time column check reads these). */
-export const DB_TARGET_COLUMNS = Object.freeze({ clientId: 'string', referenceNo: 'string', invoiceValue: 'number' });
+export const DB_TARGET_COLUMNS = Object.freeze({ clientId: 'string', referenceNo: 'string', invoiceValue: 'number', cardRef: 'string' });
 
 export const approvedTablesPath = (systemId, rowId, action) =>
   `/api/v1/admin/systems/${systemId}/approved-tables${rowId ? `/${rowId}` : ''}${action ? `/${action}` : ''}`;

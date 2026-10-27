@@ -1,8 +1,9 @@
 // lane qa-f3-approved-tables (2026-10-22): the pure oracles of the F3 spec.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { LINKS } from '../lib/tenants.mjs';
 import {
-  DB_TABLE, STATUS, approvedTablesPath, dbSystemBody, decidedRowProblems, leaksOf, publishRefusalProblems, refusalOf, requestedRowProblems
+  DB_TABLE, DB_TARGET_COLUMNS, STATUS, approvedTablesPath, dbSystemBody, decidedRowProblems, leaksOf, publishRefusalProblems, refusalOf, requestedRowProblems
 } from '../lib/approved-tables.mjs';
 
 test('approvedTablesPath builds list, row and action paths', () => {
@@ -51,4 +52,10 @@ test('leaksOf finds a foreign id in a list and ignores empty needles', () => {
   assert.deepEqual(leaksOf(list, ['s-b', 'b1']), []);
   assert.deepEqual(leaksOf([...list, { id: 'b1' }], ['s-b', 'b1', '', undefined]), ['b1']);
   assert.deepEqual(leaksOf(null, ['x']), []);
+});
+
+test('the DB target contract has every target field the default drawing links (the spec draws LINKS onto it)', () => {
+  // drawMapping clicks `[data-tree="target"] [data-node=<field>]` for each LINKS pair; a field the DB contract lacks never renders
+  const missing = LINKS.map(([, to]) => to).filter((field) => !(field in DB_TARGET_COLUMNS));
+  assert.deepEqual(missing, []);
 });
