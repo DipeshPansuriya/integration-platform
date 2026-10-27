@@ -38,8 +38,15 @@ check "guard: the same file name in two folders fails" '! sh "$G" "$TMP/g4" "$TM
 mk_tree "$TMP/g5"; echo 'select 5;' > "$TMP/g5/mod-b/src/main/resources/db/migration/V1.0.01__same_as_1_0_1.sql"
 check "guard: versions Flyway treats as equal (V1_0_1 / V1.0.01) are duplicates" '! sh "$G" "$TMP/g5" "$TMP/g5/Dockerfile" >"$TMP/g5.out" 2>&1 && grep -qi "duplicate version" "$TMP/g5.out"'
 mk_tree "$TMP/g6"; echo 'COPY mod-z/src/main/resources/db/migration/ /flyway/sql/' >> "$TMP/g6/Dockerfile"
+mk_tree "$TMP/g7"; mkdir -p "$TMP/g7/mod-a/src/main/resources/db/migration/sub"; echo 'select 7;' > "$TMP/g7/mod-a/src/main/resources/db/migration/sub/V1_0_7__sub.sql"
+check "guard: a sub-folder inside a migration folder (the app would load it, the image would drop it) fails" '! sh "$G" "$TMP/g7" "$TMP/g7/Dockerfile" >"$TMP/g7.out" 2>&1 && grep -q "sub" "$TMP/g7.out"'
+mk_tree "$TMP/g8"; echo 'x' > "$TMP/g8/mod-b/src/main/resources/db/migration/V1_0_8__other.java"
+check "guard: a file that is not V*.sql / R*.sql in a migration folder fails" '! sh "$G" "$TMP/g8" "$TMP/g8/Dockerfile" >/dev/null 2>&1'
+mk_tree "$TMP/g9"; sed -i 's#^COPY mod-a#COPY --chown=1:1 mod-a#' "$TMP/g9/Dockerfile"
+check "guard: COPY with flags (--chown=...) still counts as a copy" 'sh "$G" "$TMP/g9" "$TMP/g9/Dockerfile" >/dev/null 2>&1'
 check "guard: a Dockerfile COPY of a folder that does not exist fails" '! sh "$G" "$TMP/g6" "$TMP/g6/Dockerfile" >/dev/null 2>&1'
-check "guard: the real tree - every db/migration folder is copied, no duplicate version (59 migrations in 6 folders today)" 'sh "$G" "$REPO" "$FW/Dockerfile" | grep -q "OK: 6 folders, 59 migrations"'
+nfiles=$(find "$REPO" \( -name node_modules -o -name target -o -name .git \) -prune -o -type d -path '*/src/main/resources/db/migration' -print | while read -r d; do ls "$d"; done | wc -l | tr -d ' ')
+check "guard: the real tree - every db/migration folder is copied, no duplicate version (count taken from the files: $nfiles)" 'sh "$G" "$REPO" "$FW/Dockerfile" | grep -qE "^OK: [0-9]+ folders, $nfiles migrations"'
 
 # migrate.sh with a fake docker that logs its arguments and the password it saw in its environment
 cat > "$TMP/fakedocker" <<'FAKE'
@@ -51,12 +58,12 @@ act=""; for a in "$@"; do case "$a" in info|validate|migrate|repair) act="$a";; 
 exit 0
 FAKE
 chmod +x "$TMP/fakedocker"
-printf 'POSTGRES_DB=ipass_x\nIMAGE_TAG=oldtag1\nDB_MIGRATION_PASSWORD="p@ss$word$(touch %s/PWNED)"\r\nIPASS_IMAGE_PREFIX=reg.example/ipass\nOTHER=`touch %s/PWNED2`\n' "$TMP" "$TMP" > "$TMP/m.env"
+printf 'POSTGRES_DB=ipass_x\nIMAGE_TAG=oldtag1\nDB_MIGRATION_PASSWORD="p@ss_word"\r\nHOSTILE=$(touch %s/PWNED3)\nIPASS_IMAGE_PREFIX=reg.example/ipass\nOTHER=`touch %s/PWNED2`\n' "$TMP" "$TMP" "$TMP" > "$TMP/m.env"
 mig() { : > "$TMP/fake.log"; : > "$TMP/fake.env"; FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker" ENV_FILE="$TMP/m.env" sh "$FW/migrate.sh" "$@"; }
 mig info >/dev/null 2>&1
 check "migrate: info runs exactly one container, action info, on the .env tag and prefix" '[ "$(wc -l < "$TMP/fake.log")" -eq 1 ] && grep -q "reg.example/ipass/flyway-migrate:oldtag1" "$TMP/fake.log" && grep -q " info\$" "$TMP/fake.log"'
-check "migrate: the .env is parsed, never executed (no eval of \$( ) or backticks)" '[ ! -e "$TMP/PWNED" ] && [ ! -e "$TMP/PWNED2" ]'
-check "migrate: the password reaches the container through the environment (quotes and CRLF stripped, \$ kept literally) and never the command line" 'grep -qF "pw=p@ss\$word\$(touch $TMP/PWNED)" "$TMP/fake.env" && ! grep -qF "p@ss" "$TMP/fake.log" && grep -q -- "-e FLYWAY_PASSWORD " "$TMP/fake.log"'
+check "migrate: the .env is parsed, never executed (no eval of \$( ) or backticks)" '[ ! -e "$TMP/PWNED3" ] && [ ! -e "$TMP/PWNED2" ]'
+check "migrate: the password reaches the container through the environment (quotes and CRLF stripped) and never the command line" 'grep -qF "pw=p@ss_word" "$TMP/fake.env" && ! grep -qF "p@ss" "$TMP/fake.log" && grep -q -- "-e FLYWAY_PASSWORD " "$TMP/fake.log"'
 check "migrate: user is ipass_migrator, database from .env, container on the data network" 'grep -q "FLYWAY_USER=ipass_migrator" "$TMP/fake.log" && grep -q "jdbc:postgresql://postgres:5432/ipass_x" "$TMP/fake.log" && grep -q -- "--network ipass_ipass-data" "$TMP/fake.log"'
 IMAGE_TAG=newtag2 mig info >/dev/null 2>&1
 check "migrate: a caller-supplied IMAGE_TAG wins over the .env (compose precedence)" 'grep -q "flyway-migrate:newtag2" "$TMP/fake.log" && ! grep -q oldtag1 "$TMP/fake.log"'
@@ -91,6 +98,8 @@ echo "$*" >> "$FAKE_LOG"
 echo "tag=${IMAGE_TAG:-unset} pw=${FLYWAY_PASSWORD:-unset}" >> "$FAKE_ENVLOG"
 case "$1" in pull) [ "${FAKE_NO_IMAGE:-0}" = 1 ] && exit 1; exit 0;; esac
 case "$1 $2" in
+  "compose up") [ "${FAKE_FAIL_UP:-0}" = 1 ] && exit 1; exit 0;;
+  "compose pull") [ "${FAKE_FAIL_PULL:-0}" = 1 ] && exit 1; exit 0;;
   "image inspect") [ "${FAKE_NO_IMAGE:-0}" = 1 ] && exit 1; exit 0;;
   "compose exec") [ "${FAKE_FAIL_BACKUP:-0}" = 1 ] && exit 1; exit 0;;
   "compose ps") echo "cid123"; exit 0;;
@@ -123,6 +132,28 @@ check "deploy: a missing Flyway image stops before anything changes (exit 4)" '[
 dep env -u IMAGE_TAG >"$TMP/d7.out" 2>&1; rc=$?
 check "deploy: no IMAGE_TAG exits 2" '[ $rc -eq 2 ]'
 check "deploy: a tag of latest, or with odd characters, is refused" '! dep env IMAGE_TAG=latest >/dev/null 2>&1 && ! dep env "IMAGE_TAG=a b;rm" >/dev/null 2>&1'
+
+# --- review round (Varun B1, C1, C5, C6, C8)
+mig validate >/dev/null 2>&1
+check "migrate: validate keeps Flyway's default *:future next to *:pending (a DB ahead of the image is not a validate failure)" 'grep -q -- "-ignoreMigrationPatterns=\*:pending,\*:future" "$TMP/fake.log"'
+mig info >/dev/null 2>&1
+check "migrate: the init SQL is the app's default lock_timeout 5s" 'grep -qF -- "-initSql=SET lock_timeout = '"'"'5s'"'"'" "$TMP/fake.log"'
+IPAAS_FLYWAY_LOCK_TIMEOUT=9s mig info >/dev/null 2>&1
+check "migrate: IPAAS_FLYWAY_LOCK_TIMEOUT (the app's variable) is honoured" 'grep -qF -- "-initSql=SET lock_timeout = '"'"'9s'"'"'" "$TMP/fake.log"'
+IPAAS_FLYWAY_LOCK_TIMEOUT="5s'; drop table x; --" mig info >/dev/null 2>&1; rc=$?
+check "migrate: a lock timeout that is not a plain Postgres duration is refused (exit 2), nothing runs" '[ $rc -eq 2 ] && [ ! -s "$TMP/fake.log" ]'
+printf 'POSTGRES_DB=ipass\nIMAGE_TAG=t1\nDB_MIGRATION_PASSWORD=ab$cd\n' > "$TMP/m3.env"
+FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker" ENV_FILE="$TMP/m3.env" sh "$FW/migrate.sh" info >"$TMP/m3.out" 2>&1; rc=$?
+check "migrate: a password with \$ (compose would interpolate it, this script would not) is refused with a reason, value not printed" '[ $rc -eq 2 ] && grep -qi "compose" "$TMP/m3.out" && ! grep -q "ab.cd" "$TMP/m3.out"'
+dep env IMAGE_TAG=newtag2 FAKE_FAIL_UP=1 >"$TMP/d8.out" 2>&1; rc=$?
+check "deploy: a failing 'compose up' exits 6, prints the rollback note, and puts the old tag back in the env file" '[ $rc -eq 6 ] && grep -q "oldtag1" "$TMP/d8.out" && grep -qi "restored" "$TMP/d8.out" && grep -q "^IMAGE_TAG=oldtag1\$" "$TMP/stack/.env"'
+dep env IMAGE_TAG=newtag2 FAKE_FAIL_PULL=1 >"$TMP/d9.out" 2>&1; rc=$?
+check "deploy: images that exist only locally (docker save | load) work: no explicit compose pull, so a failing pull cannot stop the release" '[ $rc -eq 0 ] && ! grep -q "compose pull" "$TMP/fake.log" && grep -q "^IMAGE_TAG=newtag2\$" "$TMP/stack/.env"'
+dep_export() { rm -rf "$TMP/stack"; mkdir -p "$TMP/stack/flyway"; cp "$HERE/deploy.sh" "$TMP/stack/deploy.sh"; cp "$FW/migrate.sh" "$TMP/stack/flyway/migrate.sh"; : > "$TMP/stack/compose.yaml"
+  printf 'POSTGRES_DB=ipass\nexport IMAGE_TAG="oldtag1"\nDB_MIGRATION_PASSWORD=s3cr3tvalue\n' > "$TMP/stack/.env"; : > "$TMP/fake.log"; : > "$TMP/fake.env"
+  FAKE_LOG="$TMP/fake.log" FAKE_ENVLOG="$TMP/fake.env" DOCKER="$TMP/fakedocker2" HEALTH_TIMEOUT=2 HEALTH_INTERVAL=1 IMAGE_TAG=newtag2 sh "$TMP/stack/deploy.sh"; }
+dep_export >"$TMP/d10.out" 2>&1; rc=$?
+check "deploy: an 'export IMAGE_TAG=\"...\"' line is read as the old tag and rewritten in place (one IMAGE_TAG line, no duplicate)" '[ $rc -eq 0 ] && grep -q "oldtag1 -> newtag2" "$TMP/d10.out" && [ "$(grep -c "IMAGE_TAG=" "$TMP/stack/.env")" -eq 1 ] && grep -q "^export IMAGE_TAG=newtag2\$" "$TMP/stack/.env"'
 
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
 exit $fail

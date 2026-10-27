@@ -12,10 +12,13 @@
 #   IPASS_IMAGE_PREFIX          registry prefix, default acsnewacr.azurecr.io/ipass (same as compose.yaml)
 #   POSTGRES_DB                 database name, default ipass
 #   DB_MIGRATION_PASSWORD (required, only from the env file or the environment) - ipass_migrator's password
+#   IPAAS_FLYWAY_LOCK_TIMEOUT   the app's variable for the migration lock_timeout (a Postgres duration: 5s, 500ms, 1min, 0 = off); default 5s
 # Other overrides: FLYWAY_IMAGE (whole image name), FLYWAY_NETWORK (default ipass_ipass-data = compose project "ipass",
 # network ipass-data), DOCKER (the docker binary, tests only).
 # The env file is READ, never sourced or eval'd: only the keys above are picked out, one line each. The password goes
 # into the container through the environment (docker run -e FLYWAY_PASSWORD), never on a command line, and is never printed.
+# The env file is read the way this script reads it, which differs from compose for a value with `$` (compose interpolates it)
+# or ` #` (compose drops the rest): such a DB_MIGRATION_PASSWORD is refused (bootstrap-env.sh generates neither character).
 # Exit: 0 ok, 1 usage, 2 env file/password problem, 3 validate failed, 5 migrate/repair/info failed.
 set -eu
 
@@ -43,6 +46,11 @@ env_value() {
 
 PW="$(env_value DB_MIGRATION_PASSWORD)"
 [ -n "$PW" ] || { echo "ERROR: DB_MIGRATION_PASSWORD is not set in $ENV_FILE" >&2; exit 2; }
+case "$PW" in
+  *'$'*|*' #'*) echo "ERROR: DB_MIGRATION_PASSWORD in $ENV_FILE contains '\$' or ' #': compose and this script would read it differently, so the CLI and the app could use different passwords. Use a password without them (rotate-secret.sh)." >&2; exit 2 ;;
+esac
+LOCKT="${IPAAS_FLYWAY_LOCK_TIMEOUT:-$(env_value IPAAS_FLYWAY_LOCK_TIMEOUT)}"; LOCKT="${LOCKT:-5s}"
+printf '%s' "$LOCKT" | grep -Eq '^[0-9]+(ms|s|min|h|d)?$' || { echo "ERROR: IPAAS_FLYWAY_LOCK_TIMEOUT must be a plain Postgres duration (5s, 500ms, 1min, 0)" >&2; exit 2; }
 DB="${POSTGRES_DB:-$(env_value POSTGRES_DB)}"; DB="${DB:-ipass}"
 TAG="${IMAGE_TAG:-$(env_value IMAGE_TAG)}"
 PREFIX="${IPASS_IMAGE_PREFIX:-$(env_value IPASS_IMAGE_PREFIX)}"; PREFIX="${PREFIX:-acsnewacr.azurecr.io/ipass}"
@@ -57,10 +65,11 @@ run_flyway() { # action [flyway args...]
   act="$1"; shift
   FLYWAY_PASSWORD="$PW" "$DOCKER" run --rm --network "$NETWORK" --cap-drop ALL --security-opt no-new-privileges:true \
     -e "FLYWAY_URL=jdbc:postgresql://postgres:5432/$DB" -e FLYWAY_USER=ipass_migrator -e FLYWAY_PASSWORD \
-    "$FLYWAY_IMAGE" "$@" "$act"
+    "$FLYWAY_IMAGE" "$@" "-initSql=SET lock_timeout = '$LOCKT'" "$act"
 }
-# pending migrations are the normal state before a release: validate checks the HISTORY against the files, so ignore them
-validate() { run_flyway validate '-ignoreMigrationPatterns=*:pending'; }
+# pending migrations are the normal state before a release: validate checks the HISTORY against the files, so ignore them;
+# *:future (Flyway's and Spring Boot's default, which an explicit pattern replaces) keeps a database that is ahead of this image valid
+validate() { run_flyway validate '-ignoreMigrationPatterns=*:pending,*:future'; }
 
 echo "=== Flyway $ACTION | image $FLYWAY_IMAGE | database $DB | user ipass_migrator ==="
 case "$ACTION" in

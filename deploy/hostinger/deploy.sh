@@ -7,6 +7,10 @@
 # The Flyway image <prefix>/flyway-migrate:<tag> must exist locally or be pullable (build it on the build PC, README "Migration
 # pipeline"; or `docker save ... | ssh <vps> docker load`). Nothing changes (tag, containers) before the migration has succeeded.
 # The app still runs Flyway at its own start-up; after this script migrated, that run finds nothing to do.
+# EXPAND/CONTRACT RULE: the old app keeps serving while the migration runs (steps 3-4, before `up -d`), so every migration of a
+# release must work with the PREVIOUS app version too (add columns/tables first, drop things in a later release).
+# No explicit `compose pull`: `up -d` pulls what is missing (pull_policy: missing / digest pins), and images brought in with
+# `docker save | docker load` exist only locally, where a pull would fail.
 # Exit: 0 released and healthy, 2 bad input/setup, 3 backup failed, 4 Flyway image missing, 5 migration (or validate) failed,
 #       6 started but a service is not healthy (roll back with the printed steps).
 # The env file is read for IMAGE_TAG only by name and rewritten line-wise; it is never sourced or eval'd, and no secret is printed.
@@ -27,7 +31,8 @@ case "$NEW_TAG" in
   *[!A-Za-z0-9._-]*|-*|.*) echo "ERROR: IMAGE_TAG may contain only letters, digits, '.', '_' and '-'" >&2; exit 2 ;;
 esac
 # the tag currently recorded in the env file (kept separately: IMAGE_TAG itself is the NEW tag from here on)
-OLD_TAG="$(grep -E '^[[:space:]]*(export[[:space:]]+)?IMAGE_TAG=' "$ENV_FILE" | tail -n 1 | tr -d '\r' | cut -d= -f2- | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\\(.*\\)'\$/\\1/")" || true
+TAG_LINE='^[[:space:]]*(export[[:space:]]+)?IMAGE_TAG='      # the ONE pattern for reading and rewriting the tag line
+OLD_TAG="$(grep -E "$TAG_LINE" "$ENV_FILE" | tail -n 1 | tr -d '\r' | cut -d= -f2- | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\\(.*\\)'\$/\\1/")" || true
 OLD_TAG="${OLD_TAG:-unknown}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="$STACK_DIR/release-backups/$STAMP"
@@ -81,15 +86,19 @@ fi
 
 echo "=== 5/6 switch to $NEW_TAG and start ==="
 tmp="$STACK_DIR/.env.deploy.$$"
-if grep -qE '^IMAGE_TAG=' "$ENV_FILE"; then
-  sed "s/^IMAGE_TAG=.*/IMAGE_TAG=$NEW_TAG/" "$ENV_FILE" > "$tmp"
+if grep -qE "$TAG_LINE" "$ENV_FILE"; then
+  sed -E "s/^([[:space:]]*(export[[:space:]]+)?)IMAGE_TAG=.*/\1IMAGE_TAG=$NEW_TAG/" "$ENV_FILE" > "$tmp"
 else
   { cat "$ENV_FILE"; echo "IMAGE_TAG=$NEW_TAG"; } > "$tmp"
 fi
 cat "$tmp" > "$ENV_FILE"       # same file, same mode: no new inode with a looser mode
 rm -f "$tmp"
-"$DOCKER" compose pull
-"$DOCKER" compose up -d
+if ! "$DOCKER" compose up -d; then
+  cat "$BACKUP_DIR/.env.bak" > "$ENV_FILE"       # the old containers still run on the old tag: keep the env file consistent with them
+  echo "ERROR: 'docker compose up -d' failed. The database IS migrated (migrations are expand-only, the old app still works); the env file was restored to $OLD_TAG." >&2
+  rollback_note
+  exit 6
+fi
 
 echo "=== 6/6 health ==="
 HEALTH_SERVICES="${HEALTH_SERVICES:-postgres keycloak platform-app edge}"

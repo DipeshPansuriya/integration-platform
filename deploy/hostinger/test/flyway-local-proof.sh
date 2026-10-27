@@ -35,6 +35,11 @@ expect() { # description, command...
 rnd() { openssl rand -hex 12; }
 EXPECTED="${1:-$(find "$REPO" \( -name node_modules -o -name target -o -name .git \) -prune -o -type d -path '*/src/main/resources/db/migration' -print | while read -r d; do ls "$d"; done | wc -l | tr -d ' ')}"
 
+if [ -z "${PARITY_JAVA:-}" ] || [ -z "${PARITY_JARS:-}" ]; then
+  if [ "${ALLOW_NO_PARITY:-0}" = 1 ]; then echo "WARNING: parity NOT run (PARITY_JAVA / PARITY_JARS not set, ALLOW_NO_PARITY=1): this is not a full proof"; PARITY_RAN=0
+  else echo "FAIL: PARITY_JAVA and PARITY_JARS are required (the parity check is the point of this proof); ALLOW_NO_PARITY=1 runs without it and never ends in ALL PASSED"; fail=1; fi
+fi
+
 step "0. guard"
 expect "check-migration-dirs.sh passes on the real tree" sh "$HERE/flyway/check-migration-dirs.sh" "$REPO"
 
@@ -75,8 +80,10 @@ mig() { ENV_FILE="$TMP/.env" FLYWAY_NETWORK="$N" FLYWAY_IMAGE="$IMG" sh "$HERE/f
 
 # parity: the app's Flyway (FlywayParityCheck.java) on this database. Needs PARITY_JAVA (java binary) and PARITY_JARS (flyway-core,
 # flyway-database-postgresql, the Postgres driver, jackson-databind...) - skipped, loudly, when they are not given.
+PARITY_RAN=0
 parity() { # expected-exit
-  [ -n "${PARITY_JAVA:-}" ] && [ -n "${PARITY_JARS:-}" ] || { echo "SKIP parity (set PARITY_JAVA and PARITY_JARS)"; return 0; }
+  [ -n "${PARITY_JAVA:-}" ] && [ -n "${PARITY_JARS:-}" ] || return 99
+  PARITY_RAN=1
   sep=:; [ "$(uname -o 2>/dev/null)" = Msys ] && sep=";"
   dirs=""; for d in $(find "$REPO" \( -name node_modules -o -name target -o -name .git \) -prune -o -type d -path '*/src/main/resources' -print); do
     [ -d "$d/db/migration" ] && dirs="$dirs${dirs:+$sep}$(cygpath -w "$d" 2>/dev/null || echo "$d")"; done
@@ -90,7 +97,7 @@ expect "info exit 0" test $rc -eq 0
 expect "$EXPECTED migrations listed Pending" test "$(grep -c '| Pending' "$TMP/i1.out")" -eq "$EXPECTED"
 
 parity > "$TMP/p0.out" 2>&1; rc=$?; cat "$TMP/p0.out"
-[ -n "${PARITY_JAVA:-}" ] && expect "control: the app's Flyway sees $EXPECTED pending before the CLI ran (check is not vacuous)" bash -c "[ $rc -eq 1 ] && grep -q 'pending=$EXPECTED ' '$TMP/p0.out'"
+expect "control: the app's Flyway sees $EXPECTED pending before the CLI ran (check is not vacuous)" bash -c "[ $rc -eq 1 ] && grep -q 'pending=$EXPECTED ' '$TMP/p0.out'"
 
 step "4. validate on the empty database (pending is not an error)"
 mig validate > "$TMP/v1.out" 2>&1; rc=$?; tail -5 "$TMP/v1.out"
@@ -109,7 +116,7 @@ grep -E "Success|Pending" "$TMP/i2.out" | sed -n '1,3p;$p'
 docker exec "$N-pg" psql -U ipass_admin -d ipass -Atc "select count(*), count(*) filter (where success) from flyway_schema_history"
 
 parity > "$TMP/p1.out" 2>&1; rc=$?; cat "$TMP/p1.out"
-[ -n "${PARITY_JAVA:-}" ] && expect "PARITY: the app's own Flyway finds 0 pending and validate OK on the CLI-migrated database" bash -c "[ $rc -eq 0 ] && grep -q 'pending=0 validate=OK' '$TMP/p1.out'"
+expect "PARITY: the app's own Flyway finds 0 pending and validate OK on the CLI-migrated database" bash -c "[ $rc -eq 0 ] && grep -q 'pending=0 validate=OK' '$TMP/p1.out'"
 
 step "7. migrate again (no-op)"
 mig migrate > "$TMP/m2.out" 2>&1; rc=$?; tail -5 "$TMP/m2.out"
@@ -139,10 +146,31 @@ echo "database owner=$dbo, flyway_schema_history owner=$tbo"
 expect "database owner and a table owner are ipass_migrator again" test "$dbo,$tbo" = ipass_migrator,ipass_migrator
 mig migrate >/dev/null 2>&1; expect "migrate after the restore is a no-op (exit 0)" test $? -eq 0
 
+step "10. the init SQL (lock_timeout) really reaches the migration session"
+# a probe migration raises unless current_setting('lock_timeout') is the expected value; the default of a Postgres session is 0,
+# so a pass proves the setting was applied. Each probe has its own schema and history table; the wrong-expectation probes must FAIL.
+probe() { # name expected-timeout extra-flyway-args...
+  pn="$1"; want="$2"; shift 2
+  mkdir -p "$TMP/probe-$pn"
+  printf "DO \$\$ BEGIN IF current_setting('lock_timeout') <> '%s' THEN RAISE EXCEPTION 'lock_timeout=%%', current_setting('lock_timeout'); END IF; END \$\$;\n" "$want" > "$TMP/probe-$pn/V1__probe.sql"
+  FLYWAY_PASSWORD="$PW_MIG" MSYS_NO_PATHCONV=1 docker run --rm --network "$N" -v "$(cygpath -w "$TMP/probe-$pn" 2>/dev/null || echo "$TMP/probe-$pn"):/probe:ro" \
+    -e FLYWAY_URL=jdbc:postgresql://postgres:5432/ipass -e FLYWAY_USER=ipass_migrator -e FLYWAY_PASSWORD "$IMG" \
+    -locations=filesystem:/probe "-schemas=probe_$pn" "-table=h_$pn" "$@" migrate 2>&1 | grep -E "Successfully applied|lock_timeout=|ERROR" | head -2
+  return "${PIPESTATUS[0]}"
+}
+probe a 5s > "$TMP/pa.out"; rc=$?; cat "$TMP/pa.out"; expect "bare image run (flyway.toml initSql): SHOW lock_timeout = 5s inside the migration" test $rc -eq 0
+probe b 9s "-initSql=SET lock_timeout = '9s'" > "$TMP/pb.out"; rc=$?; cat "$TMP/pb.out"; expect "-initSql override (what migrate.sh passes for IPAAS_FLYWAY_LOCK_TIMEOUT=9s): lock_timeout = 9s" test $rc -eq 0
+probe c 9s > "$TMP/pc.out"; rc=$?; cat "$TMP/pc.out"; expect "control: a bare run does NOT see 9s (probe fails with lock_timeout=5s)" bash -c "[ $rc -ne 0 ] && grep -q 'lock_timeout=5s' '$TMP/pc.out'"
+probe d 5s "-initSql=SET lock_timeout = '9s'" > "$TMP/pd.out"; rc=$?; cat "$TMP/pd.out"; expect "control: the override replaces the toml value (probe fails with lock_timeout=9s)" bash -c "[ $rc -ne 0 ] && grep -q 'lock_timeout=9s' '$TMP/pd.out'"
+IPAAS_FLYWAY_LOCK_TIMEOUT=9s mig info > "$TMP/pe.out" 2>&1; expect "migrate.sh with IPAAS_FLYWAY_LOCK_TIMEOUT=9s still runs (arg accepted by the 12.4.0 CLI)" test $? -eq 0
+
 if [ "${KEEP:-0}" = 1 ]; then
   echo; echo "KEEP=1: database left up for the parity check: jdbc:postgresql://127.0.0.1:$HOSTPORT/ipass user ipass_migrator password in $TMP/.env (deleted on exit of THIS script: copy it now)"
   echo "remove with: docker rm -f $N-pg; docker network rm $N; docker volume rm $N-data"
   cp "$TMP/.env" "/d/tmp/.flyway-proof.env" 2>/dev/null || true
 fi
-echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"
+echo
+if [ $fail -ne 0 ]; then echo "FAILURES"
+elif [ "$PARITY_RAN" != 1 ]; then echo "PASSED WITHOUT PARITY - not a full proof (parity check did not run)"; fail=1
+else echo "ALL PASSED (parity ran)"; fi
 exit $fail
