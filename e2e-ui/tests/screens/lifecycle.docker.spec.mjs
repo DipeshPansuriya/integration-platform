@@ -30,7 +30,6 @@ test('the author approves their own version: APPROVED is shown, no refusal, and 
   await page.click('[data-action="approve"]');
 
   await expect(page.locator('[data-version-status="APPROVED"]').first()).toBeVisible();
-  await expect(page.locator('[data-refusal="author-cannot-approve"]')).toHaveCount(0);
   await expect(page.locator('[data-action="publish"]')).toBeEnabled();
 });
 

@@ -132,9 +132,9 @@ public class ApprovedTableService {
      * between (1) and (3) is refused there.
      */
     public Map<String, Object> decide(String systemId, String id, String decision, UUID actorId) {
-        Preflight pre = transactions.execute(status -> preflight(systemId, id, decision, actorId));
+        Preflight pre = transactions.execute(status -> preflight(systemId, id, decision));
         if (pre.probe() != null) {
-            // T178a: a real approval only (state and 4-eyes checked first)
+            // T178a: a real approval only (the state is checked first)
             Optional<String> refusal = widthRefusal(pre.probe());
             if (refusal.isPresent()) {
                 String code = refusal.get().startsWith("DB_ACCOUNT_TOO_WIDE") ? "DB_ACCOUNT_TOO_WIDE"
@@ -221,7 +221,7 @@ public class ApprovedTableService {
     private record Preflight(String beforeStatus, String tableName, Probe probe) {
     }
 
-    private Preflight preflight(String systemId, String id, String decision, UUID actorId) {
+    private Preflight preflight(String systemId, String id, String decision) {
         requireSystem(systemId, false);
         if (!SystemAdminService.isUuid(id)) {
             throw ConfigApiException.notFound();

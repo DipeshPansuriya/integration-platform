@@ -219,7 +219,7 @@ class T019ConfigLifecycleContainerTest {
                 .isEqualTo(snapshotAtSubmit);
     }
 
-    // --------------------------------------------------------------- Scenario: the author cannot approve
+    // --------------------------------------------------------------- Scenario: the author may approve
 
     @Test
     @DisplayName("Scenario: The author may approve their own version - 200 through the API, no refusal recorded")

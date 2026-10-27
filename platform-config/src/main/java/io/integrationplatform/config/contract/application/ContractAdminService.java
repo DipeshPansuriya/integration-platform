@@ -37,7 +37,7 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>E5 lane A (T-105, ADR-011 Decisions 2 and 3): versioned source and target contracts imported from OpenAPI or
  * JSON Schema ({@link ContractDocumentImporter}), one {@code contract} per system and role, each version a row of its
  * own with its lineage ({@code derived_from} = the highest lower label of the same contract), listed side by side,
- * approved only by someone other than its author (V2_2_5_1). RETIRED versions stay readable and listed (rule 4).
+ * approved by a tenant approver or admin, the author included (V2_2_5_1, relaxed by V2_4_1420). RETIRED versions stay readable and listed (rule 4).
  */
 public class ContractAdminService {
 

@@ -40,7 +40,7 @@ export const SETTINGS_BY_TYPE: Record<SystemType, SettingField[]> = {
     { name: 'port', label: 'Port', kind: 'number', required: true },
     { name: 'database', label: 'Database', kind: 'text', required: true },
     { name: 'user', label: 'Account name', kind: 'text', required: false, hint: 'A plain identifier. The password is a credential, stored separately.' },
-    { name: 'table', label: 'Table', kind: 'text', required: false, hint: 'A second person must approve the table (approved-tables API) before the first send.' }
+    { name: 'table', label: 'Table', kind: 'text', required: false, hint: 'A table must be approved (approved-tables API) before the first send.' }
   ],
   MQ: [
     { name: 'host', label: 'Host', kind: 'text', required: true },

@@ -57,3 +57,10 @@ test('both forms carry the legend, mark required fields and set aria-invalid on 
   assert.match(fields, /export const ERRORS_ID/);
   for (const hook of ['data-field="system-code"', 'data-field="system-name"', 'data-form="register-system"']) assert.ok(register.includes(hook), hook);
 });
+
+test('the DB table hint says the table must be approved, without requiring a second person (single-user approval)', () => {
+  const hint = read('api/systems.ts').match(/name: 'table', label: 'Table'[^\n]*hint: '([^']+)'/)?.[1];
+  assert.ok(hint, 'the DB table field has a hint');
+  assert.equal(hint, 'A table must be approved (approved-tables API) before the first send.');
+  assert.ok(!/second person|another person|different (user|person)/i.test(hint));
+});

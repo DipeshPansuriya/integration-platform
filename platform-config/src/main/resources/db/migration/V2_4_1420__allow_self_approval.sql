@@ -1,4 +1,4 @@
--- Single-user self-approval (Dipesh, 2026-10-26; plan PLAN-single-user-self-approval): one TENANT_ADMIN can create,
+-- Single-user self-approval (project owner, 2026-10-26; plan PLAN-single-user-self-approval): one TENANT_ADMIN can create,
 -- submit, approve and publish a flow version, a contract version and a DB-table approval without a second user.
 -- This DELIBERATELY weakens separation of duties (four-eyes); the role check (APPROVE_VERSION, APPROVE_DB_TABLE) still
 -- decides WHO may approve, only the "not the author / not the requester" rule goes. V2_2_2, V2_2_4, V2_2_5_1 and

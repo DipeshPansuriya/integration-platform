@@ -198,7 +198,6 @@ test('the author approves their own version: APPROVED, approver = author, no ref
   await row.locator('[data-action="approve-version"]').click();
   await row.locator('[data-action="confirm-approve"]').click(); // B29 C2: Approve asks first
   await expect(row).toHaveAttribute('data-version-status', 'APPROVED');
-  await expect(page.locator(`[data-contract="${TARGET_A}/${ROLE}"] [data-refusal="author-cannot-approve"]`)).toHaveCount(0);
   const stored = await inBrowser(page, 'GET', `/api/v1/admin/contracts/versions/${version.id}`);
   expect(stored.data.status).toBe('APPROVED');
   expect(stored.data.approverId).toBe(stored.data.authorId);
