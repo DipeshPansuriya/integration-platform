@@ -130,6 +130,8 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
             + "     where cv.id = v.source_contract_version_id) as source_system"
             + " from public.interface_version v";
 
+    private static final String READ_AUTHOR = "select v.author_id::text as author_id from public.interface_version v";
+
     private static final String INSERT_VERSION = "with ins as ("
             + "insert into public.interface_version (tenant_id, interface_id, version, status,"
             + "    business_key_rule, snapshot, source_contract_version_id, author_id)"
@@ -339,6 +341,11 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
         return first(query(READ_VERSIONS,
                 "v.interface_id = :interface_id::uuid and v.id = :version_id::uuid",
                 Params.of("interface_id", interfaceId, "version_id", versionId), VERSION_ROW));
+    }
+
+    /** The author of a version (null when the bound tenant cannot see it): the audit flags an approval by the author. */
+    public String authorOf(String versionId) {
+        return first(query(READ_AUTHOR, "v.id = :id::uuid", Params.of("id", versionId), FIRST_COLUMN)).orElse(null);
     }
 
     public String insertVersion(String interfaceId, int version, String businessKeyRule, String snapshotJson,

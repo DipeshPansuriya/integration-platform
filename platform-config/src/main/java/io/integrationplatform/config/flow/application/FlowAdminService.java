@@ -221,9 +221,11 @@ public class FlowAdminService {
         String result = flows.approveVersion(pending.id(), approverId.toString());
         return switch (result) {
             case "APPROVED" -> {
+                // single-user workflow: the trail says outright when the approver is the author
+                boolean selfApproved = approverId.toString().equals(flows.authorOf(pending.id()));
                 audit(ConfigAuditActions.FLOW_APPROVED, approverId, interfaceRow.id(), pending.id(),
                         ConfigAuditActions.state("status", "PENDING_APPROVAL"),
-                        ConfigAuditActions.state("status", "APPROVED"));
+                        ConfigAuditActions.state("status", "APPROVED", "selfApproved", selfApproved));
                 yield new ApprovalOutcome(200,
                         ConfigApiException.body("id", interfaceRow.id(), "version", pending.version()));
             }
