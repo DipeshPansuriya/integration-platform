@@ -270,6 +270,37 @@ class RoleMatrixContainerTest {
         assertThat(published.statusCode()).as(published.body()).isEqualTo(200);
     }
 
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("Row 519: PUT endpoint-auth is tenant-admin only - configurator, approver, support, read-only get 403 before"
+            + " any lookup; the admin passes the gate (404 for an unknown system)")
+    void onlyATenantAdminEditsEndpointAuth() throws Exception {
+        String path = "/api/v1/admin/systems/" + UUID.randomUUID() + "/endpoint-auth";
+        String body = "{\"authMethod\":\"NO_AUTH\"}";
+
+        for (String role : List.of("CONFIGURATOR", "APPROVER", "SUPPORT", "READ_ONLY")) {
+            assertRoleRefusal(call(role, "PUT", path, body));
+        }
+        HttpResponse<String> admin = call("TENANT_ADMIN", "PUT", path, body);
+        assertThat(admin.statusCode()).as("the gate lets the tenant admin through: %s", admin.body()).isEqualTo(404);
+        HttpResponse<String> configuratorRead = call("CONFIGURATOR", "GET", path, null);
+        assertThat(configuratorRead.statusCode()).as("a configurator may still READ: %s", configuratorRead.body())
+                .isEqualTo(404);
+    }
+
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("Row 519 (H-1): the editable allowed-hosts surface is gone - every method answers 404 even for a tenant admin")
+    void theAllowedHostsRoutesDoNotExist() throws Exception {
+        for (String method : List.of("GET", "PUT", "POST", "DELETE")) {
+            HttpResponse<String> response = call("TENANT_ADMIN", method, "/api/v1/admin/settings/allowed-hosts",
+                    method.equals("PUT") || method.equals("POST") ? "{\"host\":\"evil.example\"}" : null);
+            assertThat(response.statusCode()).as("%s allowed-hosts -> %s", method, response.body()).isEqualTo(404);
+        }
+    }
+
     // ---- helpers --------------------------------------------------------------------------------------------------
 
     private static void assertRoleRefusal(HttpResponse<String> response) {

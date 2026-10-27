@@ -22,6 +22,8 @@ export function EndpointAuthForm({ systemId }: { systemId: string }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Row 519: the save is TENANT_ADMIN-only (403 for anyone else); the console learns the role from that answer.
+  const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
     let current = true;
@@ -62,6 +64,10 @@ export function EndpointAuthForm({ systemId }: { systemId: string }) {
         authTokenUrl: needsTokenUrl ? authTokenUrl.trim() || null : null
       });
       if (!authResult.ok) {
+        if (authResult.status === 403) {
+          setForbidden(true);
+          return;
+        }
         setErrors(authResult.errors?.length ? authResult.errors : [`Save refused (HTTP ${authResult.status}).`]);
         return;
       }
@@ -92,7 +98,12 @@ export function EndpointAuthForm({ systemId }: { systemId: string }) {
 
   return (
     <form data-form="endpoint-auth" onSubmit={onSubmit}>
-      <fieldset data-settings-for="endpoint-auth">
+      {forbidden && (
+        <p role="status" className="systems-alert" data-endpoint-auth-forbidden="true">
+          Only a tenant admin can change target authentication. These settings are read-only for your role.
+        </p>
+      )}
+      <fieldset data-settings-for="endpoint-auth" disabled={forbidden}>
         <legend>Target authentication</legend>
 
         <label>
@@ -161,7 +172,7 @@ export function EndpointAuthForm({ systemId }: { systemId: string }) {
         })}
       </fieldset>
 
-      <button type="submit" data-action="save-endpoint-auth" disabled={saving}>
+      <button type="submit" data-action="save-endpoint-auth" disabled={saving || forbidden}>
         {saving ? 'Saving...' : 'Save auth settings'}
       </button>
       {saved && <p role="status" className="systems-alert systems-alert-success" data-saved="true">Auth settings saved.</p>}
