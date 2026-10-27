@@ -9,7 +9,7 @@ Source: ADR-H-IPASS-01 (hosting decision; kept in the planning workspace, not in
 | File | Purpose |
 |---|---|
 | `compose.yaml` | The production stack: `edge` (the only service on the shared `web` network), app, ui, keycloak, postgres, kafka (+ `kafka-init`), `kafbat` (read-only operator view, T219), `pg-backup`, one-shot `pg-restore-test`. No test tooling |
-| `edge/edge.conf` | The edge proxy path allow-list (actuator, `/v3`, Keycloak `/admin` and the master realm answer 404). Login and token paths are rate limited: about 10 requests/min per client, burst 5, 429 beyond that (the client is the last `X-Forwarded-For` entry, the one Traefik appends - a spoofed first entry is ignored). |
+| `edge/edge.conf` | The edge proxy path allow-list. Since 27-Oct (row 489) it routes actuator, `/v3`, `/swagger-ui`, all of Keycloak (admin console and master realm too) and, on ops, the WireMock admin `/__admin/`; see "Live state" below. Login and token paths are rate limited: about 10 requests/min per client, burst 5, 429 beyond that (the client is the last `X-Forwarded-For` entry, the one Traefik appends - a spoofed first entry is ignored). |
 | `test/edge-ratelimit.sh` | Behaviour proof of that rate limit in nginx (build PC, Docker lock) |
 | `test/edge-ops.sh`, `test/ops-setup-stub.sh` | Behaviour proof of the ops and auth edge rules in nginx, and of `ops-setup-kcadm.sh` against a stub kcadm |
 | `test/public-smoke.sh` | Public smoke from outside the server (curl + bash, one python3 snippet for the TCP checks): site, actuator closed, Keycloak, ops edge, Postgres TLS 1.3 fingerprint, Kafka Metadata. `bash deploy/hostinger/test/public-smoke.sh [fingerprint]`; no Docker, no lock, no logins |
@@ -24,6 +24,8 @@ Source: ADR-H-IPASS-01 (hosting decision; kept in the planning workspace, not in
 | `backup/` | `backup.sh` (nightly dump loop), `restore-test.sh` |
 | `seed/` | `seed-showcase.sh` + `seed.sql` (two tenants, four users); `NESTED-APPOINTMENT.md` = hand-off for the nested-appointment showcase flow (not part of the seed run) |
 | `test/` | `test-scripts.sh` (offline), `smoke.sh` + `compose.smoke.yaml` (build-PC only) |
+| `kafka-public/` | `compose.kafka-public.yaml` (overlay: `kafka-front` HAProxy publishes host 9092), `haproxy.cfg`, `kafka-public-fw.sh on\|off\|check` (outbound-drop rule), `ipass-kafka-fw.service` (re-applies it at boot) |
+| `outside/` | The demo Postgres door as its own compose project `ipass-outside` (`compose.outside.yaml`, host 5432); `pg-throttle.sh on\|off\|status\|check`, `ipass-pg-throttle.service` (re-applies it at boot), `OUTSIDE-ACCESS.md` (design, apply, rollback) |
 
 Images (built elsewhere, see "Build"): `<registry>/ipass/platform-app:<sc>`, `.../ui:<sc>`, `.../keycloak:26.8.0-<sc>`. `<sc>` = short commit of the merged `main`. `<registry>` is your container registry host. `compose.yaml` still carries a built-in default registry prefix; `IPASS_IMAGE_PREFIX` (the prefix) or `IPASS_APP_IMAGE` / `IPASS_UI_IMAGE` / `IPASS_KEYCLOAK_IMAGE` (whole names) override it. Never `latest`.
 
@@ -44,7 +46,7 @@ Scan the source tree and the three images (gitleaks, plus a vulnerability scan; 
 
 0. **Fit rule first** (ADR Decision 2): `MemAvailable >= 4.5 GB`, free disk `>= 25 GB` on the Docker data root, `>= 2` vCPU with 15-minute load below 50 %, Traefik present on the `web` network. Fail any one: stop and report to the project owner (new VPS = the project owner's spend).
 1. **DNS**: A records `ipass.${IPASS_DOMAIN}` and `auth.${IPASS_DOMAIN}` to the VPS IPv4 (and AAAA if the VPS has IPv6). Wait until both resolve.
-2. **Firewall**: group allows TCP 22, 80, 443 only (IPv4 and IPv6), shows `synced`.
+2. **Firewall**: the provider firewall group allows TCP 22, 80, 443, 5432 and 9092 (5432 and 9092 only once the demo Postgres door and the Kafka front are applied, see "Live state"), shows `synced`. Before those two overlays: 22, 80, 443 only.
 3. **Log retention**: `/etc/systemd/journald.conf.d/ipass.conf` with `MaxRetentionSec=30day` and `SystemMaxUse=2G`; `systemctl restart systemd-journald`. Check no other stack relies on longer retention (ADR Decision 6).
 4. **Project folder**: `mkdir -p /docker/ipass && cd /docker/ipass`; copy this `deploy/hostinger/` folder's contents here (`scp -r`), then `chmod +x *.sh */*.sh`. (The postgres init scripts must be executable.)
 5. **Secrets**: `IPASS_DOMAIN=<domain> IMAGE_TAG=<sc> ./bootstrap-env.sh` writes `.env` (mode 600) and prints fingerprints. The project owner keeps a copy of `PLATFORM_CREDENTIAL_KEK_K1` in his password manager (losing it makes sealed credentials unreadable). The temporary Keycloak admin is written to its own file `.env.bootstrap-admin` (mode 600), not to `.env`.
@@ -54,8 +56,8 @@ Scan the source tree and the three images (gitleaks, plus a vulnerability scan; 
 8. **Start** (first time, with the bootstrap admin): `F="-f compose.yaml -f keycloak/compose.bootstrap-admin.yaml"` (append `-f demo/compose.demo.yaml` for the demo), then `docker compose $F pull && docker compose $F up -d`. After step 11 the `keycloak/compose.bootstrap-admin.yaml` file is no longer used. First start: Postgres runs the init scripts (roles), Keycloak imports realm `platform`, `kafka-init` creates the topics, the app runs Flyway and starts.
 9. **Wait and verify** (guide section 8): all containers `Up` and healthy, restart count not rising for 90 s; `docker compose logs platform-app` shows a clean start.
 10. **Seed**: `./seed/seed-showcase.sh` (creates the four realm users with the generated showcase passwords, binds tenants and roles). Hand the showcase passwords to the project owner through the OS store, never through chat.
-11. **Keycloak admin**: create a named master-realm admin with `docker compose exec keycloak /opt/keycloak/bin/kcadm.sh ...` over SSH, then `KC_ADMIN_USER=<named admin> ./keycloak/retire-bootstrap-admin.sh` (kcadm asks for the password; it deletes the `bootstrap-admin` user and `.env.bootstrap-admin`, and re-creates keycloak from `compose.yaml` alone, so the credential is no longer in the container environment). Later seeding or client-secret rotation uses `KC_ADMIN_USER` the same way. `/admin` and the `master` realm are not routed publicly (Traefik and `edge` both refuse them).
-12. **Outside checks** (ADR conformance C2/C3): anonymous `GET https://ipass.${IPASS_DOMAIN}/api/v1/...` is 401; `https://auth.${IPASS_DOMAIN}/admin` is 404; `/actuator/prometheus` and `/v3` are 404 from outside (edge answers 404 itself); only ports 22/80/443 answer on IPv4 and IPv6.
+11. **Keycloak admin**: create a named master-realm admin with `docker compose exec keycloak /opt/keycloak/bin/kcadm.sh ...` over SSH, then `KC_ADMIN_USER=<named admin> ./keycloak/retire-bootstrap-admin.sh` (kcadm asks for the password; it deletes the `bootstrap-admin` user and `.env.bootstrap-admin`, and re-creates keycloak from `compose.yaml` alone, so the credential is no longer in the container environment). Later seeding or client-secret rotation uses `KC_ADMIN_USER` the same way. History: until 27-Oct `/admin` and the `master` realm were not routed publicly; since row 489 chunk C (decision of 27-Oct) `auth.<domain>` serves all of Keycloak, so the named admin should enrol a one-time code as soon as T220 allows (see "Live state").
+12. **Outside checks** (ADR conformance C2/C3): anonymous `GET https://ipass.${IPASS_DOMAIN}/api/v1/...` is 401; `https://ipass.${IPASS_DOMAIN}/actuator/health` answers and any other `/actuator` path is refused by the app (the edge passes `/actuator`, `/v3`, `/swagger-ui` on since 27-Oct; the app decides, `edge/edge.conf:139-144`); `https://auth.${IPASS_DOMAIN}/admin/` now answers (Keycloak login) by decision; ports 22/80/443 answer, plus 5432 and 9092 when the two overlays are applied (IPv4 only for those two).
 13. **Facts to verify on the host** (ADR V5/V6/V8): `docker stats --no-stream` after one demo run (alarm above 80 % of a limit); the app can fetch `https://auth.${IPASS_DOMAIN}/realms/platform/.well-known/openid-configuration` from inside its container - if not, add `extra_hosts: ["auth.${IPASS_DOMAIN}:host-gateway"]` to `platform-app`; IPv6 is covered by the firewall.
 14. **Backup**: `docker compose exec pg-backup env RUN_ONCE=1 sh /scripts/backup.sh` (also before every change; exit code non-zero and a `backup FAILED` line if either dump failed or is unreadable - a failed dump is deleted and nothing is pruned), then **restore test** `docker compose --profile restore-test run --rm pg-restore-test` (expect `OK tenant`, `OK audit_event`; it runs as `ipass_restore`, a one-shot container that exists only for the test). Repeat monthly. Nightly dumps run at 02:00 UTC into volume `ipass-backups`, 7 daily + 4 weekly.
 
@@ -103,3 +105,56 @@ The host's Traefik does read the socket (ADR Decision 5 point 8). A read-only mo
 - **Master realm Frontend URL:** on a server where it was ever set (an earlier T219 step did), clear it once (`kcadm.sh update realms/master -s attributes.frontendUrl=` inside the container, named admin) and check that `kcadm` still logs in.
 - The edge refuses, on ops, any path containing `%`, `;`, a backslash, `//` or a dot segment (`.` or `..`, also directly before a query string), so a Kafbat topic name that needs URL-encoding is 404 there by design; the request URI is forwarded to Kafbat unchanged.
 - **Rollback:** restore `compose.yaml`, `edge/edge.conf` and `.env` from the backup directory taken before the change, `docker compose up -d --remove-orphans` (this also removes the kafbat container when the restored compose has no such service), and force-recreate the edge. The Keycloak role, client and flow may stay (inert without kafbat); the `ops` DNS record may stay.
+
+## Live state (27-Oct, row 489 / 473) - what runs on the VPS now
+
+**Compose files.** The main stack is one project (`ipass`, `/docker/ipass`) built from three files, always passed together:
+`F="-f compose.yaml -f demo/compose.demo.yaml -f kafka-public/compose.kafka-public.yaml"` (base stack; WireMock demo destination, `demo/compose.demo.yaml`; Kafka front overlay, `kafka-public/compose.kafka-public.yaml:2-3`). The overlay needs `IPASS_KAFKA_PUBLIC_HOST` in `.env` (the public address Kafka advertises, `compose.kafka-public.yaml:13`; name only here). The demo Postgres door is a separate project, `ipass-outside` (`docker compose --env-file .env -f outside/compose.outside.yaml ...`, `outside/compose.outside.yaml:1-7`); it does not touch the main project.
+
+**Hosts, routes and ports.**
+
+| Where | What answers | Source |
+|---|---|---|
+| `ipass.<domain>` (443) | UI, `/api`, `/oauth2`, `/login`, `/logout`, plus `/actuator`, `/v3`, `/swagger-ui` passed to the app (the app answers `health` anonymously and refuses the rest) | `edge/edge.conf:142-151` |
+| `auth.<domain>` (443) | All of Keycloak, admin console and `master` realm included | `edge/edge.conf:4,29-54` |
+| `ops.<domain>` (443) | `/kafka/` Kafbat behind the Keycloak login; `/__admin/` WireMock admin and UI (anonymous, writable); anything else 404 | `edge/edge.conf:58-114` |
+| host 5432 | Demo Postgres door: HAProxy `pg-front` to `pg-demo` (snapshot copy of one demo tenant), TLS with a pinned self-signed certificate, one read-only role, throttled per source | `outside/OUTSIDE-ACCESS.md` section 1 |
+| host 9092 | Kafka front (HAProxy TCP to the broker's EXTERNAL listener), plaintext, no auth, no ACLs, capped at 60 connections | `kafka-public/haproxy.cfg:1-3` |
+| 22, 80 | SSH; HTTP (Traefik) | |
+
+The provider firewall group therefore allows TCP **22, 80, 443, 5432, 9092**. Docker publishes bypass the host firewall, so the host side is the `DOCKER-USER` rules below, not ufw.
+
+**Security status - open by Dipesh's decision 27-Oct (not a security pass):** the Keycloak `master` realm has no one-time code until T220 (needs the owner at the PC); Kafka on 9092 is plaintext with no authentication; the WireMock admin on ops is anonymous and writable (it can be stopped or its stubs changed; Docker restarts it); the demo Postgres door and Kafka are open to any address, limited only by the caps above. The Release 1 posture and the known-gaps table are in [`documents/deployment.md`](../../documents/deployment.md) section 9 (its sections 2, 5 and 9 still describe the state before 27-Oct and need their own update).
+
+**Rollback pointers.**
+- Demo Postgres door: [`outside/OUTSIDE-ACCESS.md`](outside/OUTSIDE-ACCESS.md) section 7 (R1 to R4, each step safe to repeat); the throttle rules are section 5.
+- Kafka front: the rollback commands at the top of `kafka-public/compose.kafka-public.yaml` (remove `kafka-front`, `kafka-public-fw.sh off`, recreate `kafka`, remove the two networks).
+- Edge, compose and `.env` changes (routes, WireMock admin, Keycloak admin): restore from the backup directory, [`documents/deployment.md`](../../documents/deployment.md) section 6.1 (edge rules: section 5), then force-recreate the edge.
+- Firewall rules at boot: the removal commands in the next section.
+
+## Firewall rules survive a reboot (install - review first, then run on the VPS)
+
+**Problem.** The two host rule sets live in the kernel only. `outside/pg-throttle.sh` (`DOCKER-USER`, chain `IPASS-PG`, 5432 throttle and `br-ipass-pgpub` no-egress; header lines 1-21) and `kafka-public/kafka-public-fw.sh` (`DOCKER-USER`, `br-ipass-kpub` no new outbound connections; `kafka-public-fw.sh:2-3`) say "not persistent across a reboot or a Docker restart". Read-only inspection of the VPS on 27-Oct found no unit, cron entry or saved ruleset for either (`ufw` is inactive; the only firewall unit is the unrelated `hezo-firewall.service`), so after a reboot both doors are unthrottled and the Kafka bridge may open outbound connections again. **A real reboot test was not run** (it needs the owner's decision); the files below were only checked with `systemd-analyze verify` on a copy under `/tmp` of the VPS (exit 0, no message) and the scripts' `on` / `off` / `check` were exercised against a stand-in `iptables` (3 x `on` leaves 6 rules, no duplicate; 2 x `off` leaves 0; `check` fails after `off`).
+
+**The fix** is one systemd oneshot per script, `kafka-public/ipass-kafka-fw.service` and `outside/ipass-pg-throttle.service`: `After=` and `Wants=docker.service`, `RemainAfterExit=yes`, `ExecStart=... on`, `ExecStartPost=... check` (the unit fails visibly if a rule is missing), `ExecStop=... off`. Additions to the minimum: `PartOf=docker.service` (a `systemctl restart docker` also re-applies the rules) and, for the throttle, `network-online.target` (the script reads the external interface from the default route). Both scripts are idempotent (`iptables -C` before `-I`; the throttle flushes and refills its own chain), so a unit start on top of the rules that are already live changes nothing. `systemctl stop <unit>` removes the rules (that is what `ExecStop` is for); a plain `disable` does not.
+
+**Install** (as root on the VPS, in `/docker/ipass`, after the PR is merged and the two files are copied to `/docker/ipass/kafka-public/` and `/docker/ipass/outside/` with the rest of the folder; this is the owner's step, nothing here has been run):
+```
+cd /docker/ipass
+cp kafka-public/ipass-kafka-fw.service outside/ipass-pg-throttle.service /etc/systemd/system/
+systemd-analyze verify /etc/systemd/system/ipass-kafka-fw.service /etc/systemd/system/ipass-pg-throttle.service   # prints nothing = ok
+systemctl daemon-reload
+systemctl enable --now ipass-kafka-fw.service ipass-pg-throttle.service
+systemctl status ipass-kafka-fw.service ipass-pg-throttle.service --no-pager      # active (exited)
+sh outside/pg-throttle.sh check && sh kafka-public/kafka-public-fw.sh check       # all OK
+iptables -S DOCKER-USER                                                           # each rule once
+```
+Optional proof, in a quiet window: `reboot`, then run the last two commands again and the outside checks (`outside/verify.sh`, a Kafka client).
+
+**Remove** (restores the state before this change; the live rules stay until the next reboot unless `stop` is run):
+```
+systemctl disable --now ipass-kafka-fw.service ipass-pg-throttle.service    # --now runs ExecStop = rules off; add the rules back by hand with `on` if they should stay
+rm /etc/systemd/system/ipass-kafka-fw.service /etc/systemd/system/ipass-pg-throttle.service
+systemctl daemon-reload
+```
+To keep the rules but drop the units: after the removal run `sh kafka-public/kafka-public-fw.sh on` and `sh outside/pg-throttle.sh on`.
