@@ -14,7 +14,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * E12 write side (T-043 / T-069): appends one activity event to the audit OUTBOX ({@code public.audit_outbox},
- * V2_4_3 + {@code trace_id}, V2_4_1470) in the CALLER's tenant-stamped transaction, so it commits or rolls back
+ * V2_4_3 + {@code trace_id}, V2_4_1490) in the CALLER's tenant-stamped transaction, so it commits or rolls back
  * with the business action. Row 544 (Q1): the application role can no longer insert into the ledger
  * ({@code public.audit_event}) itself; the relay moves the row there through {@code audit_relay_move}, so an activity
  * entry is readable from the ledger once the relay has run (no production caller exists today). The

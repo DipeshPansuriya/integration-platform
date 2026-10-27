@@ -21,7 +21,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
- * Row 544 (option A, B1): the rollback SQL documented in the headers of V2_4_1470 and V2_4_1480 is executed as written
+ * Row 544 (option A, B1): the rollback SQL documented in the headers of V2_4_1490 and V2_4_1500 is executed as written
  * (extracted from the migration files), the application role can write the audit tables again as before the change, the
  * old approval function bodies are back, and re-applying the migrations restores the lockdown. One ordered test: each
  * step builds on the previous database state.

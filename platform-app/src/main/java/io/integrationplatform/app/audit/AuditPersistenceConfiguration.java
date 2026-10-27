@@ -34,7 +34,7 @@ class AuditPersistenceConfiguration {
         RelayMode mode = RelayMode.parse(relayMode);
         if (mode == RelayMode.LEGACY) {
             LOG.warn("ipaas.audit.relay.mode=LEGACY: the audit relay uses the direct UPDATE+INSERT statement; it works"
-                    + " only after the V2_4_1470 rollback SQL re-granted the two privileges");
+                    + " only after the V2_4_1490 rollback SQL re-granted the two privileges");
         }
         TenantContext bound = tenantContexts.getIfAvailable();
         return new JdbcAuditEventStore(jdbcClient, bound != null ? bound : neverBound(), mode);

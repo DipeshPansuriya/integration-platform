@@ -33,7 +33,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Row 544 (option A, L4, container half): with {@code ipaas.audit.relay.mode=LEGACY} the relay uses the previous
- * UPDATE+INSERT statement, which works only after the documented rollback SQL of V2_4_1470 re-granted the two
+ * UPDATE+INSERT statement, which works only after the documented rollback SQL of V2_4_1490 re-granted the two
  * privileges - the flag alone is not a rollback. The default (DEFINER) is exercised by every other audit container
  * test; an unknown value failing the start is {@code RelayModeTest}'s.
  */

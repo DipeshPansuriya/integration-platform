@@ -5,7 +5,7 @@
 BEGIN;
 SELECT set_config('app.tenant_id', '0000000a-0000-4000-8000-00000000000a', true);
 
--- The author approves their own version (the only granted database path). Row 544 (V2_4_1480): the approver is
+-- The author approves their own version (the only granted database path). Row 544 (V2_4_1500): the approver is
 -- the session actor the application stamps in the same transaction.
 SELECT set_config('app.actor_id', 'b7e8c2d0-aaaa-4000-8000-0000000000a1', true);
 
@@ -113,7 +113,7 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 COMMIT;
 
--- Row 544 (V2_4_1480): no stamped actor is refused, and so is an argument that disagrees with the stamp; neither
+-- Row 544 (V2_4_1500): no stamped actor is refused, and so is an argument that disagrees with the stamp; neither
 -- writes a refusal row or changes the version.
 BEGIN;
 SELECT set_config('app.tenant_id', '0000000a-0000-4000-8000-00000000000a', true);

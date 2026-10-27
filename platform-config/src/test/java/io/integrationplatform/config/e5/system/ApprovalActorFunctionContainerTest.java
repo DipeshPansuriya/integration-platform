@@ -24,7 +24,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
- * Row 544 (option A, P1) against a real PostgreSQL: after V2_4_1480 the approver of a flow version or a contract
+ * Row 544 (option A, P1) against a real PostgreSQL: after V2_4_1500 the approver of a flow version or a contract
  * version is the session actor the application stamped ({@code app.actor_id}), exactly as the DB-table approval reads
  * it. A stamped actor is recorded; no actor is refused ({@code REFUSED_NO_ACTOR}) and so is a stamp that disagrees
  * with the argument ({@code REFUSED_ACTOR_MISMATCH}), both with no state change and no refusal row; the existing
