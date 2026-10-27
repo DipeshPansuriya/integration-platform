@@ -58,6 +58,14 @@ final class ConfigAdminApi {
         return JSON.writeValueAsString(json);
     }
 
+    /** The flow-create body with a typed interface code (row 482): the code intake is addressed by. */
+    static String createFlowWithCode(String sourceSystem, List<String> destinations, String businessKeyRulePath,
+            String code) {
+        ObjectNode json = (ObjectNode) JSON.readTree(createFlow(sourceSystem, destinations, businessKeyRulePath));
+        json.put("code", code);
+        return JSON.writeValueAsString(json);
+    }
+
     static String createFlowWithoutBusinessKeyRule(String sourceSystem, List<String> destinations) {
         ObjectNode json = JSON.createObjectNode();
         json.put("sourceSystem", sourceSystem);

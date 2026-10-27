@@ -24,6 +24,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
@@ -81,7 +82,13 @@ public class FlowAdminService {
 
         String code = typedCode(body, "flow-" + UUID.randomUUID()); // B26: the typed code is what intake resolves
         String name = nameFromBody(body, code); // F-1: the typed interface name is born on the flow; no name -> the code
-        String interfaceId = flows.insertInterface(code, name, ordering);
+        String interfaceId;
+        try {
+            interfaceId = flows.insertInterface(code, name, ordering);
+        } catch (DuplicateKeyException clash) {
+            // F17: the unique key is (tenant, code) (V2_2_3) - name the field, the generic 409 does not
+            throw ConfigApiException.conflict("an interface with the code '" + code + "' already exists in this tenant");
+        }
         InterfaceRow created = new InterfaceRow(interfaceId, code, name, ordering, "DRAFT");
         maskedFields.ifPresent(paths -> flows.updateMaskedFields(interfaceId, MaskedFields.toJson(paths)));
 
@@ -370,11 +377,36 @@ public class FlowAdminService {
         return text == null || text.isBlank() ? fallback : text.trim();
     }
 
-    /** The typed interface code, or the mint when the body names none (B26). Uniqueness is the database's (V2_2_3). */
+    /**
+     * What a typed interface code may be (row 482, review F2). The code is the intake URL segment
+     * ({@code /api/v1/interfaces/{code}/messages}) and is never updatable, so it must be addressable: ASCII
+     * letters and digits, then letters, digits, {@code . _ -}; 1 to 63 characters. The strictest reasonable
+     * pattern - no business rule beyond "usable in a URL"; loosen it only on a stated need.
+     */
+    static final java.util.regex.Pattern CODE_PATTERN = java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,62}");
+
+    /**
+     * The typed interface code, or the mint when the body names none (B26). Absent, null and blank mint; anything
+     * typed must be a JSON string matching {@link #CODE_PATTERN} (400 naming the field). Uniqueness per tenant is
+     * the database's (V2_2_3) and answers a named 409 in {@link #create}.
+     */
     private static String typedCode(JsonNode body, String fallback) {
         JsonNode node = body == null ? null : body.path("code");
-        String text = node == null || node.isMissingNode() || node.isNull() ? null : node.asString();
-        return text == null || text.isBlank() ? fallback : text.trim();
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return fallback;
+        }
+        if (!node.isString()) {
+            throw ConfigApiException.validation("the interface code must be a string: code");
+        }
+        String text = node.asString().trim();
+        if (text.isEmpty()) {
+            return fallback;
+        }
+        if (!CODE_PATTERN.matcher(text).matches()) {
+            throw ConfigApiException.validation("the interface code is not usable in an address: code must be 1 to 63 "
+                    + "characters, letters, digits, '.', '_' or '-', starting with a letter or digit");
+        }
+        return text;
     }
 
     private static String businessKeyRule(JsonNode body) {
