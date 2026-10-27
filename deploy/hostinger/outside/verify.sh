@@ -14,7 +14,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; PORT="${PG_PORT:-5432}"; IMG="${PG_CLIENT
 CA="$(cat "$CRT")"; fail=0
 ok() { echo "PASS $1"; }; bad() { echo "FAIL $1  [$2]"; fail=1; }
 # c <user> <password-env-name> <db> <sslmode> <sql>  -> output of psql (stdout+stderr); the password never appears in argv
-c() { PW="$( [ "$2" = OUTSIDE_PW ] && printf '%s' "$OUTSIDE_PW" || printf '%s' "$2" )"
+c() { sleep 1.1   # pace: the proxy allows 10 new connections per 10 s per address, the probes must not trip it
+  PW="$( [ "$2" = OUTSIDE_PW ] && printf '%s' "$OUTSIDE_PW" || printf '%s' "$2" )"
   PGPASSWORD="$PW" docker run --rm --network "$NET" -e CA="$CA" -e PGPASSWORD -e PGCONNECT_TIMEOUT=6 -e SQL="$5" "$IMG" sh -c \
    "printf '%s\n' \"\$CA\" >/tmp/ca.crt; psql \"host=$HOST port=$PORT user=$1 dbname=$3 sslmode=$4 sslrootcert=/tmp/ca.crt\" -tA -c \"\$SQL\" 2>&1"; }
 O() { c ipass_outside OUTSIDE_PW "${2:-ipass_demo}" "${3:-verify-full}" "$1"; }   # the outside role, TLS verified against the pinned cert
@@ -51,6 +52,6 @@ PGPASSWORD="$OUTSIDE_PW" docker run -d --rm --name ipass-verify-hold --network "
   "printf '%s\n' \"\$CA\" >/tmp/ca.crt; for i in 1 2 3; do psql \"host=$HOST port=$PORT user=ipass_outside dbname=ipass_demo sslmode=verify-full sslrootcert=/tmp/ca.crt\" -c 'select pg_sleep(12)' >/dev/null 2>&1 & done; wait" >/dev/null 2>&1
 sleep 4; want "4th simultaneous connection refused (role limit 3 / proxy 3 per address)" 'too many connections|server closed|connection (refused|reset)|timeout|could not' "$(O "select 1")"
 docker rm -f ipass-verify-hold >/dev/null 2>&1; sleep 13
-n="$(docker run --rm --network "$NET" -e PGCONNECT_TIMEOUT=4 "$IMG" sh -c "for i in \$(seq 1 25); do psql \"host=$HOST port=$PORT user=ipass_outside dbname=ipass_demo sslmode=require password=wrong\" -c 'select 1' 2>&1 & done; wait" | grep -vc 'password authentication failed')"
-[ "$n" -ge 5 ] && ok "wrong-password flood: $n of 25 attempts cut at the proxy before authentication" || bad "flood not throttled" "$n"
+n="$(docker run --rm --network "$NET" -e PGCONNECT_TIMEOUT=4 "$IMG" sh -c "for i in \$(seq 1 25); do psql \"host=$HOST port=$PORT user=ipass_outside dbname=ipass_demo sslmode=require password=wrong\" -c 'select 1' 2>&1 & done; wait" | grep -c 'password authentication failed')"
+[ "$n" -le 20 ] && ok "wrong-password flood: only $n of 25 attempts reached authentication, the rest were cut at the proxy" || bad "flood not throttled" "$n reached authentication"
 [ $fail -eq 0 ] && echo "VERIFY: ALL PASSED" || echo "VERIFY: FAILURES"; exit $fail
