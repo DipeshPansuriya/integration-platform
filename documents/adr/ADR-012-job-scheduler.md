@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ADR-012 - Job scheduler: db-scheduler with job definitions as our rows, platform-scoped jobs, a no-tenant operator-agent credential, alerts as durable rows plus Prometheus"
-status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - tenant admins hold no job operation; the agent polls alerts every 5 minutes, no push channel in Release 1; the no-tenant machine credential proceeds with its attack suite added to T-147"
+status: "Accepted (approved by Dipesh 2026-10-12, as recommended) - tenant admins hold no job operation; the agent polls alerts every 5 minutes, no push channel in Release 1; the no-tenant machine credential proceeds with its attack suite added to T-147. Amendment 2026-10-27 (conservative PAYLOAD_PURGE guard, guard and drop in the database as the table owner, V2_4_1450 / V2_4_1460) Ratified by mahesh-architect 2026-10-27 - the project owner may reverse"
 approved: "Dipesh, 2026-10-12 (hub memory m-f1fcfc)"
 date: 2026-10-11
 author: "mahesh-architect (ledger row 307 under row 278, task T-054)"
@@ -178,7 +178,10 @@ its own trigger tables would be a second source of truth beside `job_definition`
   guard-then-drop gap is safe: a delivery that counted as final cannot become non-final, and the
   only path back (replay) starts from `DEAD_LETTERED`, which the guard already counts.
   [Verified] guard and roles `documents/adr/ADR-011-targets-contracts-bulk-ordering.md:291-296`;
-  [Inferred] the race argument.
+  [Inferred] the race argument. *(Superseded as built by Amendment 2026-10-27 below: the guard
+  and the drop run together inside one definer function as the table owner, so every tenant is
+  counted - suspended ones included - and the guard also keeps a day holding any message that is
+  not `ROUTED`. Kept here as the record of the original sketch.)*
 
 ### 5. The operator-agent credential and its scope
 
@@ -314,7 +317,7 @@ table gets an error, not rows. [Decided - restates Decision 1 and T-144 as one t
 | T-059 run rows | every finished run shows 1 row in the run list with its counts; 0 payload bytes in any `job_run` column |
 | T-141 delivery retry | a not-ready instance claims 0 executions while the other claims every one; a delivery at the re-drive cap is re-driven 0 times |
 | T-142 purge | only partitions past retention are dropped; the job runs as the maintenance role (env var names only, 0 secrets in files) |
-| T-189 purge guard | a partition holding 1 `DEAD_LETTERED` delivery, or 1 non-final delivery, survives (0 drops); it drops only when both counts are 0 |
+| T-189 purge guard | a partition holding 1 `DEAD_LETTERED` delivery, or 1 non-final delivery, survives (0 drops); it drops only when both counts are 0. *Stricter since Amendment 2026-10-27: 1 message not `ROUTED` (`ACCEPTED`, `ROUTE_FAILED`) also keeps the day, and a suspended tenant's dead letter keeps it too* |
 | T-143 daily report | 1 report per tenant per day; a tenant's report holds 0 rows of another tenant |
 | T-144 tenant from row | a tenant id planted in job data is ignored: 0 rows written or read for the planted tenant |
 | T-203 credential clean-up | the Keycloak call carries the five controls, each with its own test; Keycloak down gives 1 `FAILED` run, 0 credentials marked removed, and the next run retries |
@@ -376,6 +379,83 @@ recommended:
    Release 1 security review (T-147); the human operator login stays deferred.
 
 
-## Amendment 2026-10-27 - PAYLOAD_PURGE guard is conservative (row 495, T-142)
+## Amendment 2026-10-27 - PAYLOAD_PURGE guard is conservative (row 495, T-142; PR 52 `e12f2949`)
 
-No decision above changes. The T-142 / T-189 row of the criteria table (`:316`) keeps a day only for a `DEAD_LETTERED` or non-final delivery. The built guard (`V2_4_1450__payload_purge.sql` and `V2_4_1460__payload_purge_conservative_guard.sql`, function `public.payload_purge_days`) is stricter, by Mira on row 495: it also keeps a day that holds any message that is not `ROUTED` (`ACCEPTED` = never routed, `ROUTE_FAILED` = may need a fix and replay), because the payload is the only copy and we cannot prove such a day final. The guard and the drop run in the database as the table owner, so the guard sees every tenant, inactive ones included (the sketch in section 4 looped active tenants as the app role). The job ships `OFF` (`ipaas.retention.payload-purge.mode`); `DRY_RUN` reports, `ENFORCE` drops, and only a deployment sets it. **Gives up:** a day with one stuck message is never purged until that message is resolved. **Status:** Mahesh ratifies. [Decided - Mira, reversible]
+**Status: Ratified - mahesh-architect, 2026-10-27 (ledger row 524). The project owner may reverse.** Decided by Mira on
+row 495; built by arjun-fullstack in PR 52 (`e12f2949`) on top of `V2_4_1450`. No decision above changes except
+the purge sketch of section 4, which is marked superseded where it stands.
+
+- **Context.** The T-189 row of the criteria table keeps a day only for a `DEAD_LETTERED` or non-final delivery.
+  The payload partition is the only copy of a message's body, and a message can be unfinished while its day holds
+  no delivery at all: `ACCEPTED` (never routed; the reconciler re-publishes it, ADR-010 section 9) and
+  `ROUTE_FAILED` (may need a fix and a replay). Message states are exactly `ACCEPTED`, `ROUTED`, `ROUTE_FAILED`
+  (`platform-routing/src/main/resources/db/migration/V2_1_810__message_partitioned.sql:23`). The section 4 sketch
+  also counted under row-level security with the active-tenant loop, which never sees a suspended tenant, so a
+  suspended tenant's dead letters were unprotected. [Verified]
+- **Options.** (A) The T-189 row as written: delivery guard only, counted per active tenant as the application
+  role - purges the most, but drops a day holding an unrouted message or a suspended tenant's dead letter.
+  (B) **Conservative guard, inside the database as the table owner** - keeps every day it cannot prove final.
+  (C) B plus a per-message escape hatch (purge a day except its stuck rows) - impossible with partition drop
+  without a row `DELETE`, which ADR-014 Decision 3 rules out. [Decided] **B.**
+- **Decision (as built).**
+  1. One definer function, `public.payload_purge_days(cutoff date, dry_run boolean)`, owned by the migration
+     owner (the table owner), `SECURITY DEFINER`, `search_path = pg_catalog, pg_temp`, `lock_timeout = 5s`
+     (`platform-app/src/main/resources/db/migration/V2_4_1460__payload_purge_conservative_guard.sql:9-13`).
+     `EXECUTE` goes to `ipaas_maintenance` only; `PUBLIC` and the application role hold none (`:63-64`).
+  2. Retention floor inside the function: a cutoff newer than today (UTC) minus 30 days raises `22023` (`:20-22`).
+  3. Per day older than the cutoff: `ACCESS EXCLUSIVE` lock on `delivery_D`, count deliveries not `DELIVERED`
+     (`:36-40` - this covers `DEAD_LETTERED` and every non-final state, `V2_3_1__delivery_partitioned.sql:28-29`);
+     if 0, lock `message_D` and count messages not `ROUTED` (`:44-48`); any count above 0 is `KEPT` (`:50-51`).
+     Otherwise `WOULD_DROP` (dry run) or a `DROP` of `message_D`, `payload_D`, `delivery_D` together (`:52-58`),
+     in the same transaction as the count, so no state can change between guard and drop.
+  4. The caller is `JdbcPartitionPurge` over a private pool on the maintenance connection
+     (`platform-tenancy/src/main/java/io/integrationplatform/tenancy/internal/persistence/JdbcPartitionPurge.java:23-26`),
+     created only when `IPASS_MAINTENANCE_DB_URL` is set (`MaintenancePurgeConfiguration.java:16-21`). The login
+     named by `IPASS_MAINTENANCE_DB_USERNAME` is created outside Flyway and granted membership of the `NOLOGIN`
+     role `ipaas_maintenance`, so no password enters a migration (`V2_4_1450__payload_purge.sql:6-8`, `:18-30`).
+  5. The job ships `OFF` (`ipaas.retention.payload-purge.mode`, `PayloadPurgeHandler.java:42`, `:64-66`).
+     `DRY_RUN` locks and counts but drops nothing; `ENFORCE` drops. Only a deployment sets either, and either
+     without the maintenance connection fails the run by name, which alerts (`PayloadPurgeHandler.java:68-72`).
+- **Architect's verdict - Ratified.** Checked this pass:
+  - *Every tenant is counted, fail-closed.* The function reads the day partitions as their owner. No `FORCE ROW
+    LEVEL SECURITY` is set on `message`, `payload` or `delivery` (search of all migrations this pass), so the owner
+    sees every row, suspended tenants included. If row-level security ever bound the owner, the policies compare
+    to `current_setting('app.tenant_id')` with no `missing_ok` (`V2_1_810__message_partitioned.sql:56`,
+    `V2_3_1__delivery_partitioned.sql:70`): the count errors, the run fails and nothing is dropped.
+  - *Conformance tests exist* (`platform-app/src/test/java/io/integrationplatform/app/retention/PayloadPurgeContainerTest.java`):
+    a suspended tenant's dead letter, a `ROUTE_FAILED` message and an `ACCEPTED` message each keep their day
+    (`:197-199`); dry run drops nothing (`:208-213`); a cutoff inside 30 days is refused (`:219`); the application
+    role cannot run the purge (`:230`); the maintenance login can do nothing but call the function (`:241-257`);
+    the function is a definer owned by the table owner with the fixed search path and lock timeout (`:260-275`).
+  - *Tenant isolation is not weakened:* the function takes no tenant, returns only a day and an outcome, and
+    reads no payload. It is a T6 maintenance function of the same shape as the two audit
+    functions (`documents/architecture.md:172-177`), not a T5 tenant-crossing function, so the T5 count stays at
+    four; architecture.md section 5 lists it as the third T6 function in this same change.
+- **Trade-off accepted (what this gives up).**
+  1. **One stuck message blocks its whole day, for every tenant.** A single `ACCEPTED` or `ROUTE_FAILED` message,
+     or a dead letter, keeps that day's partitions - every tenant's payloads of that day - past the 30-day
+     retention until it is resolved (routed, replayed or dead letter discarded). Retention becomes "at least
+     30 days" for such a day, not "exactly 30".
+  2. Payload storage grows with the number of unresolved days; `kept` days are counted on the run row and named
+     in the run log (`PayloadPurgeHandler.java:82-87`), but there is no age alert on a kept day yet (Open 1).
+  3. The function takes `ACCESS EXCLUSIVE` on `delivery_D` then `message_D`. A replay writing to a day older than
+     30 days at the same moment waits up to 5 s or is chosen as a deadlock victim; the purge run then fails,
+     alerts once and retries on its next run. Accepted: such writes are rare and the next run completes.
+- **Gates (counts).** A day holding 1 delivery not `DELIVERED`: 0 drops. A day holding 1 message not `ROUTED`:
+  0 drops. A suspended tenant's 1 dead letter: 0 drops. A clean day older than the cutoff: 3 of 3 partitions
+  dropped under `ENFORCE`, 0 under `DRY_RUN`. A cutoff inside 30 days: 1 of 1 refused. The application role
+  calling the function: 1 of 1 refused. All are in `PayloadPurgeContainerTest` (above).
+- **Open (non-blocking, owners to be assigned by Mira).**
+  1. A kept-day age signal: the oldest `KEPT` day as a gauge or a run count, with an alert when a kept day is
+     more than 30 days past the cutoff - so "blocked by one stuck message" is seen, not silent.
+  2. A conformance test that day partitions created by the production horizon
+     (`V2_3_1__delivery_partitioned.sql:59` and its message / payload equivalents) carry no row-level security of
+     their own (`relrowsecurity` false). Enabling row-level security on a partition with no policy hides every
+     row from a query on that partition, the count would read 0, and the guard would fail open. The current test
+     builds its own partitions (`PayloadPurgeContainerTest.java:129-131`), so it would not catch that change.
+- **Revisit if** a tenant or regulation requires a maximum retention (then stuck-message days need a per-tenant
+  escape, which partition drop cannot give without a row `DELETE` - a new ADR); more than 3 days are `KEPT` past the
+  cutoff on 30 consecutive daily runs; or row-level security is enabled on any day partition.
+
+[Ratified - mahesh-architect, 2026-10-27; reversible by a new migration restoring the `V2_4_1450` function body,
+`V2_4_1460__payload_purge_conservative_guard.sql:66`]
