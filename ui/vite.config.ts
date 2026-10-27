@@ -7,9 +7,21 @@ import react from '@vitejs/plugin-react';
 // API_PROXY_TARGET is a run-time environment NAME (R07 - a name, never a value in any file).
 const proxyTarget = process.env.API_PROXY_TARGET;
 
+const proxyRoutes = proxyTarget
+  ? Object.fromEntries(
+      ['/api', '/oauth2', '/login', '/logout', '/v3/api-docs'].map(p => [
+        p,
+        { target: proxyTarget, changeOrigin: true, secure: false },
+      ]),
+    )
+  : undefined;
+
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: proxyRoutes,
+  },
   preview: {
-    proxy: proxyTarget ? { '/api': proxyTarget } : undefined
-  }
+    proxy: proxyRoutes,
+  },
 });
