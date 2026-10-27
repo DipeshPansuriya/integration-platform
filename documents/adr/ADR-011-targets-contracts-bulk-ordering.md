@@ -1,9 +1,9 @@
 ---
 type: ADR
 title: "ADR-011 - Target types, contract registry and version graph, bulk at intake, ordering, Kafka records carry ids only, background tenant from the row"
-status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
+status: "Accepted (team, 2026-10-02) - Dipesh may reverse; Amendment 2026-10-27 Proposed - awaiting Dipesh's written acceptance"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy. 2026-10-22 - E16 F3 amendment (approved tables, D1-D4) and F3 hardening addendum (S1, S2, S3, S5, residuals)"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy. 2026-10-22 - E16 F3 amendment (approved tables, D1-D4) and F3 hardening addendum (S1, S2, S3, S5, residuals). 2026-10-27 - Amendment: author/approver separation of duties removed for flow versions, contract versions and DB-table approvals (V2_4_1420); Proposed - awaiting Dipesh's written acceptance"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -104,7 +104,8 @@ carries; and how background work finds its tenant.
     (`DRAFT`, `PENDING_APPROVAL`, `APPROVED`, `RETIRED`), JSON Schema (draft 2020-12, JSONB),
     optional original OpenAPI document, `derived_from_version_id`, `compatibility`, author,
     approver, timestamps, and the database check *approver is null or approver is not the
-    author*.
+    author*. *(Superseded by Amendment 2026-10-27: the check `approver_not_author` is dropped by
+    `V2_4_1420`; the author may approve their own version.)*
 - **Formats:** JSON Schema is canonical; OpenAPI documents are imported with `swagger-parser`
   2.1.48 and their schemas extracted (`ws/_specs/project-plan.md:80`); validation uses the
   networknt validator at the version Camel 4.22.1 manages (`:81`).
@@ -122,7 +123,8 @@ carries; and how background work finds its tenant.
     endpoint, target contract version and mapping version.
 - **Rules:**
   1. An `APPROVED` contract version is immutable. A new version needs approval by someone who
-     is not its author.
+     is not its author. *(Superseded by Amendment 2026-10-27: a new version still needs an
+     approval by a holder of `APPROVE_VERSION`, who may be its author.)*
   2. A new target contract version takes effect only through a new mapping version bound to it,
      exercised against a sample, inside a published interface version - so no message is ever
      transformed against a contract its mapping was not tested with.
@@ -346,7 +348,8 @@ in the project workspace). This amends the `DB` row of Decision 1 ("only tables 
   `config_decide_db_table_approval(id, decision)` (pinned `search_path`, no PUBLIC execute).
 - **Who approves (D1).** The tenant's approver (`APPROVE_DB_TABLE`: TENANT_ADMIN, APPROVER), not the platform operator. A
   configurator (`EDIT_CONFIGURATION`) only requests. **D4:** the requester can never approve their own request, even in a
-  one-admin tenant (same rule as contract approval, `V2_2_5_1`). Revoking is the safe direction and is open to the
+  one-admin tenant (same rule as contract approval, `V2_2_5_1`). *(D4 superseded by Amendment 2026-10-27: the requester
+  may approve their own request; the role check, the target hash and the width probe still bind.)* Revoking is the safe direction and is open to the
   approver roles including the requester. **D3:** no column-level list; column control belongs in the target database's own
   column grants. **D2:** existing `approvedTables` entries migrated as `PENDING_APPROVAL` and the key was stripped from
   the stored settings; a DB send is refused until someone approves.
@@ -361,7 +364,8 @@ in the project workspace). This amends the `DB` row of Decision 1 ("only tables 
   (`DB_TABLE_REQUESTED/APPROVED/REVOKED`) and, refused or not, a log line.
 - **Honest limits.** Four-eyes inside one tenant is an audit trail and a separation of duties, **not an authorization
   boundary**: a tenant whose admin and approver collude can approve any table - but only in a database whose credentials
-  that tenant supplied itself. The decider is stamped into the transaction (`app.actor_id`) by the platform from the
+  that tenant supplied itself. *(Amendment 2026-10-27: there is no longer a second person to collude with - one
+  TENANT_ADMIN may request and approve; the remaining limits are listed in that amendment.)* The decider is stamped into the transaction (`app.actor_id`) by the platform from the
   validated session, not authenticated by the database (the app connects as one role); a database-authenticated actor
   needs a tenancy-module change and stays open. The privilege probe at test-connection is now built but **reports
   only** (see the hardening addendum below); the account's real privileges remain the target database owner's
@@ -380,7 +384,8 @@ both reports are static reads (neither reviewer ran them).
   SELECT and INSERT only - no UPDATE, no DELETE (`V2_4_1330:101`) - so the UPDATE policy serves only the definer
   function `config_decide_db_table_approval`, which runs as the owner under FORCE ROW LEVEL SECURITY. APPROVED and
   REVOKED are reachable only through that function; it refuses self-approval (`REFUSED_SELF_APPROVAL`, backed by the
-  `four_eyes` CHECK). `INSERT ... ON CONFLICT DO UPDATE` needs UPDATE and is refused (42501). No DELETE policy:
+  `four_eyes` CHECK). *(Superseded by Amendment 2026-10-27: `V2_4_1420` drops `db_target_approved_table_four_eyes` and
+  the requester branch of the function; `REFUSED_SELF_APPROVAL` is no longer returned. The rest of S1 stands.)* `INSERT ... ON CONFLICT DO UPDATE` needs UPDATE and is refused (42501). No DELETE policy:
   deliberate; a later purge job must run as a role that bypasses RLS. Tests: `anInsertIsAlwaysPending`,
   `noUpdateAndNoDeleteForTheAppRole` (`ApprovedTableMigrationContainerTest`); no test names the ON CONFLICT case.
 - **S5 - the fingerprint includes `sslmode`** (`V2_4_1340:39-46`). One SQL definition, `db_target_fingerprint`, read by
@@ -412,7 +417,53 @@ both reports are static reads (neither reviewer ran them).
   it can name another user as requester and then approve through the function with its own stamped actor; it cannot
   insert an APPROVED row. **Open decision (Dipesh):** accept and record here, or add a `BEFORE INSERT` trigger deriving
   `requested_by` from `app.actor_id` and `target_hash` from the live settings - recommended: accept; add the trigger
-  only if he asks. (b) On PostgreSQL 14 and older PUBLIC holds CREATE on `public`, so every account reads WIDE (a
+  only if he asks. *(Amendment 2026-10-27: (a) no longer buys anything - a requester may approve their own request -
+  so the trigger is not needed for separation of duties; a forged `target_hash` is still caught at send and publish,
+  which compare against the live settings.)* (b) On PostgreSQL 14 and older PUBLIC holds CREATE on `public`, so every account reads WIDE (a
   false positive; accurate on 15+). Target database versions: TBD. (c) A repoint A to B and back to A revives the
   original approval (only the live hash is compared); a `TARGET_CHANGED` state would close it - not built. (d) The
   table owner (migration role) can still write any state; DBA-level, outside the app's reach.
+
+## Amendment 2026-10-27 - single-user self-approval: author/approver separation of duties removed
+
+**Status: Proposed - awaiting Dipesh's written acceptance.** Built on branch `feat/single-user-self-approval`
+(`94aac35f` tests first, `cfb30de1` change); plan `_documents/PLAN-single-user-self-approval.md` in the project
+workspace. This amendment supersedes, for the three approvals below, every statement above that an author or a
+requester cannot approve their own work (Decision 2 table check, Decision 3 rule 1, amendment 2026-10-22 D4 and
+honest limits, addendum S1, residual (a)). Those statements stay above as history, each marked where it is superseded.
+
+- **Context.** A tenant run by one person could not take a flow version, a contract version or a DB-table request from
+  draft to live: three table CHECKs and three `SECURITY DEFINER` functions refused the author (or requester) as approver,
+  so a one-admin tenant was blocked by design (D4 said so: "even in a one-admin tenant"). Dipesh decided on 2026-10-26
+  to let one tenant admin carry the whole lifecycle.
+- **Decision.** `V2_4_1420__allow_self_approval.sql` drops `interface_version.approver_not_author`,
+  `contract_version.approver_not_author` and `db_target_approved_table_four_eyes`, and replaces
+  `config_approve_version`, `config_approve_contract_version` and `config_decide_db_table_approval` with their latest
+  definitions minus the author / requester branch (`V2_4_1420__allow_self_approval.sql:29-31`). A single TENANT_ADMIN
+  may author, approve and publish. Who may approve is still the role check (`APPROVE_VERSION`, `APPROVE_DB_TABLE`:
+  TENANT_ADMIN, APPROVER - `RolePolicy.java:68,79`); only the "not the author / not the requester" rule goes.
+  `REFUSED_AUTHOR_IS_APPROVER` and `REFUSED_SELF_APPROVAL` are no longer returned; old `AUTHOR_IS_APPROVER` refusal
+  rows stay valid. Earlier migrations are not edited.
+- **Consequences.**
+  - Risk (security, verbatim): Separation of duties between author and approver is removed for flows, contracts and
+    DB-table approvals. A single TENANT_ADMIN is trusted for the whole lifecycle. Residual: a compromised admin session
+    can publish without a second person; attribution is by audit only. Reversible by migration.
+  - An existing two-user workflow is unchanged; the constraint is simply no longer enforced.
+  - The width probe no longer skips the requester (`ApprovedTableService.preflight`, `cfb30de1`): with the self-approval
+    refusal gone, that skip would have bypassed the account-width check.
+- **What still limits a compromised admin session.**
+  1. **Tenant isolation** - every approval function scopes by the stamped `app.tenant_id` under forced row-level
+     security (ADR-009); an admin reaches only their own tenant's rows.
+  2. **Destination allow-list** - Decision 1's outbound destination check per type still applies to every send.
+  3. **Width probe** - a DB-table approval is still refused for a partner account wider than INSERT and SELECT
+     (`DB_ACCOUNT_TOO_WIDE`, `ApprovedTableService.java:135-140`), now including the requester's own approval.
+  4. **Target hash** - an approval counts only while the system's live settings still hash to it (fingerprint incl.
+     `sslmode`, S5); a repoint invalidates it.
+  5. **Audit by actor** - every request, approval, revoke and publish leaves an `AuditEvent` with the actor stamped
+     from the validated session; this is now the only attribution.
+- **Reversible by migration.** Re-add the three constraints and restore the three functions from `V2_2_4:124-148`,
+  `V2_2_5_1:25-45` and `V2_4_1330` in a new migration; prerequisite: no row has `approver_id = author_id` or
+  `decided_by = requested_by` (repoint those first). Recipe: `V2_4_1420__allow_self_approval.sql:21-27`.
+- **Revisit if.** A tenant gets a second admin or approver who should be required; a regulated tenant or partner asks
+  for four-eyes; any security incident traced to a single admin session; or Dipesh does not accept this amendment
+  (then revert by migration as above before merge).
