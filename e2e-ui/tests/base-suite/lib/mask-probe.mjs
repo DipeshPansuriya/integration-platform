@@ -30,7 +30,7 @@ export const MASK_NAMES = Object.freeze({
   // carrying maskedFields (FlowAdminService.java:103/:111, FlowBundle.java:64-66), which takes effect once that
   // draft is submitted, approved and published (the message pins the interface version snapshot,
   // JdbcMessageTrackingStore.java:82). The T112 screens carry no payload field (MessageDetail.tsx:10,
-  // Failures.tsx:10), so there is no screen mask name: the mask is checked at API level only (Dipesh, option 1).
+  // Failures.tsx:10), so there is no screen mask name: the mask is checked at API level only (project-owner decision, option 1).
   maskDeclareApi: 'PUT /api/v1/admin/flows/{flowId}', // FlowAdminController.java:112; then POST .../submit, .../approve (approver), .../publish (:143/:157/:171)
   maskDeclareBody: '{"maskedFields":["{field}"]}', // merged into the flow's own read (declareCall)
   maskApiMarker: '[MASKED]' // MaskedFields.java:33: what redact() puts in place of a masked value in an error text

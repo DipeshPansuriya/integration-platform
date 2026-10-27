@@ -20,7 +20,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * The {@link io.integrationplatform.delivery.port.Stage1Deliveries} port on the real partitioned tables (T-117
- * + T-178; ADR-014 section 2, accepted by Dipesh 2026-10-12): the fan-out insert with the deterministic day
+ * + T-178; ADR-014 section 2, accepted by the project owner 2026-10-12): the fan-out insert with the deterministic day
  * ({@code created_at = accepted_at} - never a fresh instant), the unique triple
  * {@code (message_id, route_id, created_at)} as the database-level idempotency key, one
  * {@code platform.delivery.due} outbox row per NEWLY inserted delivery, and the pin columns. The

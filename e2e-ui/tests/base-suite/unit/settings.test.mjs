@@ -1,7 +1,7 @@
 // T130 (row 323, F21 BS-B) - the dev-only outbound exception as the base suite reads it, FAILING FIRST.
 // No docker, no JVM: pure functions of tests/base-suite/lib/settings.mjs.
 //
-// Dipesh "Option 1" (2026-10-16 20:38 IST): BS-07 / BS-10 / BS-12 reach the one local WireMock only
+// Project-owner decision "Option 1" (2026-10-16 20:38 IST): BS-07 / BS-10 / BS-12 reach the one local WireMock only
 // through row 278's dev-only exception - a named dev/showcase profile, one exact host, the app's real
 // host resolver. Its profile, host and app-side variable name are row 278's to set, so the suite reads
 // them from three environment names and nowhere else; unset means the scenarios FAIL with a named

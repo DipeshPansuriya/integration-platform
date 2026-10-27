@@ -277,7 +277,7 @@ class IntakeCommitContainerTest {
      * BS-06.4's real cause (row 375): the record's business key rides btree indexes (message_ordering_idx, the
      * ordering_key unique) that refuse index rows past Postgres's ~2704 byte page bound - an over-bound key blew
      * the transaction into the 503 INTAKE_UNAVAILABLE catch-all. The intake now refuses it deliberately 422 with
-     * the cap named, nothing persisted (the cap value stays Dipesh's call; the store bound is ~2655 bytes of key).
+     * the cap named, nothing persisted (the cap value stays the project owner's call; the store bound is ~2655 bytes of key).
      */
     @Test
     @DisplayName("a business key over the intake key cap is refused 422 with nothing persisted")

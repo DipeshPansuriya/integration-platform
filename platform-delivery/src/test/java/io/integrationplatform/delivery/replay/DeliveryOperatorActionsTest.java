@@ -34,7 +34,7 @@ import org.springframework.transaction.support.TransactionOperations;
  *   <li>each action publishes exactly one audit event: actor, tenant, delivery id and the pinned versions;</li>
  *   <li>a delivery the bound tenant cannot see (another tenant's) is NOT_FOUND and nothing changes;</li>
  *   <li>the wrong source state, or a mapped delivery without its contract pin, changes nothing and audits nothing;</li>
- *   <li>a route WITHOUT a mapping is replayable (T172, Dipesh 2026-10-22): its contract pin comes from the target
+ *   <li>a route WITHOUT a mapping is replayable (T172, project-owner decision 2026-10-22): its contract pin comes from the target
  *       endpoint's active contract, written onto the delivery; none active means NOT_PINNED;</li>
  *   <li>with no tenant bound nothing runs.</li>
  * </ol>

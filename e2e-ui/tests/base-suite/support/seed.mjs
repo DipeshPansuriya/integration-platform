@@ -87,7 +87,7 @@ export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {})
 /**
  * The drawing, as T92 draws it - the designer's save and its "Run sample" through the real endpoints, as the
  * tenant's admin (the console proxy swaps in that login's session for the marker). The browser loads the page
- * first, so the console bundle itself never carries the marker. `links` defaults to the whole Dipesh drawing;
+ * first, so the console bundle itself never carries the marker. `links` defaults to the whole example drawing;
  * `sample: false` saves the drawing without running a sample (BS-04's no-sample leg).
  */
 export async function drawMapping(page, tenant, routeId, versionIds, { links = LINKS, sample = true } = {}) {
