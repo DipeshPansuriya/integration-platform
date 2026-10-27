@@ -155,7 +155,7 @@ Base path `/api/v1/admin/contracts` [Verified] -
 | `GET /api/v1/admin/contracts/{contractId}/versions` | `200` one contract with its versions side by side; `404` | [Verified] | `ContractVersionAdminController.java:140-147` |
 | `GET /api/v1/admin/contracts/versions/{versionId}` | `200` any status - a `RETIRED` version stays readable; `404` | [Verified] | `ContractVersionAdminController.java:73-80` |
 | `POST /api/v1/admin/contracts/versions/{versionId}/submit` | `200`; `400`; `404`; `409` only a `DRAFT` submits | [Verified] | `ContractVersionAdminController.java:86-96` |
-| `POST /api/v1/admin/contracts/versions/{versionId}/approve` | `200` now `APPROVED` by the caller; `403 AUTHOR_IS_APPROVER` - the author never approves their own version; `404`; `409 NOT_PENDING_APPROVAL` | [Verified] | `ContractVersionAdminController.java:153-162` |
+| `POST /api/v1/admin/contracts/versions/{versionId}/approve` | `200` now `APPROVED` by the caller; the author may approve their own version (single-user workflow, `V2_4_1420`); `403` only for a missing role; `404`; `409 NOT_PENDING_APPROVAL` | [Verified] | `ContractVersionAdminController.java:153-162` |
 
 ## 7. Other admin endpoints already in the console
 

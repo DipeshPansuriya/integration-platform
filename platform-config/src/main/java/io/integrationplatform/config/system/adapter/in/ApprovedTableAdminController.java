@@ -17,8 +17,8 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
 /**
- * E16 F3: the approved tables of a DB system. A configurator requests a table, a different approver approves or
- * revokes it. HTTP-only seam - the rules are {@link ApprovedTableService}'s; the role of each endpoint is in
+ * E16 F3: the approved tables of a DB system. A configurator requests a table, a tenant approver or admin (the
+ * requester too) approves or revokes it. HTTP-only seam - the rules are {@link ApprovedTableService}'s; the role of each endpoint is in
  * {@link SystemEndpointRoles} (request: EDIT_CONFIGURATION; approve and revoke: APPROVE_DB_TABLE). The tenant and the
  * acting user come from the validated token only, never the body; every call leaves a log line
  * ({@link ApprovedTableAudit}) and every completed one an audit event.

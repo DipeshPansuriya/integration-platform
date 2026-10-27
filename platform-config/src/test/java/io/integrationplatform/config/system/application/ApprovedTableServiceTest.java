@@ -168,20 +168,20 @@ class ApprovedTableServiceTest {
     }
 
     @Test
-    @Tag("negative")
     @Tag("security")
-    @DisplayName("D4: the requester approving their own request is 403 REQUESTER_IS_APPROVER, no audit event")
-    void aRequesterNeverApprovesTheirOwnRequest() {
+    @DisplayName("Single-user workflow: the requester approves their own request - one audit event naming them, and the partner-database width probe STILL runs")
+    void aRequesterMayApproveTheirOwnRequestAndTheProbeStillRuns() {
         when(systems.findSystem(SYSTEM)).thenReturn(Optional.of(system("DB")));
-        when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)));
-        when(tables.decide(ROW, REQUESTER.toString(), "APPROVE")).thenReturn("REFUSED_SELF_APPROVAL");
+        when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)),
+                Optional.of(row("APPROVED", SYSTEM)));
+        when(tables.decide(ROW, REQUESTER.toString(), "APPROVE")).thenReturn("APPROVED");
 
-        assertThatThrownBy(() -> service.decide(SYSTEM, ROW, "APPROVE", REQUESTER))
-                .isInstanceOfSatisfying(ConfigApiException.class, e -> {
-                    assertThat(e.httpStatus()).isEqualTo(403);
-                    assertThat(e.body()).containsEntry("refusal", "REQUESTER_IS_APPROVER");
-                });
-        assertThat(events).isEmpty();
+        Map<String, Object> view = service.decide(SYSTEM, ROW, "APPROVE", REQUESTER);
+
+        assertThat(view).containsEntry("status", "APPROVED");
+        assertThat(audits()).hasSize(1);
+        assertThat(audits().getFirst().who()).isEqualTo(REQUESTER.toString());
+        verify(width).refusalFor(any(), anyString());
     }
 
     @Test
@@ -302,7 +302,7 @@ class ApprovedTableServiceTest {
     }
 
     @Test
-    @DisplayName("T178a: the probe sees the approved table's name; a revoke or a self-approval never dials the partner")
+    @DisplayName("T178a: the probe sees the approved table's name; a revoke never dials the partner")
     void theProbeRunsOnlyForARealApproval() {
         when(systems.findSystem(SYSTEM)).thenReturn(Optional.of(system("DB")));
         when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)),
@@ -314,10 +314,6 @@ class ApprovedTableServiceTest {
         assertThat(settings.getValue()).contains("\"table\":\"orders_in\"");
 
         org.mockito.Mockito.clearInvocations(width);
-        when(tables.find(ROW)).thenReturn(Optional.of(row("PENDING_APPROVAL", SYSTEM)));
-        when(tables.decide(ROW, REQUESTER.toString(), "APPROVE")).thenReturn("REFUSED_SELF_APPROVAL");
-        assertThatThrownBy(() -> service.decide(SYSTEM, ROW, "APPROVE", REQUESTER))
-                .isInstanceOfSatisfying(ConfigApiException.class, e -> assertThat(e.httpStatus()).isEqualTo(403));
         when(tables.find(ROW)).thenReturn(Optional.of(row("APPROVED", SYSTEM)));
         when(tables.decide(ROW, APPROVER.toString(), "REVOKE")).thenReturn("REVOKED");
         service.decide(SYSTEM, ROW, "REVOKE", APPROVER);

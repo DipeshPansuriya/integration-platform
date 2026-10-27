@@ -44,11 +44,10 @@ import tools.jackson.databind.JsonNode;
  *   When anyone tries to change it
  *   Then the change is refused (a new draft version is the only way)
  *
- * &#64;negative &#64;security
- * Scenario: The author cannot approve
- *   Given a version authored by user U
- *   When U tries to approve it, through the screen or directly through the API or the database
- *   Then the approval is refused and the refusal is recorded
+ * Scenario: The author may approve their own version (single-user workflow, V2_4_1420)
+ *   Given a version authored by user U (a tenant admin)
+ *   When U approves it, through the API or directly through the database
+ *   Then the approval succeeds and names U as the approver; no refusal is recorded
  * </pre>
  *
  * <p>The byte-for-byte proof is not vacuous: after the approval the live configuration rows are deliberately
@@ -58,8 +57,8 @@ import tools.jackson.databind.JsonNode;
  *
  * <p>The database-layer halves of the scenarios go through the restricted application login (the same role the
  * composed system connects as): a content edit is refused by the grant layer itself (42501, the column is not one
- * the application may update), a self-approval by the table's {@code approver_not_author} CHECK (23514) - the
- * invariants hold whatever path the write takes, which is the point of {@code ## no-self-served-approval}.
+ * the application may update), an approver = author update is no longer refused (V2_4_1420 dropped the
+ * {@code approver_not_author} CHECK) - the content and lifecycle invariants still hold whatever path the write takes.
  */
 @Tag("container")
 @SpringBootTest(classes = E3LaneCSuiteApp.class, webEnvironment = WebEnvironment.RANDOM_PORT)
@@ -220,13 +219,11 @@ class T019ConfigLifecycleContainerTest {
                 .isEqualTo(snapshotAtSubmit);
     }
 
-    // --------------------------------------------------------------- Scenario: the author cannot approve
+    // --------------------------------------------------------------- Scenario: the author may approve
 
     @Test
-    @Tag("negative")
-    @Tag("security")
-    @DisplayName("@negative @security Scenario: The author cannot approve - refused through the API and recorded")
-    void theAuthorCannotApprove() throws SQLException {
+    @DisplayName("Scenario: The author may approve their own version - 200 through the API, no refusal recorded")
+    void theAuthorMayApproveTheirOwnVersion() throws SQLException {
         String base = ConfigAdminApi.baseUrl(port);
         Actors actors = actors();
         UUID flowId = LaneCLifecycle.createDraftFlowWithTwoDestinations(base, actors).flowId();
@@ -235,38 +232,30 @@ class T019ConfigLifecycleContainerTest {
         UUID versionId = LaneCLifecycle.latestVersionId(flowId);
         UUID authorId = E3ConfigDatabase.tenantA().userId();
 
-        // Through the screen or the API: the author tries to approve their own version.
+        // Through the API: the author approves their own version.
         Response approved = LaneCLifecycle.approve(base, actors.author(), flowId);
-        assertThat(approved.status()).as("the author's own approval is refused, body: %s", approved.body())
-                .isEqualTo(403);
-        assertThat(approved.json().path("refusal").asString()).as("the refusal is named")
-                .isEqualTo("AUTHOR_IS_APPROVER");
+        assertThat(approved.status()).as("the author's own approval succeeds, body: %s", approved.body())
+                .isEqualTo(200);
 
-        // And the refusal is recorded (the audit trail T-019 owes the approval invariant) - through the API,
-        // exactly once: a refused approval is never retried.
-        List<Map<String, String>> refusals = LaneCIdentities.refusals(E3ConfigDatabase.tenantA().id(), versionId);
-        assertThat(refusals).as("the refusal is recorded once for the version").hasSize(1);
-        assertThat(refusals.get(0).get("refusal")).isEqualTo("AUTHOR_IS_APPROVER");
-        assertThat(refusals.get(0).get("actor")).as("the actor recorded is the author's user")
-                .isEqualTo(authorId.toString());
-
-        // And directly through the database with the application's own login: the invariant holds whatever
-        // the path - the table's approver_not_author CHECK refuses the self-approval.
+        // No refusal is recorded, and the database names the author as the approver of the APPROVED version.
+        assertThat(LaneCIdentities.refusals(E3ConfigDatabase.tenantA().id(), versionId))
+                .as("a self-approval writes no refusal row").isEmpty();
         try (Connection app = DriverManager.getConnection(E3ConfigDatabase.postgres().getJdbcUrl(),
                 login.username(), login.password())) {
             LaneCLifecycle.stampTenant(app);
-            try (PreparedStatement attempt = app.prepareStatement(
-                    "update public.interface_version set approver_id = author_id where id = ?::uuid")) {
-                attempt.setString(1, versionId.toString());
-                attempt.executeUpdate();
-                throw new AssertionError("the self-approval through the database was not refused");
+            try (PreparedStatement read = app.prepareStatement(
+                    "select status || '/' || approver_id::text from public.interface_version where id = ?::uuid")) {
+                read.setString(1, versionId.toString());
+                try (java.sql.ResultSet rs = read.executeQuery()) {
+                    assertThat(rs.next()).isTrue();
+                    assertThat(rs.getString(1)).as("approved by the author").isEqualTo("APPROVED/" + authorId);
+                }
             }
-        } catch (SQLException refused) {
-            assertThat(refused.getSQLState())
-                    .as("the database refuses approver = author (the version table's CHECK), message: %s",
-                            refused.getMessage())
-                    .isEqualTo("23514");
         }
+
+        // A second approval finds nothing pending: 409.
+        Response again = LaneCLifecycle.approve(base, actors.approver(), flowId);
+        assertThat(again.status()).as("body: %s", again.body()).isEqualTo(409);
     }
 
     // ------------------------------------------- ADR-011 Decision 2: the contract draft-save keeps sourceSchema,

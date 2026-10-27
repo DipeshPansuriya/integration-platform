@@ -359,10 +359,9 @@ class SystemRegistryContainerTest {
     }
 
     @Test
-    @Tag("negative")
     @Tag("security")
-    @DisplayName("E16 F3 D4: a tenant admin who requested a table can never approve it, even as the only admin")
-    void aRequesterNeverApprovesTheirOwnRequest() {
+    @DisplayName("E16 F3 (single-user, V2_4_1420): a tenant admin who requested a table approves it themselves, as the only admin")
+    void aRequesterMayApproveTheirOwnRequest() {
         String id = dbSystemOfA();
         String path = SYSTEMS + "/" + id + "/approved-tables";
         String admin = E5SystemFixture.newUser(E5SystemFixture.tenantA().id(), "TENANT_ADMIN");
@@ -371,8 +370,9 @@ class SystemRegistryContainerTest {
         assertThat(requested.status()).as("body: %s", requested.body()).isEqualTo(201);
         Response self = call(port, "POST", path + "/" + requested.json().path("id").asString() + "/approve", admin, null);
 
-        assertThat(self.status()).as("body: %s", self.body()).isEqualTo(403);
-        assertThat(self.json().path("refusal").asString()).isEqualTo("REQUESTER_IS_APPROVER");
+        assertThat(self.status()).as("body: %s", self.body()).isEqualTo(200);
+        assertThat(self.json().path("status").asString()).isEqualTo("APPROVED");
+        assertThat(self.json().path("decidedBy").asString()).isEqualTo(self.json().path("requestedBy").asString());
     }
 
     @Test

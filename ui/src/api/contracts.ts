@@ -2,8 +2,7 @@
 // (src/api/client.ts) against the real API, no mock (E3-F3-S1). Lane A's API (T-105): import a
 // version from an OpenAPI document or a JSON Schema (400 with the parser's errors, nothing
 // stored), list contracts with their versions side by side, read one version with its schema,
-// submit with a change note, approve (403 {refusal: AUTHOR_IS_APPROVER} for the author,
-// 409 {refusal: NOT_PENDING_APPROVAL} for a version not submitted).
+// submit with a change note, approve (the author may approve their own version; 409 {refusal: NOT_PENDING_APPROVAL} for a version not submitted).
 
 import { api } from './client';
 import { HARNESS_LOGIN_HEADER } from './flows';

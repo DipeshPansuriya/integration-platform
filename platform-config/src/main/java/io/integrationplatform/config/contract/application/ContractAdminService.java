@@ -37,7 +37,7 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>E5 lane A (T-105, ADR-011 Decisions 2 and 3): versioned source and target contracts imported from OpenAPI or
  * JSON Schema ({@link ContractDocumentImporter}), one {@code contract} per system and role, each version a row of its
  * own with its lineage ({@code derived_from} = the highest lower label of the same contract), listed side by side,
- * approved only by someone other than its author (V2_2_5_1). RETIRED versions stay readable and listed (rule 4).
+ * approved by a tenant approver or admin, the author included (V2_2_5_1, relaxed by V2_4_1420). RETIRED versions stay readable and listed (rule 4).
  */
 public class ContractAdminService {
 
@@ -148,8 +148,8 @@ public class ContractAdminService {
     }
 
     /**
-     * POST /api/v1/admin/contracts/versions/{id}/approve - PENDING_APPROVAL to APPROVED by someone other than the
-     * author (403 AUTHOR_IS_APPROVER); any other state is 409 NOT_PENDING_APPROVAL; a row the tenant cannot see 404.
+     * POST /api/v1/admin/contracts/versions/{id}/approve - PENDING_APPROVAL to APPROVED by the caller (the author
+     * may approve their own version: single-user workflow); any other state is 409 NOT_PENDING_APPROVAL; a row the tenant cannot see 404.
      */
     @Transactional
     public VersionDetail approve(String versionId, UUID approverId) {
@@ -164,7 +164,6 @@ public class ContractAdminService {
                 yield approved;
             }
             case "VERSION_NOT_FOUND" -> throw ConfigApiException.notFound();
-            case "REFUSED_AUTHOR_IS_APPROVER" -> throw ConfigApiException.refusal(403, "AUTHOR_IS_APPROVER");
             default -> throw ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL");
         };
     }

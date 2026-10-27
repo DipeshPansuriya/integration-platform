@@ -9,8 +9,7 @@ import org.slf4j.LoggerFactory;
  * E16 F3: one structured log line per approved-table call - request, approve, revoke, completed OR refused - in the
  * {@code ContractAudit} style ({@code event, tenant, actor, system, subject, outcome}); never a body or a secret
  * (R14). The ledger record of a completed action is the {@code AuditEvent} the service publishes inside its
- * transaction; a refusal rolls that back, so this line is the only record of a refusal (a self-approval attempt is
- * visible here).
+ * transaction; a refusal rolls that back, so this line is the only record of a refusal.
  */
 final class ApprovedTableAudit {
 
@@ -36,7 +35,7 @@ final class ApprovedTableAudit {
                         systemValue, subjectValue, outcome);
     }
 
-    /** The named refusal ({@code REQUESTER_IS_APPROVER}, ...) or the status class of an unnamed one. */
+    /** The named refusal ({@code NOT_PENDING_APPROVAL}, ...) or the status class of an unnamed one. */
     static String outcomeOf(ConfigApiException refused) {
         Object refusal = refused.body().get("refusal");
         if (refusal != null) {

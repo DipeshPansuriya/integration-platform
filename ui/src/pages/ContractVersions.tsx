@@ -1,8 +1,8 @@
 // T-160 (E5 lane D, E5-F2-S1): the contract version screens - import a version from an OpenAPI
 // document or a JSON Schema (an unparsable document shows the parser's errors; nothing is
 // stored), the versions listed and compared side by side, submit with a change note, and approve.
-// The author approving their own version sees the API's AUTHOR_IS_APPROVER refusal on screen,
-// never hidden; another approver succeeds. The route and the menu entry live in App.tsx.
+// The author may approve their own version (single-user workflow); approving a version that is
+// not pending shows the API's NOT_PENDING_APPROVAL refusal on screen, never hidden. The route and the menu entry live in App.tsx.
 // Row 310 lane C (T101, 10-screens §6): grouped list (one card per system/role), compare panes in
 // a two-column grid, and "Import a contract version" as the single primary opening the shared Drawer.
 
@@ -76,11 +76,9 @@ export function ContractVersions() {
     const result = await approveContractVersion(versionId, asLogin);
     if (!result.ok) {
       const code =
-        result.refusal === 'AUTHOR_IS_APPROVER'
-          ? 'author-cannot-approve'
-          : result.refusal === 'NOT_PENDING_APPROVAL'
-            ? 'not-pending-approval'
-            : (result.error ?? `approve-refused-${result.status}`);
+        result.refusal === 'NOT_PENDING_APPROVAL'
+          ? 'not-pending-approval'
+          : (result.error ?? `approve-refused-${result.status}`);
       setRefusal({ contractKey: cardOf(versionId), code });
       return;
     }

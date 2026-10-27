@@ -67,8 +67,7 @@ class RolePolicyTest {
         "SUPPORT,      APPROVE_DB_TABLE",
         "SUPPORT,      EDIT_CONFIGURATION",
         "READ_ONLY,    REPLAY_DEAD_LETTER",
-        // approver-is-never-author is the record's CHECK, not the role: the role check lets an approver through,
-        // the approve endpoint refuses its own version (403 AUTHOR_IS_APPROVER, RoleMatrixContainerTest)
+        // single-user workflow: no author-is-not-approver rule any more; the role alone decides who approves
         "APPROVER,     EDIT_CONFIGURATION",
         "TENANT_ADMIN, SUBMIT_MESSAGE"
     })

@@ -26,13 +26,6 @@ export type VersionActions = {
 };
 
 function RefusalAlert({ code }: { code: string }) {
-  if (code === 'author-cannot-approve') {
-    return (
-      <p role="alert" className="contracts-alert contracts-alert-danger" data-refusal="author-cannot-approve">
-        Refused: the author cannot approve their own version (AUTHOR_IS_APPROVER).
-      </p>
-    );
-  }
   if (code === 'not-pending-approval') {
     return (
       <p role="alert" className="contracts-alert contracts-alert-danger" data-refusal="not-pending-approval">
