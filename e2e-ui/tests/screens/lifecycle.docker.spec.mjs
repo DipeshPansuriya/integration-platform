@@ -1,9 +1,9 @@
 // T-022 (E3 lane D, row 278) - the version + approval screens, FAILING FIRST.
 //
 // Scenario "The lifecycle": a draft flow version is submitted (changeNote body - the T-093
-// contract), approved by ANOTHER user, and published; the published bundle equals the snapshot
-// taken at submit, byte for byte. Author-never-approver is enforced server-side; the screen
-// shows the refusal, never hides it (E3-F2-S1). All against the REAL API - no mock (E3-F3-S1).
+// contract), approved (by the author themselves - single-user workflow, V2_4_1420 - or by another user), and
+// published; the published bundle equals the snapshot taken at submit, byte for byte. The screen shows any
+// refusal, never hides it (E3-F2-S1). All against the REAL API - no mock (E3-F3-S1).
 //
 // RED at this tip: the screens do not exist and lane C's T-019/T-021 lifecycle API is not
 // merged into row278-integration yet.
@@ -24,12 +24,13 @@ test('submit for approval sends the changeNote body through the real API and lis
   await expect(page.locator('[data-version-status="SUBMITTED"]').first()).toBeVisible();
 });
 
-test('the author cannot approve: the refusal is shown on the screen, never hidden', async ({ page }) => {
+test('the author approves their own version: APPROVED is shown, no refusal, and publish is offered', async ({ page }) => {
   await openFreshDraft(page);
   await page.click('[data-action="submit-for-approval"]'); // the current user is the author
   await page.click('[data-action="approve"]');
 
-  await expect(page.locator('[data-refusal="author-cannot-approve"]')).toBeVisible();
+  await expect(page.locator('[data-version-status="APPROVED"]').first()).toBeVisible();
+  await expect(page.locator('[data-action="publish"]')).toBeEnabled();
 });
 
 test('another user approves and the publish screen offers the approved version', async ({ page }) => {

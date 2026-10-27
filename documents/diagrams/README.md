@@ -135,7 +135,7 @@ The previous set drew the target design with no status words. This set was redra
 - Reject and redraft are **planned**: the flow API has submit, approve and publish only
   (`platform-config/src/main/java/io/integrationplatform/config/flow/adapter/in/FlowAdminController.java:143-172`).
 - Replay is **planned**: the SQL exists (`JdbcDeliveryRepository.java:202`) but nothing calls it.
-- The author can never approve - 403 `AUTHOR_IS_APPROVER`
+- The author may approve their own version (single-user workflow, `V2_4_1420`); a version not pending is 409 `NOT_PENDING_APPROVAL`
   (`platform-config/src/main/java/io/integrationplatform/config/flow/application/FlowAdminService.java:182`);
   publish is one transaction (`FlowAdminService.java:195-233`).
 

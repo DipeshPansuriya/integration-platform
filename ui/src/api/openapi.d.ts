@@ -828,7 +828,7 @@ export interface components {
         ConfigErrorBody: {
             /** @description The refusal message (validation, not found, conflict). */
             error?: string;
-            /** @description The named refusal code (NO_BOUND_USER, AUTHOR_IS_APPROVER, NOT_PENDING_APPROVAL). */
+            /** @description The named refusal code (NO_BOUND_USER, NOT_PENDING_APPROVAL). */
             refusal?: string;
         };
         /** @description One contract with its versions side by side, in label order */
@@ -1366,7 +1366,7 @@ export interface operations {
                     "application/json": components["schemas"]["ContractVersionBody"];
                 };
             };
-            /** @description NO_BOUND_USER, ROLE_NOT_GRANTED, or AUTHOR_IS_APPROVER: the author never approves their own version */
+            /** @description NO_BOUND_USER or ROLE_NOT_GRANTED */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1711,7 +1711,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description NO_BOUND_USER, or AUTHOR_IS_APPROVER: the author never approves their own version */
+            /** @description NO_BOUND_USER */
             403: {
                 headers: {
                     [name: string]: unknown;

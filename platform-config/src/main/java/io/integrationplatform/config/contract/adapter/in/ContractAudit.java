@@ -32,7 +32,7 @@ final class ContractAudit {
                 .log("event={} tenant={} actor={} version={} outcome={}", event, tenant, user, target, outcome);
     }
 
-    /** The named refusal ({@code AUTHOR_IS_APPROVER}, ...) or the status class of an unnamed one. */
+    /** The named refusal ({@code NOT_PENDING_APPROVAL}, ...) or the status class of an unnamed one. */
     static String outcomeOf(ConfigApiException refused) {
         Object refusal = refused.body().get("refusal");
         if (refusal != null) {

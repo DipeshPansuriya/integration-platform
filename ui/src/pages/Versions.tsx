@@ -1,8 +1,8 @@
 // T-022 (E3 lane D): the version + approval screens (E3-F2-S1). The draft list walks a flow
 // version through submit (changeNote body, T-093 contract), approve and publish - every step
 // through the typed client against the real API (no mock, E3-F3-S1). The refusals are
-// surfaced, never hidden: the author approving their own version sees the API's 403
-// (AUTHOR_IS_APPROVER); a submitted version's content is immutable, and the screen offers the
+// surfaced, never hidden: an approve on a version that is not pending is the API's 409
+// (NOT_PENDING_APPROVAL); the author may approve their own version (single-user workflow); a submitted version's content is immutable, and the screen offers the
 // only way through (a new draft). "Approve as approver" renders only while the screen-test
 // harness exposes its second binding (/console-config.json) - the backend authorizes for real.
 // Row 310 lane B (T88, 10-screens §4): a version table + a status-contextual lifecycle panel; the
@@ -185,8 +185,7 @@ export function Versions({ selectId = null }: { selectId?: string | null }) {
       advanceTo('APPROVED');
       return;
     }
-    if (result.refusal === 'AUTHOR_IS_APPROVER') setRefusal('author-cannot-approve');
-    else if (result.status === 409) setRefusal('not-pending-approval');
+    if (result.status === 409) setRefusal('not-pending-approval');
     else setFailure(actionFailure('approve', result.status));
   };
 
@@ -364,15 +363,6 @@ export function Versions({ selectId = null }: { selectId?: string | null }) {
               {status === 'SUBMITTED' && <p className="flows-muted">Waiting for approval.</p>}
               {status === 'PUBLISHED' && <p className="flows-muted">This version is published and read-only.</p>}
 
-              {refusal === 'author-cannot-approve' && (
-                <div role="alert" className="flows-alert flows-alert-danger" data-refusal="author-cannot-approve">
-                  <p>Refused: the author of a version cannot approve it themselves. Ask the listed approver to approve this version.</p>
-                  <details>
-                    <summary>Details</summary>
-                    <code>AUTHOR_IS_APPROVER</code>
-                  </details>
-                </div>
-              )}
               {refusal === 'submitted-version-immutable' && (
                 <p role="alert" className="flows-alert flows-alert-danger" data-refusal="submitted-version-immutable">
                   The submitted version cannot be edited: a new draft version is the only way.

@@ -367,7 +367,7 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
 
     /**
      * Runs the definer approval for the bound tenant; the answer is the function's text verdict
-     * ({@code APPROVED}, {@code VERSION_NOT_FOUND}, {@code REFUSED_AUTHOR_IS_APPROVER}, {@code REFUSED_<status>}).
+     * ({@code APPROVED}, {@code VERSION_NOT_FOUND}, {@code REFUSED_<status>}).
      */
     public String approveVersion(String versionId, String approverId) {
         return orRow(query(APPROVE_VERSION, null,

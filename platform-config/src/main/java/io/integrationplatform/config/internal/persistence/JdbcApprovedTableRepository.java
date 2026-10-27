@@ -90,7 +90,7 @@ public final class JdbcApprovedTableRepository extends TenantScopedRepository {
 
     /**
      * The definer decision's answer: {@code APPROVED}, {@code REVOKED}, {@code NOT_FOUND},
-     * {@code REFUSED_SELF_APPROVAL}, {@code REFUSED_TARGET_CHANGED}, {@code REFUSED_UNKNOWN_DECISION} or
+     * {@code REFUSED_TARGET_CHANGED}, {@code REFUSED_UNKNOWN_DECISION} or
      * {@code REFUSED_<status>}. The decider is stamped into the transaction first (never a function argument).
      *
      * @param decision {@code APPROVE} or {@code REVOKE}

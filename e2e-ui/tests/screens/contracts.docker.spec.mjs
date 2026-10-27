@@ -2,9 +2,9 @@
 //
 // E5-F2-S1 against the REAL API (no mock, E3-F3-S1): a configurator imports a contract version
 // from an OpenAPI or JSON Schema document; versions are listed and compared side by side (Target
-// A v1.0 next to Target B v2.0); a version is submitted with a change note; the author approving
-// their own version sees the AUTHOR_IS_APPROVER refusal on screen, and another approver (the
-// harness's approver binding) succeeds. A document that does not parse shows the parser's errors
+// A v1.0 next to Target B v2.0); a version is submitted with a change note; the author may approve
+// their own version (single-user workflow, V2_4_1420), and another approver (the harness's approver
+// binding) succeeds too. A document that does not parse shows the parser's errors
 // and nothing is stored.
 //
 // Seeding: the target systems (and Target A's v1.0) through the real API from the signed-in page,
@@ -185,8 +185,8 @@ test('submits a draft version with a change note; it is pending approval and the
     .toHaveText('adds nothing - a resubmission for the screen test');
 });
 
-// @negative @security: the author cannot approve their own contract version; another approver can.
-test('the author approving their own version sees AUTHOR_IS_APPROVER; another approver approves it', async ({ page }) => {
+// Single-user workflow (V2_4_1420): the author approves their own contract version.
+test('the author approves their own version: APPROVED, approver = author, no refusal', async ({ page }) => {
   await page.goto(consoleUrl());
   const version = await importThroughApi(page, TARGET_A, '1.2', TARGET_A_V1); // authored by the screen's user
   const submitted = await inBrowser(page, 'POST', `/api/v1/admin/contracts/versions/${version.id}/submit`, { changeNote: 'ready for approval' });
@@ -197,10 +197,22 @@ test('the author approving their own version sees AUTHOR_IS_APPROVER; another ap
   await expect(row).toHaveAttribute('data-version-status', 'PENDING_APPROVAL');
   await row.locator('[data-action="approve-version"]').click();
   await row.locator('[data-action="confirm-approve"]').click(); // B29 C2: Approve asks first
-  // T101: the refusal is worded at the top of the affected contract's card
-  await expect(page.locator(`[data-contract="${TARGET_A}/${ROLE}"] [data-refusal="author-cannot-approve"]`)).toBeVisible();
-  await expect(row).toHaveAttribute('data-version-status', 'PENDING_APPROVAL');
+  await expect(row).toHaveAttribute('data-version-status', 'APPROVED');
+  const stored = await inBrowser(page, 'GET', `/api/v1/admin/contracts/versions/${version.id}`);
+  expect(stored.data.status).toBe('APPROVED');
+  expect(stored.data.approverId).toBe(stored.data.authorId);
+});
 
+// The two-user path still works: another approver (the harness's approver binding) approves a version the screen's user authored.
+test('another approver approves a version the screen user authored: approver differs from author', async ({ page }) => {
+  await page.goto(consoleUrl());
+  const version = await importThroughApi(page, TARGET_A, '1.3', TARGET_A_V1); // authored by the screen's user
+  const submitted = await inBrowser(page, 'POST', `/api/v1/admin/contracts/versions/${version.id}/submit`, { changeNote: 'ready for approval' });
+  expect(submitted.status).toBe(200);
+
+  await openContracts(page);
+  const row = versionRow(page, TARGET_A, '1.3');
+  await expect(row).toHaveAttribute('data-version-status', 'PENDING_APPROVAL');
   await row.locator('[data-action="approve-as-approver"]').click();
   await expect(row).toHaveAttribute('data-version-status', 'APPROVED');
   const stored = await inBrowser(page, 'GET', `/api/v1/admin/contracts/versions/${version.id}`);

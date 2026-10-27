@@ -116,11 +116,14 @@ test('§4 Versions never creates a flow by itself; the empty state points to the
 test('§4 Versions keeps every hook the screens specs use', () => {
   const versions = source('Versions.tsx');
   for (const hook of ['data-field="change-note"', 'data-flow-row=', 'data-version-status=',
-    'aria-current', 'data-refusal="author-cannot-approve"', 'data-refusal="submitted-version-immutable"',
+    'aria-current', 'data-refusal="submitted-version-immutable"',
     'data-refusal="not-pending-approval"', 'data-refusal="publish"', 'data-published="true"',
     'data-bundle-equals-snapshot=', 'approve-as-approver']) {
     assert.ok(versions.includes(hook), `Versions.tsx keeps ${hook}`);
   }
+  // single-user workflow (V2_4_1420): the author may approve, so no author-cannot-approve refusal on the screen
+  assert.ok(!versions.includes('author-cannot-approve') && !versions.includes('AUTHOR_IS_APPROVER'),
+    'Versions.tsx has no author-cannot-approve refusal');
 });
 
 test('§3 list landing exists and App routes #/flows to it, #/flow/<id> to the editor', () => {

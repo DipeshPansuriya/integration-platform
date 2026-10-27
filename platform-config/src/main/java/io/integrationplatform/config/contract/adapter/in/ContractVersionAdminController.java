@@ -152,7 +152,7 @@ public class ContractVersionAdminController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "The version, now APPROVED by the caller",
                 content = @Content(mediaType = JSON, schema = @Schema(implementation = ContractApiBodies.ContractVersionBody.class))),
-        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, ROLE_NOT_GRANTED, or AUTHOR_IS_APPROVER: the author never approves their own version",
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER or ROLE_NOT_GRANTED",
                 content = @Content(mediaType = JSON, schema = @Schema(implementation = ConfigErrorBody.class))),
         @ApiResponse(responseCode = "404", description = "Not found: the version is not visible to the bound tenant",
                 content = @Content(mediaType = JSON, schema = @Schema(implementation = ConfigErrorBody.class))),

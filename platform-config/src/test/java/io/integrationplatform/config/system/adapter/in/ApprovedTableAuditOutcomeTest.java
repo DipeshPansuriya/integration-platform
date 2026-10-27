@@ -22,8 +22,8 @@ class ApprovedTableAuditOutcomeTest {
     @DisplayName("Every other outcome is unchanged")
     void otherOutcomesAreUnchanged() {
         assertThat(ApprovedTableAudit.outcomeOf(ConfigApiException.conflict("already requested"))).isEqualTo("CONFLICT");
-        assertThat(ApprovedTableAudit.outcomeOf(ConfigApiException.refusal(403, "REQUESTER_IS_APPROVER")))
-                .isEqualTo("REQUESTER_IS_APPROVER");
+        assertThat(ApprovedTableAudit.outcomeOf(ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL")))
+                .isEqualTo("NOT_PENDING_APPROVAL");
         assertThat(ApprovedTableAudit.outcomeOf(ConfigApiException.validation("bad"))).isEqualTo("INVALID");
         assertThat(ApprovedTableAudit.outcomeOf(ConfigApiException.notFound())).isEqualTo("NOT_FOUND");
     }
