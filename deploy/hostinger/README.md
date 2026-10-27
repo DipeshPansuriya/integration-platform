@@ -64,6 +64,7 @@ Scan the source tree and the three images (gitleaks, plus a vulnerability scan; 
 2. Change the `IMAGE_TAG` line only; `docker compose pull && docker compose up -d` for this project only.
 3. Verify as in steps 9 and 12.
 3a. After changing `edge/edge.conf` (or `kafbat/kafbat-roles.yml`), **force-recreate** that service (`up -d --force-recreate --no-deps edge`): they are single-file bind mounts, a reload keeps the old file.
+3b. A save refused with "the host is not on the destination allow-list" means the destination is not in `IPASS_DESTINATION_HOSTS` (`.env`): add the host, then `docker compose up -d platform-app` (a restart is needed). See [`documents/deployment.md`](../../documents/deployment.md) section 3.1.
 4. **Roll back**: restore the backup files and the previous tag, `docker compose up -d` once. A release whose Flyway migration already ran cannot roll back the schema: restore the pre-change dump instead. If the same step fails twice, stop and find out why before a third try.
 
 ## Rotation
