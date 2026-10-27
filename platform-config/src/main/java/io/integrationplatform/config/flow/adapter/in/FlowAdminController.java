@@ -148,7 +148,7 @@ public class FlowAdminController {
     /** The approval answer is designed, not thrown: a refusal commits (the audit row the database recorded). */
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "OK"),
-        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or AUTHOR_IS_APPROVER: the author never approves their own version",
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
         @ApiResponse(responseCode = "404", description = "Not found: the row is not visible to the bound tenant",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),

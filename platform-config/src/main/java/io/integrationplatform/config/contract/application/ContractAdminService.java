@@ -148,8 +148,8 @@ public class ContractAdminService {
     }
 
     /**
-     * POST /api/v1/admin/contracts/versions/{id}/approve - PENDING_APPROVAL to APPROVED by someone other than the
-     * author (403 AUTHOR_IS_APPROVER); any other state is 409 NOT_PENDING_APPROVAL; a row the tenant cannot see 404.
+     * POST /api/v1/admin/contracts/versions/{id}/approve - PENDING_APPROVAL to APPROVED by the caller (the author
+     * may approve their own version: single-user workflow); any other state is 409 NOT_PENDING_APPROVAL; a row the tenant cannot see 404.
      */
     @Transactional
     public VersionDetail approve(String versionId, UUID approverId) {
@@ -164,7 +164,6 @@ public class ContractAdminService {
                 yield approved;
             }
             case "VERSION_NOT_FOUND" -> throw ConfigApiException.notFound();
-            case "REFUSED_AUTHOR_IS_APPROVER" -> throw ConfigApiException.refusal(403, "AUTHOR_IS_APPROVER");
             default -> throw ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL");
         };
     }

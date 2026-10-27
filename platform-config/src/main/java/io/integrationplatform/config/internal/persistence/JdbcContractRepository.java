@@ -222,7 +222,7 @@ public final class JdbcContractRepository extends TenantScopedRepository {
     }
 
     /**
-     * The definer approval's answer: {@code APPROVED}, {@code VERSION_NOT_FOUND}, {@code REFUSED_AUTHOR_IS_APPROVER}
+     * The definer approval's answer: {@code APPROVED}, {@code VERSION_NOT_FOUND}
      * or {@code REFUSED_<status>} for a version that is not pending approval.
      */
     public String approveVersion(String versionId, String approverId) {

@@ -202,8 +202,9 @@ public class FlowAdminService {
      * together with {@code config_version_refusal}, and the scenario demands the refusal is recorded.
      *
      * <p>V5 (Varun, row 372): the FILE-pattern refusal (T178c-1) is the one refusal that is deliberately NOT written to
-     * {@code config_version_refusal}. That table records the two decision refusals of the approval function only: its
-     * CHECK allows AUTHOR_IS_APPROVER and NOT_PENDING_APPROVAL (V2_2_4__config_interface_versions.sql:49) and the
+     * {@code config_version_refusal}. That table records the decision refusals of the approval function only: its
+     * CHECK allows AUTHOR_IS_APPROVER (no longer written since V2_4_1420: the author may approve) and
+     * NOT_PENDING_APPROVAL (V2_2_4__config_interface_versions.sql:49) and the
      * application role may only read it, the insert belongs to {@code config_approve_version} (same file, :136-141,
      * :160-162). The FILE refusal is a pre-check on the destinations, made before the function is called; nothing about
      * the version changes, and it is logged (count only) at {@link #fileDestinationsWithoutDeliveryId}. Recording it
@@ -227,8 +228,6 @@ public class FlowAdminService {
                         ConfigApiException.body("id", interfaceRow.id(), "version", pending.version()));
             }
             case "VERSION_NOT_FOUND" -> new ApprovalOutcome(404, ConfigApiException.notFound().body());
-            case "REFUSED_AUTHOR_IS_APPROVER" -> new ApprovalOutcome(403,
-                    ConfigApiException.refusal(403, "AUTHOR_IS_APPROVER").body());
             default -> new ApprovalOutcome(409, ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL").body());
         };
     }

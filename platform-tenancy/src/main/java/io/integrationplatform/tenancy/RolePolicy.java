@@ -21,7 +21,7 @@ import java.util.Set;
  * READ_CONFIGURATION        role           TENANT_ADMIN, CONFIGURATOR, APPROVER, READ_ONLY   (approver: to review; support: silent -> no)
  * EDIT_CONFIGURATION        role           TENANT_ADMIN, CONFIGURATOR
  * SUBMIT_FOR_APPROVAL       role           TENANT_ADMIN, CONFIGURATOR
- * APPROVE_VERSION           role           TENANT_ADMIN, APPROVER     (never the author: the record's CHECK)
+ * APPROVE_VERSION           role           TENANT_ADMIN, APPROVER     (the author may approve: single-user workflow)
  * PUBLISH_VERSION           role           TENANT_ADMIN, APPROVER     (silent -> least privilege)
  * MANAGE_USERS_AND_ROLES    role           TENANT_ADMIN
  * ISSUE_SOURCE_CREDENTIAL   role           TENANT_ADMIN               (E5 T-103 binds its endpoint)

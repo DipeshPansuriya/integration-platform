@@ -36,7 +36,8 @@ import tools.jackson.databind.node.ObjectNode;
  * E16 F3 (design note 2026-10-22, option B; Dipesh D1-D4): the tables a DB target may write to are requested by a
  * configurator and approved by a DIFFERENT tenant approver - never listed by the person who picks the table in the
  * system's settings. A request is a PENDING_APPROVAL row; approve and revoke run in the database's definer function
- * (V2_4_1330), which refuses the requester approving their own request (D4: even in a one-admin tenant). Each
+ * (V2_4_1330, replaced by V2_4_1420), which since the single-user change lets the requester approve their own
+ * request - one tenant admin can do both; the width probe and the target-changed check still bind every approval. Each
  * completed action publishes one {@code AuditEvent} (system id, row id, table name and status - nothing else) inside
  * its transaction; a refusal rolls that back, so its record is the controller's log line.
  */
@@ -122,12 +123,12 @@ public class ApprovedTableService {
 
     /**
      * Approves ({@code APPROVE}) or revokes ({@code REVOKE}) a row of the system. 404 for a row of another system or
-     * tenant, 403 REQUESTER_IS_APPROVER, 409 NOT_PENDING_APPROVAL / NOT_APPROVED.
+     * tenant, 409 NOT_PENDING_APPROVAL / NOT_APPROVED. The requester may approve their own request.
      *
      * <p>T178a-1: three steps, in this order. (1) A short transaction reads the system and the row. (2) A real approval
      * asks the partner database about the account's width with NO platform transaction open - the probe dials for up
      * to 10 s and must not hold a pooled platform connection (the T-104 rule). (3) A second short transaction decides
-     * and audits. The decision function still checks the state and the 4-eyes rule itself, so a row that changed
+     * and audits. The decision function still checks the state and the target itself, so a row that changed
      * between (1) and (3) is refused there.
      */
     public Map<String, Object> decide(String systemId, String id, String decision, UUID actorId) {
@@ -227,8 +228,7 @@ public class ApprovedTableService {
         }
         ApprovedTableRow before = tables.find(id).filter(row -> row.systemId().equals(systemId))
                 .orElseThrow(ConfigApiException::notFound);
-        boolean realApproval = decision.equals("APPROVE") && before.status().equals("PENDING_APPROVAL")
-                && !before.requestedBy().equals(actorId.toString());
+        boolean realApproval = decision.equals("APPROVE") && before.status().equals("PENDING_APPROVAL");
         return new Preflight(before.status(), before.tableName(), realApproval ? probeInput(systemId, before.tableName()) : null);
     }
 
@@ -254,7 +254,6 @@ public class ApprovedTableService {
             case "APPROVED", "REVOKED" -> {
             }
             case "NOT_FOUND" -> throw ConfigApiException.notFound();
-            case "REFUSED_SELF_APPROVAL" -> throw ConfigApiException.refusal(403, "REQUESTER_IS_APPROVER");
             case "REFUSED_TARGET_CHANGED" -> throw ConfigApiException.refusal(409, "TARGET_CHANGED");
             case "REFUSED_NO_ACTOR", "REFUSED_UNKNOWN_DECISION" -> throw new IllegalStateException("the approval function refused: " + result);
             default -> throw ConfigApiException.refusal(409,

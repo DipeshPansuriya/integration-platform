@@ -135,7 +135,7 @@
             "type": "string"
           },
           "refusal": {
-            "description": "The named refusal code (NO_BOUND_USER, AUTHOR_IS_APPROVER, NOT_PENDING_APPROVAL).",
+            "description": "The named refusal code (NO_BOUND_USER, NOT_PENDING_APPROVAL).",
             "type": "string"
           }
         },
@@ -1240,7 +1240,7 @@
                 }
               }
             },
-            "description": "NO_BOUND_USER, ROLE_NOT_GRANTED, or AUTHOR_IS_APPROVER: the author never approves their own version"
+            "description": "NO_BOUND_USER or ROLE_NOT_GRANTED"
           },
           "404": {
             "content": {
@@ -1655,7 +1655,7 @@
                 }
               }
             },
-            "description": "NO_BOUND_USER, or AUTHOR_IS_APPROVER: the author never approves their own version"
+            "description": "NO_BOUND_USER"
           },
           "404": {
             "content": {
