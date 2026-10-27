@@ -1,0 +1,44 @@
+# Row 489 chunk D (Dipesh's decision 27-Oct): Kafka reachable from the internet, PLAINTEXT, NO authentication, NO ACLs.
+# Overlay on the live project; apply with all three files:
+#   docker compose -f compose.yaml -f demo/compose.demo.yaml -f kafka-public/compose.kafka-public.yaml up -d --no-deps kafka kafka-front
+# Why a front container: kafka sits on ipass-work (internal: true, cannot publish a port) and stays there. kafka-front (HAProxy, TCP)
+# is the only published piece (host 9092) and reaches the broker's EXTERNAL listener over ipass-kfront (internal, kafka + front only).
+# Kafka clients reconnect to the ADVERTISED address, so EXTERNAL advertises <public host>:9092 (= the front); platform-app, kafbat and
+# kafka-init keep kafka:9092 (the unchanged PLAINTEXT listener). Public host comes from IPASS_KAFKA_PUBLIC_HOST in the server env file.
+# Rollback: README of this folder is this comment: `docker compose -f compose.yaml -f demo/compose.demo.yaml -f kafka-public/compose.kafka-public.yaml rm -sf kafka-front`,
+# `kafka-public/kafka-public-fw.sh off`, then `docker compose -f compose.yaml -f demo/compose.demo.yaml up -d --no-deps --force-recreate kafka`, `docker network rm ipass_ipass-kpublic ipass_ipass-kfront`.
+services:
+  kafka:
+    environment:
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://${IPASS_KAFKA_PUBLIC_HOST:?set IPASS_KAFKA_PUBLIC_HOST}:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+    networks: [ipass-work, ipass-kfront]
+
+  kafka-front:
+    image: haproxy:3.0.11-alpine@sha256:e49b7beb96f4dba79f9a671515b469a6e516a2b88ff0681a820b184bba1effbd   # same pin as pg-front
+    pull_policy: missing
+    restart: unless-stopped
+    depends_on:
+      kafka: {condition: service_healthy}
+    ports:
+      - "0.0.0.0:9092:9092"        # IPv4 only, like pg-front
+    volumes:
+      - ./kafka-public/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [ipass-kfront, ipass-kpublic]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 64m
+    cpus: 0.2
+    logging:
+      driver: ${IPASS_LOG_DRIVER:-journald}
+
+networks:
+  ipass-kfront:
+    internal: true
+  ipass-kpublic:
+    driver_opts:
+      com.docker.network.bridge.name: br-ipass-kpub
+      com.docker.network.bridge.enable_ip_masquerade: "false"
