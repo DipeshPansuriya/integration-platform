@@ -5,8 +5,11 @@
 # info -> validate -> migrate -> info -> migrate, a checksum-tamper refusal, and a backup/restore drill with the commands the
 # README documents. Deletes everything it created. Exit 0 = every step behaved; the log shows real Flyway output.
 #   bash deploy/hostinger/test/flyway-local-proof.sh [expected-migration-count]       (default: counted from the folders)
-# The parity step (the app's own Flyway sees nothing pending on the CLI-migrated database) is separate: README "Migration
-# pipeline" > Parity check; set KEEP=1 to leave the database up for it (you then remove the three objects named at the end).
+# Parity (the app's own Flyway sees nothing pending on the CLI-migrated database) runs inside (PARITY_JAVA / PARITY_JARS required).
+# Step 11 proves the migrator password is absent from `docker inspect` and the host process list while Flyway runs and that the
+# container is hardened; step 12 the image revision-label check. Every exit path (also failure, Ctrl-C, kill) removes what the run created.
+# KEEP=1 leaves the throwaway database up for inspection: the env copy it writes is mode 600 at a printed path (a warning says so);
+# the containers then stay OUTSIDE the Docker lock until you remove them with the command printed at the end.
 [ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,6 +18,7 @@ LOCKROOT="${DOCKER_SUITE_LOCKROOT:-/d/Projects/ipass/.docker-suite.lock}"      #
 PGIMG='postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb'
 N="fwproof-$$"; IMG="ipass/flyway-migrate:proof-$$"
 LOCK=""
+. "$HERE/flyway/flyway-run.sh"
 # the main lock is usually held by a long suite; a light run takes a numbered slot like test/edge-ops.sh does
 for l in "$LOCKROOT" "$LOCKROOT-3" "$LOCKROOT-4" "$LOCKROOT-5" "$LOCKROOT-6"; do
   if mkdir "$l" 2>/dev/null; then LOCK="$l"; break; fi
@@ -24,9 +28,10 @@ echo "arjun flyway-local-proof pid=$$ $(date -u +%FT%TZ) refreshed=$(date -u +%F
 TMP="$(mktemp -d)"; fail=0
 cleanup() {
   if [ "${KEEP:-0}" != 1 ]; then docker rm -f "$N-pg" >/dev/null 2>&1; docker network rm "$N" >/dev/null 2>&1; docker volume rm "$N-data" >/dev/null 2>&1; fi
-  docker rmi "$IMG" >/dev/null 2>&1; rm -rf "$LOCK" "$TMP"
+  docker rm -f "$N-fwx" "$N-ctl" >/dev/null 2>&1; docker rmi "$IMG" >/dev/null 2>&1; [ -z "${BGPID:-}" ] || kill "$BGPID" 2>/dev/null; rm -rf "$LOCK" "$TMP"
 }
 trap cleanup EXIT
+trap 'exit 130' INT TERM        # EXIT then runs cleanup: a failure, Ctrl-C or kill never leaves containers, volume, image, lock or temp files behind
 step() { echo; echo "##### $*"; }
 expect() { # description, command...
   d="$1"; shift
@@ -49,7 +54,7 @@ sh "$HERE/flyway/check-migration-dirs.sh" "$REPO" "$TMP/Dockerfile.omit" > "$TMP
 expect "guard FAILS (exit 1) when platform-routing is omitted from the Dockerfile" bash -c "[ $rc -eq 1 ] && grep -q 'platform-routing/src/main/resources/db/migration exists' '$TMP/omit.out'"
 
 step "1. build the Flyway image ($EXPECTED migrations expected)"
-expect "docker build" docker build -q -f "$HERE/flyway/Dockerfile" -t "$IMG" "$REPO"
+expect "docker build" docker build -q -f "$HERE/flyway/Dockerfile" --label "org.opencontainers.image.revision=proofrev$$" -t "$IMG" "$REPO"
 docker run --rm --entrypoint sh "$IMG" -c 'ls /flyway/sql | wc -l; ls /flyway/conf; id -un' | tr '\n' ' '; echo
 expect "image holds $EXPECTED SQL files" test "$(docker run --rm --entrypoint sh "$IMG" -c 'ls /flyway/sql | wc -l' | tr -d ' \r')" = "$EXPECTED"
 expect "image holds no password or connection value" bash -c "! docker run --rm --entrypoint sh '$IMG' -c 'cat /flyway/conf/flyway.toml; env' | grep -qE '^(password|user|url) *=|^FLYWAY_(PASSWORD|URL|USER)='"
@@ -134,7 +139,7 @@ mig validate >/dev/null 2>&1; expect "validate passes again after the checksum i
 mig repair > "$TMP/r0.out" 2>&1; expect "repair without --yes is refused (exit 1)" test $? -eq 1
 
 step "9. backup and restore drill with the README commands (pg_dump -Fc as ipass_backup, restore as the admin into a recreated database)"
-docker exec "$N-pg" sh -c "PGPASSWORD='$PW_BAK' pg_dump -Fc -h 127.0.0.1 -U ipass_backup -f /tmp/ipass-drill.dump ipass && pg_restore -l /tmp/ipass-drill.dump >/dev/null && ls -l /tmp/ipass-drill.dump"
+PGPASSWORD="$PW_BAK" docker exec -e PGPASSWORD "$N-pg" sh -c "pg_dump -Fc -h 127.0.0.1 -U ipass_backup -f /tmp/ipass-drill.dump ipass && pg_restore -l /tmp/ipass-drill.dump >/dev/null && ls -l /tmp/ipass-drill.dump"
 docker exec "$N-pg" psql -U ipass_admin -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE ipass WITH (FORCE)" -c "CREATE DATABASE ipass OWNER ipass_migrator"
 docker exec "$N-pg" sh -c "cat /tmp/ipass-drill.dump | pg_restore -U ipass_admin -d ipass --exit-on-error"
 expect "restore exit 0" test $? -eq 0
@@ -153,9 +158,8 @@ probe() { # name expected-timeout extra-flyway-args...
   pn="$1"; want="$2"; shift 2
   mkdir -p "$TMP/probe-$pn"
   printf "DO \$\$ BEGIN IF current_setting('lock_timeout') <> '%s' THEN RAISE EXCEPTION 'lock_timeout=%%', current_setting('lock_timeout'); END IF; END \$\$;\n" "$want" > "$TMP/probe-$pn/V1__probe.sql"
-  FLYWAY_PASSWORD="$PW_MIG" MSYS_NO_PATHCONV=1 docker run --rm --network "$N" -v "$(cygpath -w "$TMP/probe-$pn" 2>/dev/null || echo "$TMP/probe-$pn"):/probe:ro" \
-    -e FLYWAY_URL=jdbc:postgresql://postgres:5432/ipass -e FLYWAY_USER=ipass_migrator -e FLYWAY_PASSWORD "$IMG" \
-    -locations=filesystem:/probe "-schemas=probe_$pn" "-table=h_$pn" "$@" migrate 2>&1 | grep -E "Successfully applied|lock_timeout=|ERROR" | head -6
+  FW_IMAGE="$IMG"; FW_NETWORK="$N"; FW_URL=jdbc:postgresql://postgres:5432/ipass; FW_DB_USER=ipass_migrator; FW_DB_PASSWORD="$PW_MIG"
+  FW_DOCKER_ARGS="-v $(cygpath -w "$TMP/probe-$pn" 2>/dev/null || echo "$TMP/probe-$pn"):/probe:ro"     flyway_run -locations=filesystem:/probe "-schemas=probe_$pn" "-table=h_$pn" "$@" migrate 2>&1 | grep -E "Successfully applied|lock_timeout=|ERROR" | head -6
   return "${PIPESTATUS[0]}"
 }
 probe a 5s > "$TMP/pa.out"; rc=$?; cat "$TMP/pa.out"; expect "bare image run (flyway.toml initSql): SHOW lock_timeout = 5s inside the migration" test $rc -eq 0
@@ -164,10 +168,45 @@ probe c 9s > "$TMP/pc.out"; rc=$?; cat "$TMP/pc.out"; expect "control: a bare ru
 probe d 5s "-initSql=SET lock_timeout = '9s'" > "$TMP/pd.out"; rc=$?; cat "$TMP/pd.out"; expect "control: the override replaces the toml value (probe fails with lock_timeout=9s)" bash -c "[ $rc -ne 0 ] && grep -q 'lock_timeout=9s' '$TMP/pd.out'"
 IPAAS_FLYWAY_LOCK_TIMEOUT=9s mig info > "$TMP/pe.out" 2>&1; expect "migrate.sh with IPAAS_FLYWAY_LOCK_TIMEOUT=9s still runs (arg accepted by the 12.4.0 CLI)" test $? -eq 0
 
+step "11. the migrator password is not in docker inspect or the host process list while Flyway runs; the container is hardened"
+mkdir -p "$TMP/fwtmp"
+FW_IMAGE="$IMG"; FW_NETWORK="$N"; FW_URL=jdbc:postgresql://postgres:5432/ipass; FW_DB_USER=ipass_migrator; FW_DB_PASSWORD="$PW_MIG"
+hostps() { if command -v powershell.exe >/dev/null 2>&1; then powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | ForEach-Object { \$_.CommandLine }" 2>/dev/null; else ps -eo args; fi; }
+( TMPDIR="$TMP/fwtmp" FW_DOCKER_ARGS="--name $N-fwx" flyway_run "-initSql=SELECT pg_sleep(25)" info > "$TMP/x.out" 2>&1; echo $? > "$TMP/x.rc" ) &
+BGPID=$!
+for i in $(seq 1 40); do [ -n "$(docker ps -q -f "name=$N-fwx")" ] && break; sleep 1; done
+sleep 4
+docker inspect "$N-fwx" > "$TMP/x.inspect" 2>&1; hostps > "$TMP/x.ps" 2>&1
+expect "the Flyway container is running (inspect has content)" grep -q '"Config"' "$TMP/x.inspect"
+expect "password ABSENT from docker inspect (whole JSON) of the running Flyway container" bash -c "! grep -qF '$PW_MIG' '$TMP/x.inspect'"
+expect "no FLYWAY_PASSWORD variable in Config.Env" bash -c "! grep -q 'FLYWAY_PASSWORD' '$TMP/x.inspect'"
+expect "password ABSENT from the host process list while it runs" bash -c "! grep -qF '$PW_MIG' '$TMP/x.ps'"
+expect "while it runs: secret dir mode 700, secret file mode 600" bash -c "[ \"\$(stat -c %a \"$TMP\"/fwtmp/flyway-secret.*)\" = 700 ] && [ \"\$(stat -c %a \"$TMP\"/fwtmp/flyway-secret.*/secret.toml)\" = 600 ]"
+docker inspect -f 'readonly={{.HostConfig.ReadonlyRootfs}} capdrop={{.HostConfig.CapDrop}} secopt={{.HostConfig.SecurityOpt}} user={{.Config.User}} pids={{.HostConfig.PidsLimit}} mem={{.HostConfig.Memory}}' "$N-fwx"
+expect "hardened: read-only root, cap-drop ALL, no-new-privileges, non-root user" bash -c "docker inspect -f 'readonly={{.HostConfig.ReadonlyRootfs}} capdrop={{.HostConfig.CapDrop}} secopt={{.HostConfig.SecurityOpt}} user={{.Config.User}}' '$N-fwx' | grep -E 'readonly=true capdrop=\[ALL\] secopt=\[no-new-privileges:true\] user=[1-9][0-9]*:'"
+# positive controls: the same checks DO find the password when it is passed the old way
+docker run -d --name "$N-ctl" --network "$N" -e FLYWAY_PASSWORD="$PW_MIG" --entrypoint sleep "$IMG" 30 >/dev/null
+docker inspect "$N-ctl" > "$TMP/c.inspect" 2>&1
+expect "control: the inspect check WOULD find the password if it were passed with -e" grep -qF "$PW_MIG" "$TMP/c.inspect"
+docker run --rm --name "$N-ctl2" --entrypoint sh "$IMG" -c 'sleep 20' x "$PW_MIG" >/dev/null 2>&1 & CPID=$!
+sleep 3; hostps > "$TMP/c.ps" 2>&1; kill $CPID 2>/dev/null; docker rm -f "$N-ctl2" >/dev/null 2>&1
+expect "control: the process-list check WOULD find a password given as a command-line argument" grep -qF "$PW_MIG" "$TMP/c.ps"
+docker rm -f "$N-ctl" >/dev/null 2>&1
+wait "$BGPID"; BGPID=""
+expect "info under the hardened flags: exit 0 and the 59 migrations listed" bash -c "[ \"\$(cat '$TMP/x.rc')\" = 0 ] && [ \"\$(grep -c '| Success' '$TMP/x.out')\" -eq $EXPECTED ]"
+expect "the secret directory is gone once the container exited" test -z "$(ls -A "$TMP/fwtmp")"
+
+step "12. the image must carry the expected commit (revision label) before the password is used"
+FW_EXPECT_REVISION="proofrev$$" mig info >/dev/null 2>&1; expect "matching revision label: info runs (exit 0)" test $? -eq 0
+FW_EXPECT_REVISION="otherrev" mig info > "$TMP/l.out" 2>&1; rc=$?; head -2 "$TMP/l.out"
+expect "wrong revision label: refused with exit 4, no container started" test $rc -eq 4
+FLYWAY_IMAGE_ID="sha256:wrong" mig info >/dev/null 2>&1; expect "wrong FLYWAY_IMAGE_ID: refused with exit 4" test $? -eq 4
+
 if [ "${KEEP:-0}" = 1 ]; then
-  echo; echo "KEEP=1: database left up for the parity check: jdbc:postgresql://127.0.0.1:$HOSTPORT/ipass user ipass_migrator password in $TMP/.env (deleted on exit of THIS script: copy it now)"
-  echo "remove with: docker rm -f $N-pg; docker network rm $N; docker volume rm $N-data"
-  cp "$TMP/.env" "/d/tmp/.flyway-proof.env" 2>/dev/null || true
+  KEPT="$(umask 077; mktemp "${TMPDIR:-/tmp}/flyway-proof-env.XXXXXX")"; cp "$TMP/.env" "$KEPT"; chmod 600 "$KEPT"
+  echo; echo "WARNING: KEEP=1 - the throwaway database stays up: jdbc:postgresql://127.0.0.1:$HOSTPORT/ipass, user ipass_migrator, password in $KEPT (mode 600). It is a throwaway value, but delete the file when you are done."
+  echo "remove with: docker rm -f $N-pg; docker network rm $N; docker volume rm $N-data; rm -f $KEPT"
+  expect "KEEP: the kept env copy is mode 600" test "$(stat -c %a "$KEPT")" = 600
 fi
 echo
 if [ $fail -ne 0 ]; then echo "FAILURES"

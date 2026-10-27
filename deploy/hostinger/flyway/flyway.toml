@@ -8,6 +8,7 @@
 locations = ["filesystem:/flyway/sql"]
 table = "flyway_schema_history"
 validateOnMigrate = true
+cleanDisabled = true      # `clean` drops everything; Flyway 12 disables it by default, stated here so it cannot be switched on by accident
 
 # url, user and password of this (default) environment come from FLYWAY_URL / FLYWAY_USER / FLYWAY_PASSWORD.
 # initSql is an environment setting in Flyway 12: migrations wait for a lock at most 5 s, then fail fast with SQLSTATE 55P03
