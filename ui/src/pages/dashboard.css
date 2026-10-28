@@ -316,7 +316,8 @@ a.tile:hover {
   color: var(--color-accent);
   font-weight: 600;
 }
-.home-step-todo {
+.home-step-todo,
+.home-step-info {
   color: var(--color-ink-muted);
 }
 .home-step-state {
