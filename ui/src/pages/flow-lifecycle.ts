@@ -48,6 +48,15 @@ export function filterFlows(rows: FlowSummary[], text: string): FlowSummary[] {
 
 export const NEW_FLOW_HASH = '#/flow/new';
 
+/**
+ * Row 575 S4: does a clicked in-app link ask the unsaved-edit question? Links outside the editor do; inside it only the workspace's
+ * own links (breadcrumb, step actions, tabs) do, by opting in with data-leaves-editor - the form's own links handle themselves.
+ */
+export function shouldInterceptLeave<L extends { closest(selector: string): unknown; hasAttribute(name: string): boolean }>(link: L | null): link is L {
+  if (!link) return false;
+  return !link.closest('[data-page="flow-definition"]') || link.hasAttribute('data-leaves-editor');
+}
+
 export function flowHash(id: string): string {
   return `#/flow/${encodeURIComponent(id)}`;
 }

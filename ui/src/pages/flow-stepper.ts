@@ -70,7 +70,7 @@ export function flowStepper(input: { flow: FlowLike; routes: readonly RouteLike[
       : status === 'APPROVED'
         ? roles.canApprove
           ? { done: false, note: 'Approved - publish it.', action: open }
-          : { done: false, note: 'Approved - waits for someone to publish it.' }
+          : { done: false, note: 'Approved - waits for an approver to publish it.' }
         : { done: false, note: 'Submit the flow for approval.', action: open };
 
   const golive: Draft = roles.isTenantAdmin
@@ -107,6 +107,6 @@ export function flowTabs(input: { flowId: string; routes: readonly RouteLike[]; 
     { key: 'rules', label: 'Rules', href: `#/rules?flow=${id}`, current: false },
     { key: 'versions', label: 'Versions', href: versionsHref(input.flowId), current: false }
   ];
-  if (input.roles.canReadMessages) tabs.push({ key: 'messages', label: 'Messages', href: `#/failures?flow=${id}`, current: false });
+  if (input.roles.canReadMessages) tabs.push({ key: 'messages', label: 'Failed messages', href: `#/failures?flow=${id}`, current: false });
   return tabs;
 }

@@ -22,6 +22,7 @@ import {
   focusSelectorFor,
   isDirty,
   orderingWord,
+  shouldInterceptLeave,
   trapTab,
   validationErrorId,
   validationText,
@@ -109,7 +110,7 @@ export function FlowDefinition({ openFlowId = null, guard, roles = null }: FlowD
     const onClick = (event: MouseEvent) => {
       const link = (event.target as Element | null)?.closest?.('a[href^="#"]') as HTMLAnchorElement | null;
       // Row 575 S4: the workspace's own links (breadcrumb, steps, tabs) opt in with data-leaves-editor; the form's links do not.
-      if (!link || (link.closest('[data-page="flow-definition"]') && !link.hasAttribute('data-leaves-editor'))) return;
+      if (!shouldInterceptLeave(link)) return;
       event.preventDefault();
       event.stopPropagation();
       opener.current = link;
