@@ -40,6 +40,7 @@ import { MappingDesigner } from './pages/MappingDesigner';
 // Row 310 lane A (sanjay-developer, T87): the Dashboard at #/ and the in-app sign-in card at #/login.
 import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
+import { clearAttempt, landingAfterLogin, markLoggedOut, rememberReturnTo, takeReturnTo } from './pages/login-flow';
 import { safeDecode } from './safe-decode';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
@@ -275,8 +276,21 @@ export function App() {
   // A known no-session never sees a screen: a hash-only move off #/login (no API call, so no 401
   // from client.ts) goes back to the card.
   useEffect(() => {
+    if (session === 'signed-in') {
+      // Row 571: a live session proves the last sign-in attempt worked (the loop guard forgets it), and the
+      // screen asked for before the sign-in (remembered by client.ts) is restored - from the bare address only.
+      clearAttempt();
+      const landing = landingAfterLogin(window.location.hash, takeReturnTo());
+      if (landing) {
+        window.location.replace(landing);
+        return;
+      }
+    }
     if (onLogin && session === 'signed-in') window.location.replace('#/');
-    if (!onLogin && session === 'signed-out') window.location.hash = LOGIN_ROUTE;
+    if (!onLogin && session === 'signed-out') {
+      rememberReturnTo(window.location.hash);
+      window.location.hash = LOGIN_ROUTE;
+    }
   }, [onLogin, session]);
 
   function toggleNav() {
@@ -313,6 +327,7 @@ export function App() {
     const token = readCookie('XSRF-TOKEN');
     if (token) headers.set('X-XSRF-TOKEN', token);
     const answer = await fetch('/logout', { method: 'POST', headers, credentials: 'include' });
+    markLoggedOut(); // the page the provider returns to shows a Sign in button, not an automatic redirect (row 571)
     const body = (await answer.json().catch(() => null)) as { redirect?: string } | null;
     window.location.assign(body?.redirect || '/');
   }

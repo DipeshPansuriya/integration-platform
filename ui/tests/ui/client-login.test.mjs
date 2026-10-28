@@ -1,6 +1,6 @@
 // Row 310 lane A seam (arjun-fullstack): a no-session answer sends the browser to the console's own
-// sign-in card (#/login, 10-screens §2 / 00-portal-ia §4), NOT straight to Keycloak. The card's one
-// action, Continue with SSO, is what navigates to the login entry point (LOGIN_ENTRY).
+// sign-in state (#/login, 10-screens §2 / 00-portal-ia §4), NOT straight to Keycloak from the API client. Since
+// row 571 that state goes on to the login entry point (LOGIN_ENTRY) by itself, once (login-redirect.test.mjs).
 // Runs under node --test with the ts-resolve hook (npm test); window/document/fetch are stubbed.
 
 import { test, beforeEach } from 'node:test';
