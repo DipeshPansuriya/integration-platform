@@ -44,8 +44,10 @@ import { clearAttempt, landingAfterLogin, markLoggedOut, rememberReturnTo, takeR
 import { safeDecode } from './safe-decode';
 // Row 575 (S1 of the guided flow): the six-item role-aware menu is one table (nav-model.ts); legacy screens sit in a temporary "More" group.
 import type { Route } from './route-types';
-import { canOpen, moreFor, navFor, platformTools, showPlatformTools, type NavItem } from './nav-model';
+import { canOpen, moreFor, navFor, platformTools, showPlatformTools, titleOf, type NavItem } from './nav-model';
 import { NoAccess } from './ui/NoAccess';
+import { PageHeader } from './ui/PageHeader';
+import { focusMainHeading, skipToMain } from './route-focus';
 import { ApprovalsLanding, MessagesLanding } from './pages/GuidedLandings';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
@@ -238,6 +240,16 @@ export function App() {
     }
   }, [onLogin, session]);
 
+  // Row 575 (S1): after a routed address change focus moves to the new screen's heading (else main); never on first paint.
+  // routeSeq only counts moves the router accepted, so a blocked move (unsaved-edit dialog) keeps its focus.
+  useEffect(() => {
+    if (routeSeq === 0) return;
+    const frame = requestAnimationFrame(() => {
+      focusMainHeading(document.getElementById('main-content'));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [routeSeq]);
+
   function toggleNav() {
     setCollapsed((c) => {
       const next = !c;
@@ -281,7 +293,8 @@ export function App() {
   if (onLogin) return <Login state={session === 'signed-in' ? 'checking' : session} onRetry={checkSession} />;
 
   // Row 575 (S1): the roles GET /api/v1/me answered; null = unknown, so nothing is hidden (the server's 403 stays the gate).
-  const roles = me?.roles && me.roles.length > 0 ? me.roles : null;
+  // null = not loaded / failed (everything shown); a LOADED empty list means no grants (Home only) - Varun blocker, row 575.
+  const roles = Array.isArray(me?.roles) ? me.roles : null;
   const moreItems = moreFor(roles);
   const open = canOpen(roles, route.page);
   const shown = open ? route.page : null;
@@ -293,7 +306,7 @@ export function App() {
         key={entry.nav}
         className={active ? 'nav-item nav-item-active' : 'nav-item'}
         data-nav={entry.nav}
-        data-initial={entry.label.charAt(0)}
+        data-initial={entry.initial}
         href={entry.hash}
         title={entry.label}
         aria-current={active ? 'page' : undefined}
@@ -305,6 +318,9 @@ export function App() {
 
   return (
     <div className={collapsed ? 'shell shell-collapsed' : 'shell'}>
+      <a className="skip-link" href="#main-content" onClick={(event) => skipToMain(event, document.getElementById('main-content'))}>
+        Skip to main content
+      </a>
       <header className="topbar">
         <button
           type="button"
@@ -382,9 +398,14 @@ export function App() {
             </div>
           )}
         </nav>
-        <main className="content">
+        <main className="content" id="main-content" tabIndex={-1}>
           {/* Row 575 (S1): a screen the known roles cannot use shows the NoAccess state, never a blank page. UX only - the server answers 403 regardless. */}
-          {!open && <NoAccess refusal="ROLE_NOT_GRANTED" />}
+          {!open && (
+            <>
+              <PageHeader title={titleOf(route.page)} />
+              <NoAccess refusal="ROLE_NOT_GRANTED" />
+            </>
+          )}
           {shown === 'flows' &&
             (route.flowId ? (
               <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} />

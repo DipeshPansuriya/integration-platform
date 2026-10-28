@@ -7,7 +7,8 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { navFor, moreFor, canOpen, showPlatformTools, platformTools, OPERATION_ROLES, PRIMARY_NAV } = await import('../../src/nav-model.ts');
+const { navFor, moreFor, canOpen, showPlatformTools, platformTools, titleOf, OPERATION_ROLES, PRIMARY_NAV, LEGACY_NAV, PAGE_NEEDS, ALLOW_ALL_PAGES } = await import('../../src/nav-model.ts');
+const { ROUTE_PAGES } = await import('../../src/route-types.ts');
 const here = dirname(fileURLToPath(import.meta.url));
 const labels = (items) => items.map((i) => i.label);
 const navs = (items) => items.map((i) => i.nav);
@@ -24,8 +25,17 @@ test('navFor: configurators do not see Messages in Release 1', () => {
   assert.ok(!navs(navFor(['CONFIGURATOR'])).includes('messages'));
 });
 
-test('navFor: unknown roles (null, undefined, empty) show all six - the server 403 stays the gate', () => {
-  for (const roles of [null, undefined, []]) assert.equal(navFor(roles).length, 6);
+test('navFor: roles NOT LOADED YET (null, undefined) show all six - the server 403 stays the gate', () => {
+  for (const roles of [null, undefined]) assert.equal(navFor(roles).length, 6);
+});
+
+test('navFor: roles LOADED as an empty list (no grants) see Home only, never the full menu (Varun blocker, row 575)', () => {
+  assert.deepEqual(labels(navFor([])), ['Home']);
+  assert.deepEqual(navs(moreFor([])), []);
+  assert.equal(canOpen([], 'flows'), false);
+  assert.equal(canOpen([], 'messages'), false);
+  assert.equal(canOpen([], 'home'), true);
+  assert.equal(showPlatformTools([]), false);
 });
 
 test('navFor: several roles get the union; an unrecognised role name alone gets Home only', () => {
@@ -69,11 +79,14 @@ test('canOpen: a hidden screen is refused by role, an unknown role list opens ev
   assert.equal(canOpen(['SUPPORT'], 'failures'), true);
   assert.equal(canOpen(['CONFIGURATOR'], 'messages'), false);
   assert.equal(canOpen(['CONFIGURATOR'], 'queue'), false);
-  assert.equal(canOpen(['CONFIGURATOR'], 'approvals'), true, 'read-only list for configurators (plan S5)');
+  // Mira, 28-Oct (row 575): Approvals is open only to Approver and Tenant admin - the menu and canOpen agree.
+  assert.equal(canOpen(['CONFIGURATOR'], 'approvals'), false);
+  assert.equal(canOpen(['READ_ONLY'], 'approvals'), false);
+  assert.equal(canOpen(['APPROVER'], 'approvals'), true);
+  assert.equal(canOpen(['TENANT_ADMIN'], 'approvals'), true);
   assert.equal(canOpen(['READ_ONLY'], 'home'), true);
   assert.equal(canOpen(['SUPPORT'], 'home'), true);
   assert.equal(canOpen(null, 'flows'), true);
-  assert.equal(canOpen([], 'messages'), true);
 });
 
 test('Keycloak and Kafka UI are tenant-admin only; unknown roles do not get them', () => {
@@ -96,4 +109,31 @@ test('App.tsx: builds the menu from the table, no 15-entry NAV_GROUPS, tools in 
   assert.ok(app.includes('navFor('), 'App.tsx must use navFor');
   assert.ok(app.includes('showPlatformTools('), 'platform tools are gated by role');
   assert.ok(app.includes('data-no-access') || app.includes('<NoAccess'), 'a refused screen shows NoAccess');
+});
+
+test('every route page is mapped to a role need or listed as allow-all - a new page is never open by default', () => {
+  const mapped = Object.keys(PAGE_NEEDS);
+  for (const page of ROUTE_PAGES) {
+    assert.ok(mapped.includes(page) || ALLOW_ALL_PAGES.includes(page), `route page "${page}" must be in PAGE_NEEDS or ALLOW_ALL_PAGES`);
+  }
+  assert.deepEqual([...ALLOW_ALL_PAGES].sort(), ['home', 'login']);
+  assert.equal(canOpen(['SUPPORT'], 'not-a-page'), false, 'an unmapped page is refused for known roles');
+});
+
+test('every menu item points at a mapped page whose need equals the item need', () => {
+  for (const item of [...PRIMARY_NAV, ...LEGACY_NAV]) {
+    if (item.page === 'home') continue;
+    assert.equal(PAGE_NEEDS[item.page], item.needs, `${item.nav}: menu need and canOpen need must match`);
+  }
+});
+
+test('data-initial marks are unique across the menu (collapsed rail)', () => {
+  const marks = [...PRIMARY_NAV, ...LEGACY_NAV].map((i) => i.initial);
+  assert.equal(new Set(marks).size, marks.length, marks.join(','));
+});
+
+test('titleOf names the screen for the NoAccess heading', () => {
+  assert.equal(titleOf('flows'), 'Flows');
+  assert.equal(titleOf('messages'), 'Messages');
+  assert.equal(titleOf('home'), 'Home');
 });

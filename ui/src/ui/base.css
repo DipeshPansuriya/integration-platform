@@ -232,6 +232,23 @@ summary:focus-visible {
   border-radius: var(--r-1);
   box-shadow: var(--shadow-1);
 }
+.skip-link {
+  position: absolute;
+  left: var(--space-3);
+  top: -100px;
+  z-index: 100;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 2px solid var(--color-focus);
+  border-radius: var(--r-1);
+}
+.skip-link:focus {
+  top: var(--space-2);
+}
+main:focus {
+  outline: none;
+}
 .account .menu .menu-title {
   margin: 0;
   padding: 4px 10px;

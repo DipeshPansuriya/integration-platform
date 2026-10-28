@@ -15,7 +15,10 @@ export function ApprovalsLanding() {
   return (
     <section data-page="approvals-landing">
       <PageHeader title="Approvals" breadcrumb={[{ label: 'Approvals' }]} next={<>open <a href="#/versions">Versions</a> to approve a flow version.</>} />
-      <p>Flow versions and contract versions that wait for approval are listed on their own screens for now.</p>
+      <p>
+        Flow versions and contract versions that wait for approval are listed on their own screens for now:{' '}
+        <a href="#/versions">Versions</a>, <a href="#/contracts">Contracts</a>.
+      </p>
     </section>
   );
 }
