@@ -66,7 +66,7 @@ test.beforeAll(async ({ browser }) => {
     seed.flowId = flow.data.id;
 
     const system = await inBrowser(page, 'POST', '/api/v1/admin/systems', {
-      code: `a11y-${RUN}`, name: 'A11y probe system', direction: 'OUTBOUND', type: 'DB', settings: { host: 'db.partner.test', port: 5432, database: 'orders' },
+      code: `a11y-${RUN}`, name: 'A11y probe system', direction: 'OUTBOUND', type: 'DB', settings: { host: 'db.partner.test', port: 5432, database: 'orders', user: 'a11y_probe' },
     });
     expect(system.status, `seed system: ${JSON.stringify(system)}`).toBe(201);
 
