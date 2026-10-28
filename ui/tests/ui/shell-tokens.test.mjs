@@ -58,8 +58,8 @@ test('01-§1 acceptance pairs hold in both themes', () => {
 });
 
 test('[data-nav] contract: the six screen entries keep their exact values', () => {
-  const app = readFileSync(join(src, 'App.tsx'), 'utf8');
-  // Values may be declared in the NAV_GROUPS table (`nav: 'flows'`) or inline as
+  const app = readFileSync(join(src, 'App.tsx'), 'utf8') + readFileSync(join(src, 'nav-model.ts'), 'utf8');
+  // Row 575 S1: the menu table lives in nav-model.ts. Values may be declared in that table (`nav: 'flows'`) or inline as
   // data-nav="flows" — either way the exact literal must exist in the shell source.
   for (const entry of ['flows', 'versions', 'systems', 'contracts', 'rules', 'mappings']) {
     const declared = new RegExp(`nav: '${entry}'`).test(app) || app.includes(`data-nav="${entry}"`);

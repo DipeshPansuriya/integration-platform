@@ -76,12 +76,18 @@ const QUICK_ACTIONS = [
   { label: 'Create a rule set', href: '#/rules', primary: false }
 ];
 
-export function Dashboard({ user }: { user?: string }) {
+// Row 575 (S1, Karan Low 2): `readsConfiguration` is false only when the roles are KNOWN and lack READ_CONFIGURATION (Support, no
+// grants): no list call is made (each would answer 403) and no "could not be loaded" banner is shown. UX only - the server stays the gate.
+export function Dashboard({ user, readsConfiguration = true }: { user?: string; readsConfiguration?: boolean }) {
   const [lists, setLists] = useState<Lists | null>(null);
   const [retrying, setRetrying] = useState(false);
 
   const load = useCallback(async () => {
     setLists(null);
+    if (!readsConfiguration) {
+      setLists({ flows: null, systems: null, contracts: null });
+      return;
+    }
     const [flows, systems, contracts] = await Promise.all([
       listFlows().catch(() => null),
       listSystems().catch(() => null),
@@ -92,13 +98,13 @@ export function Dashboard({ user }: { user?: string }) {
       systems: systems?.ok ? systems.data : null,
       contracts: contracts?.ok ? contracts.data : null
     });
-  }, []);
+  }, [readsConfiguration]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const failed = lists !== null && (lists.flows === null || lists.systems === null || lists.contracts === null);
+  const failed = readsConfiguration && lists !== null && (lists.flows === null || lists.systems === null || lists.contracts === null);
   const recent = lists?.flows ? recentVersions(lists.flows) : [];
 
   return (
