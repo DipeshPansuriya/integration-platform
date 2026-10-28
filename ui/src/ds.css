@@ -11,6 +11,10 @@
  *   --font-mono, --nav-w, --topbar-h, --r-1, --r-2, --r-3, --tr  → differ, re-asserted
  *   --r-pill → identical (999px), not re-asserted
  *
+ * Class-level collisions (Varun post-merge review, PR #104):
+ *   .badge — DS typography.css sets 10.5px/1.5, the app .badge is 12.5px/1.35;
+ *   re-asserted below so existing app badges stay byte-identical in size.
+ *
  * Globals DS would restyle (components.css) → neutralised below:
  *   html { height: 100% } and body { 13px, var(--ink)/var(--bg) }
  *
@@ -43,4 +47,10 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* the DS .badge (components.css) collides with the app .badge — the app wins */
+.badge {
+  font-size: 12.5px;
+  line-height: 1.35;
 }
