@@ -443,7 +443,7 @@ export function App() {
           )}
           {shown === 'flows' &&
             (route.flowId ? (
-              <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} />
+              <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} roles={roles} />
             ) : (
               <FlowsList />
             ))}

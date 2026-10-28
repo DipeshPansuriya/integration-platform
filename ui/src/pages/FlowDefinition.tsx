@@ -13,6 +13,8 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MutableRefObject, type MouseEvent as ReactMouseEvent } from 'react';
 import { createFlow, readFlow, saveFlowDraft, saveSourceSchema, validationFieldOf } from '../api/flows';
 import { loadFlowForm, saveFlowDefinition } from './flow-save';
+import { FlowWorkspace } from './FlowWorkspace';
+import { workspaceRoles } from './flow-stepper';
 import {
   editorFlowId,
   fieldA11y,
@@ -36,6 +38,8 @@ export type FlowDefinitionProps = {
   openFlowId?: string | null;
   /** B12: the shell's slot for this editor's guard (Back, Forward, a typed #/ address). */
   guard?: MutableRefObject<EditorGuard | null>;
+  /** Row 575 S4: the caller's roles (null = not loaded) - the workspace header words what each role can do. UX only. */
+  roles?: readonly string[] | null;
 };
 
 const MIN_DESTINATIONS = 2; // E3-F1-S1: source S with destinations T1/T2 as configuration rows.
@@ -49,7 +53,7 @@ const EMPTY: FlowForm = {
   sourceSchema: ''
 };
 
-export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps) {
+export function FlowDefinition({ openFlowId = null, guard, roles = null }: FlowDefinitionProps) {
   const [form, setForm] = useState<FlowForm>(EMPTY);
   const [baseline, setBaseline] = useState<FlowForm>(EMPTY);
   const [flowId, setFlowId] = useState<string | null>(null);
@@ -104,7 +108,8 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
     if (!dirty) return;
     const onClick = (event: MouseEvent) => {
       const link = (event.target as Element | null)?.closest?.('a[href^="#"]') as HTMLAnchorElement | null;
-      if (!link || link.closest('[data-page="flow-definition"]')) return;
+      // Row 575 S4: the workspace's own links (breadcrumb, steps, tabs) opt in with data-leaves-editor; the form's links do not.
+      if (!link || (link.closest('[data-page="flow-definition"]') && !link.hasAttribute('data-leaves-editor'))) return;
       event.preventDefault();
       event.stopPropagation();
       opener.current = link;
@@ -242,6 +247,8 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
           All flows
         </a>
       </div>
+
+      {flowId && <FlowWorkspace flowId={flowId} roles={workspaceRoles(roles)} />}
 
       {leaveTo !== null && (
         <div
@@ -392,7 +399,7 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
             )}
             {saved && (
               <p className="flows-alert flows-alert-success" data-saved="true" role="status">
-                Draft saved. <a href="#/versions">Submit it for approval</a> when you are ready.
+                Draft saved. <a href={flowId ? `#/versions/${encodeURIComponent(flowId)}` : '#/versions'}>Submit it for approval</a> when you are ready.
               </p>
             )}
             {dirty && !saved && <span className="flows-muted">Unsaved changes</span>}
