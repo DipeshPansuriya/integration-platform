@@ -153,7 +153,7 @@ while the old app still serves, so stop it first:
 1. Baseline: run the reconciliation query below once on the current data (findings go to the owner, they are not fixed here).
 2. `docker compose stop platform-app` (business writes pause; nothing is written, so no audit event is lost).
 3. `IMAGE_TAG=<sc> ./deploy.sh` - backup, `info`, `validate`, `migrate` (applies V2_4_1490 then V2_4_1500 as `ipass_migrator`), tag switch,
-   `up -d` (the new app's own Flyway finds nothing pending; the relay delivers any pending backlog), health.
+   `up -d` (the hosted app does not run Flyway since row 570, so this step is the only migration; the relay delivers any pending backlog), health.
 4. Post-checks (below).
 
 Downtime is migrate duration + app start + health wait (`deploy.sh` waits at most 300 s). Pre-flight on the build PC: the PR is
@@ -235,10 +235,12 @@ relayed. Nothing is lost or duplicated; throughput under a large backlog is seri
 - **L3** in DEFINER mode the application refuses to start while its login can INSERT into `audit_event` (or a partition) or UPDATE / INSERT `audit_outbox.relayed_at`; the error starts with `audit ledger lockdown is open`. `IPAAS_AUDIT_RELAY_MODE=LEGACY` (after the rollback SQL) skips the check.
 - **M1** `platform-app` has no `DB_MIGRATION_*` and runs with `SPRING_FLYWAY_ENABLED=false`: the schema-owner password is read only by `postgres` init and `flyway/migrate.sh` / `deploy.sh`. **A first install migrates before the app starts:** `docker compose up -d postgres`, `./flyway/migrate.sh migrate`, then the start in step 8. An app started against an unmigrated schema fails on first use instead of migrating; always release through `deploy.sh`. `./rotate-secret.sh DB_MIGRATION_PASSWORD` no longer restarts the app.
 
+**Rollback order for the row 570 changes.** Rolling back `V2_4_1520` alone (`audit/rollback-V2_4_1520.sql`) gives the role INSERT on `audit_outbox.relayed_at` again, so a DEFINER-mode start is refused by the L3 guard. To run the old app image after that, also run `audit/rollback-V2_4_1490.sql` and set `IPAAS_AUDIT_RELAY_MODE=LEGACY` (the guard is skipped in LEGACY). `V2_4_1510` is independent (`audit/rollback-V2_4_1510.sql` re-grants the two columns). **M1 rollback:** restore `compose.yaml` from the release backup (it carries `DB_MIGRATION_USERNAME` / `DB_MIGRATION_PASSWORD` and no `SPRING_FLYWAY_ENABLED`) and make sure `.env` still has `DB_MIGRATION_PASSWORD`, then `docker compose up -d platform-app`; the app then migrates at its own start-up again.
+
 **Known limits.**
 - A compromised application session can still write false actor/action text into the outbox at write time (the omission class, not detectable by this option).
 - The ledger is append-only for the application role. It is not tamper-proof against the migration owner / DBA, who can still alter rows or drop partitions (option B).
-- The application role keeps table-level INSERT on `interface_version`, so a row could be inserted directly with an approved status (found in row 570, recorded in ADR-011 Amendment; not fixed here).
+- The application role keeps table-level INSERT on `interface_version`, so a row could be inserted directly with an approved status (the transition guard is BEFORE UPDATE only, `V2_2_4:118`; open follow-up row 576, not fixed here and not yet in the ADR-011 Amendment).
 - `app.actor_id` is stamped by the application: a consistency check, not a security boundary.
 
 ## Tests (build PC)

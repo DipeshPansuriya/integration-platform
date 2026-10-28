@@ -173,4 +173,23 @@ class AuditLedgerLockdownGuardStartupContainerTest {
         assertThatCode(() -> new SpringApplicationBuilder(IntegrationPlatformApplication.class, GrantAppRole.class)
                 .properties(run).run().close()).doesNotThrowAnyException();
     }
+
+    /** Karan LOW (row 570): the guard names every write privilege the lockdown took away, not only the ledger INSERT. */
+    @Test
+    @Tag("negative")
+    void anyReGrantedWritePrivilegeOnTheLedgerOrTheOutboxStopsTheStart() throws SQLException {
+        assertThatCode(() -> boot(null)).doesNotThrowAnyException();
+        String[][] cases = {
+            {"update on public.audit_event", "UPDATE on public.audit_event"},
+            {"delete on public.audit_event", "DELETE on public.audit_event"},
+            {"truncate on public.audit_event", "TRUNCATE on public.audit_event"},
+            {"update (actor) on public.audit_outbox", "UPDATE (actor) on public.audit_outbox"},
+            {"update on public.audit_outbox", "UPDATE on public.audit_outbox"},
+            {"delete on public.audit_outbox", "DELETE on public.audit_outbox"},
+            {"truncate on public.audit_outbox", "TRUNCATE on public.audit_outbox"},
+        };
+        for (String[] c : cases) {
+            refusedWhileGranted("grant " + c[0] + " to ipaas_app", "revoke " + c[0] + " from ipaas_app", c[1]);
+        }
+    }
 }
