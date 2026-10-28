@@ -225,11 +225,12 @@ summary:focus-visible {
 .account {
   position: relative;
 }
-.account-summary {
+/* V4 4d review fix: suppress the default details marker on the new avatar chip's summary. */
+.account summary {
   cursor: pointer;
   list-style: none;
 }
-.account-summary::-webkit-details-marker {
+.account summary::-webkit-details-marker {
   display: none;
 }
 .account .menu {
