@@ -104,7 +104,10 @@ class RolePolicyTest {
                 Map.entry(PAUSE_JOB, EnumSet.noneOf(Role.class)),
                 Map.entry(RESUME_JOB, EnumSet.noneOf(Role.class)),
                 Map.entry(READ_JOB_ALERTS, EnumSet.noneOf(Role.class)),
-                Map.entry(ACKNOWLEDGE_JOB_ALERT, EnumSet.noneOf(Role.class)));
+                Map.entry(ACKNOWLEDGE_JOB_ALERT, EnumSet.noneOf(Role.class)),
+                // row 578 (CWE-862): the one GLOBAL SSRF allow-list is operator-owned; no tenant role edits or reads it
+                Map.entry(Operation.READ_ALLOWED_HOSTS, EnumSet.noneOf(Role.class)),
+                Map.entry(Operation.EDIT_ALLOWED_HOSTS, EnumSet.noneOf(Role.class)));
 
         assertThat(EnumSet.allOf(Operation.class)).as("every operation has a row").isEqualTo(expected.keySet());
         expected.forEach((operation, roles) -> assertThat(RolePolicy.allowedRoles(operation))
@@ -143,12 +146,12 @@ class RolePolicyTest {
     @DisplayName("E14 (ADR-012 Decision 5): only the operator agent reaches the job-admin and alert operations")
     void operatorAgentOperations() {
         Set<Operation> agentOps = Set.of(LIST_JOBS, INSPECT_JOB, RUN_JOB_NOW, PAUSE_JOB, RESUME_JOB,
-                READ_JOB_ALERTS, ACKNOWLEDGE_JOB_ALERT);
+                READ_JOB_ALERTS, ACKNOWLEDGE_JOB_ALERT, Operation.READ_ALLOWED_HOSTS, Operation.EDIT_ALLOWED_HOSTS);
         agentOps.forEach(op -> assertThat(op.caller()).isEqualTo(RolePolicy.Caller.OPERATOR_AGENT));
         // no human role reaches them, not even tenant admin (Release 1 - ADR-012 Decision 5, Dipesh 2026-10-12)
         agentOps.forEach(op -> assertThat(RolePolicy.allows(op, EnumSet.allOf(Role.class)))
                 .as("no human role: %s", op).isFalse());
-        // every existing operation refuses the agent kind by default: nothing outside the seven carries
+        // every existing operation refuses the agent kind by default: nothing outside the nine carries
         // Caller.OPERATOR_AGENT, and the interceptor's kind switch turns the agent away from those
         for (Operation operation : Operation.values()) {
             if (!agentOps.contains(operation)) {

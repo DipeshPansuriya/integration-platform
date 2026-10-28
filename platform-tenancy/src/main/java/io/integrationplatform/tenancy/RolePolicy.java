@@ -38,6 +38,8 @@ import java.util.Set;
  * RESUME_JOB                operator agent (E14 T-060)
  * READ_JOB_ALERTS           operator agent (open job_alert rows; the agent polls every 5 min - ADR-012 section 6)
  * ACKNOWLEDGE_JOB_ALERT     operator agent (E14 T-062)
+ * READ_ALLOWED_HOSTS        operator agent (the one GLOBAL destination allow-list; row 578, CWE-862)
+ * EDIT_ALLOWED_HOSTS        operator agent (add or remove an allow-list host; no tenant role - row 578)
  * </pre>
  *
  * A machine (source-bound or operator-agent) principal holds no human role, so every role-gated operation refuses it;
@@ -90,7 +92,11 @@ public final class RolePolicy {
         PAUSE_JOB(Caller.OPERATOR_AGENT),
         RESUME_JOB(Caller.OPERATOR_AGENT),
         READ_JOB_ALERTS(Caller.OPERATOR_AGENT),
-        ACKNOWLEDGE_JOB_ALERT(Caller.OPERATOR_AGENT);
+        ACKNOWLEDGE_JOB_ALERT(Caller.OPERATOR_AGENT),
+        // row 578 (CWE-862 / CWE-918): the destination allow-list is ONE global list that bounds every tenant's
+        // outbound calls, so editing or reading it is the operator's alone - never a tenant role, READ_ONLY included
+        READ_ALLOWED_HOSTS(Caller.OPERATOR_AGENT),
+        EDIT_ALLOWED_HOSTS(Caller.OPERATOR_AGENT);
 
         private final Caller caller;
         private final Set<Role> roles;

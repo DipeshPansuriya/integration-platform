@@ -301,6 +301,35 @@ class RoleMatrixContainerTest {
         }
     }
 
+    @Test
+    @Tag("negative")
+    @Tag("security")
+    @DisplayName("Row 578 (CWE-862): every tenant role gets 403 on GET/POST/DELETE of the operator allow-list, and the"
+            + " list in the database is untouched")
+    void noTenantRoleReachesTheOperatorAllowList() throws Exception {
+        String path = "/api/v1/admin/operator/allowed-hosts";
+        String seeded = "seed-" + UUID.randomUUID().toString().substring(0, 8) + ".operator.example";
+        String attacker = "evil-" + UUID.randomUUID().toString().substring(0, 8) + ".example";
+        String id;
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
+            id = UUID.randomUUID().toString();
+            ownerExec(owner, "INSERT INTO public.operator_allowed_host (id, pattern) VALUES (?::uuid, ?)", id, seeded);
+        }
+
+        for (String role : List.of("TENANT_ADMIN", "CONFIGURATOR", "APPROVER", "SUPPORT", "READ_ONLY", "NONE")) {
+            assertRoleRefusal(call(role, "GET", path, null));
+            assertRoleRefusal(call(role, "POST", path, "{\"pattern\":\"" + attacker + "\"}"));
+            assertRoleRefusal(call(role, "DELETE", path + "/" + id, null));
+        }
+
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES)) {
+            assertThat(ownerScalar(owner, "SELECT count(*)::text FROM public.operator_allowed_host WHERE pattern = ?",
+                    seeded)).as("the seeded pattern was not deleted").isEqualTo("1");
+            assertThat(ownerScalar(owner, "SELECT count(*)::text FROM public.operator_allowed_host WHERE pattern = ?",
+                    attacker)).as("no tenant request added a host").isEqualTo("0");
+        }
+    }
+
     // ---- helpers --------------------------------------------------------------------------------------------------
 
     private static void assertRoleRefusal(HttpResponse<String> response) {
