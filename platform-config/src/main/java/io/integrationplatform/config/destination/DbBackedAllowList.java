@@ -11,8 +11,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 /**
  * An allow-list that unions the operator's startup configuration ({@code platform.config.destinations.allowed-hosts})
  * with patterns stored in {@code operator_allowed_host} (V2_4_1410). The config-based entries are immutable; the
- * DB-based entries are loaded at startup and refreshed after every admin write, so a restart is never needed to
- * add or remove a destination.
+ * DB-based entries are loaded on first use (never while the bean is constructed) and refreshed after every admin
+ * write, so a restart is never needed to add or remove a destination.
  *
  * <p>The hot-path {@link #allows(String)} call is two in-memory checks — no DB query per request.
  */
@@ -27,6 +27,7 @@ public final class DbBackedAllowList extends AllowList {
     private final JdbcClient jdbcClient;
     private volatile AllowList dbEntries;
     private volatile boolean loaded;
+    private volatile boolean tried;
     private volatile long lastTryNanos;
 
     public DbBackedAllowList(AllowList configBased, JdbcClient jdbcClient) {
@@ -34,7 +35,6 @@ public final class DbBackedAllowList extends AllowList {
         this.configBased = Objects.requireNonNull(configBased, "configBased");
         this.jdbcClient = Objects.requireNonNull(jdbcClient, "jdbcClient");
         this.dbEntries = AllowList.of(List.of());
-        tryLoad();
     }
 
     @Override
@@ -42,17 +42,18 @@ public final class DbBackedAllowList extends AllowList {
         if (configBased.allows(host)) {
             return true;
         }
-        if (!loaded && System.nanoTime() - lastTryNanos > RETRY_NANOS) {
+        if (!loaded && (!tried || System.nanoTime() - lastTryNanos > RETRY_NANOS)) {
             tryLoad();
         }
         return dbEntries.allows(host);
     }
 
     /**
-     * Startup/retry load: a database that cannot be read yet leaves the DB entries empty (fail closed: only the
+     * First-use/retry load: a database that cannot be read yet leaves the DB entries empty (fail closed: only the
      * deployment configuration is allowed) and is retried at most every 30 s; it never stops the application starting.
      */
     private void tryLoad() {
+        tried = true;
         lastTryNanos = System.nanoTime();
         try {
             refresh();
