@@ -1,0 +1,81 @@
+package io.integrationplatform.config.destination;
+
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+import org.springframework.jdbc.core.simple.JdbcClient;
+
+/**
+ * An allow-list that unions the operator's startup configuration ({@code platform.config.destinations.allowed-hosts})
+ * with patterns stored in {@code operator_allowed_host} (V2_4_1410). The config-based entries are immutable; the
+ * DB-based entries are loaded at startup and refreshed after every admin write, so a restart is never needed to
+ * add or remove a destination.
+ *
+ * <p>The hot-path {@link #allows(String)} call is two in-memory checks — no DB query per request.
+ */
+public final class DbBackedAllowList extends AllowList {
+
+    public record HostEntry(UUID id, String pattern) {}
+
+    private final AllowList configBased;
+    private final JdbcClient jdbcClient;
+    private volatile AllowList dbEntries;
+
+    public DbBackedAllowList(AllowList configBased, JdbcClient jdbcClient) {
+        super(List.of(), List.of());
+        this.configBased = Objects.requireNonNull(configBased, "configBased");
+        this.jdbcClient = Objects.requireNonNull(jdbcClient, "jdbcClient");
+        this.dbEntries = AllowList.of(List.of());
+        refresh();
+    }
+
+    @Override
+    public boolean allows(String host) {
+        return configBased.allows(host) || dbEntries.allows(host);
+    }
+
+    /** Reload the DB patterns into the in-memory allow-list. Called after every add/remove. */
+    public void refresh() {
+        List<String> patterns = jdbcClient
+                .sql("SELECT pattern FROM operator_allowed_host ORDER BY pattern")
+                .query(String.class)
+                .list();
+        this.dbEntries = AllowList.of(patterns);
+    }
+
+    /** All DB-stored entries (the config-based entries are not included — they are deployment config). */
+    public List<HostEntry> list() {
+        return jdbcClient
+                .sql("SELECT id, pattern FROM operator_allowed_host ORDER BY pattern")
+                .query((rs, n) -> new HostEntry(
+                        UUID.fromString(rs.getString("id")),
+                        rs.getString("pattern")))
+                .list();
+    }
+
+    /** Insert a pattern and refresh the in-memory list. Returns the new entry. */
+    public HostEntry add(String pattern) {
+        String clean = normalise(pattern);
+        if (clean.isEmpty()) {
+            throw new IllegalArgumentException("pattern must not be blank");
+        }
+        UUID id = UUID.randomUUID();
+        jdbcClient.sql("INSERT INTO operator_allowed_host (id, pattern) VALUES (:id, :pattern)")
+                .param("id", id)
+                .param("pattern", clean)
+                .update();
+        refresh();
+        return new HostEntry(id, clean);
+    }
+
+    /** Remove a pattern by id and refresh the in-memory list. Returns true if a row was deleted. */
+    public boolean remove(UUID id) {
+        int rows = jdbcClient.sql("DELETE FROM operator_allowed_host WHERE id = :id")
+                .param("id", id)
+                .update();
+        if (rows > 0) {
+            refresh();
+        }
+        return rows > 0;
+    }
+}

@@ -59,6 +59,25 @@ test('return-to keeps real screen hashes only', () => {
   }
 });
 
+test('return-to (row 571 follow-up 4): a query on a real route survives; second slash, case and encoded tricks do not', () => {
+  assert.equal(sanitizeReturnTo('#/failures?flow=abc-1&date=2026-10-28'), '#/failures?flow=abc-1&date=2026-10-28', 'the failures deep link survives');
+  assert.equal(sanitizeReturnTo('#/messages/a%20b'), '#/messages/a%20b', 'an ordinary encoded id survives');
+  for (const bad of [
+    '#//', '#//evil.com', '#///x', // a second leading slash
+    '#/?x=1', '#/login', '#/LOGIN', '#/Login', '#/lOgIn/x', '#/login?a=1', '#/%6c%6fgin', '#/%6C%6Fgin?x=1', '#/loginx', // sign-in state in any spelling
+    '#/a%00b', '#/%0d%0aX', '#/%0A', '#/a%5cevil', '#/..%2f..%2f%00', // encoded NUL, CR, LF, backslash
+    '#/a\u0000b', '#/a\nb', '#/a\r\nb', '#/\n', '#/a\n', '#/\u202e', // raw NUL, newline, bidi override
+    '#/a#b', '#/"x', '#/<', '#/%E0%A4%A' // not a clean route
+  ]) {
+    assert.equal(sanitizeReturnTo(bad), null, JSON.stringify(bad));
+  }
+  // the only thing an accepted value can do is move the fragment: it always starts with #/ and never with #//
+  for (const ok of ['#/javascript:alert(1)', "#/a'b", '#/..%2f..%2f', '#/%2e%2e/']) {
+    const kept = sanitizeReturnTo(ok);
+    assert.ok(kept === null || (kept.startsWith('#/') && !kept.startsWith('#//')), ok);
+  }
+});
+
 test('landing after login moves only from the bare console address', () => {
   assert.equal(landingAfterLogin('', '#/versions'), '#/versions');
   assert.equal(landingAfterLogin('#/', '#/versions'), '#/versions');
@@ -88,6 +107,28 @@ test('storage round trip: attempt, logged-out flag and return-to; blocked storag
   assert.doesNotThrow(() => { flow.markAttempt(); flow.clearAttempt(); flow.markLoggedOut(); flow.rememberReturnTo('#/x'); });
   assert.equal(flow.takeReturnTo(), null);
   delete globalThis.sessionStorage;
+});
+
+test('storage probe (row 571 follow-up 3): a storage that reads but cannot write is "no storage" - the loop guard needs a write', () => {
+  globalThis.sessionStorage = { getItem: () => null, setItem() { throw new Error('QuotaExceededError'); }, removeItem() {} };
+  assert.equal(flow.readLoginMemory(NOW).storageOk, false, 'setItem throws -> not usable');
+  assert.equal(decideLoginView({ state: 'signed-out', ...flow.readLoginMemory(NOW) }), 'prompt', 'a button decides, never a redirect');
+  globalThis.sessionStorage = { getItem: () => null, setItem() {}, removeItem() { throw new Error('blocked'); } };
+  assert.equal(flow.readLoginMemory(NOW).storageOk, false, 'removeItem throws -> not usable');
+  const ok = fakeStorage();
+  globalThis.sessionStorage = ok;
+  assert.equal(flow.readLoginMemory(NOW).storageOk, true);
+  assert.equal(ok.map.size, 0, 'the probe leaves nothing behind');
+  delete globalThis.sessionStorage;
+});
+
+test('restored page (row 571 follow-up 2): a bfcache restore is "failed" whatever the attempt age', () => {
+  const stale = memory({ attemptAt: NOW - ATTEMPT_TTL_MS - 1, restored: true });
+  assert.equal(decideLoginView({ state: 'signed-out', ...stale }), 'failed');
+  assert.equal(decideLoginView({ state: 'signed-out', ...memory({ restored: true }) }), 'failed', 'even with no attempt on record');
+  assert.equal(decideLoginView({ state: 'signed-out', ...memory({ restored: true, loggedOut: true }) }), 'logged-out');
+  assert.equal(decideLoginView({ state: 'signed-out', ...memory({ restored: true, storageOk: false }) }), 'prompt');
+  assert.equal(decideLoginView({ state: 'checking', ...memory({ restored: true }) }), 'wait');
 });
 
 // ---------- the Login component through the harness ----------
@@ -200,6 +241,48 @@ test('Login: Back from the provider restored from the back/forward cache shows T
   delete globalThis.sessionStorage;
 });
 
+test('Login: a page restored from the bfcache after the attempt went stale shows Try again, never a hanging "Redirecting"', async () => {
+  const { assigned, listeners } = stubWindow();
+  const storage = (globalThis.sessionStorage = fakeStorage());
+  const screen = await login('signed-out');
+  await screen.settle();
+  assert.deepEqual(assigned, ['/login']);
+  storage.map.set('ip.loginAttempt', String(Date.now() - ATTEMPT_TTL_MS - 60_000)); // the stamp aged out while the page sat in the cache
+  listeners.pageshow({ persisted: true });
+  await screen.settle();
+  assert.match(textOf(screen.tree()), /did not complete/);
+  assert.doesNotMatch(textOf(screen.tree()), /Redirecting/);
+  const retry = by(screen, 'data-action', 'sso')[0];
+  assert.equal(textOf(retry), 'Try again');
+  retry.props.onClick();
+  assert.deepEqual(assigned, ['/login', '/login'], 'Try again starts the next attempt');
+  screen.unmount();
+  delete globalThis.sessionStorage;
+});
+
+test('Login: arriving from a failed code exchange (#/login?error=...) shows Try again even with no attempt on record', async () => {
+  const { assigned } = stubWindow();
+  globalThis.window.location.hash = '#/login?error=login_failed';
+  globalThis.sessionStorage = fakeStorage();
+  const screen = await login('signed-out');
+  await screen.settle();
+  assert.deepEqual(assigned, [], 'no automatic redirect');
+  assert.equal(textOf(by(screen, 'data-action', 'sso')[0]), 'Try again');
+  screen.unmount();
+  delete globalThis.sessionStorage;
+});
+
+test('Login: a storage that cannot be written shows the Sign in button, so Back is never a trap', async () => {
+  const { assigned } = stubWindow();
+  globalThis.sessionStorage = { getItem: () => null, setItem() { throw new Error('QuotaExceededError'); }, removeItem() {} };
+  const screen = await login('signed-out');
+  await screen.settle();
+  assert.deepEqual(assigned, [], 'no automatic redirect without a working guard');
+  assert.equal(textOf(by(screen, 'data-action', 'sso')[0]), 'Sign in');
+  screen.unmount();
+  delete globalThis.sessionStorage;
+});
+
 // ---------- wiring the rest of the console ----------
 test('the SSO page copy is gone from the source', () => {
   const page = readFileSync(new URL('../../src/pages/Login.tsx', import.meta.url), 'utf8');
@@ -228,4 +311,22 @@ test('a 401 remembers the screen the visitor asked for before moving to #/login'
   await consoleFetch('/api/v1/me'); // already on the sign-in state: the remembered screen is not overwritten
   assert.equal(storage.map.get('ip.returnTo'), '#/versions');
   delete globalThis.sessionStorage;
+});
+
+// ---------- brand (row 571 follow-up 1): kale-design is not used on this project (overview, Dipesh 2026-10-22) ----------
+test('the sign-in card uses the project neutral tokens: no Deep Sea / Noon / Evening Sky colours, no kale wording', () => {
+  const files = [
+    '../../src/tokens.css',
+    '../../src/pages/dashboard.css',
+    '../../../compose/keycloak/themes/platform/login/resources/css/tokens.css',
+    '../../../compose/keycloak/themes/platform/login/resources/css/styles.css'
+  ];
+  for (const file of files) {
+    const css = readFileSync(new URL(file, import.meta.url), 'utf8');
+    assert.doesNotMatch(css, /#081f4b|#eb4a26|#76cbff/i, `${file}: brand colour`);
+    assert.doesNotMatch(css, /kale|deep sea|\bnoon\b|evening sky/i, `${file}: brand wording`);
+  }
+  const tokens = readFileSync(new URL('../../src/tokens.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(tokens, /--color-rule-top:\s*var\(--color-accent\)/, 'top rule = the accent');
+  assert.match(tokens, /--color-rule-bottom:\s*var\(--color-border\)/, 'foot rule = the hairline');
 });

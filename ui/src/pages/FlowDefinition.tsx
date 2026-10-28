@@ -19,6 +19,7 @@ import {
   flowHash,
   focusSelectorFor,
   isDirty,
+  orderingWord,
   trapTab,
   validationErrorId,
   validationText,
@@ -363,8 +364,8 @@ export function FlowDefinition({ openFlowId = null, guard }: FlowDefinitionProps
                     aria-describedby="flow-ordering-help"
                     onChange={(e) => set({ ordering: e.target.value })}
                   >
-                    <option value="PER_KEY">PER_KEY</option>
-                    <option value="NONE">NONE</option>
+                    <option value="PER_KEY">{orderingWord('PER_KEY')}</option>
+                    <option value="NONE">{orderingWord('NONE')}</option>
                   </select>
                 </label>
                 <p className="flows-muted" id="flow-ordering-help">Rows are grouped per key before they move</p>

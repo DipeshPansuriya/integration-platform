@@ -668,3 +668,33 @@ summary:focus-visible {
 :where(main.content) :where(td) :where(input, button):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
   font-size: 13px; /* controls inside table rows follow the 13px table body (01 §2.1) */
 }
+/* --- Page chrome (row 572 S0): breadcrumb + page header; tokens only --- */
+.breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--color-ink-muted);
+}
+.breadcrumb li:not(:last-child)::after {
+  content: "\203A"; /* single right angle quote as separator; the list structure already says the order */
+  margin-left: var(--space-2);
+  color: var(--color-ink-faint);
+}
+.breadcrumb li[aria-current="page"] {
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.page-header {
+  margin-bottom: var(--space-4);
+}
+.page-header h1:focus {
+  outline: none; /* focus moves here by script on a route change; the heading is not a control, the 2px ring stays on controls */
+}
+.page-next {
+  margin: var(--space-2) 0 0;
+  color: var(--color-ink-muted);
+}
