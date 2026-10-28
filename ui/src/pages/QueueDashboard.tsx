@@ -11,6 +11,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { queueSummary, type QueueRow } from '../api/queue';
 import { failuresHash } from './failures-view';
 import { queueStatus } from './queue-view';
+import { NoAccess } from '../ui/NoAccess';
+import { isNoAccess } from '../ui/no-access';
 import './operator.css';
 
 let latestRequest = 0; // a slower, older Reload never overwrites a newer answer
@@ -20,6 +22,7 @@ export function QueueDashboard() {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [noAccess, setNoAccess] = useState(false); // row 562: the 403 gets the plain no-access state
 
   const load = useCallback(() => {
     const mine = ++latestRequest;
@@ -30,14 +33,17 @@ export function QueueDashboard() {
         if (answer.ok) {
           setRows(answer.data);
           setRefusal(null);
+          setNoAccess(false);
         } else {
           setRows([]);
+          setNoAccess(isNoAccess(answer.status));
           setRefusal(answer.refusal ?? answer.error ?? 'queue summary refused');
         }
       })
       .catch(() => {
         if (mine !== latestRequest) return;
         setRows([]);
+        setNoAccess(false);
         setRefusal('queue summary refused');
       })
       .finally(() => {
@@ -68,7 +74,8 @@ export function QueueDashboard() {
       {status === 'loading' && (
         <p role="status" className="op-muted" data-loading="queue">Loading the queue…</p>
       )}
-      {status === 'refused' && (
+      {status === 'refused' && noAccess && <NoAccess refusal="queue-summary-refused" />}
+      {status === 'refused' && !noAccess && (
         <p role="alert" className="op-alert op-alert-danger" data-refusal="queue-summary-refused">{refusal}</p>
       )}
       {(status === 'ready' || status === 'empty') && (
