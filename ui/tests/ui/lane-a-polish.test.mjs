@@ -18,7 +18,7 @@ const { saveThrownText } = await import('../../src/pages/mapping-load.ts');
 test('A11: Ordering shows words, not the raw enum', () => {
   assert.equal(orderingWord('PER_KEY'), 'Per key');
   assert.equal(orderingWord('NONE'), 'None');
-  assert.equal(orderingWord('SOMETHING'), 'SOMETHING');
+  assert.equal(orderingWord('SOMETHING'), 'Something');
 });
 
 test('A11: the filter result count is a sentence a live region can announce', () => {
@@ -60,9 +60,8 @@ test('A10 wiring: deep links, aria-disabled retry, FlowsList Retry', () => {
   assert.match(list, /orderingWord\(/);
 });
 
-test('A11 wiring: Login shows a pending state after the SSO click', () => {
+test('A11 wiring: Login announces the redirect to sign-in (row 571: automatic, no SSO click)', () => {
   const login = read('pages/Login.tsx');
-  assert.match(login, /aria-disabled=\{redirecting\}/);
   assert.match(login, /Redirecting to sign-in/);
   assert.match(login, /role="status"/);
 });

@@ -161,9 +161,9 @@ test('§6 contracts: grouped list - one card per system/role, sorted, versions k
 
 test('§6 contracts: status badge carries its word, tone repeats it', () => {
   assert.deepEqual(contractsView.statusBadge?.('DRAFT'), { tone: 'warn', word: 'Draft' });
-  assert.deepEqual(contractsView.statusBadge?.('PENDING_APPROVAL'), { tone: 'info', word: 'Pending approval' });
+  assert.deepEqual(contractsView.statusBadge?.('PENDING_APPROVAL'), { tone: 'warn', word: 'Waits for approval' });
   assert.deepEqual(contractsView.statusBadge?.('APPROVED'), { tone: 'success', word: 'Approved' });
-  assert.deepEqual(contractsView.statusBadge?.('RETIRED'), { tone: 'neutral', word: 'RETIRED' });
+  assert.deepEqual(contractsView.statusBadge?.('RETIRED'), { tone: 'neutral', word: 'Retired' });
 });
 
 test('§6 compare panes: fields changed between the two versions are marked with a word', () => {

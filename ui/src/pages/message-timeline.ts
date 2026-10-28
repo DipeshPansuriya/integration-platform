@@ -14,6 +14,7 @@
 // response is per delivery - the last attempt's sent-to-answered time and outcome, never the Deliver stage.
 
 import type { StageTime, Timeline } from '../api/messages';
+import { statusWord as statusWordOf, type Tone } from '../ui/status-words';
 
 /** The pipeline's closed stage set in order (MessageTrackingService.PIPELINE, V2_1_1110). */
 export const PIPELINE = ['INTAKE', 'ROUTE', 'TRANSFORM', 'DELIVER'] as const;
@@ -78,16 +79,8 @@ export type TimelineRow = {
   durationMs: number | null;
 };
 
-const STATUS_WORDS: Record<StageStatus, string> = {
-  done: 'Done',
-  running: 'Running',
-  failed: 'Failed',
-  'not-reached': 'Not reached',
-  'not-recorded': 'Not recorded'
-};
-
 export function statusWord(status: StageStatus): string {
-  return STATUS_WORDS[status];
+  return statusWordOf('stage', status).word;
 }
 
 export function formatMs(ms: number): string {
@@ -160,13 +153,6 @@ export function timelineRows(timeline: Timeline): TimelineRow[] {
   });
 }
 
-const OUTCOMES: Record<string, string> = {
-  SUCCESS: 'Success',
-  TRANSIENT: 'Transient',
-  AMBIGUOUS: 'Ambiguous',
-  PERMANENT: 'Permanent'
-};
-
 export type TargetResponse = { key: string; label: string; text: string; durationMs: number | null };
 
 /**
@@ -183,7 +169,7 @@ export function targetResponses(timeline: Pick<Timeline, 'deliveries'>): TargetR
     text:
       d.durationMs === null || d.durationMs === undefined
         ? 'Not reached'
-        : `${formatMs(d.durationMs)} (${OUTCOMES[d.outcome ?? ''] ?? d.outcome ?? 'no outcome'})`,
+        : `${formatMs(d.durationMs)} (${d.outcome ? statusWordOf('outcome', d.outcome).word : 'no outcome'})`,
     durationMs: d.durationMs ?? null
   }));
 }
@@ -197,12 +183,7 @@ export function detailStateOf(status: number): DetailRefusal {
 }
 
 
-/** The message state enum as a worded badge: "ROUTE_FAILED" -> "Route failed", tinted by outcome (the word carries it). */
-export function stateBadge(state: string): { word: string; tone: 'success' | 'danger' | 'info' | 'neutral' } {
-  const spaced = state.toLowerCase().replace(/_/g, ' ');
-  const word = spaced.charAt(0).toUpperCase() + spaced.slice(1);
-  if (/FAIL|DEAD/.test(state)) return { word, tone: 'danger' };
-  if (state === 'ROUTED' || state === 'DELIVERED') return { word, tone: 'success' };
-  if (state === 'ACCEPTED') return { word, tone: 'info' };
-  return { word, tone: 'neutral' };
+/** The message state enum as a worded badge (one table: ui/status-words.ts). */
+export function stateBadge(state: string): { word: string; tone: Tone } {
+  return statusWordOf('state', state);
 }

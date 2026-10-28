@@ -4,6 +4,8 @@
 // tenant-scoped (Q3 default, m-5517d7): the flow list carries no author, so "my" is not
 // expressible in phase 1 and the copy says so honestly. No DOM, no fetch - unit-tested under node.
 
+import { statusWord, type Tone } from '../ui/status-words';
+
 type WithStatus = { status?: string | null };
 
 /** SUBMITTED flows wait for an approver; DRAFT flows are drafts to finish. */
@@ -54,18 +56,11 @@ export function tileName(kind: TileKind, count: number | null): string {
   return `${count} ${count === 1 ? one : many} ${rest}`;
 }
 
-export type BadgeTone = 'success' | 'warn' | 'info' | 'danger' | 'neutral';
+export type BadgeTone = Tone;
 
-const BADGES: Record<string, { word: string; tone: BadgeTone }> = {
-  DRAFT: { word: 'Draft', tone: 'warn' },
-  SUBMITTED: { word: 'Submitted', tone: 'info' },
-  APPROVED: { word: 'Approved', tone: 'success' },
-  PUBLISHED: { word: 'Published', tone: 'success' }
-};
-
-/** 01-tokens status map: the badge always carries its word; an unknown status shows as named, neutral. */
+/** 01-tokens status map (one table: ui/status-words.ts): the badge always carries its word; an unknown status is worded, neutral. */
 export function statusBadge(status: string): { word: string; tone: BadgeTone } {
-  return BADGES[status] ?? { word: status, tone: 'neutral' };
+  return statusWord('flowVersion', status);
 }
 
 export function greetingFor(hour: number, user: string | undefined): string {

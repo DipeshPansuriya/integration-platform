@@ -76,3 +76,29 @@ test('the harness puts the platform theme where Keycloak loads themes, beside th
     ['/repo/compose/keycloak/themes/platform', '/opt/keycloak/themes/platform']
   ]);
 });
+
+// Row 571: the realm login keeps the Kale Deep Sea card signature and worded (never glyph-only) status.
+test('the card carries the 4px Deep Sea / Noon rules, and the dark theme never puts Noon on its ground', () => {
+  const card = declarations(`.${themeClass(properties(), 'kcFormCardClass')}`);
+  assert.equal(card['border-top'], '4px solid var(--platform-rule-top)');
+  assert.equal(card['border-bottom'], '4px solid var(--platform-rule-bottom)');
+  const tokens = fs.readFileSync(path.join(LOGIN, 'resources', 'css', 'tokens.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const [light, dark] = tokens.split('@media (prefers-color-scheme: dark)');
+  assert.match(light, /--platform-rule-top:\s*#081f4b/i, 'Deep Sea');
+  assert.match(light, /--platform-rule-bottom:\s*#eb4a26/i, 'Noon, light ground only');
+  assert.doesNotMatch(dark, /#eb4a26/i, 'no Noon on the dark ground');
+});
+
+test('alerts name their status in words, not a glyph', () => {
+  for (const [selector, word] of [['.alert-error::before', '"Error"'], ['.alert-warning::before', '"Warning"'], ['.alert-success::before', '"Done"'], ['.alert-info::before', '"Note"']]) {
+    assert.equal(declarations(selector).content, word, selector);
+  }
+});
+
+test('the password field and its Show/Hide toggle are one control with one focus ring', () => {
+  const group = declarations(`.${themeClass(properties(), 'kcInputGroup')}`);
+  assert.equal(group.border, '1px solid var(--platform-border-control)', 'the group carries the >= 3:1 boundary');
+  const css = fs.readFileSync(path.join(LOGIN, 'resources', 'css', 'styles.css'), 'utf8');
+  assert.match(css, /\.platform-input-group:has\(> input:focus-visible\)\s*\{[^}]*outline:\s*2px solid var\(--platform-focus\)/, 'the ring moves to the group');
+  assert.match(css, /@supports selector\(:has\(\*\)\)/, 'the field keeps its own ring where :has is unsupported');
+});

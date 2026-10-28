@@ -40,6 +40,8 @@ import { MappingDesigner } from './pages/MappingDesigner';
 // Row 310 lane A (sanjay-developer, T87): the Dashboard at #/ and the in-app sign-in card at #/login.
 import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
+import { clearAttempt, landingAfterLogin, markLoggedOut, rememberReturnTo, takeReturnTo } from './pages/login-flow';
+import { Destinations } from './pages/Destinations';
 import { safeDecode } from './safe-decode';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
@@ -48,7 +50,7 @@ import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
 
 type Route = {
-  page: 'home' | 'login' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue' | 'failures' | 'messages' | 'activity' | 'reports';
+  page: 'home' | 'login' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue' | 'failures' | 'messages' | 'activity' | 'reports' | 'destinations';
   flowId: string | null;
   ruleSetId?: string | null;
   routeId?: string | null;
@@ -108,9 +110,11 @@ const NAV_GROUPS: Array<{ title: string; entries: NavEntry[] }> = [
 ];
 
 function adminToolEntries(): NavEntry[] {
+  const destinations: NavEntry = { label: 'Destinations', nav: 'destinations', hash: '#/destinations', page: 'destinations' };
   const h = window.location.hostname;
   if (h === 'localhost' || h === '127.0.0.1') {
     return [
+      destinations,
       { label: 'Keycloak', nav: 'keycloak', href: 'http://localhost:8180/admin/master/console/', external: true },
       { label: 'Kafka UI', nav: 'kafbat', href: 'http://localhost:8090', external: true },
     ];
@@ -119,6 +123,7 @@ function adminToolEntries(): NavEntry[] {
   const domain = parts.length > 1 ? parts.slice(1).join('.') : h;
   const proto = window.location.protocol;
   return [
+    destinations,
     { label: 'Keycloak', nav: 'keycloak', href: `${proto}//auth.${domain}/admin/master/console/`, external: true },
     { label: 'Kafka UI', nav: 'kafbat', href: `${proto}//ops.${domain}/kafka/`, external: true },
   ];
@@ -148,6 +153,7 @@ function parseHash(): Route {
   const routeId = /^mappings\/(.+)$/.exec(hash);
   if (routeId) return { page: 'mappings', flowId: null, routeId: safeDecode(routeId[1]) };
   if (hash.startsWith('mappings')) return { page: 'mappings', flowId: null, routeId: null };
+  if (hash.startsWith('destinations')) return { page: 'destinations', flowId: null };
   return { page: 'home', flowId: null };
 }
 
@@ -275,8 +281,21 @@ export function App() {
   // A known no-session never sees a screen: a hash-only move off #/login (no API call, so no 401
   // from client.ts) goes back to the card.
   useEffect(() => {
+    if (session === 'signed-in') {
+      // Row 571: a live session proves the last sign-in attempt worked (the loop guard forgets it), and the
+      // screen asked for before the sign-in (remembered by client.ts) is restored - from the bare address only.
+      clearAttempt();
+      const landing = landingAfterLogin(window.location.hash, takeReturnTo());
+      if (landing) {
+        window.location.replace(landing);
+        return;
+      }
+    }
     if (onLogin && session === 'signed-in') window.location.replace('#/');
-    if (!onLogin && session === 'signed-out') window.location.hash = LOGIN_ROUTE;
+    if (!onLogin && session === 'signed-out') {
+      rememberReturnTo(window.location.hash);
+      window.location.hash = LOGIN_ROUTE;
+    }
   }, [onLogin, session]);
 
   function toggleNav() {
@@ -313,6 +332,7 @@ export function App() {
     const token = readCookie('XSRF-TOKEN');
     if (token) headers.set('X-XSRF-TOKEN', token);
     const answer = await fetch('/logout', { method: 'POST', headers, credentials: 'include' });
+    markLoggedOut(); // the page the provider returns to shows a Sign in button, not an automatic redirect (row 571)
     const body = (await answer.json().catch(() => null)) as { redirect?: string } | null;
     window.location.assign(body?.redirect || '/');
   }
@@ -434,6 +454,7 @@ export function App() {
             </Suspense>
           )}
           {route.page === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
+          {route.page === 'destinations' && <Destinations />}
           {route.page === 'home' &&
             (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard />)}
         </main>
