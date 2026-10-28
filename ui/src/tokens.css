@@ -29,8 +29,8 @@
   --color-accent-faint-ink: #1e40af;  /* info badge text on the tint (7.15:1) */
   --color-accent-soft: rgba(37, 99, 235, 0.08);  /* active nav fill (00-§2) */
   --color-halo: rgba(37, 99, 235, 0.22);         /* focus halo glow (02 v3) */
-  --color-rule-top: #081f4b;                     /* row 571: sign-in card signature, Deep Sea rule on top ... */
-  --color-rule-bottom: #eb4a26;                  /* ... and Noon rule at the foot (decorative only, never text) */
+  --color-rule-top: var(--color-accent);         /* row 571: sign-in card top rule (decorative, neutral project tokens) */
+  --color-rule-bottom: var(--color-border);      /* ... and a hairline at the foot */
 
   /* Status — every badge carries its word; colour is never the only carrier */
   --color-success: #16a34a;           /* icon fill only — never text */
@@ -88,8 +88,8 @@
   --color-accent-faint-ink: #bfdbfe;  /* 7.29:1 on tint */
   --color-accent-soft: rgba(59, 130, 246, 0.16);
   --color-halo: rgba(59, 130, 246, 0.28);
-  --color-rule-top: #76cbff;                     /* row 571: sign-in card signature rule, Evening Sky on the dark card */
-  --color-rule-bottom: var(--color-border);       /* no Noon on a dark ground (brand rule) */
+  --color-rule-top: var(--color-accent);         /* dark card: same neutral pair, dark values come from the tokens above */
+  --color-rule-bottom: var(--color-border);
 
   --color-success: #4ade80;
   --color-success-text: #4ade80;      /* badge text on tint 8.55:1 */

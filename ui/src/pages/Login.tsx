@@ -22,7 +22,8 @@ export function Login({ state, onRetry }: { state: LoginState; onRetry: () => vo
   const retry = useRef<HTMLButtonElement>(null);
   const jumped = useRef(false);
   // What the tab remembers, read once per arrival (and again when the browser restores the page from its
-  // back/forward cache, where this component's memory of "redirecting" would otherwise be frozen).
+  // back/forward cache, where this component's memory of "redirecting" would otherwise be frozen: a restore
+  // always lands on 'failed' + Try again, whatever the age of the attempt stamp).
   const [memory, setMemory] = useState(() => readLoginMemory());
   const view = decideLoginView({ state, ...memory });
 
@@ -31,7 +32,7 @@ export function Login({ state, onRetry }: { state: LoginState; onRetry: () => vo
     const onPageShow = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
       jumped.current = false;
-      setMemory(readLoginMemory());
+      setMemory({ ...readLoginMemory(), restored: true });
     };
     window.addEventListener('pageshow', onPageShow);
     return () => window.removeEventListener('pageshow', onPageShow);
