@@ -80,6 +80,7 @@ function seedDelivery(tenantId, flowId, state, index, at) {
 
 async function openQueue(page) {
   await page.goto(consoleUrl());
+  await page.click('[data-nav="reports"]'); // row 575 S6: queue is a tab of the reports hub now
   await page.click('[data-nav="queue"]');
   await expect(page.locator(`${PAGE}[data-queue-loaded="true"]`)).toBeVisible();
 }
