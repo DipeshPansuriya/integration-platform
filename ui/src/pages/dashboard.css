@@ -287,3 +287,63 @@ a.tile:hover {
 .signin-error p {
   margin: 0 0 var(--space-3);
 }
+
+/* Row 575 S2: Home "Next steps" blocks - token colours only, same panel look as the rest of Home. */
+.home-steps {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.home-step {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(9rem, 14rem) 4.5rem 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.home-step-mark {
+  font-weight: 700;
+  text-align: center;
+}
+.home-step-done .home-step-mark {
+  color: var(--color-success-text);
+}
+.home-step-next .home-step-mark,
+.home-step-next .home-step-label {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.home-step-todo {
+  color: var(--color-ink-muted);
+}
+.home-step-state {
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+.home-progress {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-4);
+}
+.home-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.home-search .input {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .home-step {
+    grid-template-columns: 1.5rem 1fr auto;
+  }
+  .home-step-state,
+  .home-step-note {
+    grid-column: 2 / -1;
+  }
+}
