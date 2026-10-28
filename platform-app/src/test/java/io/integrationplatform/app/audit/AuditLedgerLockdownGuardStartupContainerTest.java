@@ -27,7 +27,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Row 570 (L3): the real application, started as the restricted login, refuses to start in DEFINER mode while the
- * audit ledger lockdown of V2_4_1490 / V2_4_1520 is open again (a manual re-grant, a restore from an old dump, a
+ * audit ledger lockdown of V2_4_1490 / V2_4_1540 is open again (a manual re-grant, a restore from an old dump, a
  * half-run rollback) - on the ledger, on one of its partitions, or on {@code audit_outbox.relayed_at}. With the lockdown
  * intact it starts; in LEGACY mode (the documented rollback) the check is skipped. One database for the class: each
  * case re-grants one privilege, boots, and revokes it again. Container group.
@@ -129,7 +129,7 @@ class AuditLedgerLockdownGuardStartupContainerTest {
         assertThatCode(() -> boot(null)).doesNotThrowAnyException();
         String partition = currentPartition();
         refusedWhileGranted("grant insert on " + partition + " to ipaas_app",
-                "revoke insert on " + partition + " from ipaas_app", "INSERT on " + partition);
+                "revoke insert on " + partition + " from ipaas_app", "INSERT on public." + partition.replace("public.", ""));
     }
 
     @Test

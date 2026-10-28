@@ -4,7 +4,7 @@
 -- id (generated), created_at (server time, no back-dating) and relayed_at stay default-only. A column added to
 -- audit_outbox later is NOT insertable until a migration grants it; AuditLedgerLockdownContainerTest pins the list.
 -- Backward compatible with the option-A application (its INSERTs name exactly these columns). Numbered after
--- V2_4_1510 (platform-config) / V2_4_1500, the highest on main when this was written.
+-- V2_4_1530 (platform-config); V2_4_1510 belongs to another change, so these two take 1530 and 1540.
 --
 -- ROLLBACK (Flyway Community has no undo; the rollback test runs exactly these lines; REVOKE also removes the column grants):
 -- ROLLBACK-BEGIN

@@ -160,7 +160,7 @@ class AuditLedgerLockdownContainerTest {
         }
     }
 
-    /** A new outbox column must be a conscious grant decision: this list is the contract of V2_4_1520. */
+    /** A new outbox column must be a conscious grant decision: this list is the contract of V2_4_1540. */
     @Test
     void theInsertableOutboxColumnsAreExactlyTheWritersColumns() throws SQLException {
         try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement();
