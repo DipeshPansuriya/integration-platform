@@ -15,6 +15,9 @@
 
 import { useEffect, useState } from 'react';
 import { messageTimeline, type Timeline } from '../api/messages';
+import { listFlows } from '../api/flows';
+import { Breadcrumb } from '../ui/Breadcrumb';
+import { nextStepFor, stageStrip } from './message-guide';
 import { OperatorActionButton } from './OperatorActionButton';
 import { deliveryAction, type OperatorAction } from './operator-actions';
 import {
@@ -44,7 +47,20 @@ const TONES: Record<StageStatus, string> = {
 };
 
 // failedHint: still passed by the route (URLs unchanged), deliberately unread - the server decides (M1).
-export function MessageDetail({ trackingId }: { trackingId: string; failedHint: string | null }) {
+// Row 575 S3: `canReadConfiguration` / `canOperate` come from the role table (UX only; the server still answers 403/409): the flow is
+// shown by name and linked only when configuration may be read, and the guide words name Retry/Replay only for operators.
+export function MessageDetail({
+  trackingId,
+  canReadConfiguration = true,
+  canOperate = true
+}: {
+  trackingId: string;
+  failedHint: string | null;
+  canReadConfiguration?: boolean;
+  canOperate?: boolean;
+}) {
+  const [flowName, setFlowName] = useState<string | null>(null);
+  const [copyText, setCopyText] = useState('');
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [load, setLoad] = useState<Load>('loading');
   const [refusal, setRefusal] = useState('');
@@ -84,6 +100,34 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
     };
   }, [trackingId]);
 
+  // The flow's name, only for a role that may read configuration; any failure keeps the id as plain text.
+  const flowId = timeline?.flowId ?? null;
+  useEffect(() => {
+    setFlowName(null);
+    if (!canReadConfiguration || flowId === null) return;
+    let current = true;
+    Promise.resolve()
+      .then(() => listFlows())
+      .then((answer) => {
+        if (!current || !answer?.ok) return;
+        const found = answer.data.find((f) => f.id === flowId);
+        if (found) setFlowName(found.name || found.code);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [flowId, canReadConfiguration]);
+
+  async function copyId() {
+    try {
+      await navigator.clipboard.writeText(trackingId);
+      setCopyText('Copied the tracking id.');
+    } catch {
+      setCopyText('Copy is not available here. Select the tracking id and copy it.');
+    }
+  }
+
   // The silent refresh: no loading state, no clearing; a failed re-read leaves the last good timeline in place.
   useEffect(() => {
     if (reloads === 0 || !isTrackingId(trackingId)) return;
@@ -106,6 +150,8 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
   const failing = timeline ? failingStageOf(timeline) : null;
   const rows = timeline ? timelineRows(timeline) : [];
   const responses = timeline ? targetResponses(timeline) : [];
+  const strip = timeline ? stageStrip(timeline) : { items: [], current: null };
+  const guide = timeline ? nextStepFor(timeline, { canOpenFlow: canReadConfiguration, canOperate }) : null;
 
   const statusText =
     load === 'loading'
@@ -122,10 +168,14 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
     <div data-page="message-detail" data-message-loaded={load === 'ready' ? 'true' : 'false'} data-load={load} className="operator-page">
       <header className="op-head">
         <div>
+          <Breadcrumb items={[{ label: 'Messages', href: '#/messages' }, { label: `${trackingId.slice(0, 8)}...${trackingId.slice(-4)}` }]} />
           <h1>Message</h1>
           <p className="op-lead">Where this message went through the pipeline, stage by stage.</p>
         </div>
-        <a className="btn" href="#/failures" data-action="back-to-failures">Back to failures</a>
+        <div className="op-head-actions">
+          <button type="button" className="btn" data-action="copy-id" onClick={() => void copyId()}>Copy id</button>
+          <span className="op-sr-only" role="status" data-copy-status>{copyText}</span>
+        </div>
       </header>
       {/* One persistent live region: loading, not found, refused and error are announced from it. */}
       <p
@@ -137,7 +187,7 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
       >
         {statusText}
       </p>
-      {timeline && (
+      {timeline && guide && (
         <>
           {/* Row 328 V1 (WCAG 1.3.1): every group has the same form - one <div> holding one dt and one dd. */}
           <div className="op-panel">
@@ -149,7 +199,11 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
             <div>
               <dt>Flow</dt>
               <dd data-flow-id className="op-mono">
-                <a href={`#/flow/${encodeURIComponent(timeline.flowId)}`}>{timeline.flowId}</a>
+                {canReadConfiguration ? (
+                  <a href={`#/flow/${encodeURIComponent(timeline.flowId)}`}>{flowName ?? timeline.flowId}</a>
+                ) : (
+                  timeline.flowId
+                )}
               </dd>
             </div>
             <div>
@@ -174,6 +228,23 @@ export function MessageDetail({ trackingId }: { trackingId: string; failedHint: 
             ))}
           </dl>
           </div>
+          <ol className="stage-strip" data-stage-strip aria-label="Message progress">
+            {strip.items.map((item, index) => (
+              <li key={item.stage} className={`stage-step stage-step-${item.status}`} data-strip-stage={item.stage} aria-current={strip.current === index ? 'step' : undefined}>
+                <span className="stage-step-mark" aria-hidden="true">{item.mark}</span>
+                <span className="stage-step-label">{item.label}</span>
+                <span className="stage-step-word">{item.word}</span>
+                <span className="stage-step-detail op-mono">{item.detail}</span>
+              </li>
+            ))}
+          </ol>
+          <section className={`op-panel next-step next-step-${guide.tone}`} data-next-step role="status" aria-labelledby="next-step-title">
+            <h2 id="next-step-title" className="op-section">What to do next</h2>
+            <p>{guide.words}</p>
+            {guide.links.map((link) => (
+              <a key={link.href} className="btn" href={link.href}>{link.label}</a>
+            ))}
+          </section>
           {(timeline.deliveries ?? []).map((d) => {
             // T165 M2: the action follows the delivery state - RETRY_WAIT offers Retry now, DEAD_LETTERED Replay; the 409 still guards.
             const action = deliveryAction(d) ?? acted[d.deliveryId] ?? null;
