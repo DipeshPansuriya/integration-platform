@@ -17,7 +17,7 @@ const states = (steps) => steps.map((s) => s.state);
 test('CF/TA with nothing yet: step 1 is next, with the one action [Register a system]', () => {
   const steps = setupSteps({ systems: [], contracts: [], flows: [] });
   assert.equal(steps.length, 6);
-  assert.deepEqual(states(steps), ['next', 'todo', 'todo', 'todo', 'todo', 'todo']);
+  assert.deepEqual(states(steps), ['next', 'todo', 'todo', 'info', 'todo', 'info']);
   assert.equal(nextStep(steps).n, 1);
   assert.equal(steps[0].action.label, 'Register a system');
   assert.equal(steps[0].action.href, '#/systems');
@@ -38,29 +38,48 @@ test('contracts: none -> Import a contract; drafts only -> waits for approval; o
   assert.equal(setupSteps({ ...base, contracts: [] })[1].action.label, 'Import a contract');
   const drafts = setupSteps({ ...base, contracts: [contract('DRAFT'), contract('DRAFT', 'RETIRED')] })[1];
   assert.equal(drafts.state, 'next');
-  assert.equal(drafts.note, '2 drafts wait for approval');
+  assert.equal(drafts.note, '2 drafts - submit for approval', 'a draft waits for submit, not for approval');
+  assert.doesNotMatch(drafts.note, /wait/);
   assert.equal(setupSteps({ ...base, contracts: [contract('DRAFT'), contract('APPROVED')] })[1].state, 'done');
   assert.equal(setupSteps({ ...base, contracts: [contract('PENDING_APPROVAL')] })[1].note, '1 contract waits for approval');
 });
 
-test('flow steps come from flow statuses only: none -> Define a flow; DRAFT -> Run the sample; SUBMITTED -> approve; PUBLISHED -> go live', () => {
+test('flow steps come from flow statuses only: none -> Define a flow; DRAFT -> open it; SUBMITTED -> waits; PUBLISHED -> checklist ends', () => {
   const ready = { systems: [sys('INBOUND'), sys('OUTBOUND')], contracts: [contract('APPROVED')] };
   assert.equal(setupSteps({ ...ready, flows: [] })[2].action.label, 'Define a flow');
   const draft = setupSteps({ ...ready, flows: [flow('DRAFT')] });
-  assert.deepEqual(states(draft), ['done', 'done', 'done', 'next', 'todo', 'todo']);
-  assert.equal(draft[3].action.label, 'Open the flow');
+  assert.deepEqual(states(draft), ['done', 'done', 'done', 'info', 'next', 'info']);
+  assert.equal(draft[4].action.label, 'Open the flow');
+  assert.match(draft[4].note, /sample/i);
   const submitted = setupSteps({ ...ready, flows: [flow('SUBMITTED')] });
-  assert.deepEqual(states(submitted), ['done', 'done', 'done', 'done', 'next', 'todo']);
+  assert.deepEqual(states(submitted), ['done', 'done', 'done', 'info', 'next', 'info']);
   assert.match(submitted[4].note, /waits for approval/i);
   const published = setupSteps({ ...ready, flows: [flow('PUBLISHED')] });
-  assert.deepEqual(states(published), ['done', 'done', 'done', 'done', 'done', 'next']);
-  assert.equal(nextStep(published).n, 6);
+  assert.deepEqual(states(published), ['done', 'done', 'done', 'info', 'done', 'info']);
+  assert.equal(nextStep(published), null, 'the checklist can finish at step 5');
+});
+
+test('honesty: step 3 only says a flow exists; step 4 never ticks or claims a passed sample; step 6 is never next or done', () => {
+  const ready = { systems: [sys('INBOUND'), sys('OUTBOUND')], contracts: [contract('APPROVED')] };
+  for (const status of ['DRAFT', 'SUBMITTED', 'APPROVED', 'PUBLISHED']) {
+    const steps = setupSteps({ ...ready, flows: [flow(status)] });
+    assert.equal(steps[2].note, '1 flow exists', 'no claim about the mapping');
+    assert.equal(steps[2].label, 'Flow');
+    assert.equal(steps[3].state, 'info');
+    assert.equal(steps[3].stateWord, 'Checked when you publish');
+    assert.doesNotMatch(steps[3].note, /passed/i);
+    assert.notEqual(steps[3].mark, '✓');
+    assert.equal(steps[5].state, 'info');
+    assert.equal(steps[5].stateWord, 'Not tracked here');
+    assert.match(steps[5].note, /Go live tab/);
+  }
+  assert.equal(setupSteps({ ...ready, flows: [flow('DRAFT'), flow('DRAFT', 'x')] })[2].note, '2 flows exist');
 });
 
 test('every step carries a word and a mark, never colour alone', () => {
   const steps = setupSteps({ systems: [], contracts: [], flows: [] });
   for (const step of steps) assert.ok(step.label.length > 0 && step.mark.length > 0 && step.stateWord.length > 0);
-  assert.deepEqual(steps.map((s) => s.stateWord), ['Next', 'To do', 'To do', 'To do', 'To do', 'To do']);
+  assert.deepEqual(steps.map((x) => x.stateWord), ['Next', 'To do', 'To do', 'Checked when you publish', 'To do', 'Not tracked here']);
 });
 
 test('flows in progress: the next word per status, published ones are left out, link opens the flow', () => {
