@@ -8,6 +8,8 @@ import io.integrationplatform.app.activity.ActivityController;
 import io.integrationplatform.app.activity.ActivityService;
 import io.integrationplatform.app.report.ReportFacade;
 import io.integrationplatform.app.report.ReportFacadeController;
+import io.integrationplatform.config.destination.DbBackedAllowList;
+import io.integrationplatform.config.destination.adapter.in.OperatorAllowedHostController;
 import io.integrationplatform.config.scheduler.JobAdminService;
 import io.integrationplatform.config.scheduler.PollingSchedulingBoundary;
 import io.integrationplatform.config.scheduler.adapter.in.JobAdminController;
@@ -227,6 +229,8 @@ class EndpointMatrixCoverageTest {
                         mock(ObjectProvider.class), mock(ObjectProvider.class)),
                 // T186: job admin, the two report reads and the approved tables, covered by the T186*Matrix parts
                 new JobAdminController(mock(JobAdminService.class), mock(PollingSchedulingBoundary.class)),
+                // row 578: the operator allow-list (operator-agent only), covered by T578OperatorAllowedHostMatrix
+                new OperatorAllowedHostController(mock(DbBackedAllowList.class)),
                 new DeliveryReportController(mock(DeliveryDailyAggregates.class),
                         mock(PlatformTransactionManager.class)),
                 new ReportFacadeController(mock(ReportFacade.class), mock(ObjectProvider.class),
