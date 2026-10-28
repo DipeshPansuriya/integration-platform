@@ -93,7 +93,7 @@ The host's Traefik does read the socket (ADR Decision 5 point 8). A read-only mo
 
 ## Migration pipeline (Flyway CLI, run before the app is deployed)
 
-Adds a separate, repeatable migration step. **The app is unchanged:** it still runs Flyway at its own start-up (`SPRING_FLYWAY_ENABLED` is not touched; turning it off is a later phase, only after several releases went through this pipeline). After the CLI migrated, the app's own Flyway finds nothing pending. Same engine version as the app (Spring Boot manages Flyway 12.4.0), same settings: user `ipass_migrator`, table `flyway_schema_history`, `validateOnMigrate`, init-sql `SET lock_timeout = '5s'` (`flyway/flyway.toml`; the app's are `platform-tenancy/.../tenancy-database.yml` and `platform-app/.../flyway-lock-timeout.yml`). No secret is in the image or in any file: the password comes from the server's `.env` through the container environment.
+Adds a separate, repeatable migration step. **Since row 570 the hosted app does not run Flyway** (`SPRING_FLYWAY_ENABLED=false` in `compose.yaml`, no owner login in its environment); this pipeline is the only migration path. The application default (dev, tests) still migrates at start-up, and the parity proof checks that it finds nothing pending after the CLI ran. Same engine version as the app (Spring Boot manages Flyway 12.4.0), same settings: user `ipass_migrator`, table `flyway_schema_history`, `validateOnMigrate`, init-sql `SET lock_timeout = '5s'` (`flyway/flyway.toml`; the app's are `platform-tenancy/.../tenancy-database.yml` and `platform-app/.../flyway-lock-timeout.yml`). No secret is in the image or in any file: the password comes from the server's `.env` through the container environment.
 
 **Build (build PC, repo root).** The image carries every module's `src/main/resources/db/migration` folder (six today: tenancy, config, delivery, ingest, app, routing). The guard fails if a module has such a folder that `flyway/Dockerfile` does not COPY (a future module), or if two folders repeat a file name or a Flyway version:
 ```
@@ -229,14 +229,16 @@ It detects a claim that disagrees with the business row; it cannot detect an eve
 Two relays running at the same moment on one tenant therefore pick the same ids: the second moves 0 until the first commits, then finds them
 relayed. Nothing is lost or duplicated; throughput under a large backlog is serial (200 per cycle on the loop, 50 after a commit).
 
+**Follow-ups from the row 544 reviews (row 570, migrations `V2_4_1510` and `V2_4_1520`, rollback scripts `audit/rollback-V2_4_1510.sql` and `audit/rollback-V2_4_1520.sql`).** All four are done:
+- **M3** `interface_version.approver_id` / `decided_at` are no longer writable by the application role (`V2_4_1510`); only `config_approve_version` writes them. Post-check: `select has_column_privilege('ipaas_app','public.interface_version','approver_id','UPDATE'), has_column_privilege('ipaas_app','public.interface_version','decided_at','UPDATE');` expects `false, false` (`true, true` after the rollback).
+- **C2** `audit_outbox` accepts INSERT of `tenant_id, actor, action, target_ids, before_state, after_state, event_at, trace_id` only (`V2_4_1520`): a row cannot be inserted already relayed. Post-check: `select has_column_privilege('ipaas_app','public.audit_outbox','relayed_at','INSERT');` expects `false` (`true` after the rollback).
+- **L3** in DEFINER mode the application refuses to start while its login can INSERT into `audit_event` (or a partition) or UPDATE / INSERT `audit_outbox.relayed_at`; the error starts with `audit ledger lockdown is open`. `IPAAS_AUDIT_RELAY_MODE=LEGACY` (after the rollback SQL) skips the check.
+- **M1** `platform-app` has no `DB_MIGRATION_*` and runs with `SPRING_FLYWAY_ENABLED=false`: the schema-owner password is read only by `postgres` init and `flyway/migrate.sh` / `deploy.sh`. **A first install migrates before the app starts:** `docker compose up -d postgres`, `./flyway/migrate.sh migrate`, then the start in step 8. An app started against an unmigrated schema fails on first use instead of migrating; always release through `deploy.sh`. `./rotate-secret.sh DB_MIGRATION_PASSWORD` no longer restarts the app.
+
 **Known limits.**
-- A compromised application session can still write false actor/action text into the outbox at write time, including a row inserted
-  already marked `relayed_at` (the application keeps table-level INSERT on `audit_outbox`; such a row never reaches the ledger). That equals
-  the application simply not writing the event: the omission class, not detectable by this option. Not fixed in this release.
-- The ledger is append-only for the application role. It is not tamper-proof against code execution in the app container, which today also holds
-  the migration-owner login (`DB_MIGRATION_*` in the same service, in-app Flyway), nor against the migration owner / DBA, who can still alter
-  rows or drop partitions.
-- Flow-version `approver_id` / `status` stay writable by the application role through the `interface_version` column grants (`V2_2_4`) - a separate residual, closed by one column REVOKE in the next row (see ADR-011 Amendment 2026-10-28).
+- A compromised application session can still write false actor/action text into the outbox at write time (the omission class, not detectable by this option).
+- The ledger is append-only for the application role. It is not tamper-proof against the migration owner / DBA, who can still alter rows or drop partitions (option B).
+- The application role keeps table-level INSERT on `interface_version`, so a row could be inserted directly with an approved status (found in row 570, recorded in ADR-011 Amendment; not fixed here).
 - `app.actor_id` is stamped by the application: a consistency check, not a security boundary.
 
 ## Tests (build PC)
