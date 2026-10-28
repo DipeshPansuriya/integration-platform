@@ -2,6 +2,8 @@
 // (one card per system/role), the worded status badge and the "diff" hint between two compared
 // panes. No React, no fetch: node --test exercises it directly.
 
+import { statusWord, type Tone } from '../../ui/status-words';
+
 type ContractLike = { system?: string | null; role?: string | null };
 type FieldLike = { name: string; type: string; required: boolean };
 
@@ -15,15 +17,9 @@ export function contractGroups<T extends ContractLike>(contracts: T[]): { key: s
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
-const STATUS: Record<string, { tone: 'warn' | 'info' | 'success'; word: string }> = {
-  DRAFT: { tone: 'warn', word: 'Draft' },
-  PENDING_APPROVAL: { tone: 'info', word: 'Pending approval' },
-  APPROVED: { tone: 'success', word: 'Approved' }
-};
-
-/** The status badge: the word is the carrier, the tone only repeats it; an unknown status shows as named. */
-export function statusBadge(status: string | null | undefined): { tone: 'warn' | 'info' | 'success' | 'neutral'; word: string } {
-  return STATUS[status ?? ''] ?? { tone: 'neutral', word: status ?? '-' };
+/** The status badge: the word is the carrier, the tone only repeats it (one table: ui/status-words.ts); an unknown status is worded, neutral. */
+export function statusBadge(status: string | null | undefined): { tone: Tone; word: string } {
+  return statusWord('contractVersion', status);
 }
 
 /** Fields of one pane that differ from the other pane: 'changed' (type or required differ) or 'only-here'. */
@@ -42,12 +38,5 @@ export function fieldDiff(mine: FieldLike[], other: FieldLike[] | undefined): Re
 /** A row action's accessible name carries the contract/version key, so every row's button differs (B29 C2). */
 export const rowActionLabel = (verb: string, key: string) => `${verb} ${key}`;
 
-const ROLE_WORDS: Record<string, string> = {
-  SOURCE_REQUEST: 'Source request',
-  SOURCE_RESPONSE: 'Source response',
-  TARGET_REQUEST: 'Target request',
-  TARGET_RESPONSE: 'Target response'
-};
-
-/** The role as words; an unknown role shows as the API named it (B29 C6). */
-export const roleWord = (role: string) => ROLE_WORDS[role] ?? role;
+/** The role as words (one table: ui/status-words.ts); an unknown role is worded, not raw (B29 C6). */
+export const roleWord = (role: string) => statusWord('role', role).word;
