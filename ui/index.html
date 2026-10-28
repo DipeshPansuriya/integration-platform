@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Integration Platform Console</title>
+    <!-- Brand fonts (Inter + JetBrains Mono), loaded before the theme-boot script so CSS resolves first. -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&family=JetBrains+Mono:wght@400;500&display=swap">
     <script>
       /* T78 lane F — theme boot before first paint (00-§2): stored choice wins,
          otherwise the OS preference; the token layer flips only data-theme. */
@@ -24,9 +26,10 @@
       })();
     </script>
     <style>
-      /* pre-paint canvas so a dark boot never flashes white while CSS loads */
-      html { background: #f8fafc; }
-      html[data-theme="dark"] { background: #0f172a; }
+      /* pre-paint canvas so a dark boot never flashes white while CSS loads
+         (values must equal --color-canvas in src/tokens.css) */
+      html { background: #f0f2f5; }
+      html[data-theme="dark"] { background: #08090e; }
     </style>
   </head>
   <body>

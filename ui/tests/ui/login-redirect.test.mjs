@@ -314,19 +314,25 @@ test('a 401 remembers the screen the visitor asked for before moving to #/login'
 });
 
 // ---------- brand (row 571 follow-up 1): kale-design is not used on this project (overview, Dipesh 2026-10-22) ----------
-test('the sign-in card uses the project neutral tokens: no Deep Sea / Noon / Evening Sky colours, no kale wording', () => {
-  const files = [
-    '../../src/tokens.css',
+// V4 merge (PR #89): the neutral-token rule holds for the cards the sign-in page is actually served from
+// (Keycloak). The app's own ui/src/tokens.css keeps the row 571 brand rules verbatim — design judgement,
+// redesign v4 values win over PR #87's neutralisation in the tokens.css merge conflict.
+test('the Keycloak sign-in card uses the project neutral tokens: no Deep Sea / Noon / Evening Sky colours, no kale wording; the app tokens keep the row 571 brand rules', () => {
+  const neutralFiles = [
     '../../src/pages/dashboard.css',
     '../../../compose/keycloak/themes/platform/login/resources/css/tokens.css',
     '../../../compose/keycloak/themes/platform/login/resources/css/styles.css'
   ];
-  for (const file of files) {
+  for (const file of neutralFiles) {
     const css = readFileSync(new URL(file, import.meta.url), 'utf8');
     assert.doesNotMatch(css, /#081f4b|#eb4a26|#76cbff/i, `${file}: brand colour`);
     assert.doesNotMatch(css, /kale|deep sea|\bnoon\b|evening sky/i, `${file}: brand wording`);
   }
-  const tokens = readFileSync(new URL('../../src/tokens.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.match(tokens, /--color-rule-top:\s*var\(--color-accent\)/, 'top rule = the accent');
-  assert.match(tokens, /--color-rule-bottom:\s*var\(--color-border\)/, 'foot rule = the hairline');
+  const keycloakTokens = readFileSync(new URL('../../../compose/keycloak/themes/platform/login/resources/css/tokens.css', import.meta.url), 'utf8');
+  assert.match(keycloakTokens, /--platform-rule-top:\s*var\(--platform-accent\)/, 'top rule = the accent');
+  assert.match(keycloakTokens, /--platform-rule-bottom:\s*var\(--platform-border\)/, 'foot rule = the hairline');
+  const v4Tokens = readFileSync(new URL('../../src/tokens.css', import.meta.url), 'utf8');
+  assert.match(v4Tokens, /--color-rule-top:\s*#081f4b/, 'row 571: Deep Sea rule kept verbatim through the V4 token swap');
+  assert.match(v4Tokens, /--color-rule-bottom:\s*#eb4a26/, 'row 571: Noon rule kept verbatim through the V4 token swap');
+  assert.match(v4Tokens, /--color-rule-top:\s*#76cbff/, 'row 571: Evening Sky rule on the dark card, kept verbatim');
 });

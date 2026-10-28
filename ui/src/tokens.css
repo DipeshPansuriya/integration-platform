@@ -11,51 +11,53 @@
 :root,
 [data-theme="light"] {
   /* Surfaces + ink */
-  --color-canvas: #f8fafc;            /* app background */
-  --color-surface: #ffffff;           /* cards, table wraps, side nav, top bar (ink 17.9:1) */
-  --color-surface-raised: #ffffff;    /* dropdowns, popovers, modals */
-  --color-ink: #0f172a;               /* primary text 17.9:1 */
-  --color-ink-muted: #475569;         /* secondary text 7.6:1 */
-  --color-ink-faint: #64748b;         /* helper/meta, 12.5px floor 4.76:1 */
-  --color-border: #e2e8f0;            /* hairlines (dividers only - 1.18:1, not a control boundary) */
-  --color-border-strong: #94a3b8;     /* weighted dividers, table header rule */
-  --color-border-control: #7f8ea3;    /* input/select/textarea boundary, WCAG 1.4.11: 3.19:1 canvas, 3.33:1 surface (row 310 T90) */
+  --color-canvas: #f0f2f5;            /* app background (index.html pre-paint hex must match) */
+  --color-surface: #ffffff;           /* cards, table wraps, side nav, top bar */
+  --color-surface-raised: #f7f8fa;    /* dropdowns, popovers, modals */
+  --color-surface-muted: #eef0f4;     /* quiet wells, icon pills in the rail */
+  --color-ink: #0f1729;               /* primary text */
+  --color-ink-muted: #3d4663;         /* secondary text */
+  --color-ink-faint: #626a8c;         /* helper/meta, 12.5px floor; V4 AA nudge (plan #6b7394, 4.16:1 canvas) - 4.73/5.3/4.99:1 canvas/surface/raised, fainter than ink-muted */
+  --color-ink-ghost: #a0a7be;         /* placeholder, glyph chrome */
+  --color-border: #dfe2ea;            /* hairlines (dividers only - not a control boundary) */
+  --color-border-strong: #c7ccd8;     /* weighted dividers, table header rule, hover borders */
+  --color-border-control: #7a89a0;    /* input/select/textarea boundary, WCAG 1.4.11; V4 AA nudge (plan #7f8ea3, 2.97:1 canvas) - >= 3:1 on canvas/surface/raised */
 
-  /* Accent (one blue family) */
-  --color-accent: #2563eb;            /* primary buttons, links, active nav (white text 5.17:1) */
-  --color-accent-hover: #1d4ed8;      /* hover bg (white text 6.7:1) */
-  --color-link: #2563eb;              /* link text = accent: 4.94 canvas / 5.17:1 surface (row 310 T90b) */
-  --color-accent-faint: #dbeafe;      /* active nav tint, selected row tint (ink 12.9:1) */
-  --color-accent-faint-ink: #1e40af;  /* info badge text on the tint (7.15:1) */
-  --color-accent-soft: rgba(37, 99, 235, 0.08);  /* active nav fill (00-§2) */
-  --color-halo: rgba(37, 99, 235, 0.22);         /* focus halo glow (02 v3) */
-  --color-rule-top: var(--color-accent);         /* row 571: sign-in card top rule (decorative, neutral project tokens) */
-  --color-rule-bottom: var(--color-border);      /* ... and a hairline at the foot */
+  /* Accent (one indigo family) */
+  --color-accent: #4f46e5;            /* primary buttons, links, active nav (white text 6.29:1, measured) */
+  --color-accent-hover: #4338ca;      /* hover bg */
+  --color-link: #4f46e5;              /* link text = accent */
+  --color-accent-faint: #eef2ff;      /* active nav tint, selected row tint */
+  --color-accent-faint-ink: #3730a3;  /* info badge text on the tint */
+  --color-accent-soft: rgba(79, 70, 229, 0.06);  /* row hover fills, soft wells */
+  --color-halo: rgba(79, 70, 229, 0.22);         /* focus halo glow */
+  --color-rule-top: #081f4b;          /* row 571: sign-in card signature, Deep Sea rule on top ... */
+  --color-rule-bottom: #eb4a26;       /* ... and Noon rule at the foot (decorative only, never text) — kept verbatim through the V4 token swap; no V4 step replaces the card's brand rules */
 
   /* Status — every badge carries its word; colour is never the only carrier */
-  --color-success: #16a34a;           /* icon fill only — never text */
-  --color-success-text: #15803d;      /* success badges (5.02:1) */
-  --color-success-bg: #dcfce7;
-  --color-warn-text: #92400e;         /* DRAFT / SUBMITTED-held badges (6.37:1) */
-  --color-warn-bg: #fef3c7;
+  --color-success: #059669;           /* icon fill only — never text */
+  --color-success-text: #065f46;      /* success badges */
+  --color-success-bg: #ecfdf5;
+  --color-warn-text: #92400e;         /* DRAFT / SUBMITTED-held badges */
+  --color-warn-bg: #fffbeb;
   --color-danger: #dc2626;            /* icon fill, delete hover */
-  --color-danger-text: #b91c1c;       /* error text (6.47:1) */
-  --color-danger-bg: #fee2e2;
-  --color-neutral-text: #334155;      /* neutral badge text */
-  --color-neutral-bg: #f1f5f9;
+  --color-danger-text: #991b1b;       /* error text */
+  --color-danger-bg: #fef2f2;
+  --color-neutral-text: #3d4663;      /* neutral badge text */
+  --color-neutral-bg: #eef0f4;
 
-  /* Focus + glass + elevation (02 v3 — layered, quiet, both themes) */
-  --color-focus: #2563eb;             /* ring (3:1 non-text vs canvas — passes) */
-  --color-focus-dark: #93c5fd;        /* dark-theme ring colour */
+  /* Focus + glass + elevation */
+  --color-focus: #4f46e5;             /* ring */
+  --color-focus-dark: #818cf8;        /* dark-theme ring colour */
   --color-glass: rgba(255, 255, 255, 0.78);       /* top bar glass */
-  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px -8px rgba(15, 23, 42, 0.1);
-  --shadow-1: 0 2px 4px rgba(15, 23, 42, 0.06), 0 16px 40px -12px rgba(15, 23, 42, 0.18);  /* dropdowns */
-  --shadow-2: 0 24px 64px -16px rgba(0, 0, 0, 0.24);                                       /* modals */
-  --shadow-btn: 0 1px 2px rgba(15, 23, 42, 0.1), 0 4px 12px -2px rgba(37, 99, 235, 0.28);
+  --shadow-card: 0 1px 2px rgba(15, 23, 41, 0.06);
+  --shadow-1: 0 1px 3px rgba(15, 23, 41, 0.05), 0 6px 16px -4px rgba(15, 23, 41, 0.08);  /* dropdowns, button hover */
+  --shadow-2: 0 4px 6px rgba(15, 23, 41, 0.04), 0 12px 32px -4px rgba(15, 23, 41, 0.12); /* modals */
+  --shadow-btn: 0 2px 8px rgba(79, 70, 229, 0.25);
 
-  /* Type + structure (01 §2/§3; radii v3: 8/12/14) */
-  --font-body: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  /* Type + structure (V4: Inter + JetBrains Mono, radii 8/12/14) */
+  --font-body: 'Inter', system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   --r-1: 8px;   /* inputs, monos, badges-in-place */
   --r-2: 12px;  /* cards, buttons */
   --r-3: 14px;  /* large panels */
@@ -63,51 +65,52 @@
   --tr: 150ms cubic-bezier(0.2, 0.8, 0.3, 1);
   --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
   --space-5: 24px; --space-6: 32px; --space-7: 40px; --space-8: 48px;
-  --nav-w: 232px;            /* side nav expanded (00 §2) */
+  --nav-w: 252px;            /* side nav expanded (V4) */
   --nav-w-collapsed: 64px;   /* icon rail */
-  --topbar-h: 48px;
-  --content-max: 1440px;
+  --topbar-h: 52px;
+  --content-max: 1140px;
 }
 
 [data-theme="dark"] {
-  /* The coherent pair, not an inverted light theme (01 §1). */
-  --color-canvas: #0f172a;
-  --color-surface: #1e293b;           /* ink 11.9:1 */
-  --color-surface-raised: #253043;    /* ~10.6:1 */
-  --color-ink: #e2e8f0;               /* 11.9:1 */
-  --color-ink-muted: #94a3b8;         /* 5.71:1 */
-  --color-ink-faint: #8a9ab2;         /* 6.24 canvas / 5.12 surface / 4.64:1 raised (row 310 T90: #8292aa was 4.20:1 on raised menus); ink-muted stays brighter */
-  --color-border: #334155;
-  --color-border-strong: #475569;
-  --color-border-control: #6b7a90;    /* control boundary 4.09 canvas / 3.35 surface / 3.04:1 raised (row 310 T90) */
+  --color-canvas: #08090e;            /* (index.html pre-paint hex must match) */
+  --color-surface: #12131c;
+  --color-surface-raised: #181a25;
+  --color-surface-muted: #1e2030;
+  --color-ink: #eceef4;
+  --color-ink-muted: #9498b0;
+  --color-ink-faint: #7d84a8;         /* V4 AA nudge (plan #5c6180, 3.29:1 canvas) - 5.44/5.05/4.73:1 canvas/surface/raised, still fainter than ink-muted */
+  --color-ink-ghost: #3a3e55;
+  --color-border: #1f2133;
+  --color-border-strong: #2d3048;
+  --color-border-control: #6b7a90;
 
-  --color-accent: #3b82f6;            /* NOT a white-text fill (3.68:1) - dark primary fills use accent-hover (row 310 T90); not link text either (3.98:1 surface) - use --color-link */
-  --color-accent-hover: #2563eb;
-  --color-link: #60a5fa;              /* link text 7.02 canvas / 5.75 surface / 5.22:1 raised (row 310 T90b) */
-  --color-accent-faint: #1e3a8a;
-  --color-accent-faint-ink: #bfdbfe;  /* 7.29:1 on tint */
-  --color-accent-soft: rgba(59, 130, 246, 0.16);
-  --color-halo: rgba(59, 130, 246, 0.28);
-  --color-rule-top: var(--color-accent);         /* dark card: same neutral pair, dark values come from the tokens above */
-  --color-rule-bottom: var(--color-border);
+  --color-accent: #818cf8;            /* dark accent: fill for active nav pills; buttons fill with accent-hover */
+  --color-accent-hover: #5f5ce9;      /* V4 AA nudge (plan #6366f1, white 4.47:1) - white 5.01:1, the dark primary-button fill */
+  --color-link: #818cf8;
+  --color-accent-faint: rgba(99, 102, 241, 0.10);
+  --color-accent-faint-ink: #c7d2fe;
+  --color-accent-soft: rgba(129, 140, 248, 0.06);
+  --color-halo: rgba(129, 140, 248, 0.28);
+  --color-rule-top: #76cbff;          /* row 571: sign-in card signature rule, Evening Sky on the dark card — kept verbatim through the V4 token swap */
+  --color-rule-bottom: var(--color-border); /* no Noon on a dark ground (brand rule) */
 
-  --color-success: #4ade80;
-  --color-success-text: #4ade80;      /* badge text on tint 8.55:1 */
-  --color-success-bg: #052e16;
-  --color-warn-text: #fbbf24;         /* 8.73:1 on tint */
-  --color-warn-bg: #422006;
+  --color-success: #34d399;
+  --color-success-text: #6ee7b7;      /* badge text on tint */
+  --color-success-bg: rgba(5, 150, 105, 0.10);
+  --color-warn-text: #fcd34d;
+  --color-warn-bg: rgba(217, 119, 6, 0.10);
   --color-danger: #f87171;
-  --color-danger-text: #f87171;       /* 5.29:1 on surface */
-  --color-danger-bg: #450a0a;
-  --color-neutral-text: #cbd5e1;
-  --color-neutral-bg: rgba(148, 163, 184, 0.14);
+  --color-danger-text: #fca5a5;
+  --color-danger-bg: rgba(220, 38, 38, 0.10);
+  --color-neutral-text: #9498b0;
+  --color-neutral-bg: rgba(148, 163, 184, 0.08);
 
-  --color-focus: #93c5fd;
-  --color-focus-dark: #93c5fd;
-  --color-glass: rgba(30, 41, 59, 0.72);          /* dark glass panels (02 v3) */
-  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 0 0 1px rgba(148, 163, 184, 0.1);
-  --shadow-1: 0 24px 64px -16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.12);
-  --shadow-2: 0 24px 64px -16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.12);
-  --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px -2px rgba(37, 99, 235, 0.35);
+  --color-focus: #818cf8;
+  --color-focus-dark: #818cf8;
+  --color-glass: rgba(18, 19, 28, 0.72);          /* dark glass panels */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-btn: 0 2px 12px rgba(129, 140, 248, 0.2);
 }
 
