@@ -76,7 +76,7 @@ test('C2 contracts: empty copy, loading, list refusal words, import system-list 
   assert.match(form, /value=\{value\}/, 'option values (API enums) unchanged');
   assert.equal(contractsView.roleWord('TARGET_REQUEST'), 'Target request');
   assert.equal(contractsView.roleWord('SOURCE_RESPONSE'), 'Source response');
-  assert.equal(contractsView.roleWord('ODD'), 'ODD');
+  assert.equal(contractsView.roleWord('ODD'), 'Odd');
   const css = read('pages/contracts/contracts.css');
   assert.match(css, /\.contracts-check input\s*\{[^}]*width:\s*28px[^}]*height:\s*28px/s);
   assert.match(css, /\.contracts-pane-error/);

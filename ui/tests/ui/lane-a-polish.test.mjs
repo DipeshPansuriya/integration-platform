@@ -18,7 +18,7 @@ const { saveThrownText } = await import('../../src/pages/mapping-load.ts');
 test('A11: Ordering shows words, not the raw enum', () => {
   assert.equal(orderingWord('PER_KEY'), 'Per key');
   assert.equal(orderingWord('NONE'), 'None');
-  assert.equal(orderingWord('SOMETHING'), 'SOMETHING');
+  assert.equal(orderingWord('SOMETHING'), 'Something');
 });
 
 test('A11: the filter result count is a sentence a live region can announce', () => {

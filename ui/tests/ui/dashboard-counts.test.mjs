@@ -77,7 +77,7 @@ test('status badges always carry the word (never colour alone) - 01-tokens statu
   assert.deepEqual(statusBadge('SUBMITTED'), { word: 'Submitted', tone: 'info' });
   assert.deepEqual(statusBadge('APPROVED'), { word: 'Approved', tone: 'success' });
   assert.deepEqual(statusBadge('PUBLISHED'), { word: 'Published', tone: 'success' });
-  assert.deepEqual(statusBadge('RETIRED'), { word: 'RETIRED', tone: 'neutral' });
+  assert.deepEqual(statusBadge('RETIRED'), { word: 'Retired', tone: 'neutral' });
 });
 
 test('greeting by the local hour, with the session user when known', () => {
