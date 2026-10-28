@@ -73,7 +73,7 @@ test('Systems screen: header, subtitle, cards and actions', async (t) => {
   assert.ok(reg, 'Register System action renders');
   assert.ok(reg.props.className.includes('ip-btn--primary'), 'Register System is primary');
 
-  const card = findAll(tree, (n) => (Array.isArray(n) ? false : n.type?.name === 'EntityCard' || (n.props && n.props.name === 'SAP Gateway' && n.props.onOpen)))[0];
+  const card = screen.components('EntityCard')[0];
   assert.ok(card, 'EntityCard rendered');
   if (card.props?.onOpen) {
     card.props.onOpen();

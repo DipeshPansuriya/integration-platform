@@ -52,7 +52,7 @@ export default function FlowDetailDrawer({
             <Button data-action="close" onClick={onClose}>
               Close
             </Button>
-            {flow.status === 'Active' && (
+            {flow.status === 'Active' && open && (
               <Button data-action="pause-flow" onClick={() => setConfirming(true)}>
                 Pause Flow
               </Button>
@@ -61,7 +61,7 @@ export default function FlowDetailDrawer({
               variant="primary"
               className="lb-foot-primary"
               data-action="edit-flow"
-              onClick={onEdit ? () => onEdit(flow) : undefined}
+              onClick={onEdit ? () => onEdit(flow) : () => {}}
             >
               Edit Flow
             </Button>
@@ -134,8 +134,8 @@ export default function FlowDetailDrawer({
           </div>
 
           {confirming && (
-            <div className="lb-confirm-scrim" data-confirm="pause-flow">
-              <div className="lb-confirm" role="dialog" aria-label="Pause flow">
+            <div className="lb-confirm-scrim" data-confirm="pause-flow" role="dialog" aria-label="Pause flow">
+              <div className="lb-confirm">
                 <h3>Pause this flow?</h3>
                 <p className="lb-muted">The flow stops processing messages until it is resumed.</p>
                 <div className="lb-confirm-foot">
