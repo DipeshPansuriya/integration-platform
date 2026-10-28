@@ -24,7 +24,7 @@ const NEEDS_OPERATOR = (verb: string): string => ` Only a tenant admin or suppor
 
 const DEAD: Record<string, { base: string; action: string }> = {
   PERMANENT: { base: 'The target refused the message. Fix the mapping or the target settings.', action: ' Then Replay.' },
-  TRANSIENT: { base: 'The target was down too long.', action: ' When it is back, Replay.' },
+  TRANSIENT: { base: 'Delivery kept failing for a temporary reason and the retries ran out.', action: ' When the cause is fixed, Replay.' },
   AMBIGUOUS: { base: 'The target may have received it. Check with the target owner first, to avoid a duplicate.', action: ' Then Replay.' }
 };
 const DEAD_UNKNOWN = { base: 'The platform gave up delivering this message. Check the target.', action: ' Then Replay.' };
@@ -47,8 +47,9 @@ export function nextStepFor(timeline: Timeline, roles: GuideRoles): Guide {
     return { tone: 'danger', words: entry.base + (roles.canOperate ? entry.action : NEEDS_OPERATOR('replay')), links: openFlow };
   }
   if (deliveries.some((d) => d.state === 'RETRY_WAIT')) {
-    const base = 'The target did not answer. The platform tries again by itself.';
-    return { tone: 'warn', words: base + (roles.canOperate ? ' Use Retry now if the target is back.' : NEEDS_OPERATOR('retry')), links: [] };
+    // RETRY_WAIT also covers waits with no attempt at all (bulkhead full, circuit open, stale claim), so no claim about the target.
+    const base = 'This delivery is waiting to be sent again. The platform retries by itself.';
+    return { tone: 'warn', words: base + (roles.canOperate ? ' Use Retry now if you know the cause is fixed.' : NEEDS_OPERATOR('retry')), links: [] };
   }
   if (deliveries.length > 0 && deliveries.every((d) => d.state === 'DELIVERED')) {
     return { tone: 'success', words: 'This message was delivered. Nothing to do.', links: [] };
@@ -74,7 +75,7 @@ export function stageStrip(timeline: Timeline): { items: StripItem[]; current: n
       status: row.status,
       mark: MARK[row.status],
       word: WORD[row.status],
-      detail: seen ? row.durationText : row.startedText
+      detail: seen ? row.durationText : '' // an unseen step already says Not reached / Not recorded in its word
     };
   });
   const failed = items.findIndex((i) => i.status === 'failed');

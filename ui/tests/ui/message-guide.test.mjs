@@ -33,7 +33,10 @@ test('transform failure: the mapping words', () => {
 
 test('delivery retrying: the platform tries again by itself; Retry now is named for operators only', () => {
   const t = tl({ deliveries: [delivery('RETRY_WAIT')] });
-  assert.match(nextStepFor(t, ALLOW).words, /tries again by itself/);
+  assert.match(nextStepFor(t, ALLOW).words, /waiting to be sent again/);
+  assert.match(nextStepFor(t, ALLOW).words, /retries by itself/);
+  // RETRY_WAIT also covers waits with no attempt (bulkhead, circuit open, stale claim): never a claim about the target.
+  assert.doesNotMatch(nextStepFor(t, ALLOW).words, /target did not answer|target is down|target was down/i);
   assert.match(nextStepFor(t, ALLOW).words, /Retry now/);
   assert.doesNotMatch(nextStepFor(t, { ...ALLOW, canOperate: false }).words, /Retry now/);
   assert.match(nextStepFor(t, { ...ALLOW, canOperate: false }).words, /tenant admin or support/i);
@@ -42,7 +45,8 @@ test('delivery retrying: the platform tries again by itself; Retry now is named 
 test('dead-lettered: permanent, transient, ambiguous and unknown outcomes each get their words', () => {
   const words = (outcome) => nextStepFor(tl({ failingStage: 'DELIVER', deliveries: [delivery('DEAD_LETTERED', outcome)] }), ALLOW).words;
   assert.match(words('PERMANENT'), /target refused the message/i);
-  assert.match(words('TRANSIENT'), /target was down too long/i);
+  assert.match(words('TRANSIENT'), /temporary reason and the retries ran out/i);
+  assert.doesNotMatch(words('TRANSIENT'), /target was down/i);
   assert.match(words('AMBIGUOUS'), /may have received it/i);
   assert.match(words('AMBIGUOUS'), /duplicate/i);
   assert.match(words(null), /gave up/i);
@@ -138,10 +142,10 @@ test('detail: the stage strip is an ordered list with aria-current="step" on the
   assert.match(text(current[0]), /Failed/);
 });
 
-test('detail: the "What to do next" panel is a status region with the words and the flow link', async () => {
+test('detail: the "What to do next" panel carries the words and the flow link, with no live role', async () => {
   const screen = await detail(tl({ state: 'ROUTE_FAILED', failingStage: 'ROUTE', stages: [stage('INTAKE'), stage('ROUTE')] }), { canReadConfiguration: true, canOperate: true });
   const [panel] = findAll(screen.tree(), where('data-next-step'));
-  assert.equal(panel.props.role, 'status');
+  assert.equal(panel.props.role, undefined, 'no live role on the panel: it would re-announce on every silent refresh');
   assert.match(text(panel), /What to do next/);
   assert.match(text(panel), /No destination matched/);
   assert.ok(findAll(panel, (n) => n.props?.href === `#/flow/${FLOW}`).length === 1);
@@ -247,4 +251,28 @@ test('App.tsx hands the detail screen the role facts', () => {
   const app = readFileSync(fileURLToPath(new URL('../../src/App.tsx', import.meta.url)), 'utf8');
   assert.ok(/<MessageDetail[^>]*canReadConfiguration=\{canOpen\(roles, 'flows'\)\}/.test(app));
   assert.ok(/<MessageDetail[^>]*canOperate=\{canOperate\(roles\)\}/.test(app));
+});
+
+test('detail: Retry/Replay buttons render only for roles that can operate (tenant admin, support); others read the words', async () => {
+  const dead = tl({ failingStage: 'DELIVER', deliveries: [delivery('DEAD_LETTERED', 'PERMANENT')] });
+  const readOnly = await detail(dead, { canOperate: false });
+  assert.equal(findAll(readOnly.tree(), where('data-delivery-action')).length, 0);
+  assert.equal(findAll(readOnly.tree(), where('data-action', 'replay')).length, 0);
+  assert.match(text(findAll(readOnly.tree(), where('data-next-step'))[0]), /Only a tenant admin or support user can replay it/);
+  const operator = await detail(dead, { canOperate: true });
+  assert.equal(findAll(operator.tree(), where('data-delivery-action', 'd1')).length, 1);
+  const retrying = await detail(tl({ deliveries: [delivery('RETRY_WAIT')] }), { canOperate: false });
+  assert.equal(findAll(retrying.tree(), where('data-delivery-action')).length, 0);
+});
+
+test('stage strip: a step that was not seen shows only its word, no repeated detail line', async () => {
+  const strip = stageStrip(tl({ state: 'ROUTE_FAILED', failingStage: 'ROUTE', stages: [stage('INTAKE'), stage('ROUTE')] }));
+  assert.equal(strip.items[2].word, 'Not reached');
+  assert.equal(strip.items[2].detail, '');
+  assert.equal(strip.items[3].detail, '');
+  assert.ok(strip.items[0].detail.length > 0, 'a seen step keeps its duration');
+  const screen = await detail(tl({ state: 'ROUTE_FAILED', failingStage: 'ROUTE', stages: [stage('INTAKE'), stage('ROUTE')] }));
+  const items = findAll(findAll(screen.tree(), where('data-stage-strip'))[0], (n) => n.type === 'li');
+  assert.equal(findAll(items[2], (n) => typeof n.props?.className === 'string' && n.props.className.includes('stage-step-detail')).length, 0);
+  assert.equal(findAll(items[0], (n) => typeof n.props?.className === 'string' && n.props.className.includes('stage-step-detail')).length, 1);
 });

@@ -234,18 +234,20 @@ export function MessageDetail({
                 <span className="stage-step-mark" aria-hidden="true">{item.mark}</span>
                 <span className="stage-step-label">{item.label}</span>
                 <span className="stage-step-word">{item.word}</span>
-                <span className="stage-step-detail op-mono">{item.detail}</span>
+                {item.detail && <span className="stage-step-detail op-mono">{item.detail}</span>}
               </li>
             ))}
           </ol>
-          <section className={`op-panel next-step next-step-${guide.tone}`} data-next-step role="status" aria-labelledby="next-step-title">
+          {/* No live role here: the panel changes on every silent refresh and would be re-announced. The page's one live region is the status line above. */}
+          <section className={`op-panel next-step next-step-${guide.tone}`} data-next-step aria-labelledby="next-step-title">
             <h2 id="next-step-title" className="op-section">What to do next</h2>
             <p>{guide.words}</p>
             {guide.links.map((link) => (
               <a key={link.href} className="btn" href={link.href}>{link.label}</a>
             ))}
           </section>
-          {(timeline.deliveries ?? []).map((d) => {
+          {/* Retry/Replay are REPLAY_DEAD_LETTER (tenant admin, support): other roles read the words only. The server still answers 403. */}
+          {(canOperate ? timeline.deliveries ?? [] : []).map((d) => {
             // T165 M2: the action follows the delivery state - RETRY_WAIT offers Retry now, DEAD_LETTERED Replay; the 409 still guards.
             const action = deliveryAction(d) ?? acted[d.deliveryId] ?? null;
             return action ? (
