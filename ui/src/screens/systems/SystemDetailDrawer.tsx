@@ -2,12 +2,13 @@ import type { SystemDetailDrawerProps } from './types';
 import { StatusBadge } from '../../ds/components/feedback/StatusBadge.jsx';
 import { KeyValue } from '../../ds/components/data/KeyValue.jsx';
 import { KpiCard } from '../../ds/components/data/KpiCard.jsx';
-import { TagList } from '../../ds/components/data/TagList.jsx';
+import { TagList } from '../../ds/components/feedback/TagList.jsx';
 import { Timeline } from '../../ds/components/data/Timeline.jsx';
 import { Drawer } from '../../ds/components/surfaces/Drawer.jsx';
 import { Button } from '../../ds/components/actions/Button.jsx';
 import './systems.css';
 
+export { SystemDetailDrawer };
 export default function SystemDetailDrawer({
   open = false,
   system = null,

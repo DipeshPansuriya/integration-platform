@@ -10,6 +10,7 @@ import './systems.css';
 const statusTone = (status: SystemStatus) =>
   status === 'Healthy' ? 'ok' : status === 'Slow' ? 'warn' : status === 'Down' ? 'err' : 'muted';
 
+export { SystemsScreen };
 export default function SystemsScreen({
   systems = null,
   loading = false,
@@ -20,6 +21,7 @@ export default function SystemsScreen({
   onRegisterSystem,
 }: SystemsScreenProps) {
   const hasData = Boolean(systems?.length);
+  const systemRows = systems ?? [];
   return (
     <div className="lb-page" data-page="systems">
       <PageHeader
@@ -50,7 +52,7 @@ export default function SystemsScreen({
         </div>
       ) : hasData ? (
         <div className="lb-grid">
-          {systems.map((s) => (
+          {systemRows.map((s) => (
             <EntityCard
               key={s.id}
               icon="systems"

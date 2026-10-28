@@ -21,6 +21,7 @@ const DIRECTIONS: SystemDirection[] = ['Bidirectional', 'Inbound Only', 'Outboun
 const AUTH_METHODS: SystemAuthMethod[] = ['HMAC Signature', 'OAuth 2.0', 'API Key', 'Certificate (mTLS)', 'Basic Auth'];
 const INTERVALS: HealthInterval[] = ['Every 30 seconds', 'Every minute', 'Every 5 minutes'];
 
+export { RegisterSystemDrawer };
 export default function RegisterSystemDrawer({
   open = false,
   draft = null,

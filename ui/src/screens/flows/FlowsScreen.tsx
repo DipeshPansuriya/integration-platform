@@ -5,6 +5,7 @@ import { Button } from '../../ds/components/actions/Button.jsx';
 import { Callout } from '../../ds/components/feedback/Callout.jsx';
 import './flows.css';
 
+export { FlowsScreen };
 export default function FlowsScreen({
   flows = null,
   loading = false,
@@ -15,6 +16,7 @@ export default function FlowsScreen({
   onNewFlow,
 }: FlowsScreenProps) {
   const hasData = Boolean(flows?.length);
+  const flowRows = flows ?? [];
   return (
     <div className="lb-page" data-page="flows">
       <PageHeader
@@ -48,7 +50,7 @@ export default function FlowsScreen({
         </div>
       ) : hasData ? (
         <div className="lb-grid">
-          {flows.map((f) => (
+          {flowRows.map((f) => (
             <FlowCard
               key={f.id}
               name={f.name}

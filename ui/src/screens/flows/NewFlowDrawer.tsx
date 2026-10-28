@@ -13,6 +13,7 @@ const RETRY_DELAYS: FlowRetryDelay[] = ['Exponential backoff', 'Fixed 30s', 'Fix
 
 const opt = (values: FlowOption[]) => [{ value: '', label: '— Select —' }, ...values.map((v) => ({ value: v.id, label: v.name }))];
 
+export { NewFlowDrawer };
 export default function NewFlowDrawer({
   open = false,
   systems = [],

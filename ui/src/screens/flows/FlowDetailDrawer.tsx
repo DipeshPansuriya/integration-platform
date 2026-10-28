@@ -15,6 +15,7 @@ const MESSAGE_COLUMNS = [
   { key: 'latency', header: 'Latency' },
 ];
 
+export { FlowDetailDrawer };
 export default function FlowDetailDrawer({
   open = false,
   flow = null,
