@@ -192,4 +192,21 @@ class AuditLedgerLockdownGuardStartupContainerTest {
             refusedWhileGranted("grant " + c[0] + " to ipaas_app", "revoke " + c[0] + " from ipaas_app", c[1]);
         }
     }
+
+    /** Karan re-review Low 1: a COLUMN-level INSERT is a write path too (the outbox created_at and id included). */
+    @Test
+    @Tag("negative")
+    void aReGrantedColumnLevelInsertOnTheLedgerOrTheOutboxStopsTheStart() throws SQLException {
+        assertThatCode(() -> boot(null)).doesNotThrowAnyException();
+        String partition = currentPartition();
+        String[][] cases = {
+            {"insert (actor) on public.audit_event", "INSERT (actor) on public.audit_event"},
+            {"insert (actor) on " + partition, "INSERT (actor) on public." + partition.replace("public.", "")},
+            {"insert (created_at) on public.audit_outbox", "INSERT (created_at) on public.audit_outbox"},
+            {"insert (id) on public.audit_outbox", "INSERT (id) on public.audit_outbox"},
+        };
+        for (String[] c : cases) {
+            refusedWhileGranted("grant " + c[0] + " to ipaas_app", "revoke " + c[0] + " from ipaas_app", c[1]);
+        }
+    }
 }

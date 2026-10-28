@@ -19,6 +19,8 @@ import org.springframework.beans.factory.SmartInitializingSingleton;
  */
 final class AuditLedgerLockdownGuard implements SmartInitializingSingleton {
 
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(AuditLedgerLockdownGuard.class);
+
     static final String REFUSAL = "audit ledger lockdown is open: the application login holds ";
 
     /** Every write privilege the lockdown took away; names are schema-qualified so the message does not depend on search_path. */
@@ -43,9 +45,20 @@ final class AuditLedgerLockdownGuard implements SmartInitializingSingleton {
                and a.attrelid = to_regclass('public.audit_outbox') and a.attnum > 0 and not a.attisdropped
                and has_column_privilege(current_user, a.attrelid, a.attnum, 'UPDATE')
             union all
-            select 'INSERT (relayed_at) on public.audit_outbox'
+            select 'INSERT (' || a.attname || ') on ' || n.nspname || '.' || c.relname
+              from pg_class c
+              join pg_namespace n on n.oid = c.relnamespace
+              join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+             where (c.oid = 'public.audit_event'::regclass
+                    or c.oid in (select inhrelid from pg_inherits where inhparent = 'public.audit_event'::regclass))
+               and has_column_privilege(current_user, c.oid, a.attnum, 'INSERT')
+            union all
+            select 'INSERT (' || a.attname || ') on public.audit_outbox'
+              from pg_attribute a
              where to_regclass('public.audit_outbox') is not null
-               and has_column_privilege(current_user, 'public.audit_outbox', 'relayed_at', 'INSERT')
+               and a.attrelid = to_regclass('public.audit_outbox') and a.attname in ('relayed_at', 'created_at', 'id')
+               and not a.attisdropped
+               and has_column_privilege(current_user, a.attrelid, a.attnum, 'INSERT')
             """;
 
     private final ObjectProvider<DataSource> dataSource;
@@ -59,10 +72,16 @@ final class AuditLedgerLockdownGuard implements SmartInitializingSingleton {
     @Override
     public void afterSingletonsInstantiated() {
         if (mode != RelayMode.DEFINER) {
+            LOG.warn("audit ledger lockdown not enforced: ipaas.audit.relay.mode={} skips the start-time check", mode);
             return;
         }
         DataSource source = dataSource.getIfUnique();
         if (source == null) {
+            if (dataSource.stream().findAny().isPresent()) {
+                // present but not unique: silently checking nothing would hide an open ledger (same rule as DatabaseRoleGuard)
+                throw new IllegalStateException("audit ledger lockdown cannot be verified: more than one DataSource and"
+                        + " none is primary");
+            }
             return;
         }
         List<String> open = new ArrayList<>();
