@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import {
   Button, Field, Input, Select, Switch, Dropzone, PageHeader, Panel,
   Drawer, DataTable, StatusBadge, KeyValue, CodePreview, TagList, Callout
@@ -62,8 +63,10 @@ export interface ContractsScreenProps {
   onEditContract?: () => void;
 }
 
-const DrawerSection = (Drawer as unknown as { Section?: (props: { title?: string }) => unknown }).Section
-  ?? ((props: { title?: string; children?: React.ReactNode }) => <div {...props} />);
+/** Drawer.Section is a runtime-only export (Drawer.d.ts declares only the Drawer function). */
+interface DrawerSectionProps { title?: string; children?: ReactNode }
+const DrawerSection = (Drawer as unknown as { Section?: (props: DrawerSectionProps) => ReactElement }).Section
+  ?? ((props: DrawerSectionProps) => <div {...props} />);
 
 const DEFAULT_DRAFT: ImportDraft = {
   name: '', version: '1.0', format: 'XML', autoGenerateRules: true, createSampleMapping: false
