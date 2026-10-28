@@ -130,4 +130,46 @@ class AuditLedgerLockdownContainerTest {
             }
         }
     }
+
+    // ------------------------------------------------------------------ row 570 C2: no pre-relayed outbox row
+
+    private static final String OUTBOX_COLUMNS = "(tenant_id, actor, action, event_at%s) values ('" + TENANT_A
+            + "', 'c2', 'C2_PROBE', now()%s)";
+
+    @Test
+    @Tag("negative")
+    void theApplicationRoleCannotInsertAnOutboxRowThatIsAlreadyRelayedNorSupplyItsCreationTimeOrId() throws SQLException {
+        try (Connection app = AuditContainerSupport.appSession(POSTGRES, login, TENANT_A)) {
+            assertDenied(app, "insert into public.audit_outbox " + String.format(OUTBOX_COLUMNS, ", relayed_at", ", now()"));
+            assertDenied(app, "insert into public.audit_outbox " + String.format(OUTBOX_COLUMNS, ", relayed_at", ", null"));
+            assertDenied(app, "insert into public.audit_outbox " + String.format(OUTBOX_COLUMNS, ", created_at", ", now()"));
+            assertDenied(app, "insert into public.audit_outbox " + String.format(OUTBOX_COLUMNS, ", id", ", 424242")
+                    .replace("values (", "overriding system value values ("));
+            assertThat(AuditContainerSupport.count(app, "select count(*) from public.audit_outbox where action = ?",
+                    "C2_PROBE")).as("nothing was inserted").isZero();
+        }
+    }
+
+    @Test
+    void theWritersInsertStillWorksAndTheRowIsPendingWithTheServersCreationTime() throws SQLException {
+        try (Connection app = AuditContainerSupport.appSession(POSTGRES, login, TENANT_A)) {
+            long id = AuditContainerSupport.appendOutbox(app, TENANT_A, "actor-c2", "C2_OK", "trace-c2");
+            assertThat(AuditContainerSupport.count(app,
+                    "select count(*) from public.audit_outbox where id = ? and relayed_at is null"
+                            + " and created_at is not null and trace_id = 'trace-c2'", id)).isEqualTo(1);
+        }
+    }
+
+    /** A new outbox column must be a conscious grant decision: this list is the contract of V2_4_1520. */
+    @Test
+    void theInsertableOutboxColumnsAreExactlyTheWritersColumns() throws SQLException {
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement();
+                var rs = sql.executeQuery("select string_agg(attname, ',' order by attnum) from pg_attribute"
+                        + " where attrelid = 'public.audit_outbox'::regclass and attnum > 0 and not attisdropped"
+                        + " and has_column_privilege('" + login.username() + "', attrelid, attnum, 'INSERT')")) {
+            rs.next();
+            assertThat(rs.getString(1)).isEqualTo(
+                    "tenant_id,actor,action,target_ids,before_state,after_state,event_at,trace_id");
+        }
+    }
 }

@@ -244,6 +244,11 @@ check "README says the admin base override must be internal and names the post-d
 check "compose passes KEYCLOAK_ADMIN_ALLOW_EXTERNAL to platform-app only, default false" 'grep -qF "      KEYCLOAK_ADMIN_ALLOW_EXTERNAL: \${KEYCLOAK_ADMIN_ALLOW_EXTERNAL:-false}" "$HERE/compose.yaml" && [ "$(grep -c "KEYCLOAK_ADMIN_ALLOW_EXTERNAL:" "$HERE/compose.yaml")" -eq 1 ] && [ "$(awk '"'"'/^  [a-z][a-z0-9_-]*:/{svc=$1} /KEYCLOAK_ADMIN_ALLOW_EXTERNAL:/{print svc}'"'"' "$HERE/compose.yaml")" = "platform-app:" ]'
 check "env.example lists KEYCLOAK_ADMIN_ALLOW_EXTERNAL without a value" 'grep -q "^KEYCLOAK_ADMIN_ALLOW_EXTERNAL=$" "$HERE/env.example"'
 check "README documents KEYCLOAK_ADMIN_ALLOW_EXTERNAL as an opt-in that is off by default and says the app refuses to start" 'grep -q "KEYCLOAK_ADMIN_ALLOW_EXTERNAL.*(default off" "$HERE/README.md" && grep -q "refuses to start.* (fail closed" "$HERE/README.md"'
+# row 570 M1: the application container no longer holds the schema-owner login; deploy.sh / migrate.sh migrate before the app starts
+check "platform-app has no DB_MIGRATION_* variable (the owner login stays with postgres init and migrate.sh)" '[ "$(awk '"'"'/^  [a-z][a-z0-9_-]*:/{svc=$1} /^      DB_MIGRATION_[A-Z]+:/{print svc}'"'"' "$HERE/compose.yaml" | sort -u | tr "
+" " ")" = "postgres: " ]'
+check "platform-app runs with in-app Flyway off (SPRING_FLYWAY_ENABLED false), on that service only" '[ "$(grep -c "SPRING_FLYWAY_ENABLED:" "$HERE/compose.yaml")" -eq 1 ] && [ "$(awk '"'"'/^  [a-z][a-z0-9_-]*:/{svc=$1} /SPRING_FLYWAY_ENABLED: "false"/{print svc}'"'"' "$HERE/compose.yaml")" = "platform-app:" ]'
+check "rotate: DB_MIGRATION_PASSWORD no longer re-creates platform-app (only migrate.sh and postgres init read it)" '! grep -E "DB_MIGRATION_PASSWORD\)" "$HERE/rotate-secret.sh" | grep -q "SERVICES=platform-app"'
 # --- Issuer override: the bundled-Keycloak admin default is wrong for an external identity provider
 printf 'IPASS_DOMAIN=example.test
 ' > "$TMP/i1.env"
