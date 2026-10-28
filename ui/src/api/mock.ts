@@ -38,9 +38,9 @@ const uuid = (n: number): string =>
 /** The in-memory store; tests reset it with `resetMockState()`. Raw wire shapes throughout. */
 export const mockState = {
   flows: [
-    { id: uuid(1), code: 'ORD-INTAKE', name: 'Order intake', status: 'PUBLISHED', ordering: 1, sourceSystem: 'web-shop', destinations: ['erp', 'warehouse'], businessKeyRule: 'orderNumber + @ + orderLine' },
-    { id: uuid(2), code: 'INV-SYNC', name: 'Invoice sync', status: 'SUBMITTED', ordering: 2, sourceSystem: 'billing', destinations: ['ledger'], businessKeyRule: 'invoiceNumber' },
-    { id: uuid(3), code: 'PAY-WEB', name: 'Payment webhook', status: 'DRAFT', ordering: 3, sourceSystem: 'web-shop', destinations: ['ledger'], businessKeyRule: 'paymentId' }
+    { id: uuid(1), code: 'ORD-INTAKE', name: 'Order intake', status: 'PUBLISHED', ordering: '1', sourceSystem: 'web-shop', destinations: ['erp', 'warehouse'], businessKeyRule: 'orderNumber + @ + orderLine' },
+    { id: uuid(2), code: 'INV-SYNC', name: 'Invoice sync', status: 'SUBMITTED', ordering: '2', sourceSystem: 'billing', destinations: ['ledger'], businessKeyRule: 'invoiceNumber' },
+    { id: uuid(3), code: 'PAY-WEB', name: 'Payment webhook', status: 'DRAFT', ordering: '3', sourceSystem: 'web-shop', destinations: ['ledger'], businessKeyRule: 'paymentId' }
   ] as FlowRow[],
   systems: [
     { id: uuid(101), code: 'web-shop', name: 'Web shop', direction: 'INBOUND', type: 'REST_API', settings: { url: 'https://shop.example' } },
@@ -101,9 +101,9 @@ export const mockState = {
 
 export function resetMockState(): void {
   mockState.flows = [
-    { id: uuid(1), code: 'ORD-INTAKE', name: 'Order intake', status: 'PUBLISHED', ordering: 1, sourceSystem: 'web-shop', destinations: ['erp', 'warehouse'], businessKeyRule: 'orderNumber + @ + orderLine' },
-    { id: uuid(2), code: 'INV-SYNC', name: 'Invoice sync', status: 'SUBMITTED', ordering: 2, sourceSystem: 'billing', destinations: ['ledger'], businessKeyRule: 'invoiceNumber' },
-    { id: uuid(3), code: 'PAY-WEB', name: 'Payment webhook', status: 'DRAFT', ordering: 3, sourceSystem: 'web-shop', destinations: ['ledger'], businessKeyRule: 'paymentId' }
+    { id: uuid(1), code: 'ORD-INTAKE', name: 'Order intake', status: 'PUBLISHED', ordering: '1', sourceSystem: 'web-shop', destinations: ['erp', 'warehouse'], businessKeyRule: 'orderNumber + @ + orderLine' },
+    { id: uuid(2), code: 'INV-SYNC', name: 'Invoice sync', status: 'SUBMITTED', ordering: '2', sourceSystem: 'billing', destinations: ['ledger'], businessKeyRule: 'invoiceNumber' },
+    { id: uuid(3), code: 'PAY-WEB', name: 'Payment webhook', status: 'DRAFT', ordering: '3', sourceSystem: 'web-shop', destinations: ['ledger'], businessKeyRule: 'paymentId' }
   ];
   mockState.systems = [
     { id: uuid(101), code: 'web-shop', name: 'Web shop', direction: 'INBOUND', type: 'REST_API', settings: { url: 'https://shop.example' } },
@@ -125,7 +125,7 @@ export function resetMockState(): void {
     { trackingId: 'trk-0001', deliveryId: uuid(301), flowId: uuid(1), targetId: uuid(102), failingStage: 'DELIVER', errorClass: 'TRANSIENT', lastError: '502 bad gateway from erp endpoint', origin: 'erp', failedAt: '2026-10-28T08:12:00Z' },
     { trackingId: 'trk-0002', deliveryId: null, flowId: uuid(2), targetId: null, failingStage: 'PERSIST', errorClass: 'PERMANENT', lastError: 'business key could not be built', origin: 'billing', failedAt: '2026-10-28T07:31:00Z' }
   ];
-  mockState.ruleSets = [{ id: uuid(401), flowId: uuid(1), kind: 'DECISION_TABLE', name: 'routing', content: {} }];
+  mockState.ruleSets = [{ id: uuid(401), flowId: uuid(1), kind: 'DECISION_TABLE', name: 'routing', content: { nodes: [], edges: [] } }];
   mockState.mappings = {
     [uuid(1)]: {
       routeId: uuid(1), fieldMappings: [], compiledExpression: null,
@@ -169,7 +169,7 @@ const ROUTES: Route[] = [
   route('POST', '/api/v1/admin/flows', (_p, body) => {
     const b = (body ?? {}) as { sourceSystem?: string; name?: string };
     const id = uuid(Date.now() % 100_000);
-    mockState.flows.push({ id, code: b.name ?? 'NEW-FLOW', name: b.name ?? 'New flow', status: 'DRAFT', ordering: mockState.flows.length + 1, sourceSystem: b.sourceSystem ?? '', destinations: [], businessKeyRule: '' });
+    mockState.flows.push({ id, code: b.name ?? 'NEW-FLOW', name: b.name ?? 'New flow', status: 'DRAFT', ordering: String(mockState.flows.length + 1), sourceSystem: b.sourceSystem ?? '', destinations: [], businessKeyRule: '' });
     return json({ id });
   }),
   route('PUT', '/api/v1/admin/flows/{flowId}', (p, body) => {
@@ -282,7 +282,7 @@ const ROUTES: Route[] = [
     // The backend's order: flow code, then day.
     return json([...rows].sort((a, b) => (a.flowCode + a.day).localeCompare(b.flowCode + b.day)));
   }),
-  route('GET', '/api/v1/admin/messages/failures', (p, _b, url) => {
+  route('GET', '/api/v1/admin/messages/failures', (_p, _b, url) => {
     if (url.searchParams.get('denied') === '1') return json({ refusal: 'ROLE_NOT_GRANTED' }, 403);
     let rows = mockState.failures;
     const flowId = url.searchParams.get('flowId');

@@ -119,7 +119,7 @@ test('contracts: {contracts} envelope; import rejects bad JSON and stores a DRAF
 });
 
 test('contract version lifecycle: approve before submit refuses, submit then approve works', async () => {
-  const id = '000000212-1111-4111-8111-000000000212'.slice(0); // the 1.0 APPROVED fixture version
+  const id = '00000212-1111-4111-8111-000000000212'; // the 1.1 DRAFT fixture version
   const early = await send('POST', `/api/v1/admin/contracts/versions/${id}/approve`, {});
   assert.equal(early.status, 409);
   assert.deepEqual(await early.json(), { refusal: 'NOT_PENDING_APPROVAL' });
@@ -137,7 +137,7 @@ test('systems: duplicate code refuses 409, test-connection answers the named 429
   const fresh = await (await send('POST', '/api/v1/admin/systems', { code: 'new', name: 'New one' })).json();
   assert.ok(mockState.systems.some((s) => s.id === fresh.id));
 
-  const limited = await send('POST', '/api/v1/admin/systems/00000001/system/test-connection', {});
+  const limited = await send('POST', '/api/v1/admin/systems/00000001/test-connection', {});
   assert.equal(limited.status, 429);
   assert.deepEqual(await limited.json(), {
     refusal: 'TEST_CONNECTION_RATE_LIMITED',
@@ -190,7 +190,7 @@ test('activity paginates and the report answers its rows', async () => {
 test('resetMockState() restores every mutated fixture', async () => {
   const flow1 = '00000001-1111-4111-8111-000000000001';
   await send('POST', '/api/v1/admin/flows', { name: 'scratch' });
-  await send('POST', `/api/v1/admin/contracts/versions/000000212-1111-4111-8111-000000000212/submit`, {});
+  await send('POST', `/api/v1/admin/contracts/versions/00000212-1111-4111-8111-000000000212/submit`, {});
   await send('POST', '/api/v1/admin/messages/deliveries/00000301-1111-4111-8111-000000000301/replay', {});
   resetMockState();
   assert.equal(mockState.flows.length, 3);

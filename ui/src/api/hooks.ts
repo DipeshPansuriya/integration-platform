@@ -49,7 +49,7 @@ const EMPTY: Resource<never> = {
   status: null, error: null, refusal: null, reload: () => {}
 };
 
-const RESOLVED = { ok: true as const, data: null };
+const RESOLVED = { ok: true as const, data: null } as unknown;
 
 export function useResource<T, A extends ApiAnswer<T>>(
   loader: () => Promise<A>,
@@ -134,7 +134,7 @@ export function useQueue(
   pollMs = POLL_MS
 ): Resource<QueueRow[]> {
   const key = JSON.stringify(params ?? {});
-  return useResource(() => queueSummary(params ?? undefined), [key], pollMs);
+  return useResource(() => queueSummary(params ?? {}), [key], pollMs);
 }
 
 export function useFailures(
@@ -142,7 +142,7 @@ export function useFailures(
   pollMs = POLL_MS
 ): Resource<Failure[]> {
   const key = JSON.stringify(params ?? {});
-  return useResource(() => messageFailures(params ?? undefined), [key], pollMs);
+  return useResource(() => messageFailures(params ?? {}), [key], pollMs);
 }
 
 export function useActivity(query: Record<string, string | number>): Resource<ActivityPage> {
