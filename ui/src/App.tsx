@@ -42,26 +42,23 @@ import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
 import { clearAttempt, landingAfterLogin, markLoggedOut, rememberReturnTo, takeReturnTo } from './pages/login-flow';
 import { safeDecode } from './safe-decode';
+// Row 575 (S1 of the guided flow): the six-item role-aware menu is one table (nav-model.ts); legacy screens sit in a temporary "More" group.
+import type { Route } from './route-types';
+import { canOpen, moreFor, navFor, platformTools, showPlatformTools, type NavItem } from './nav-model';
+import { NoAccess } from './ui/NoAccess';
+import { ApprovalsLanding, MessagesLanding } from './pages/GuidedLandings';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
 // #/rules/<ruleSetId> authors one as decision tables beside the always-visible test panel. Loaded on
 // first use: the decision-table editor is a large bundle no other screen should pay for (page-load p95).
 const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
 
-type Route = {
-  page: 'home' | 'login' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue' | 'failures' | 'messages' | 'activity' | 'reports';
-  flowId: string | null;
-  ruleSetId?: string | null;
-  routeId?: string | null;
-  trackingId?: string;
-  failedHint?: string | null;
-};
-
 type Me = {
   userId?: string;
   tenantId?: string;
   tenantCode?: string;
   timeZone?: string;
+  roles?: string[];
 };
 
 type Theme = 'light' | 'dark';
@@ -69,60 +66,6 @@ type Theme = 'light' | 'dark';
 /** The theme index.html resolved pre-paint; React only toggles it. */
 function currentTheme(): Theme {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
-}
-
-// Nav groups in the order a configuration is actually done (00-§2). Dashboard is the
-// Overview entry (route `#/`; the dashboard screen itself is lane A's work).
-type NavEntry = { label: string; nav: string; hash: string; page: Route['page']; external?: undefined }
-  | { label: string; nav: string; href: string; external: true };
-const NAV_GROUPS: Array<{ title: string; entries: NavEntry[] }> = [
-  {
-    title: 'Overview',
-    entries: [
-      { label: 'Dashboard', nav: 'dashboard', hash: '#/', page: 'home' },
-      { label: 'Queue', nav: 'queue', hash: '#/queue', page: 'queue' },
-      { label: 'Failures', nav: 'failures', hash: '#/failures', page: 'failures' },
-      { label: 'Activity', nav: 'activity', hash: '#/activity', page: 'activity' },
-      { label: 'Delivery report', nav: 'reports', hash: '#/reports', page: 'reports' },
-    ],
-  },
-  {
-    title: 'Build',
-    entries: [
-      { label: 'Flows', nav: 'flows', hash: '#/flows', page: 'flows' },
-      { label: 'Versions', nav: 'versions', hash: '#/versions', page: 'versions' },
-      { label: 'Systems', nav: 'systems', hash: '#/systems', page: 'systems' },
-      { label: 'Contracts', nav: 'contracts', hash: '#/contracts', page: 'contracts' },
-    ],
-  },
-  {
-    title: 'Author',
-    entries: [
-      { label: 'Rules', nav: 'rules', hash: '#/rules', page: 'rules' },
-      { label: 'Mappings', nav: 'mappings', hash: '#/mappings', page: 'mappings' },
-    ],
-  },
-  {
-    title: 'Admin tools',
-    entries: adminToolEntries(),
-  },
-];
-
-function adminToolEntries(): NavEntry[] {
-  const h = window.location.hostname;
-  if (h === 'localhost' || h === '127.0.0.1') {
-    return [
-      { label: 'Keycloak', nav: 'keycloak', href: 'http://localhost:8180/admin/master/console/', external: true },
-      { label: 'Kafka UI', nav: 'kafbat', href: 'http://localhost:8090', external: true },
-    ];
-  }
-  const parts = h.split('.');
-  const domain = parts.length > 1 ? parts.slice(1).join('.') : h;
-  const proto = window.location.protocol;
-  return [
-    { label: 'Keycloak', nav: 'keycloak', href: `${proto}//auth.${domain}/admin/master/console/`, external: true },
-    { label: 'Kafka UI', nav: 'kafbat', href: `${proto}//ops.${domain}/kafka/`, external: true },
-  ];
 }
 
 function parseHash(): Route {
@@ -137,6 +80,8 @@ function parseHash(): Route {
   if (hash.startsWith('systems')) return { page: 'systems', flowId: null };
   if (hash.startsWith('queue')) return { page: 'queue', flowId: null };
   if (hash.startsWith('failures')) return { page: 'failures', flowId: null };
+  if (/^messages\/?$/.test(hash)) return { page: 'messages', flowId: null }; // the Messages landing (S3 fills it)
+  if (hash.startsWith('approvals')) return { page: 'approvals', flowId: null }; // the Approvals list (S5 fills it)
   const message = /^messages\/(.+)$/.exec(hash);
   if (message) return { page: 'messages', flowId: null, ...parseMessageRoute(message[1]) };
   if (hash.startsWith('activity')) return { page: 'activity', flowId: null };
@@ -335,6 +280,29 @@ export function App() {
   // #/login is the empty shell: the card alone - no top bar, no side nav, no [data-nav].
   if (onLogin) return <Login state={session === 'signed-in' ? 'checking' : session} onRetry={checkSession} />;
 
+  // Row 575 (S1): the roles GET /api/v1/me answered; null = unknown, so nothing is hidden (the server's 403 stays the gate).
+  const roles = me?.roles && me.roles.length > 0 ? me.roles : null;
+  const moreItems = moreFor(roles);
+  const open = canOpen(roles, route.page);
+  const shown = open ? route.page : null;
+
+  function renderNavItem(entry: NavItem) {
+    const active = route.page === entry.page;
+    return (
+      <a
+        key={entry.nav}
+        className={active ? 'nav-item nav-item-active' : 'nav-item'}
+        data-nav={entry.nav}
+        data-initial={entry.label.charAt(0)}
+        href={entry.hash}
+        title={entry.label}
+        aria-current={active ? 'page' : undefined}
+      >
+        <span className="nav-label">{entry.label}</span>
+      </a>
+    );
+  }
+
   return (
     <div className={collapsed ? 'shell shell-collapsed' : 'shell'}>
       <header className="topbar">
@@ -377,6 +345,23 @@ export function App() {
             <details className="account">
               <summary className="chip account-summary" data-action="account">Account</summary>
               <div className="menu">
+                {showPlatformTools(roles) && (
+                  <>
+                    <p className="menu-title">Platform tools</p>
+                    {platformTools(window.location.hostname, window.location.protocol).map((tool) => (
+                      <a
+                        key={tool.nav}
+                        data-nav={tool.nav}
+                        href={tool.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`${tool.label} (opens in new tab)`}
+                      >
+                        {tool.label}
+                      </a>
+                    ))}
+                  </>
+                )}
                 <button type="button" data-action="logout" onClick={() => void logout()}>
                   Sign out
                 </button>
@@ -387,69 +372,41 @@ export function App() {
       </header>
       <div className="shell-body">
         <nav className="sidenav" aria-label="Primary">
-          {NAV_GROUPS.map((group) => (
-            <div className="nav-group" key={group.title}>
-              <p className="nav-title" aria-hidden="true">{group.title}</p>
-              {group.entries.map((entry) => {
-                if (entry.external) {
-                  return (
-                    <a
-                      key={entry.nav}
-                      className="nav-item"
-                      data-nav={entry.nav}
-                      data-initial={entry.label.charAt(0)}
-                      href={entry.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title={`${entry.label} (opens in new tab)`}
-                    >
-                      <span className="nav-label">{entry.label}</span>
-                      <svg className="nav-external-icon" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-                        <path d="M6 3H3v10h10v-3M9 2h5v5M14 2L7 9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </a>
-                  );
-                }
-                const active = route.page === entry.page;
-                return (
-                  <a
-                    key={entry.nav}
-                    className={active ? 'nav-item nav-item-active' : 'nav-item'}
-                    data-nav={entry.nav}
-                    data-initial={entry.label.charAt(0)}
-                    href={entry.hash}
-                    title={entry.label}
-                    aria-current={active ? 'page' : undefined}
-                  >
-                    <span className="nav-label">{entry.label}</span>
-                  </a>
-                );
-              })}
+          <div className="nav-group">
+            {navFor(roles).map((item) => renderNavItem(item))}
+          </div>
+          {moreItems.length > 0 && (
+            <div className="nav-group" data-nav-group="more">
+              <p className="nav-title">More</p>
+              {moreItems.map((item) => renderNavItem(item))}
             </div>
-          ))}
+          )}
         </nav>
         <main className="content">
-          {route.page === 'flows' &&
+          {/* Row 575 (S1): a screen the known roles cannot use shows the NoAccess state, never a blank page. UX only - the server answers 403 regardless. */}
+          {!open && <NoAccess refusal="ROLE_NOT_GRANTED" />}
+          {shown === 'flows' &&
             (route.flowId ? (
               <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} />
             ) : (
               <FlowsList />
             ))}
-          {route.page === 'versions' && <Versions selectId={route.flowId} />}
-          {route.page === 'systems' && <Systems />}
-          {route.page === 'queue' && <QueueDashboard />}
-          {route.page === 'failures' && <Failures />}
-          {route.page === 'messages' && <MessageDetail trackingId={route.trackingId ?? ''} failedHint={route.failedHint ?? null} />}
-          {route.page === 'activity' && <Activity />}
-          {route.page === 'reports' && <DeliveryReport />}
-          {route.page === 'contracts' && <ContractVersions />}
-          {route.page === 'rules' && (
+          {shown === 'versions' && <Versions selectId={route.flowId} />}
+          {shown === 'systems' && <Systems />}
+          {shown === 'queue' && <QueueDashboard />}
+          {shown === 'failures' && <Failures />}
+          {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} />)}
+          {shown === 'approvals' && <ApprovalsLanding />}
+          {shown === 'activity' && <Activity />}
+          {shown === 'reports' && <DeliveryReport />}
+          {shown === 'contracts' && <ContractVersions />}
+          {shown === 'rules' && (
             <Suspense fallback={<p>Loading the rules editor...</p>}>
               <RulesEditor ruleSetId={route.ruleSetId ?? null} />
             </Suspense>
           )}
-          {route.page === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
-          {route.page === 'home' &&
+          {shown === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
+          {shown === 'home' &&
             (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard />)}
         </main>
       </div>

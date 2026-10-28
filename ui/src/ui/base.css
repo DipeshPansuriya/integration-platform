@@ -232,8 +232,18 @@ summary:focus-visible {
   border-radius: var(--r-1);
   box-shadow: var(--shadow-1);
 }
-.account .menu button {
+.account .menu .menu-title {
+  margin: 0;
+  padding: 4px 10px;
+  color: var(--color-ink-muted, var(--color-ink));
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.account .menu button,
+.account .menu a {
   display: block;
+  text-decoration: none;
   width: 100%;
   padding: 8px 10px;
   border: 0;
@@ -245,7 +255,8 @@ summary:focus-visible {
   text-align: left;
   cursor: pointer;
 }
-.account .menu button:hover {
+.account .menu button:hover,
+.account .menu a:hover {
   background: var(--color-accent-faint);
   color: var(--color-accent-faint-ink);
 }
