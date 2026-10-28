@@ -24,6 +24,19 @@
         }
         document.documentElement.dataset.theme = theme;
       })();
+      /* W3 (iPaaS Console DS) — accent boot before first paint, additive only:
+         stored accent from the DS key ip-t; the six-accent whitelist guards an
+         unknown value, DS default is indigo. data-theme / ip.theme untouched;
+         runtime sync via ThemePicker.useConsoleTheme() lands in W6 (decision 8). */
+      (function () {
+        var ACCENTS = ['indigo', 'emerald', 'rose', 'amber', 'cyan', 'violet'];
+        var accent = 'indigo';
+        try {
+          var stored = localStorage.getItem('ip-t');
+          if (ACCENTS.indexOf(stored) !== -1) accent = stored;
+        } catch (e) { /* keep default */ }
+        document.documentElement.dataset.accent = accent;
+      })();
     </script>
     <style>
       /* pre-paint canvas so a dark boot never flashes white while CSS loads
