@@ -83,7 +83,7 @@ test('screen: a table of what waits, each row with an Open link, a caption and o
   });
   const root = screen.tree();
   assert.equal(findAll(root, (n) => n.type === 'h1').length, 1);
-  assert.match(text(findAll(root, where('data-page', 'approvals'))[0]), /Waiting for your approval \(2\)/);
+  assert.match(text(findAll(root, where('data-page', 'approvals'))[0]), /Waiting for approval \(2\)/);
   const rows = findAll(root, where('data-approval-row'));
   assert.equal(rows.length, 2);
   const hrefs = rows.map((r) => findAll(r, (n) => n.type === 'a')[0].props.href);
@@ -96,7 +96,7 @@ test('screen: empty state is worded and offers where to look next', async () => 
   const root = screen.tree();
   assert.match(text(root), /Nothing waits for approval/);
   assert.equal(findAll(root, where('data-approval-row')).length, 0);
-  assert.match(text(root), /Waiting for your approval \(0\)/);
+  assert.match(text(root), /Waiting for approval \(0\)/);
 });
 
 test('screen: a 403 on a list shows NoAccess, not a half list and not a generic error', async () => {
@@ -114,6 +114,48 @@ test('screen: a failed read is a worded alert with Retry; nothing is shown as ze
   assert.match(text(alerts[0]), /could not be loaded/i);
   assert.equal(findAll(root, where('data-action', 'retry-approvals')).length, 1);
   assert.doesNotMatch(text(root), /Nothing waits for approval/);
+});
+
+test('screen: a 403 on the contracts list alone is NoAccess too (and the flows list alone, above)', async () => {
+  const screen = await screenWith({ listFlows: ok([flow('SUBMITTED', 'a')]), listContracts: async () => ({ ok: false, status: 403 }) });
+  const root = screen.tree();
+  assert.equal(findAll(root, where('data-no-access', 'true')).length, 1);
+  assert.equal(findAll(root, where('data-approval-row')).length, 0, 'no half list from the flows that did answer');
+  assert.equal(findAll(root, where('data-action', 'retry-approvals')).length, 0);
+});
+
+test('screen: Retry re-reads both lists, shows the rows, and moves keyboard focus to the new content (WCAG 2.4.3)', async () => {
+  const calls = [];
+  let flowsAnswer = { ok: false, status: 500 };
+  const screen = await screenWith({
+    listFlows: async () => { calls.push('flows'); return flowsAnswer; },
+    listContracts: async () => { calls.push('contracts'); return { ok: true, data: [contract('k1', 'TARGET_REQUEST', 'PENDING_APPROVAL')] }; },
+  });
+  assert.deepEqual(calls, ['flows', 'contracts']);
+  const [alert] = findAll(screen.tree(), where('role', 'alert'));
+  assert.equal(alert.props.tabIndex, -1, 'the alert can take programmatic focus');
+  let focused = 0;
+  alert.props.ref.current = { focus: () => { focused += 1; } }; // the harness has no DOM: stand in for the element the ref would hold
+  flowsAnswer = { ok: true, data: [flow('SUBMITTED', 'a')] };
+  findAll(screen.tree(), where('data-action', 'retry-approvals'))[0].props.onClick();
+  await screen.settle();
+  await screen.settle();
+  assert.deepEqual(calls, ['flows', 'contracts', 'flows', 'contracts'], 'Retry reads both lists again');
+  const root = screen.tree();
+  assert.equal(findAll(root, where('data-approval-row')).length, 2);
+  assert.equal(findAll(root, where('role', 'alert')).length, 0, 'the error is gone');
+  const [heading] = findAll(root, (n) => n.type === 'h2');
+  assert.equal(heading.props.tabIndex, -1, 'the new content heading can take focus');
+  assert.equal(heading.props.ref, alert.props.ref, 'one focus target, moved to the new content');
+  assert.equal(focused, 1, 'focus moved once, after the re-read answered');
+});
+
+test('screen: first load does not steal focus', async () => {
+  const screen = await screenWith({ listFlows: ok([flow('SUBMITTED', 'a')]), listContracts: ok([]) });
+  let focused = 0;
+  findAll(screen.tree(), (n) => n.type === 'h2')[0].props.ref.current = { focus: () => { focused += 1; } };
+  await screen.settle();
+  assert.equal(focused, 0);
 });
 
 test('screen: makes exactly the two list reads and nothing else', async () => {
