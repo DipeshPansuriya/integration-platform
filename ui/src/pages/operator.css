@@ -246,3 +246,6 @@
   color: var(--color-ink-muted);
   border-bottom: 0;
 }
+
+/* V4 6c: heading tightness (h1 only) */
+.operator-page .op-head h1 { letter-spacing: -0.02em; }

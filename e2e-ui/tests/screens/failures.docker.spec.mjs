@@ -236,7 +236,8 @@ test("@negative @role the other tenant's configurator is refused and lists none 
   const flow = await freshFlow(page, 'tenant-cut');
   const msg = seedMessage(tenantIdOf(), flow.id, 'ROUTE_FAILED', `${DAY} 00:01:00+00`);
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
-  await openFailures(page);
-  await expect(page.locator('[role="alert"][data-refusal="failures-refused"]')).toBeVisible();
+  // Row 575 S1: the menu hides Failures from a configurator; opened by address, the shell shows the no-access state.
+  await page.goto(`${consoleUrl()}/#/failures`);
+  await expect(page.locator('[role="alert"][data-no-access="true"]')).toBeVisible();
   await expect(page.locator(`[data-failure-row="${msg}"]`)).toHaveCount(0);
 });

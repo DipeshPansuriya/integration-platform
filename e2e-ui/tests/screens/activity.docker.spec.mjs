@@ -216,8 +216,9 @@ test("@negative @tenant the other tenant's reader sees none of tenant A's events
 test("@negative @role the other tenant's configurator is refused with the no-access state", async ({ page }) => {
   const flow = await freshFlow(page, 'role');
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
-  await openActivity(page);
-  await expect(page.locator('[role="alert"][data-refusal="activity-no-access"]'))
+  // Row 575 S1: the menu hides Activity from a configurator; opened by address, the shell shows the no-access state.
+  await page.goto(`${consoleUrl()}/#/activity`);
+  await expect(page.locator('[role="alert"][data-no-access="true"]'))
     .toHaveText('You do not have access to this page. Ask an administrator if you need it.');
   await expect(page.locator(`[data-activity-row]:has-text("interface:${flow.id}")`)).toHaveCount(0);
 });

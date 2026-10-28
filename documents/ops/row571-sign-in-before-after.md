@@ -23,8 +23,7 @@ Text only (no screenshots in the repo). "Before" = the two screenshots Dipesh se
 4. Return-to: the `#/...` screen asked for is remembered across the round trip and restored once signed in (hash routes
    only, a fixed character set, never a URL, so it cannot become an open redirect; one use; forgotten on sign-out).
 5. Keycloak login form (theme `platform`, CSS only - no template override, so it survives Keycloak releases):
-   - card with the Kale Deep Sea signature: 4px Deep Sea rule on top, 4px Noon rule at the foot (light theme; the dark
-     card uses an Evening Sky top rule and a hairline foot - Noon is never on a dark ground);
+   - card with a 4px accent rule on top and a 4px hairline at the foot, both the project's own neutral tokens (light and dark);
    - eyebrow "INTEGRATION PLATFORM" above the h1, same brand line as the console;
    - password box and its Show/Hide toggle are ONE control (one boundary at the >= 3:1 control colour, one focus ring
      drawn on the group, the toggle is a real button named "Show password"/"Hide password" by Keycloak's own aria-label);
@@ -36,10 +35,12 @@ Text only (no screenshots in the repo). "Before" = the two screenshots Dipesh se
 ## Not changed
 
 Backend security configuration, the realm JSON, the OIDC client, cookies, CSRF, logout (RP-initiated), token handling.
-A failed code exchange still ends on the backend's JSON answer (401/503) - see open item in the PR.
+A failed code exchange for an API client still ends on the backend's JSON answer (401/503); a browser is sent to #/login (follow-up).
 
-## Brand note (kale-design)
+## Brand note
 
-Applied: card signature, eyebrow, sentence case, worded status, no emoji, Noon accent only (never text, never dark).
-Not applied: the Kale palette as the working colours (Deep Sea buttons, Roboto webfont). The console and the realm form
-share one slate/blue token layer pinned by tests; recolouring both is a design decision for Mahesh / Dipesh.
+kale-design is NOT used on this project (overview, Dipesh 2026-10-22, supersedes ledger row 268). The card rules use the
+project's own tokens (accent on top, hairline at the foot); no Deep Sea, Noon or Evening Sky colour is present, and a
+test pins that. Follow-ups to this PR (row 571): bfcache restore always shows Try again; the storage probe writes;
+return-to keeps a query on a real route and rejects `#//`, case and encoded tricks; a failed code exchange from a
+browser lands on `#/login?error=login_failed` (API clients keep the JSON answer).

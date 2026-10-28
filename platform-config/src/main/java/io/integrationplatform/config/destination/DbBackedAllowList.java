@@ -3,6 +3,9 @@ package io.integrationplatform.config.destination;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
@@ -17,21 +20,46 @@ public final class DbBackedAllowList extends AllowList {
 
     public record HostEntry(UUID id, String pattern) {}
 
+    private static final Logger LOG = LoggerFactory.getLogger(DbBackedAllowList.class);
+    private static final long RETRY_NANOS = 30_000_000_000L;
+
     private final AllowList configBased;
     private final JdbcClient jdbcClient;
     private volatile AllowList dbEntries;
+    private volatile boolean loaded;
+    private volatile long lastTryNanos;
 
     public DbBackedAllowList(AllowList configBased, JdbcClient jdbcClient) {
         super(List.of(), List.of());
         this.configBased = Objects.requireNonNull(configBased, "configBased");
         this.jdbcClient = Objects.requireNonNull(jdbcClient, "jdbcClient");
         this.dbEntries = AllowList.of(List.of());
-        refresh();
+        tryLoad();
     }
 
     @Override
     public boolean allows(String host) {
-        return configBased.allows(host) || dbEntries.allows(host);
+        if (configBased.allows(host)) {
+            return true;
+        }
+        if (!loaded && System.nanoTime() - lastTryNanos > RETRY_NANOS) {
+            tryLoad();
+        }
+        return dbEntries.allows(host);
+    }
+
+    /**
+     * Startup/retry load: a database that cannot be read yet leaves the DB entries empty (fail closed: only the
+     * deployment configuration is allowed) and is retried at most every 30 s; it never stops the application starting.
+     */
+    private void tryLoad() {
+        lastTryNanos = System.nanoTime();
+        try {
+            refresh();
+        } catch (DataAccessException unreadable) {
+            LOG.warn("operator_allowed_host not readable yet - allow-list holds the configured hosts only: {}",
+                    unreadable.getMostSpecificCause().getMessage());
+        }
     }
 
     /** Reload the DB patterns into the in-memory allow-list. Called after every add/remove. */
@@ -41,6 +69,7 @@ public final class DbBackedAllowList extends AllowList {
                 .query(String.class)
                 .list();
         this.dbEntries = AllowList.of(patterns);
+        this.loaded = true;
     }
 
     /** All DB-stored entries (the config-based entries are not included — they are deployment config). */

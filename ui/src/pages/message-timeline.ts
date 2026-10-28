@@ -15,6 +15,7 @@
 
 import type { StageTime, Timeline } from '../api/messages';
 import { statusWord as statusWordOf, type Tone } from '../ui/status-words';
+import { safeDecode } from '../safe-decode';
 
 /** The pipeline's closed stage set in order (MessageTrackingService.PIPELINE, V2_1_1110). */
 export const PIPELINE = ['INTAKE', 'ROUTE', 'TRANSFORM', 'DELIVER'] as const;
@@ -50,7 +51,7 @@ export function isTrackingId(value: string): boolean {
 /** `<trackingId>[?failed=<STAGE>]` - the part of the hash after `#/messages/`. */
 export function parseMessageRoute(rest: string): { trackingId: string; failedHint: string | null } {
   const [path, query = ''] = rest.split('?', 2);
-  return { trackingId: decodeURIComponent(path), failedHint: new URLSearchParams(query).get('failed') };
+  return { trackingId: safeDecode(path), failedHint: new URLSearchParams(query).get('failed') };
 }
 
 export function messageHash(trackingId: string, failingStage: string | null): string {

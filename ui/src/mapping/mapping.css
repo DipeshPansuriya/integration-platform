@@ -264,3 +264,6 @@
   color: var(--color-accent-faint-ink);
   font-weight: 600;
 }
+
+/* V4 6f: heading tightness */
+.mapping-page .mapping-head h1 { letter-spacing: -0.02em; }

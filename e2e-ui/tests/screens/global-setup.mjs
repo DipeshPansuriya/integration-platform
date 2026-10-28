@@ -9,6 +9,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import { setBooted, STORAGE_STATE } from './boot-state.mjs';
@@ -17,6 +18,9 @@ import { browserLogin } from './keycloak-login.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.resolve(HERE, '..', '..', '..', 'ui'); // L29: the console project (public/ + npm run build), not e2e-ui
+
+/** Row 575 S1: one realm user per menu role in the default tenant (the harness has no SUPPORT user and its CONFIGURATOR is in tenant B). */
+const MENU_ROLES = { 'menu-cf': 'CONFIGURATOR', 'menu-su': 'SUPPORT', 'menu-ap': 'APPROVER', 'menu-ro': 'READ_ONLY' };
 
 /** T171: the screens boot with an optional lock holder name (the security gate suite names itself in the lock note). */
 export async function bootScreens({ lockHolder } = {}) {
@@ -33,7 +37,11 @@ export async function bootScreens({ lockHolder } = {}) {
     throw new Error(`global-setup: the console build failed (an unbuilt console is the suite's own red):\n${build.stdout}\n${build.stderr}`);
   }
 
-  const backend = await bootBackend({ loginSeed: true, appEnv: screenAppEnv(), lockHolder });
+  // Passwords are random per run and live in this run's memory and its workers' environment only (R07).
+  const menuUsers = Object.entries(MENU_ROLES).map(([key, role]) => ({
+    key, username: key, role, password: `Aa1!${randomBytes(12).toString('hex')}`
+  }));
+  const backend = await bootBackend({ loginSeed: true, appEnv: screenAppEnv(), lockHolder, extraUsers: menuUsers });
   let consoleServer;
   try {
     consoleServer = await startConsole(backend.baseUrl, backend.sessions);
@@ -63,6 +71,9 @@ export async function bootScreens({ lockHolder } = {}) {
   process.env.CONSOLE_OTHER_TENANT_FLOW = backend.otherTenantFlowId;
   process.env.CONSOLE_LOGIN_USER = backend.users.default.username;
   process.env.CONSOLE_LOGIN_PASSWORD = backend.users.default.password;
+  process.env.CONSOLE_MENU_USERS = JSON.stringify(
+    Object.fromEntries(menuUsers.map(({ key, role, username, password }) => [role, { username: backend.extraUsers?.[key]?.username ?? username, password }]))
+  );
 }
 
 export default async function globalSetup() {
