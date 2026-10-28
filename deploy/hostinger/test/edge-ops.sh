@@ -4,7 +4,7 @@
 #   NGINX_TEST_TAG=<tag of a local ipass/ui image> bash deploy/hostinger/test/edge-ops.sh
 # Covers: ops host allow-list (message paths 404 in every spelling, topics merely NAMED like "messages" open, non-GET 403,
 # console / master realm / platform realm 404), forwarded path == tested path, no Upgrade/Connection forwarded to Keycloak and
-# Kafbat (h2c), rate limits incl. the trailing-slash form, auth-host 404s unchanged.
+# Kafbat (h2c), rate limits incl. the trailing-slash form, auth host proxies all of Keycloak (row 489).
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 TAG="${NGINX_TEST_TAG:?set NGINX_TEST_TAG to a local ipass/ui image tag}"
@@ -105,8 +105,9 @@ for spec in "$A POST /realms/platform/protocol/openid-connect/token" "$A POST /r
   [ "$c" -eq 6 ] && ok "rate limit: $1 $3 = 6 refused of 12" || bad "rate limit: $1 $3 refused $c of 12 (want 6)"
 done
 [ "$(burst $A GET /realms/platform/.well-known/openid-configuration 10.1.0.99 15)" -eq 0 ] && ok "discovery is not limited" || bad "discovery limited"
-# 8. auth host: console and master realm stay 404 (with and without the slash)
+# 8. auth host (row 489 chunk C): the console, the master realm and every other Keycloak path are proxied, not 404, with the path forwarded unchanged
 for u in /admin /admin/ /admin/realms /realms/master /realms/master/ /realms/master/protocol/openid-connect/token /realms/master/protocol/openid-connect/token/ /metrics /health; do
-  s="$(st $A GET $u)"; [ "$s" = 404 ] && ok "auth: 404 for $u" || bad "auth: $u was not 404 ($s)"
+  s="$(st $A GET $u)"; b="$(body $A GET $u)"
+  [ "$s" = 200 ] && grep -qF "uri=[$u]" <<<"$b" && ok "auth: $u is proxied to Keycloak unchanged (not 404)" || bad "auth: $u status $s body $b"
 done
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"; exit $fail
