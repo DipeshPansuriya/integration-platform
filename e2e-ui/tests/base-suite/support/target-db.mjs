@@ -5,7 +5,7 @@
 
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
-import { accountName, narrowAccountSql, targetPsqlArgs } from '../lib/target-db.mjs';
+import { accountName, createAccountVia } from '../lib/target-db.mjs';
 import { bsEnv } from './boot-state.mjs';
 
 /** The port the target database is published on (the DB systems of the f3 spec point at it). */
@@ -16,6 +16,6 @@ export function createTargetAccount(key) {
   const container = bsEnv('targetDbContainer');
   const account = accountName(key, container.slice(-8));
   const password = crypto.randomBytes(18).toString('base64url');
-  execFileSync('docker', targetPsqlArgs(container), { input: `${narrowAccountSql({ account, password }).join(';\n')};\n`, encoding: 'utf8', timeout: 30000 });
+  createAccountVia(execFileSync, { container, account, password }); // a failure is rethrown with the password redacted (row 556)
   return { account, password };
 }

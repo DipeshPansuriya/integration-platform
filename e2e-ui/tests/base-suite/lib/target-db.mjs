@@ -32,3 +32,35 @@ export function targetPsqlArgs(container) {
   }
   return ['exec', '-i', container, 'psql', '-X', '-q', '-U', 'owner', '-d', DB_NAME, '-v', 'ON_ERROR_STOP=1'];
 }
+
+const REDACTED = '[redacted]';
+
+/**
+ * Row 556 (Karan F5, CWE-532): text with the account password removed. Three layers: any `PASSWORD '...'` literal (also one psql
+ * truncated mid-echo, so no full password is left to match), then every literal occurrence of the password (regex-special
+ * characters are plain text) and of its base64 spelling (`+` `/` for `-` `_`). Total: never throws, '' for no text.
+ */
+export function redactPassword(text, password) {
+  let out = text === undefined || text === null ? '' : String(text);
+  out = out.replace(/PASSWORD\s+'[^'\r\n]*'?/gi, `PASSWORD ${REDACTED}`);
+  if (typeof password === 'string' && password !== '') {
+    for (const form of new Set([password, password.replace(/-/g, '+').replace(/_/g, '/')])) out = out.split(form).join(REDACTED);
+  }
+  return out;
+}
+
+/**
+ * Runs the narrow-account statements through `exec` (execFileSync in the worker). A failure is rethrown as a NEW error: container,
+ * account, exit status/code and psql's stderr with the password redacted. The original error (message, stderr, stdout, cmd,
+ * input all carry the statement) is neither attached as `cause` nor copied.
+ */
+export function createAccountVia(exec, { container, account, password }) {
+  const input = `${narrowAccountSql({ account, password }).join(';\n')};\n`;
+  try {
+    exec('docker', targetPsqlArgs(container), { input, encoding: 'utf8', timeout: 30000 });
+  } catch (error) {
+    const how = [error?.status != null ? `status ${error.status}` : '', error?.signal ? `signal ${error.signal}` : '', /^[A-Z_]+$/.test(error?.code ?? '') ? `code ${error.code}` : ''].filter(Boolean).join(', ');
+    const stderr = redactPassword(error?.stderr, password).trim();
+    throw new Error(`base suite: creating target account ${account} on ${container} failed (${how || 'no exit status'})${stderr ? `: ${stderr}` : ''}`);
+  }
+}
