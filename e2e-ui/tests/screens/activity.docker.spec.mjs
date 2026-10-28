@@ -22,6 +22,7 @@ const RUN = Date.now().toString(36);
 
 async function openActivity(page) {
   await page.goto(consoleUrl());
+  await page.click('[data-nav="reports"]'); // row 575 S6: activity is a tab of the reports hub now
   await page.click('[data-nav="activity"]');
   await expect(page.locator(LOADED)).toBeVisible();
 }
