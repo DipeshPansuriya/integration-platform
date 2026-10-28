@@ -3,7 +3,7 @@ type: ADR
 title: "ADR-010 - Apache Camel as the routing core, inside one module, with exactly two retry layers"
 status: "Accepted (team, 2026-10-02) - Dipesh may reverse"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): bulkhead-full backoff and re-drive cap, every state change takes the key lock first with 40001/40P01 retry, missing key uses no attempt, not-ready instance stops its consumers, broker-address check and egress policy. 2026-10-12 - amended with the approval of ADR-014 (sections 2 and 6: one delivery per message and route, unique on (message_id, route_id, created_at) with created_at = the message's accepted_at, message and payload day-partitioned) and ADR-015 (section 1: target adapters and the send-time destination check live in platform-routing; routing depends on platform-config's public API only), both approved by Dipesh 2026-10-12. 2026-10-17 - section 8: the dev/showcase-only exception to the destination check (T138; property platform.config.destinations.showcase-local-hosts, honoured only under the showcase profile, fail closed, never in production; AC approved by Dipesh 2026-10-17, memory m-b39c08). 2026-10-17 - section 3 amended for finding F16 (row 278): publish validates and never builds; routes are built lazily in stage 2, keyed by (target endpoint id, endpoint version = fingerprint of the row values a template is built from); the idle sweep is scheduled. 2026-10-18 - section 8 re-pinned to main a2c76ff and the B21 port pin added (host AND port, ports required with hosts, 80/443 default, IP literals refused, refused under prod/production/staging/uat); section 3 gains a status line of what main implements. 2026-10-27 - section 8 note: the runtime-editable global allow-list (operator_allowed_host, V2_4_1410) is removed (PRs 36, 37, 46; H-1), table dormant, application writes revoked by V2_4_1440; decision of 2026-10-19 unchanged"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): per-target bulkhead, idempotent stage 1, claim order and token, outcome table, nothing-stays-stuck section. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): bulkhead-full backoff and re-drive cap, every state change takes the key lock first with 40001/40P01 retry, missing key uses no attempt, not-ready instance stops its consumers, broker-address check and egress policy. 2026-10-12 - amended with the approval of ADR-014 (sections 2 and 6: one delivery per message and route, unique on (message_id, route_id, created_at) with created_at = the message's accepted_at, message and payload day-partitioned) and ADR-015 (section 1: target adapters and the send-time destination check live in platform-routing; routing depends on platform-config's public API only), both approved by Dipesh 2026-10-12. 2026-10-17 - section 8: the dev/showcase-only exception to the destination check (T138; property platform.config.destinations.showcase-local-hosts, honoured only under the showcase profile, fail closed, never in production; AC approved by Dipesh 2026-10-17, memory m-b39c08). 2026-10-17 - section 3 amended for finding F16 (row 278): publish validates and never builds; routes are built lazily in stage 2, keyed by (target endpoint id, endpoint version = fingerprint of the row values a template is built from); the idle sweep is scheduled. 2026-10-18 - section 8 re-pinned to main a2c76ff and the B21 port pin added (host AND port, ports required with hosts, 80/443 default, IP literals refused, refused under prod/production/staging/uat); section 3 gains a status line of what main implements. 2026-10-27 - section 8 note: the runtime-editable global allow-list (operator_allowed_host, V2_4_1410) is removed (PRs 36, 37, 46; H-1), table dormant, application writes revoked by V2_4_1440; decision of 2026-10-19 unchanged. 2026-10-28 - section 8 amendment (row 570, PRs #88, #90): one global runtime allow-list editable only by the operator agent, unioned with the startup setting; no tenant editor, no per-tenant lists; audit event follow-up row 579, pattern validation follow-up; the 2026-10-27 note is superseded"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -504,7 +504,7 @@ is `platform-config/src/main/java/io/integrationplatform/config/destination/`,
   nothing until it is set.
 - **Revisit if** an operator needs per-tenant overrides of the global bound.
 
-#### Note 2026-10-27 - the editable global allow-list is removed (security finding H-1; PRs 36, 37, 46)
+#### Note 2026-10-27 - the editable global allow-list is removed (security finding H-1; PRs 36, 37, 46) - SUPERSEDED by the amendment of 2026-10-28 below
 
 - **What happened.** `V2_4_1410__operator_allowed_host.sql` added a table `public.operator_allowed_host` edited at
   runtime from a console settings page, whose entries were **unioned** with the startup list
@@ -513,7 +513,7 @@ is `platform-config/src/main/java/io/integrationplatform/config/destination/`,
   an environment setting. No ADR decided it. karan-security raised it as
   H-1; the endpoint and screen were removed in PR 36 (`8f5cd0d7`), the dormant repository in PR 37 (`b1a9cdb6`);
   PR 40 re-added them by accident and PR 46 (`79c76ce5`, row 510) removed them again.
-- **State on main `e12f2949`.** The global allow-list is the startup setting
+- **State on main `e12f2949` (superseded - the table is no longer dormant; see the note of 2026-10-28 below).** The global allow-list is the startup setting
   `platform.config.destinations.allowed-hosts` only
   (`platform-config/src/main/java/io/integrationplatform/config/internal/persistence/SystemPersistenceConfiguration.java:60`, `:97`),
   as decided above. No application code reads or writes `operator_allowed_host` (search of `platform-*/src/main`
@@ -522,14 +522,44 @@ is `platform-config/src/main/java/io/integrationplatform/config/destination/`,
   (`platform-config/src/main/resources/db/migration/V2_4_1440__operator_allowed_host_revoke_write.sql:7`), so a code
   regression fails with "permission denied" instead of widening every tenant's outbound policy. `SELECT` remains,
   harmless on a dormant table.
-- **Decision unchanged:** no runtime-editable allow-list. Re-introducing one needs a new amendment of this
-  section and a karan-security review.
+- **Decision at the time (superseded 2026-10-28):** no runtime-editable allow-list; re-introducing one needed a new
+  amendment of this section and a karan-security review. That amendment is the note of 2026-10-28 below.
 - **Open.** (1) No test asserts the revoke yet: a grant-inspection row (`has_table_privilege('ipaas_app',
   'public.operator_allowed_host', 'INSERT')` and `'DELETE'` both false, 0 of 2) would make it a claimed control
   with a conformance test. (2) Dropping the dormant table is a later migration and is the project owner's call
   (dropping a table is never automatic). (3) The comment at
   `platform-app/src/test/java/io/integrationplatform/app/retention/PayloadPurgeContainerTest.java:52` still says the
   application reads `operator_allowed_host` at start; it is stale.
+
+#### Amendment 2026-10-28 - one global allow-list, editable only by the operator agent (PRs #88, #90; row 570)
+
+- **State on main `ba1767c6`.** The table is not dormant. PR #88 (`2b561b92`) added
+  `platform-config/src/main/resources/db/migration/V2_4_1510__regrant_operator_allowed_host_write.sql:6`
+  (`GRANT INSERT, DELETE ON public.operator_allowed_host TO ipaas_app`, undoing `V2_4_1440`), the repository
+  `platform-config/src/main/java/io/integrationplatform/config/destination/DbBackedAllowList.java`, which
+  **unions** the startup list with the table (`:12-13`, reads `:68`, writes `:92`, `:102`), and the endpoint
+  `platform-config/src/main/java/io/integrationplatform/config/destination/adapter/in/OperatorAllowedHostController.java`
+  (`/api/v1/admin/operator/allowed-hosts`). PR #90 (`ba1767c6`, row 578, CWE-862/918) made every route an
+  OPERATOR_AGENT operation (`OperatorAllowedHostController.java:30-32`,
+  `OperatorAllowedHostEndpointRoles.java:10-13`): every tenant role gets 403, so the H-1 path (a tenant admin widening
+  every tenant's outer bound) is closed, but the list is runtime-editable again.
+- **Decision (replaces "no runtime-editable allow-list").** #88's endpoint stays. The global allow-list is the startup
+  setting `platform.config.destinations.allowed-hosts` **unioned with** one global runtime list in
+  `operator_allowed_host`, which only the operator agent can edit: every route of the endpoint is an OPERATOR_AGENT
+  operation since #90, and every tenant role is refused with 403. The per-tenant list remains a subset inside this
+  bound, as decided above. Decided by the coordinator on 2026-10-28 (row 570), after #90's security fix.
+- **Consequences.**
+  1. No tenant-facing editor exists or is planned. The guard `ui/tests/ui/no-allow-list-editor.test.mjs` stays, and
+     the Destinations page is refused for every tenant role.
+  2. No per-tenant runtime lists: the runtime list is global and is edited by the operator only.
+  3. Every change to the list should emit an audit event. That is not built yet: follow-up row 579.
+  4. Patterns are not validated beyond what the endpoint does today. A pattern validation rule is a follow-up.
+- **Gives up.** The outer bound is no longer fixed per deployment: an operator-agent credential can widen every
+  tenant's outbound bound at runtime. Until row 579 lands, nothing in the audit trail records such a change.
+- **Revisit if** a tenant-facing editor or per-tenant runtime lists are proposed (both need a new amendment and a
+  karan-security review), or if row 579 is not delivered.
+- **Open items of the 2026-10-27 note.** (1) The revoke test is moot: the grant is restored by design. (2) The table
+  is no longer a drop candidate. (3) `PayloadPurgeContainerTest.java:52` is accurate again (the app reads the table).
 
 ### 9. Nothing stays stuck (challenge B4)
 
