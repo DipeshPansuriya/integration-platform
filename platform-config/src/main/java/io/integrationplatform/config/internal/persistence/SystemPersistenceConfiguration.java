@@ -1,6 +1,7 @@
 package io.integrationplatform.config.internal.persistence;
 
 import io.integrationplatform.config.destination.AllowList;
+import io.integrationplatform.config.destination.DbBackedAllowList;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.FileRoots;
 import io.integrationplatform.config.destination.HostResolver;
@@ -92,16 +93,23 @@ class SystemPersistenceConfiguration {
     }
 
     @Bean
-    DestinationGuard destinationGuard(Environment environment, HostResolver resolver) {
+    DbBackedAllowList dbBackedAllowList(Environment environment, JdbcClient jdbcClient) {
         Binder binder = Binder.get(environment);
         List<String> allowed = binder.bind(ALLOWED_HOSTS, Bindable.listOf(String.class)).orElse(List.of());
+        return new DbBackedAllowList(AllowList.of(allowed), jdbcClient);
+    }
+
+    @Bean
+    DestinationGuard destinationGuard(Environment environment, HostResolver resolver,
+            DbBackedAllowList dbBackedAllowList) {
+        Binder binder = Binder.get(environment);
         List<String> showcaseLocal = binder.bind(SHOWCASE_LOCAL_HOSTS, Bindable.listOf(String.class))
                 .orElse(List.of());
         List<Integer> showcasePorts = binder.bind(SHOWCASE_LOCAL_PORTS, Bindable.listOf(Integer.class))
                 .orElse(List.of());
         List<String> platformHosts = binder.bind(PLATFORM_HOSTS, Bindable.listOf(String.class)).orElse(List.of());
         if (showcaseLocal.isEmpty()) {
-            return new DestinationGuard(AllowList.of(allowed), resolver, List.of(), List.of(), platformHosts);
+            return new DestinationGuard(dbBackedAllowList, resolver, List.of(), List.of(), platformHosts);
         }
         List<String> active = Arrays.asList(environment.getActiveProfiles());
         if (!active.contains(SHOWCASE_PROFILE)) {
@@ -129,7 +137,7 @@ class SystemPersistenceConfiguration {
                     + " (platform stores " + PLATFORM_STORE_PORTS + ", server.port, management.server.port) -"
                     + " refusing to start: the local-host exception must never reach the platform's own services");
         }
-        DestinationGuard guard = new DestinationGuard(AllowList.of(allowed), resolver, showcaseLocal, showcasePorts,
+        DestinationGuard guard = new DestinationGuard(dbBackedAllowList, resolver, showcaseLocal, showcasePorts,
                 platformHosts);
         LOG.warn("SHOWCASE ONLY: {}={} on {}={} - these allow-listed hosts may resolve to loopback or private"
                 + " addresses on these ports only (profile '{}'); remove the properties to restore the refusal",

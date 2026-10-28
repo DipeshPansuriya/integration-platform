@@ -41,6 +41,7 @@ import { MappingDesigner } from './pages/MappingDesigner';
 import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
 import { clearAttempt, landingAfterLogin, markLoggedOut, rememberReturnTo, takeReturnTo } from './pages/login-flow';
+import { Destinations } from './pages/Destinations';
 import { safeDecode } from './safe-decode';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
@@ -49,7 +50,7 @@ import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
 
 type Route = {
-  page: 'home' | 'login' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue' | 'failures' | 'messages' | 'activity' | 'reports';
+  page: 'home' | 'login' | 'flows' | 'versions' | 'systems' | 'contracts' | 'rules' | 'mappings' | 'queue' | 'failures' | 'messages' | 'activity' | 'reports' | 'destinations';
   flowId: string | null;
   ruleSetId?: string | null;
   routeId?: string | null;
@@ -109,9 +110,11 @@ const NAV_GROUPS: Array<{ title: string; entries: NavEntry[] }> = [
 ];
 
 function adminToolEntries(): NavEntry[] {
+  const destinations: NavEntry = { label: 'Destinations', nav: 'destinations', hash: '#/destinations', page: 'destinations' };
   const h = window.location.hostname;
   if (h === 'localhost' || h === '127.0.0.1') {
     return [
+      destinations,
       { label: 'Keycloak', nav: 'keycloak', href: 'http://localhost:8180/admin/master/console/', external: true },
       { label: 'Kafka UI', nav: 'kafbat', href: 'http://localhost:8090', external: true },
     ];
@@ -120,6 +123,7 @@ function adminToolEntries(): NavEntry[] {
   const domain = parts.length > 1 ? parts.slice(1).join('.') : h;
   const proto = window.location.protocol;
   return [
+    destinations,
     { label: 'Keycloak', nav: 'keycloak', href: `${proto}//auth.${domain}/admin/master/console/`, external: true },
     { label: 'Kafka UI', nav: 'kafbat', href: `${proto}//ops.${domain}/kafka/`, external: true },
   ];
@@ -149,6 +153,7 @@ function parseHash(): Route {
   const routeId = /^mappings\/(.+)$/.exec(hash);
   if (routeId) return { page: 'mappings', flowId: null, routeId: safeDecode(routeId[1]) };
   if (hash.startsWith('mappings')) return { page: 'mappings', flowId: null, routeId: null };
+  if (hash.startsWith('destinations')) return { page: 'destinations', flowId: null };
   return { page: 'home', flowId: null };
 }
 
@@ -449,6 +454,7 @@ export function App() {
             </Suspense>
           )}
           {route.page === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
+          {route.page === 'destinations' && <Destinations />}
           {route.page === 'home' &&
             (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard />)}
         </main>
