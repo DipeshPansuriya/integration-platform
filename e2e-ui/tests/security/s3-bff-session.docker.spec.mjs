@@ -31,11 +31,14 @@ function sessionRow(id) {
 }
 
 /** A browser context holding only `value` as its session cookie. */
-async function contextWith(browser, value) {
+// bare: open a console-origin document that is not the SPA. Since row 571 the SPA sends a visitor with a dead cookie
+// straight to the realm form, which destroys the page the replay probes run in; the API answer is what is under test.
+async function contextWith(browser, value, { bare = false } = {}) {
   const context = await browser.newContext(NO_SESSION);
   if (value !== null) await context.addCookies([sessionCookieFor(value)]);
   const page = await context.newPage();
-  await atConsole(page);
+  if (bare) await page.goto(`${consoleUrl()}/api/v1/me`);
+  else await atConsole(page);
   return { context, page };
 }
 
@@ -153,7 +156,7 @@ test.describe('S3 BFF session (browser)', () => {
 
     expect(sessionRow(id), 'the Spring Session row is invalidated').toBe('0');
     expect(psql(`select count(*) from console_session.spring_session_attributes a where not exists (select 1 from console_session.spring_session s where s.primary_id = a.session_primary_id)`), 'no orphaned attribute rows').toBe('0');
-    const replay = await contextWith(browser, value);
+    const replay = await contextWith(browser, value, { bare: true });
     expect((await api(replay.page, 'GET', '/api/v1/me')).status, 'the old cookie after logout').toBe(401);
     const write = await api(replay.page, 'POST', '/api/v1/admin/systems', { body: systemBody(`after-logout-${RUN}`), csrf: 'forged', token: crypto.randomUUID() });
     expect([401, 403], 'and it cannot write').toContain(write.status);
