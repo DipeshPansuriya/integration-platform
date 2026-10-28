@@ -607,7 +607,8 @@ wording corrections of that check applied.
   2. **Pre-relayed outbox row.** The same column-wide `INSERT` lets the app insert an outbox row with `relayed_at`
      already set; it never reaches the ledger. This equals not writing the event (omission), which option A cannot
      detect anyway; it does not hide anyone else's event. **Closed by PR #81 once merged (row 570, Karan C2):**
-     `V2_4_1520__audit_outbox_insert_without_relayed_at.sql` revokes table-level `INSERT` on `audit_outbox` and grants
+     `platform-app/.../db/migration/V2_4_1540__audit_outbox_insert_without_relayed_at.sql` (renumbered from
+     V2_4_1520 because merged PR #88 took V2_4_1510; rollback `deploy/hostinger/audit/rollback-V2_4_1540.sql`) revokes table-level `INSERT` on `audit_outbox` and grants
      `INSERT` on the writer columns only (no `relayed_at`), pinned by `AuditLedgerLockdownContainerTest`.
   3. **Owner / DBA rewrite.** The migration owner (and any superuser) can still `UPDATE`, `DELETE` or drop ledger
      partitions. Detecting that is option B (hash chain plus verify job), out of scope.
@@ -615,7 +616,9 @@ wording corrections of that check applied.
      `UPDATE (status, ..., approver_id, decided_at, ...)` on `interface_version` (`V2_2_4:155-157`), so a compromised
      application role can approve a flow version directly with any approver id, without the function, the stamp check
      or an audit event. Accepted by the project owner as Low (Q3). **Closed by PR #81 once merged (row 570):**
-     `V2_4_1510__interface_version_revoke_approval_columns.sql` runs
+     `platform-config/.../db/migration/V2_4_1530__interface_version_revoke_approval_columns.sql` (renumbered from
+     V2_4_1510, which merged PR #88 uses for `V2_4_1510__regrant_operator_allowed_host_write.sql`; rollback
+     `deploy/hostinger/audit/rollback-V2_4_1530.sql`) runs
      `REVOKE UPDATE (approver_id, decided_at) ON public.interface_version FROM ipaas_app`, covered by
      `ApprovalActorFunctionContainerTest`. `contract_version` and `db_target_approved_table` have no direct `UPDATE`
      grant. The `INSERT` side of the same table stays open - residual 7.

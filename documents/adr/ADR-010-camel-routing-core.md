@@ -513,7 +513,7 @@ is `platform-config/src/main/java/io/integrationplatform/config/destination/`,
   an environment setting. No ADR decided it. karan-security raised it as
   H-1; the endpoint and screen were removed in PR 36 (`8f5cd0d7`), the dormant repository in PR 37 (`b1a9cdb6`);
   PR 40 re-added them by accident and PR 46 (`79c76ce5`, row 510) removed them again.
-- **State on main `e12f2949`.** The global allow-list is the startup setting
+- **State on main `e12f2949` (superseded - the table is no longer dormant; see the note of 2026-10-28 below).** The global allow-list is the startup setting
   `platform.config.destinations.allowed-hosts` only
   (`platform-config/src/main/java/io/integrationplatform/config/internal/persistence/SystemPersistenceConfiguration.java:60`, `:97`),
   as decided above. No application code reads or writes `operator_allowed_host` (search of `platform-*/src/main`
@@ -530,6 +530,25 @@ is `platform-config/src/main/java/io/integrationplatform/config/destination/`,
   (dropping a table is never automatic). (3) The comment at
   `platform-app/src/test/java/io/integrationplatform/app/retention/PayloadPurgeContainerTest.java:52` still says the
   application reads `operator_allowed_host` at start; it is stale.
+
+#### Note 2026-10-28 - operator_allowed_host is written again, by an operator-agent-only endpoint (PRs #88, #90)
+
+- **State on main `ba1767c6`.** The table is not dormant. PR #88 (`2b561b92`) added
+  `platform-config/src/main/resources/db/migration/V2_4_1510__regrant_operator_allowed_host_write.sql:6`
+  (`GRANT INSERT, DELETE ON public.operator_allowed_host TO ipaas_app`, undoing `V2_4_1440`), the repository
+  `platform-config/src/main/java/io/integrationplatform/config/destination/DbBackedAllowList.java`, which
+  **unions** the startup list with the table (`:12-13`, reads `:68`, writes `:92`, `:102`), and the endpoint
+  `platform-config/src/main/java/io/integrationplatform/config/destination/adapter/in/OperatorAllowedHostController.java`
+  (`/api/v1/admin/operator/allowed-hosts`). PR #90 (`ba1767c6`, row 578, CWE-862/918) made every route an
+  OPERATOR_AGENT operation (`OperatorAllowedHostController.java:30-32`,
+  `OperatorAllowedHostEndpointRoles.java:10-13`): every tenant role gets 403, so the H-1 path (a tenant admin widening
+  every tenant's outer bound) is closed, but the list is runtime-editable again.
+- **Conflict with the decision above.** "No runtime-editable allow-list" and "re-introducing one needs a new amendment
+  of this section and a karan-security review" no longer describe main. #90 is the security fix; no amendment of
+  section 8 accepted the runtime list. **Needs decision** (recommend: amend section 8 to accept one global,
+  operator-agent-only runtime list unioned with the startup setting, gated by #90's role tests, rather than revert #88).
+- **Open items of the 2026-10-27 note.** (1) The revoke test is moot: the grant is restored by design. (2) The table
+  is no longer a drop candidate. (3) `PayloadPurgeContainerTest.java:52` is accurate again (the app reads the table).
 
 ### 9. Nothing stays stuck (challenge B4)
 
