@@ -156,3 +156,6 @@
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
+
+/* V4 6b: heading tightness */
+.systems-page .systems-head h1 { letter-spacing: -0.02em; }

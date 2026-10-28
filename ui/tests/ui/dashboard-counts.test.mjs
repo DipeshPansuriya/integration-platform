@@ -103,5 +103,6 @@ test('B10 App.tsx never renders me.userId (chip falls back to Account, Dashboard
   assert.doesNotMatch(app, /user=\{\s*me\??\.userId/, 'the Dashboard user prop must not carry me.userId');
   const chip = app.match(/<summary[^>]*data-action="account"[^>]*>([\s\S]*?)<\/summary>/);
   assert.ok(chip, 'the account chip keeps its [data-action="account"] hook');
-  assert.equal(chip[1].trim(), 'Account', 'the chip shows the neutral label');
+  // V4 4d: the chip grew an avatar circle + label + chevron; the hook and the neutral label stay.
+  assert.match(chip[1], /\bAccount\b/, 'the chip shows the neutral label');
 });

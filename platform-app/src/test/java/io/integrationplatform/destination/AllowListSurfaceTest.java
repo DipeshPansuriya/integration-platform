@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.integrationplatform.config.destination.AllowList;
 import io.integrationplatform.config.destination.DestinationGuard;
+import io.integrationplatform.config.destination.adapter.in.OperatorAllowedHostController;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -46,13 +47,22 @@ class AllowListSurfaceTest {
             Pattern.compile("(?i)^(set|add|remove|put|clear|update|replace|reload|swap)");
 
     @Test
-    @DisplayName("no HTTP endpoint anywhere on the app's classpath edits (or names) the allow-list - it is"
-            + " deployment configuration only")
-    void noAllowListEditEndpointExists() {
-        List<String> surfaces = handlerSurfaces(restControllers());
+    @DisplayName("no HTTP endpoint outside the operator controller edits (or names) the allow-list")
+    void noAllowListEditEndpointExistsOutsideOperatorController() {
+        List<Class<?>> controllers = new ArrayList<>(restControllers());
+        controllers.remove(OperatorAllowedHostController.class);
+        List<String> surfaces = handlerSurfaces(controllers);
 
         assertThat(surfaces).as("every handler mapping of the scanned controllers").isNotEmpty();
         assertThat(surfaces).filteredOn(s -> ALLOW_LIST_NAMED.matcher(s).find()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the OperatorAllowedHostController is the only allow-list editor and all its endpoints name it")
+    void operatorControllerIsTheOnlyAllowListEditor() {
+        List<String> surfaces = handlerSurfaces(List.of(OperatorAllowedHostController.class));
+        assertThat(surfaces).isNotEmpty();
+        assertThat(surfaces).allMatch(s -> ALLOW_LIST_NAMED.matcher(s).find());
     }
 
     @Test

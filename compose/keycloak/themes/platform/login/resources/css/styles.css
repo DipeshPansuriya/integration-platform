@@ -44,7 +44,7 @@ body {
   margin: 12vh auto 48px;
   background: var(--platform-surface);
   border: 1px solid var(--platform-border);
-  /* row 571: Kale Deep Sea card signature - 4px rule on top, 4px rule at the foot (tokens.css) */
+  /* row 571: 4px rule on top, 4px rule at the foot (tokens.css) */
   border-top: 4px solid var(--platform-rule-top);
   border-bottom: 4px solid var(--platform-rule-bottom);
   border-radius: var(--platform-r-2); /* cards = 12px */
@@ -53,7 +53,7 @@ body {
 }
 
 /* row 571: the brand line the console's sign-in state also carries, as a technical eyebrow (uppercase,
-   wide tracking - the one place the brand allows caps besides status pills). Decorative text, same as the
+   wide tracking - the one place caps are used besides status pills). Decorative text, same as the
    console's "Integration Platform"; the page's one heading stays h1#kc-page-title. */
 .platform-card::before {
   content: "Integration Platform";

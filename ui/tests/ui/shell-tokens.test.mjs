@@ -40,18 +40,18 @@ test('tokens.css declares every colour token as a light+dark pair', () => {
 test('01-§1 acceptance pairs hold in both themes', () => {
   const { light, dark } = readTokens();
   for (const [tok, value, block] of [
-    ['--color-canvas', '#f8fafc', light],
+    ['--color-canvas', '#f0f2f5', light],
     ['--color-surface', '#ffffff', light],
-    ['--color-ink', '#0f172a', light],
-    ['--color-accent', '#2563eb', light],
-    ['--color-accent-hover', '#1d4ed8', light],
-    ['--color-success-text', '#15803d', light],
-    ['--color-danger-text', '#b91c1c', light],
-    ['--color-canvas', '#0f172a', dark],
-    ['--color-surface', '#1e293b', dark],
-    ['--color-ink', '#e2e8f0', dark],
-    ['--color-accent', '#3b82f6', dark],
-    ['--color-success-text', '#4ade80', dark],
+    ['--color-ink', '#0f1729', light],
+    ['--color-accent', '#4f46e5', light],
+    ['--color-accent-hover', '#4338ca', light],
+    ['--color-success-text', '#065f46', light],
+    ['--color-danger-text', '#991b1b', light],
+    ['--color-canvas', '#08090e', dark],
+    ['--color-surface', '#12131c', dark],
+    ['--color-ink', '#eceef4', dark],
+    ['--color-accent', '#818cf8', dark],
+    ['--color-success-text', '#6ee7b7', dark],
   ]) {
     assert.ok(block.includes(`${tok}: ${value}`), `${tok} must be ${value} in ${block === dark ? 'dark' : 'light'}`);
   }
@@ -551,7 +551,7 @@ for (const theme of ['light', 'dark']) {
     assert.deepEqual(measured.filter((p) => p.r < 3).map((p) => `${p.name} = ${p.r}:1`), []);
     assert.notEqual(m[1], 'var(--color-border)', 'the hairline token is for dividers, not control boundaries');
     // hairlines stay hairlines
-    assert.equal(map.get('--color-border'), theme === 'dark' ? '#334155' : '#e2e8f0');
+    assert.equal(map.get('--color-border'), theme === 'dark' ? '#1f2133' : '#dfe2ea');
   });
 
   test(`T90 --color-ink-faint >= 4.5:1 on canvas, surface and raised, still fainter than ink-muted (${theme})`, () => {
@@ -565,7 +565,7 @@ for (const theme of ['light', 'dark']) {
     for (const p of measured) console.log(`# ${theme} ${p.name} = ${p.r}:1 (ink-muted ${p.muted}:1)`);
     assert.deepEqual(measured.filter((p) => p.r < 4.5).map((p) => `${p.name} = ${p.r}:1`), []);
     for (const p of measured) assert.ok(p.r < p.muted, `${p.name} must stay fainter than ink-muted`);
-    if (theme === 'light') assert.equal(map.get('--color-ink-faint'), '#64748b', 'light ink-faint is unchanged');
+    if (theme === 'light') assert.equal(map.get('--color-ink-faint'), '#626a8c', 'light ink-faint is the V4 AA value');
   });
 
   test(`T90 realm login tokens carry the console values (${theme} parity)`, () => {
@@ -664,7 +664,7 @@ for (const theme of ['light', 'dark']) {
     }
     for (const p of measured) console.log(`# ${theme} ${p.name} = ${p.r}:1`);
     assert.deepEqual(measured.filter((p) => p.r < 4.5).map((p) => `${p.name} = ${p.r}:1`), []);
-    assert.equal(map.get('--color-accent'), theme === 'dark' ? '#3b82f6' : '#2563eb', 'accent value unchanged');
+    assert.equal(map.get('--color-accent'), theme === 'dark' ? '#818cf8' : '#4f46e5', 'accent value unchanged');
   });
 
   test(`T90b realm login links carry --platform-link (= console --color-link) at >= 4.5:1 in the ${theme} theme`, () => {

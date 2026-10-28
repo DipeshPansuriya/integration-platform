@@ -196,3 +196,6 @@
   border-color: var(--color-danger-text);
   color: var(--color-danger-text);
 }
+
+/* V4 6e: heading tightness */
+:is(.rules-home, .rules-editor) .rules-head h1 { letter-spacing: -0.02em; }

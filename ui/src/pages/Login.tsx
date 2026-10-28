@@ -22,8 +22,10 @@ export function Login({ state, onRetry }: { state: LoginState; onRetry: () => vo
   const retry = useRef<HTMLButtonElement>(null);
   const jumped = useRef(false);
   // What the tab remembers, read once per arrival (and again when the browser restores the page from its
-  // back/forward cache, where this component's memory of "redirecting" would otherwise be frozen).
-  const [memory, setMemory] = useState(() => readLoginMemory());
+  // back/forward cache, where this component's memory of "redirecting" would otherwise be frozen: a restore
+  // always lands on 'failed' + Try again, whatever the age of the attempt stamp).
+  // A '?error=' flag (the backend sends a failed code exchange here) is a restore too: never redirect again.
+  const [memory, setMemory] = useState(() => ({ ...readLoginMemory(), restored: /[?&]error=/.test(window.location.hash) }));
   const view = decideLoginView({ state, ...memory });
 
   // Row 372 M8: Back from the identity provider can restore this page from the bfcache.
@@ -31,7 +33,7 @@ export function Login({ state, onRetry }: { state: LoginState; onRetry: () => vo
     const onPageShow = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
       jumped.current = false;
-      setMemory(readLoginMemory());
+      setMemory({ ...readLoginMemory(), restored: true });
     };
     window.addEventListener('pageshow', onPageShow);
     return () => window.removeEventListener('pageshow', onPageShow);
@@ -69,6 +71,39 @@ export function Login({ state, onRetry }: { state: LoginState; onRetry: () => vo
 
   return (
     <main className="signin" data-page="login" data-session-state={state} data-login-view={view}>
+      {/* V4 7e: marketing hero on the left canvas; hidden under 1100px. */}
+      <div className="signin-hero">
+        <div>
+          <h2>Streamline your<br />cargo integrations</h2>
+          <p>Connect systems, transform data, and route messages across your cargo handling ecosystem.</p>
+          <div className="signin-features">
+            <div className="signin-feature">
+              <span className="signin-feature-icon">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 3.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM11 12.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM5 5.5v2.5a2.5 2.5 0 0 0 2.5 2.5H9" /></svg>
+              </span>
+              Visual flow builder with drag-and-drop
+            </div>
+            <div className="signin-feature">
+              <span className="signin-feature-icon">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 1.5h6l3.5 3.5V13a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 13V3A1.5 1.5 0 0 1 4 1.5zM10 1.5v3.5h3.5M6 8h4M6 10.5h2" /></svg>
+              </span>
+              Schema contracts with version tracking
+            </div>
+            <div className="signin-feature">
+              <span className="signin-feature-icon">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z" /></svg>
+              </span>
+              Decision-table rules engine
+            </div>
+            <div className="signin-feature">
+              <span className="signin-feature-icon">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M1 8h2.5l2-4.5 3 9 2-4.5H14" /></svg>
+              </span>
+              Real-time delivery monitoring
+            </div>
+          </div>
+        </div>
+      </div>
       <div className="signin-column">
         <p className="signin-brand">Integration Platform</p>
         <div className="signin-card">

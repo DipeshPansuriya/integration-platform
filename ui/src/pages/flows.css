@@ -266,3 +266,6 @@
   background: transparent;
   box-shadow: none;
 }
+
+/* V4 6a: heading tightness */
+:is(.flows-page, .versions-page) .flows-head h1 { letter-spacing: -0.02em; }
