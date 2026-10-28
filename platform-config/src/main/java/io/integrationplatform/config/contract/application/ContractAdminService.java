@@ -166,6 +166,9 @@ public class ContractAdminService {
                 yield approved;
             }
             case "VERSION_NOT_FOUND" -> throw ConfigApiException.notFound();
+            // row 544: a stamping bug, not a business refusal - never mislabelled NOT_PENDING_APPROVAL
+            case "REFUSED_NO_ACTOR", "REFUSED_ACTOR_MISMATCH" -> throw new IllegalStateException(
+                    "the approval actor was not stamped consistently: " + result);
             default -> throw ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL");
         };
     }

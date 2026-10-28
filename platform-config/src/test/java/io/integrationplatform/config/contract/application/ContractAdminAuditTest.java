@@ -155,6 +155,18 @@ class ContractAdminAuditTest {
     }
 
     @Test
+    void aMissingOrMismatchedActorStampIsAServerErrorNeverANotPendingConflict() {
+        when(contracts.approveVersion(VERSION, ACTOR.toString())).thenReturn("REFUSED_NO_ACTOR",
+                "REFUSED_ACTOR_MISMATCH");
+
+        assertThatThrownBy(() -> service.approve(VERSION, ACTOR)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("REFUSED_NO_ACTOR");
+        assertThatThrownBy(() -> service.approve(VERSION, ACTOR)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("REFUSED_ACTOR_MISMATCH");
+        assertThat(audits()).isEmpty();
+    }
+
+    @Test
     void aRefusedApprovalPublishesNothing() {
         when(contracts.approveVersion(VERSION, ACTOR.toString())).thenReturn("REFUSED_APPROVED");
 

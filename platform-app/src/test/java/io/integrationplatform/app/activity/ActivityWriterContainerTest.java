@@ -76,6 +76,9 @@ class ActivityWriterContainerTest {
     @Autowired
     private TestBoundTenantContext boundTenant;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
     @DynamicPropertySource
     static void wiring(DynamicPropertyRegistry registry) {
         login = PlatformTestWiring.register(registry, POSTGRES);
@@ -130,6 +133,10 @@ class ActivityWriterContainerTest {
             writer.record(entry);
             return null;
         }));
+        // row 544 (Q1): the writer appends to the outbox; the ledger row exists once the relay moved it, and the
+        // app role's only way to move is audit_relay_move (same call the relay makes)
+        boundTenant.as(tenant, () -> new TransactionTemplate(transactionManager).execute(status -> jdbc.queryForList(
+                "select public.audit_relay_move(id) from public.audit_outbox where relayed_at is null")));
     }
 
     private ActivityReadApi.ActivityPage listAs(UUID tenant, String action) {

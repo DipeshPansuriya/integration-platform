@@ -131,6 +131,11 @@ public final class JdbcContractRepository extends TenantScopedRepository {
             + "    select public.config_approve_contract_version(:version_id::uuid, :approver_id::uuid) as result,"
             + "    current_setting('app.tenant_id')::uuid as tenant_id) called";
 
+    /** Row 544: the approver as a transaction-local setting, the one source the definer approval reads. */
+    private static final String STAMP_ACTOR = "select stamped from ("
+            + "    select set_config('app.actor_id', :approver_id, true) as stamped,"
+            + "    current_setting('app.tenant_id')::uuid as tenant_id) stamp";
+
     public Optional<ContractRow> findContractByCode(String code) {
         return first(query(READ_CONTRACT_BY_CODE, "c.code = :code", Params.of("code", code), CONTRACT_ROW));
     }
@@ -226,6 +231,9 @@ public final class JdbcContractRepository extends TenantScopedRepository {
      * or {@code REFUSED_<status>} for a version that is not pending approval.
      */
     public String approveVersion(String versionId, String approverId) {
+        // row 544: stamp the actor in this transaction first (see JdbcFlowRepository.approveVersion)
+        query(STAMP_ACTOR, null, Params.of("approver_id", java.util.UUID.fromString(approverId).toString()),
+                (RowMapper<String>) (rs, n) -> rs.getString(1));
         return first(query(APPROVE_VERSION, null, Params.of("version_id", versionId, "approver_id", approverId),
                 (RowMapper<String>) (rs, n) -> rs.getString(1)))
                 .orElseThrow(() -> new IllegalStateException("the contract approve function returned no row"));

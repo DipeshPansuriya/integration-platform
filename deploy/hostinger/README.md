@@ -102,7 +102,7 @@ docker push <registry>/ipass/flyway-migrate:<sc>          # or, without a regist
 ```
 `build-image.sh` builds from `git archive HEAD` (never the working tree), refuses a tag that is not the start of HEAD, refuses uncommitted or untracked files in a migration folder or `flyway/`, runs the guard, labels the image `org.opencontainers.image.revision=<full sha>` and `ipass.flyway.manifest=<hash of the migration files>`, and prints the image id (note it in the release note). `deploy.sh` / `migrate.sh` refuse (exit 4) an image whose revision label does not start with the release tag, before the database password is used, so a stale local image or a rebuilt tag is never run; `FLYWAY_IMAGE_ID=<id>` additionally pins the exact build. The name follows `${IPASS_IMAGE_PREFIX:-acsnewacr.azurecr.io/ipass}/flyway-migrate:${IMAGE_TAG}`; `FLYWAY_IMAGE` overrides the whole name. Pushing is the project owner's step.
 
-**On the VPS (`/docker/ipass`).** Copy `flyway/migrate.sh` and `deploy.sh` next to `compose.yaml` (`scp -r deploy/hostinger/flyway deploy/hostinger/deploy.sh <vps>:/docker/ipass/`, then `chmod +x deploy.sh flyway/*.sh`). `IMAGE_TAG` is the commit being released; a value you pass wins over `.env` (as with compose). The `.env` is read, never sourced.
+**On the VPS (`/docker/ipass`).** Copy `flyway/migrate.sh` and `deploy.sh` next to `compose.yaml` (`scp -r deploy/hostinger/flyway deploy/hostinger/deploy.sh deploy/hostinger/audit <vps>:/docker/ipass/`, then `chmod +x deploy.sh flyway/*.sh`). `IMAGE_TAG` is the commit being released; a value you pass wins over `.env` (as with compose). The `.env` is read, never sourced.
 ```
 IMAGE_TAG=<sc> ./flyway/migrate.sh info        # applied / pending, read-only
 IMAGE_TAG=<sc> ./flyway/migrate.sh validate    # history vs files (checksums, missing files); pending is not an error; read-only
@@ -129,6 +129,115 @@ cp -p release-backups/<utc>/.env.bak .env && docker compose up -d     # the prev
 The role names are the cluster's, so the restore (as the superuser, without `--no-owner`) puts the objects back under `ipass_migrator` with their grants; `restore-test.sh` uses `--no-owner` only because it just counts rows. The sequence was run against a throwaway Postgres in `test/flyway-local-proof.sh` (step 9: 59 migrations still `Success`, owners back to `ipass_migrator`, `migrate` a no-op). Use `POSTGRES_USER` instead of `ipass_admin` if you changed it.
 
 **Tests.** Offline, no container: `bash deploy/hostinger/test/test-flyway.sh` (guard, `.env` parsing without eval, password never on a command line, validate-before-migrate, deploy order and exit codes, with a fake docker). Container proof on the build PC (takes a Docker lock, throwaway Postgres and network, real `postgres-init` role script, deletes what it created): `bash deploy/hostinger/test/flyway-local-proof.sh`. Parity check (the app's own Flyway, same engine and the module `db/migration` folders on the class path, finds 0 pending and a valid history on a CLI-migrated database): `test/FlywayParityCheck.java`, run by `flyway-local-proof.sh`. `PARITY_JAVA` (a JDK 25 `java`) and `PARITY_JARS` (flyway-core 12.4.0, flyway-database-postgresql, the Postgres driver, Jackson 3 databind and core, jackson-annotations; `;`-separated on Windows) are REQUIRED: without them the run fails, and `ALLOW_NO_PARITY=1` ends in `PASSED WITHOUT PARITY`, never in `ALL PASSED`. Step 10 of the proof shows the init SQL (`lock_timeout`) really reaches the migration session, with controls that must fail. The recorded run is the row 528 proof report `_reports/2026-10-27-row528-flyway-pipeline-proof.md` of the project's planning workspace (not in this repository). There is no CI job for these scripts (none exists for this repo): run `bash deploy/hostinger/test/test-flyway.sh` (offline, about two minutes) whenever `flyway/`, `deploy.sh` or a `db/migration` folder changes; `test-scripts.sh` cannot be the gate while it exits early on main (row 489).
+
+## Audit ledger lockdown (option A, row 544)
+
+What changes: the application role (`ipaas_app`, which `ipass_app` is a member of) can no longer INSERT into `audit_event` or UPDATE
+`audit_outbox.relayed_at`. A committed `audit_outbox` row reaches the ledger only through `public.audit_relay_move(bigint)` (SECURITY
+DEFINER, owner `ipass_migrator`), which stamps `relayed_at` and inserts the ledger row in one statement. Flow and contract approvals
+read the approver from the `app.actor_id` the application stamps in the same transaction. Migrations: `V2_4_1490` (`platform-app`,
+audit) and `V2_4_1500` (`platform-config`, approvals). All commands below run in `/docker/ipass` and use the real database name `ipass`
+(`compose.yaml`, `POSTGRES_DB`). Set this once in the shell you use (the snippets below expand `$PSQL` unquoted):
+
+```sh
+PSQL='docker compose exec -T postgres psql -U ipass_migrator -d ipass -v ON_ERROR_STOP=1 -X'
+```
+
+Copy the `audit/` folder next to `compose.yaml` first (it holds the reconcile query and the two rollback scripts):
+`scp -r deploy/hostinger/audit <vps>:/docker/ipass/`.
+
+**Release order (one release, the app is stopped during the migration).** The previous app cannot work against these migrations (its
+relay needs the revoked privileges; it never stamps an actor, so approvals answer `REFUSED_NO_ACTOR`), and `deploy.sh` runs Flyway
+while the old app still serves, so stop it first:
+
+1. Baseline: run the reconciliation query below once on the current data (findings go to the owner, they are not fixed here).
+2. `docker compose stop platform-app` (business writes pause; nothing is written, so no audit event is lost).
+3. `IMAGE_TAG=<sc> ./deploy.sh` - backup, `info`, `validate`, `migrate` (applies V2_4_1490 then V2_4_1500 as `ipass_migrator`), tag switch,
+   `up -d` (the new app's own Flyway finds nothing pending; the relay delivers any pending backlog), health.
+4. Post-checks (below).
+
+Downtime is migrate duration + app start + health wait (`deploy.sh` waits at most 300 s). Pre-flight on the build PC: the PR is
+merged to `main`, both images for the same tag are built, `bash deploy/hostinger/test/test-flyway.sh` is green.
+
+**If `deploy.sh` stops before the app is back up (the app is already stopped).** Each migration runs in its own transaction, so a failed
+one wrote nothing; read the error (see "If a migration fails" above). Two states are possible: (a) neither migration applied - the old
+app is still compatible: `docker compose up -d platform-app` on the old tag; (b) `V2_4_1490` applied and `V2_4_1500` failed (1490 runs first) -
+the old app is NOT compatible with either: fix forward with a new image tag and run `deploy.sh` again, or run the rollback blocks of the
+applied migration(s) (below) and start the old tag. The pre-release dump (`/backups/ipass-<utc>.dump`, taken in step 1 of `deploy.sh`) is the
+last resort and loses writes made since it (there are none while the app is stopped).
+
+**Flag.** `IPAAS_AUDIT_RELAY_MODE` (compose passes it through, default `DEFINER`): `DEFINER` relays through the function; `LEGACY` uses the
+old direct statement and logs one WARN at start; any other value stops the app from starting. The flag alone is NOT a rollback.
+
+**Rollback (two steps, in this order).** The rollback SQL lives in the header of each migration as comment lines between
+`-- ROLLBACK-BEGIN` and `-- ROLLBACK-END`. The same SQL ships as `audit/rollback-V2_4_1490.sql` and `audit/rollback-V2_4_1500.sql`
+(a unit test, `RollbackScriptsTest`, fails if either differs from its migration header), so nothing needs extracting on the VPS:
+
+```sh
+docker compose stop platform-app
+$PSQL -1 < audit/rollback-V2_4_1490.sql
+# then in .env: IPAAS_AUDIT_RELAY_MODE=LEGACY ; and
+docker compose up -d
+```
+
+If the app **image** is also rolled back, also run `$PSQL -1 < audit/rollback-V2_4_1500.sql` (restores the previous approval function
+bodies) before starting the old tag; the two scripts are independent and may run in either order. Flyway history rows stay; a later roll-forward uses a new migration number, never an edit, and `repair` is
+not needed (no checksum changed).
+
+**Post-checks** (`$PSQL`, as the owner). Expected values after the migrations, and after a rollback (the drift check: run the same queries
+after the rollback and compare):
+
+```sql
+select has_table_privilege('ipaas_app', 'public.audit_event', 'INSERT');                    -- false | true
+select has_column_privilege('ipaas_app', 'public.audit_outbox', 'relayed_at', 'UPDATE');    -- false | true
+select has_any_column_privilege('ipaas_app', 'public.audit_outbox', 'UPDATE');              -- false | true
+select to_regprocedure('public.audit_relay_move(bigint)') is not null;                       -- true  | false
+select has_function_privilege('public', 'public.audit_relay_move(bigint)', 'EXECUTE');      -- false | (function gone: error)
+select bool_and(prosrc like '%REFUSED_NO_ACTOR%') from pg_proc
+  where proname in ('config_approve_version', 'config_approve_contract_version');            -- true  | false
+-- the function owner is the migration owner, neither superuser nor BYPASSRLS (cannot be proven in test containers)
+select p.proowner::regrole as owner, r.rolsuper, r.rolbypassrls, p.prosecdef, p.proconfig
+  from pg_proc p join pg_roles r on r.oid = p.proowner where p.proname = 'audit_relay_move';  -- ipass_migrator, f, f, t, {search_path=pg_catalog, pg_temp}
+-- no write privilege for the application login on any monthly partition (a direct partition INSERT bypasses the parent's grant);
+-- has_table_privilege covers role membership, PUBLIC and a direct grant to the login
+select c.relname from pg_class c join pg_inherits i on i.inhrelid = c.oid
+  where i.inhparent = 'public.audit_event'::regclass
+    and has_table_privilege('ipass_app', c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE');             -- no rows (also after a rollback)
+select * from pg_default_acl;                                                                -- nothing for schema public
+select pg_has_role('ipass_app', 'pg_write_all_data', 'USAGE'), pg_has_role('ipass_app', 'pg_read_all_data', 'USAGE'),
+       pg_has_role('ipass_app', 'pg_database_owner', 'USAGE');                              -- false, false, false (also through a chain of roles)
+select version();                                                                            -- PostgreSQL 16 or newer (the reconcile query needs pg_input_is_valid)
+select count(*) from public.audit_outbox where relayed_at is null;                           -- falls to 0 after the relay runs
+```
+
+Then approve one flow version end to end and confirm the ledger shows the event.
+
+**Reconciliation of `selfApproved` (read-only, one tenant per run).** `audit/reconcile-self-approved.sql` compares the flag on every
+`FLOW_APPROVED`, `CONTRACT_VERSION_APPROVED` and `DB_TABLE_APPROVED` event with the business row (approver = author, or decided_by =
+requested_by). No rows returned = everything reconciles; any row is a mismatch to investigate (it is never repaired automatically). A
+malformed `after_state` (one longer than 4096 characters is not parsed at all), a non-boolean flag or a non-array `target_ids` does not abort the run: that row is reported itself (its
+`claimed_self_approved` or `target_id` is empty). Run one tenant, one psql session (stdin keeps the tenant setting and the query together;
+needs PostgreSQL 16+ for `pg_input_is_valid`):
+
+```sh
+{ echo "select set_config('app.tenant_id', '<tenant uuid>', false);"; cat audit/reconcile-self-approved.sql; } | $PSQL
+```
+
+It detects a claim that disagrees with the business row; it cannot detect an event that was never written.
+
+**Concurrent relays.** The relay picks the oldest pending ids with a plain `select` and takes the row lock inside `audit_relay_move` (`skip locked`).
+Two relays running at the same moment on one tenant therefore pick the same ids: the second moves 0 until the first commits, then finds them
+relayed. Nothing is lost or duplicated; throughput under a large backlog is serial (200 per cycle on the loop, 50 after a commit).
+
+**Known limits.**
+- A compromised application session can still write false actor/action text into the outbox at write time, including a row inserted
+  already marked `relayed_at` (the application keeps table-level INSERT on `audit_outbox`; such a row never reaches the ledger). That equals
+  the application simply not writing the event: the omission class, not detectable by this option. Not fixed in this release.
+- The ledger is append-only for the application role. It is not tamper-proof against code execution in the app container, which today also holds
+  the migration-owner login (`DB_MIGRATION_*` in the same service, in-app Flyway), nor against the migration owner / DBA, who can still alter
+  rows or drop partitions.
+- Flow-version `approver_id` / `status` stay writable by the application role through the `interface_version` column grants (`V2_2_4`) - a separate residual, closed by one column REVOKE in the next row (see ADR-011 Amendment 2026-10-28).
+- `app.actor_id` is stamped by the application: a consistency check, not a security boundary.
 
 ## Tests (build PC)
 

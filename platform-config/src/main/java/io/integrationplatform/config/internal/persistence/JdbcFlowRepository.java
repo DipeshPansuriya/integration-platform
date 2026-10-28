@@ -162,6 +162,11 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
             + "    select public.config_approve_version(:version_id::uuid, :approver_id::uuid) as result,"
             + "    current_setting('app.tenant_id')::uuid as tenant_id) called";
 
+    /** Row 544: the approver as a transaction-local setting, the one source the definer approval reads. */
+    private static final String STAMP_ACTOR = "select stamped from ("
+            + "    select set_config('app.actor_id', :approver_id, true) as stamped,"
+            + "    current_setting('app.tenant_id')::uuid as tenant_id) stamp";
+
     // ------------------------------------------------------------------ mappers
 
     private static final RowMapper<InterfaceRow> INTERFACE_ROW = (rs, n) -> new InterfaceRow(
@@ -377,6 +382,10 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
      * ({@code APPROVED}, {@code VERSION_NOT_FOUND}, {@code REFUSED_<status>}).
      */
     public String approveVersion(String versionId, String approverId) {
+        // row 544: stamp the actor in this transaction first (set_config is transaction-local; the service's
+        // @Transactional makes the stamp and the call one transaction)
+        query(STAMP_ACTOR, null, Params.of("approver_id", java.util.UUID.fromString(approverId).toString()),
+                FIRST_COLUMN);
         return orRow(query(APPROVE_VERSION, null,
                 Params.of("version_id", versionId, "approver_id", approverId), FIRST_COLUMN));
     }
