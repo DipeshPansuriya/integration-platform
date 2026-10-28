@@ -131,9 +131,14 @@ class AuditRelayMoveFunctionContainerTest {
 
     /**
      * Row 544 review C1: the test containers run the function as the container superuser, which bypasses row-level
-     * security. Here the function is owned for a moment by a NOSUPERUSER NOBYPASSRLS role holding only what the
-     * migration owner holds on the two tables, so FORCE RLS binds the owner too: it still moves once, refuses another
-     * tenant's row (both gates), and fails closed with no tenant. The owner is put back afterwards.
+     * security. Here the function is owned for a moment by a NOSUPERUSER NOBYPASSRLS role holding only the table
+     * privileges the migration owner needs. It proves the function body works for a role that is neither superuser nor
+     * BYPASSRLS (the policies and WITH CHECK admit its UPDATE and INSERT; no hidden dependence on superuser): it
+     * moves once, refuses another tenant's row and fails closed with no tenant. It does NOT prove that FORCE ROW LEVEL
+     * SECURITY binds the table owner: the substitute role does not own the tables, so it is bound by the policies
+     * whether or not FORCE is set. FORCE is asserted by {@code AuditWriterContainerTest}
+     * ({@code theAuditLedgerForcesRowLevelSecurityEvenForTheTableOwner}: {@code relforcerowsecurity} true on both
+     * tables), and the live owner's flags are a README post-check. The owner is put back afterwards.
      */
     @Test
     void underANosuperuserNobypassrlsOwnerTheMoveStillMovesOnceAndRefusesAnotherTenant() throws SQLException {

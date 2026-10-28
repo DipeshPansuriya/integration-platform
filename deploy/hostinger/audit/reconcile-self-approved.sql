@@ -1,9 +1,9 @@
 -- Row 544 (audit tamper-evidence, option A), FR-008: reconcile the `selfApproved` flag of every approval audit event
 -- against the business row it describes. READ-ONLY: it reports mismatches, it never blocks or repairs.
 --
--- One tenant per run. Bind the tenant first, in the same session, then run this file:
---     select set_config('app.tenant_id', '<tenant uuid>', false);
---     \i reconcile-self-approved.sql
+-- One tenant per run, one psql session: the tenant setting and this file are fed together on stdin (deploy/hostinger/README.md,
+-- "Reconciliation of selfApproved"):
+--     { echo "select set_config('app.tenant_id', '<tenant uuid>', false);"; cat audit/reconcile-self-approved.sql; } | $PSQL
 -- (a role bound by row-level security sees only that tenant; the explicit tenant predicate below also holds for a
 -- superuser session, which bypasses RLS.) An unset app.tenant_id makes the query fail, never read across tenants.
 --
@@ -23,9 +23,13 @@ with approvals as (
     select e.id as audit_event_id,
            e.action,
            -- total casts (PostgreSQL 16+): a malformed after_state or a non-boolean flag yields NULL = reported, never an abort
-           case when pg_input_is_valid(e.after_state, 'jsonb') then
-                case when pg_input_is_valid((e.after_state::jsonb) ->> 'selfApproved', 'boolean')
-                     then ((e.after_state::jsonb) ->> 'selfApproved')::boolean end
+           -- an after_state longer than 65536 characters is not parsed at all (the JSON parser's stack-depth check is a hard
+           -- error, not a soft one): it yields NULL = reported, like any other malformed value
+           case when length(e.after_state) <= 65536 then
+                case when pg_input_is_valid(e.after_state, 'jsonb') then
+                     case when pg_input_is_valid((e.after_state::jsonb) ->> 'selfApproved', 'boolean')
+                          then ((e.after_state::jsonb) ->> 'selfApproved')::boolean end
+                end
            end as claimed,
            case when jsonb_typeof(e.target_ids) = 'array' then
            (select substr(t, case e.action when 'FLOW_APPROVED' then 19

@@ -232,6 +232,22 @@ class ApprovalAuditReconciliationContainerTest {
     }
 
     @Test
+    @Tag("negative")
+    void anOversizedDeeplyNestedAfterStateIsReportedAndDoesNotAbortTheRun() throws Exception {
+        UUID target = flowVersion(U1, U1);
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement()) {
+            sql.execute("insert into public.audit_event (tenant_id, actor, action, target_ids, after_state, event_at)"
+                    + " values ('" + TENANT_A + "', 'rec-actor', 'FLOW_APPROVED', jsonb_build_array('interface_version:"
+                    + target + "'), repeat('[', 200000), now())");
+        }
+
+        List<String> reported = reconcile(TENANT_A);
+
+        assertThat(reported).as("the oversized value is reported itself, the run did not abort")
+                .containsExactly("FLOW_APPROVED|" + target + "|null|t");
+    }
+
+    @Test
     void anotherTenantsRunSeesNothingOfThisTenantsEvents() throws Exception {
         UUID lied = flowVersion(U1, U2);
         event(TENANT_A, "FLOW_APPROVED", "interface_version", lied, claim(true));

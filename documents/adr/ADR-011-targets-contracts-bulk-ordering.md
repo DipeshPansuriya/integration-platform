@@ -514,9 +514,8 @@ honest limits, addendum S1, residual (a)). Those statements stay above as histor
 
 **Status: Accepted - the project owner approved option A only on 2026-10-27** (options B hash chain, C separate writer role,
 D external sink are out of scope) and signed the six clarifications Q1-Q6 the same day (spec
-`_specs/2026-10-27-audit-option-a/spec.md` of the planning workspace, ledger row 544). Built on branch
-`feat/row544-audit-relay-definer`; reviewed by varun-code-reviewer (approve with fixes) and karan-security
-(no Critical or High) on 2026-10-28. This amendment extends point 5 "Audit by actor" of the amendment of 2026-10-27; it
+`_specs/2026-10-27-audit-option-a/spec.md` of the planning workspace, ledger row 544). Drafted by mahesh-architect;
+reviewed by varun-code-reviewer (approve with fixes) and karan-security (no Critical or High) on 2026-10-28. This amendment extends point 5 "Audit by actor" of the amendment of 2026-10-27; it
 changes no decision of that amendment and no tenant-isolation rule (ADR-009).
 
 - **Context.** The 2026-10-27 amendment made the audit trail the only attribution of a one-person lifecycle, but the
@@ -586,15 +585,21 @@ changes no decision of that amendment and no tenant-isolation rule (ADR-009).
     `AuditRelayDeliveryContainerTest`). Batch sizes are unchanged (200 loop, 50 after commit).
   - Activity rows appear in the ledger only after a relay runs; the relay loop exists only when Kafka is configured,
     so a future non-Kafka caller of the activity writer must trigger a relay.
-  - A poison outbox row (e.g. an event month with no ledger partition) still rolls back its tenant's batch every cycle
-    and stays visible in the WARN log (pre-existing, kept - plan D-13).
+  - A poison outbox row (e.g. the current month has no ledger partition: the ledger is partitioned by `created_at`, the
+    move time, not by the event time) still rolls back its tenant's batch every cycle and stays visible in the WARN log
+    (pre-existing, kept - plan D-13). The partition window (pre-created to 12 months after the first migration) is
+    therefore a calendar-driven operational item for the release statement; whether a maintenance job extends it is
+    UNVERIFIED.
   - One more release step: the app must be stopped for the migration.
 - **What this does NOT protect (residuals, stated for the release statement).**
   1. **Forgery at write time.** `ipaas_app` keeps `INSERT` on every `audit_outbox` column, so a compromised application
      session can write any actor, action, target ids, before/after state, event time (back- or forward-dated) and
      `trace_id` for a tenant it stamps, and it stamps `app.actor_id` itself: the stamp is a consistency control, not an
-     authentication boundary. It cannot choose the ledger id, `created_at` or move another tenant's row. `selfApproved`
-     is also an application claim; the reconciliation query detects only disagreement with the business row.
+     authentication boundary. It cannot choose the ledger id or `created_at`, and the move takes the tenant from the outbox
+     row, which the policy pins to the `app.tenant_id` the application stamps itself: it can only move rows of the tenant it
+     stamps, and it stamps the tenant itself (moving a row verbatim only brings that event forward). `trace_id` and the text
+     columns are unbounded (a storage-growth lever for a compromised application, CWE-770). `selfApproved` is also an
+     application claim; the reconciliation query detects only disagreement with the business row.
   2. **Pre-relayed outbox row.** The same column-wide `INSERT` lets the app insert an outbox row with `relayed_at`
      already set; it never reaches the ledger. This equals not writing the event (omission), which option A cannot
      detect anyway; it does not hide anyone else's event. Untested; a column-level outbox `INSERT` grant without
@@ -614,6 +619,9 @@ changes no decision of that amendment and no tenant-isolation rule (ADR-009).
      for the VPS profile and remove `DB_MIGRATION_*` from the app service once the `deploy.sh` Flyway path is proven.
      Until then the release statement says: "the ledger is append-only for the application role; it is not
      tamper-proof against code execution in the application container."
+  6. **Standing-open ledger after a manual re-grant.** Nothing at start checks that `ipaas_app` lacks `INSERT` on `audit_event`
+     in `DEFINER` mode; a manual re-grant or a restore from an old dump would leave the ledger open and only the `LEGACY`
+     warning exists (optional hardening, follow-up row).
 - **Gates (counts; each claimed control has its conformance test, container suite, run before merge).**
   1. As an `ipaas_app` member: `INSERT` into `audit_event`, `INSERT` into the current month partition,
      `UPDATE audit_outbox SET relayed_at`, `SELECT ... FOR UPDATE` on `audit_outbox` - 4 attempts, 4 refusals with
@@ -636,5 +644,5 @@ changes no decision of that amendment and no tenant-isolation rule (ADR-009).
   production owner's actual flags are a post-check (README), not a test.
 - **Revisit if.** Any residual above is used in an incident; a regulated tenant or partner asks for tamper *detection*
   (then option B); the application stops holding the owner credential (then residual 5 is closed and the release
-  statement changes); the Q3 revoke lands (then residual 4 is closed); or relay lag under backlog breaches its alert
+  statement changes); the Q3 revoke lands (then residual 4 is closed); or an alert on relay lag is added and fires
   (then reconsider the per-tenant serialisation).
