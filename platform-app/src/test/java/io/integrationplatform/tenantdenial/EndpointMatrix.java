@@ -323,6 +323,8 @@ final class EndpointMatrix {
             new E12ActivityMatrix(),
             // T186: job admin (operator agent only), the report reads, the E16 F3 approved tables
             new T186JobAdminMatrix(), new T186ReportMatrix(), new T186ApprovedTableMatrix(),
+            // row 578: the operator allow-list (operator-agent only; every human and source caller is refused)
+            new T578OperatorAllowedHostMatrix(),
             // row 519: GET / PUT /systems/{id}/endpoint-auth (PR 40, TENANT_ADMIN-only PUT since PR 48)
             new T519EndpointAuthMatrix());
 
