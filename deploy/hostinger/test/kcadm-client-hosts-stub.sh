@@ -12,6 +12,8 @@ SECRET="cs-0123456789-marker"
 cat > "$T/fakecompose" <<'FAKE'
 #!/bin/sh
 echo "ARGS: $*" >> "$FAKE_LOG"
+[ "${FAKE_LOGOUT_FAIL:-0}" = 1 ] && case "$*" in *"rm -f"*kcadm.config*) exit 1;; esac
+[ "${FAKE_LOGOUT_FAIL:-0}" = 1 ] && case "$*" in *"rm -f"*kcadm.config*) exit 1;; esac
 [ "${FAKE_FAIL:-0}" = 1 ] && exit 7
 case "$*" in *"-e KC_CLIENT_SECRET"*) echo "ENVSECRET: ${KC_CLIENT_SECRET:-unset}" >> "$FAKE_LOG";; esac
 case "$*" in *"-e KC_NEW_CLIENT_SECRET"*) echo "ENVNEW: new=${KC_NEW_CLIENT_SECRET:-unset} pw=${KC_ADMIN_PASSWORD:-unset} rotate=${ROTATE:-} master=${WITH_MASTER_USERS:-} client=${KC_CLIENT_ID:-}" >> "$FAKE_LOG"; echo "STDIN-BYTES: $(wc -c)" >> "$FAKE_LOG"; exit 0;; esac
@@ -48,6 +50,10 @@ run retire "$CS" KC_ADMIN_USER=ignored "FAKE_NAMED=nid-1,true" -- sh keycloak/re
 [ $RC -eq 0 ] && clientlogin && nopwlogin && ok "retire: default login is the service-account client (no --user)" || bad "retire: default login (rc=$RC) $OUT"
 grep -q "^ENVSECRET: $SECRET" "$T/log" && not_in_argv && no_leak && ok "retire: the secret travels in the environment only (not argv, not output)" || bad "retire: secret handling"
 truncated && ok "retire: kcadm token truncated" || bad "retire: no config truncate"
+# F2 (Karan D5): a failed cleanup is no longer silent: a WARNING (no secret in it) on stderr, the script still succeeds; a good cleanup stays quiet
+! grep -q "kcadm token file may remain" <<<"$OUT" && ok "F2: cleanup ok -> no warning" || bad "F2: warning although cleanup ok: $OUT"
+run f2 "$CS" KC_ADMIN_USER=ignored "FAKE_NAMED=nid-1,true" FAKE_LOGOUT_FAIL=1 -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -eq 0 ] && grep -q "WARNING: kcadm token file may remain" <<<"$OUT" && no_leak && ok "F2: cleanup fails -> warning shown, no secret in it, script not failed" || bad "F2: no warning on failed cleanup (rc=$RC) $OUT"
 run retire2 KC_ADMIN_USER=alice FAKE_USER_ID=u-1 -- sh keycloak/retire-bootstrap-admin.sh
 [ $RC -ne 0 ] && grep -qi "KC_CLIENT_SECRET\|terminal\|secret" <<<"$OUT" && ! grep -q 'config credentials' "$T/log" && ok "retire: no secret and no terminal -> stops before any login" || bad "retire: missing secret not refused (rc=$RC)"
 run retire3 KC_ADMIN_USER=alice "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh --password-login

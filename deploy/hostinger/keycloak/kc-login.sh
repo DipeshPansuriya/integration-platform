@@ -6,8 +6,11 @@
 #                      letters, digits, . _ - only). Secret: KC_CLIENT_SECRET from the environment or, on a terminal, a silent prompt.
 #                      Do NOT type it inline before a command (the shell history keeps it). Without a terminal read it silently first:
 #                        read -rs KC_CLIENT_SECRET; export KC_CLIENT_SECRET; <script>; unset KC_CLIENT_SECRET
-#                      Never read from a file, never printed, never in argv: it travels as the environment NAME KC_CLIENT_SECRET
-#                      (docker compose exec -e).
+#                      Never read from a file, never printed. On the HOST it is not in argv: it travels as the environment NAME
+#                      KC_CLIENT_SECRET (docker compose exec -e). INSIDE the keycloak container it IS in kcadm's command line
+#                      (`config credentials ... --secret`) for the 1-2 s of the login (CWE-214). Container processes are host
+#                      processes, so any local user of the VPS can read it with `ps` unless /proc is mounted hidepid=2. Assumption:
+#                      the host is root-only (or hidepid=2); otherwise rotate the secret after use.
 #   --password-login   explicit FALLBACK (or KC_AUTH=password): the named admin's password, prompted by kcadm. Only works while
 #                      that admin has NO second factor; prints a warning. Any other KC_AUTH value is refused.
 # Created by keycloak/kcadm-client-setup.sh. Functions: kc_parse_flags, kc_login, kc_logout, kc_require_login_inputs.
@@ -66,4 +69,10 @@ kc_login() {
 # kc_logout : removes the token (and, in client mode, the stored client secret) kcadm keeps in the container's writable layer. Row 543
 # proof (Keycloak 26.8.1): `kcadm.sh config truncate` does not exist (config knows only credentials and truststore), so the config file
 # itself is deleted. One run at a time: concurrent scripts share this one file.
-kc_logout() { ${COMPOSE:-docker compose} exec -T keycloak sh -c 'rm -f "${HOME:-/opt/keycloak}/.keycloak/kcadm.config"' >/dev/null 2>&1 || true; }
+# It never fails the script, but it no longer hides a failed cleanup: if the container is down, `rm` fails or the file is still there
+# afterwards, a WARNING (no secret in it) goes to stderr.
+kc_logout() {
+  ${COMPOSE:-docker compose} exec -T keycloak sh -c 'rm -f "${HOME:-/opt/keycloak}/.keycloak/kcadm.config" && [ ! -e "${HOME:-/opt/keycloak}/.keycloak/kcadm.config" ]' >/dev/null 2>&1 \
+    || echo "WARNING: kcadm token file may remain in the keycloak container (token and client secret); check ~/.keycloak/kcadm.config there and rotate the secret" >&2
+  return 0
+}
