@@ -63,7 +63,7 @@ const mountScreen = (name, props) => {
 const openFlow = props => ({ open: true, flow: FLOW_DETAIL, messages: MESSAGES, onClose: () => {}, ...props });
 const newFlow = props => ({ open: true, systems: OPTIONS.slice(0, 1), contracts: OPTIONS.slice(1, 2), mappings: OPTIONS.slice(2, 3), rules: OPTIONS.slice(3, 4), targets: OPTIONS.slice(4), onClose: () => {}, onSaveDraft: () => {}, onCreateDeploy: () => {}, ...props });
 
-test('Flows screen: header, subtitle and header actions', async (t) => {
+test('Flows screen: header, subtitle and header actions', async () => {
   let opened = null;
   let created = false;
   const props = flowsProps({ onOpenFlow: (f) => { opened = f; }, onNewFlow: () => { created = true; } });
@@ -88,11 +88,9 @@ test('Flows screen: header, subtitle and header actions', async (t) => {
   link.props.onClick();
   assert.equal(opened && opened.id, 'f-1', 'onOpenFlow receives the flow');
 
-  screen.setProps(props); // settle pass keeps the state machine exercised
-  t.pass('mounted');
 });
 
-test('Flows screen: loading, empty and error regions', async (t) => {
+test('Flows screen: loading, empty and error regions', async () => {
   const emptyProps = flowsProps({ flows: [], onNewFlow: () => { calledNew = true; } });
   let calledNew = false;
   const empty = await mountScreen('FlowsScreen', emptyProps);
@@ -119,7 +117,7 @@ test('Flows screen: loading, empty and error regions', async (t) => {
   assert.ok(text(stale.tree()).includes('Orders to Ledger'), 'flows still listed while stale');
 });
 
-test('Flow detail drawer: overview, pipeline, configuration and messages', async (t) => {
+test('Flow detail drawer: overview, pipeline, configuration and messages', async () => {
   let paused = null;
   let retriedMsgs = false;
   const props = openFlow({ onRetryMessages: () => { retriedMsgs = true; }, onPause: (f) => { paused = f; } });
@@ -149,9 +147,7 @@ test('Flow detail drawer: overview, pipeline, configuration and messages', async
   assert.equal(primaries.length, 1, 'edit flow is the single primary');
   assert.ok(!pauseBtn.props.className.includes('ip-btn--primary'));
 
-  editBtn.props.onClick();
-  t.pass('edit clicked');
-  assert.ok(props.onEditCalls === undefined, 'edit callback exercised below');
+  editBtn.props.onClick(); // no onEdit prop passed - clicking must be a safe no-op
   pauseBtn.props.onClick();
   screen.setProps(props);
   const confirm = by(screen.tree(), 'data-confirm', 'pause-flow')[0];
@@ -170,11 +166,10 @@ test('Flow detail drawer: overview, pipeline, configuration and messages', async
   screen.setProps(props);
   assert.ok(paused && paused.id === 'f-1', 'confirm calls onPause with the flow');
 
-  btnByAction(tree, 'retry-messages') // messages state machine covered in the next subtest
-  assert.ok(!retriedMsgs);
+  assert.ok(!retriedMsgs); // messages retry is exercised in the next subtest
 });
 
-test('Flow detail drawer: messages loading, error, empty and closed', async (t) => {
+test('Flow detail drawer: messages loading, error, empty and closed', async () => {
   let retried = false;
   const loading = await mountScreen('FlowDetailDrawer', openFlow({ messages: null, messagesLoading: true }));
   assert.equal(by(loading.tree(), 'data-region', 'recent-messages')[0].props['data-state'], 'loading');
@@ -196,7 +191,7 @@ test('Flow detail drawer: messages loading, error, empty and closed', async (t) 
   assert.ok(!text(closed.tree()).includes('Pause Flow'), 'closed drawer renders nothing');
 });
 
-test('Flow detail drawer: Esc, overlay and × all close', async (t) => {
+test('Flow detail drawer: Esc, overlay and × all close', async () => {
   let closes = 0;
   const onClose = () => { closes += 1; };
   const props = openFlow({ onClose });
@@ -220,7 +215,7 @@ test('Flow detail drawer: Esc, overlay and × all close', async (t) => {
   assert.equal(closes, 1, '× calls onClose');
 });
 
-test('New Flow drawer: sections, footer and empty-name validation', async (t) => {
+test('New Flow drawer: sections, footer and empty-name validation', async () => {
   const saved = [];
   const deployed = [];
   const props = newFlow({ onSaveDraft: (d) => saved.push(d), onCreateDeploy: (d) => deployed.push(d) });
@@ -251,7 +246,7 @@ test('New Flow drawer: sections, footer and empty-name validation', async (t) =>
   assert.equal(saved.length, 0, 'save as draft also blocked on invalid');
 });
 
-test('New Flow drawer: named flow deploys and saves; switches feed the payload', async (t) => {
+test('New Flow drawer: named flow deploys and saves; switches feed the payload', async () => {
   const saved = [];
   const deployed = [];
   const props = newFlow({ onSaveDraft: (d) => saved.push(d), onCreateDeploy: (d) => deployed.push(d) });
