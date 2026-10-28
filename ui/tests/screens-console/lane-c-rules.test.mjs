@@ -89,7 +89,7 @@ test('detail drawer: decision table renders columns and rows; footer Close + Edi
   assert.ok(table, 'a DecisionTable is rendered');
   assert.deepEqual(table.columns.map((c) => c.key), ['region', 'band', 'output']);
   assert.equal(table.rows.length, DETAIL.rows.length, 'both decision rows render');
-  assert.ok(textOf(table.rows[0]).includes('Priority express'), 'row output value visible');
+  assert.equal(table.rows[0].output, 'Priority express', 'row output value visible');
   click(byLabel(page.components('Button'), 'Edit Rule'));
   assert.equal(edited, 1);
   drawers[0].onClose();
@@ -103,12 +103,17 @@ test('rule tester: matching sample data shows "Match: Row n" with an ok callout'
   inputsWith(page.tree(), 'Order band')[0].props.onChange({ target: { value: 'gold' } });
   await page.settle();
   click(byLabel(page.components('Button'), 'Run test'));
+  await page.settle();
+  await page.settle();
+  await page.settle();
+  await page.settle();
+  await page.settle();
   const callouts = page.components('Callout');
-  const hit = callouts.find((c) => textOf(c).includes('Match: Row 2'));
+  const hit = callouts.find((c) => (c.title || '').includes('Match: Row 2'));
   assert.ok(hit, 'match callout names the row');
   assert.equal(hit.tone, 'ok');
   const [table] = page.components('DecisionTable');
-  assert.ok(textOf(table.rows[1]).includes('Priority standard'), 'matching row still listed');
+  assert.equal(table.rows[1].output, 'Priority standard', 'matching row still listed');
 });
 
 test('rule tester: non-matching sample data shows a no-match callout with a hint', async () => {
@@ -116,8 +121,13 @@ test('rule tester: non-matching sample data shows a no-match callout with a hint
   inputsWith(page.tree(), 'Region')[0].props.onChange({ target: { value: 'AP' } });
   await page.settle();
   click(byLabel(page.components('Button'), 'Run test'));
+  await page.settle();
+  await page.settle();
+  await page.settle();
+  await page.settle();
+  await page.settle();
   const callouts = page.components('Callout');
-  const miss = callouts.find((c) => textOf(c).includes('No match'));
+  const miss = callouts.find((c) => (c.title || '').includes('No match'));
   assert.ok(miss, 'no-match callout rendered');
   assert.equal(miss.tone, 'warn');
   assert.ok(textOf(miss).includes('sample'), 'includes a hint to adjust the sample');
