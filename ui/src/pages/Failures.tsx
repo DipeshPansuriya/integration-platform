@@ -19,6 +19,8 @@ import { useEffect, useRef, useState } from 'react';
 import { listFlows, type FlowSummary } from '../api/flows';
 import { messageFailures, type Failure } from '../api/messages';
 import { OperatorActionButton } from './OperatorActionButton';
+import { NoAccess } from '../ui/NoAccess';
+import { isNoAccess } from '../ui/no-access';
 import { failureAction, type OperatorAction } from './operator-actions';
 import {
   emptyText,
@@ -90,6 +92,7 @@ export function Failures() {
   const [answered, setAnswered] = useState<Failure[]>([]);
   const [load, setLoad] = useState<Load>('loading');
   const [refusal, setRefusal] = useState('');
+  const [noAccess, setNoAccess] = useState(false); // row 562: a 403 gets the plain no-access state, not the raw refusal text
   const [reloads, setReloads] = useState(0);
   // B2: after an accepted replay/retry the list is re-read silently; `acted` rows stay on screen with their answer.
   const [refresh, setRefresh] = useState<{ n: number; acted: string[] }>({ n: 0, acted: [] });
@@ -102,9 +105,11 @@ export function Failures() {
 
   // The flow filter's choices: the tenant's own flows (a refusal leaves "All flows" only).
   useEffect(() => {
-    void listFlows().then((answer) => {
-      if (answer.ok) setFlows(answer.data);
-    });
+    void listFlows()
+      .then((answer) => {
+        if (answer.ok) setFlows(answer.data);
+      })
+      .catch(() => undefined); // the filter then offers "All flows" only; the list read reports its own failure
   }, []);
 
   // A link to #/failures?flow=&date= while this screen is open re-applies the filters.
@@ -131,16 +136,19 @@ export function Failures() {
         if (!current) return;
         if (answer.ok) {
           setAnswered(answer.data);
+          setNoAccess(false);
           setLoad('ready');
         } else {
           setAnswered([]);
           setRefusal(answer.refusal ?? answer.error ?? 'failures list refused');
+          setNoAccess(isNoAccess(answer.status));
           setLoad('refused');
         }
       })
       .catch(() => {
         if (!current) return;
         setAnswered([]);
+        setNoAccess(false);
         setLoad('error');
       });
     return () => {
@@ -238,6 +246,9 @@ export function Failures() {
         </label>
       </div>
       {/* One persistent live region: loading, empty, refused and error are announced from it. */}
+      {load === 'refused' && noAccess ? (
+        <NoAccess refusal="failures-refused" />
+      ) : (
       <p
         role={load === 'refused' || load === 'error' ? 'alert' : 'status'}
         className={designedEmpty ? 'op-empty' : load === 'refused' || load === 'error' ? 'op-alert op-alert-danger' : 'op-status'}
@@ -247,6 +258,7 @@ export function Failures() {
       >
         {statusText}
       </p>
+      )}
       <p role="status" data-copy-status className={copyNote.failed ? 'op-alert op-alert-danger' : 'op-sr-only'}>
         {copyNote.text}
       </p>

@@ -73,7 +73,7 @@ export async function seedTenant(page, tenant, settings, { targetBaseUrl } = {})
   await as('POST', `/api/v1/admin/flows/${flow.id}/approve`, undefined, 'approve orders', tenant.approver);
   await as('POST', `/api/v1/admin/flows/${flow.id}/publish`, undefined, 'publish orders');
 
-  // the flow create answer carries no code; the interface's generated code (flow-<uuid>) is what the intake is addressed by
+  // the flow create takes the requested code (FLOW.code, binding and unique per tenant since PR #26); the stored code is read back here and is what the intake is addressed by
   const published = await as('GET', `/api/v1/admin/flows/${flow.id}`, undefined, 'read published orders');
   const credential = await as('POST', `/api/v1/admin/systems/${source.id}/source-credentials`, { customerId: tenant.customerId }, 'source credential');
   expect(credential.customerId, 'the credential is bound to the tenant\'s own customer').toBe(tenant.customerId);

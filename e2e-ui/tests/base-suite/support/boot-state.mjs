@@ -15,6 +15,8 @@ export const BS_ENV = Object.freeze({
   pgContainer: 'BS_PG_CONTAINER',
   wiremockPort: 'BS_WIREMOCK_PORT',
   wiremockAdmin: 'BS_WIREMOCK_ADMIN',
+  targetDbContainer: 'BS_TARGET_DB_CONTAINER', // F3 (row 523): the target Postgres a DB approval dials (names only)
+  targetDbPort: 'BS_TARGET_DB_PORT',
   kafkaContainer: 'BS_KAFKA_CONTAINER', // T130: the broker container BS-09's console consumer runs in
   appPid: 'BS_APP_PID',
   appLog: 'BS_APP_LOG_URL' // T131: the loopback app-log tap (support/log-tap.mjs) - BS-09 reads its own lines

@@ -24,6 +24,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
@@ -81,7 +82,14 @@ public class FlowAdminService {
 
         String code = typedCode(body, "flow-" + UUID.randomUUID()); // B26: the typed code is what intake resolves
         String name = nameFromBody(body, code); // F-1: the typed interface name is born on the flow; no name -> the code
-        String interfaceId = flows.insertInterface(code, name, ordering);
+        String interfaceId;
+        try {
+            interfaceId = flows.insertInterface(code, name, ordering);
+        } catch (DuplicateKeyException clash) {
+            // F17: the unique key is (tenant, code) (V2_2_3), and (tenant, lower(code)) since V2_4_1480 (row 542 F1)
+            throw ConfigApiException.conflict("an interface with the code '" + code
+                    + "' already exists in this tenant (codes are compared ignoring case)");
+        }
         InterfaceRow created = new InterfaceRow(interfaceId, code, name, ordering, "DRAFT");
         maskedFields.ifPresent(paths -> flows.updateMaskedFields(interfaceId, MaskedFields.toJson(paths)));
 
@@ -221,13 +229,18 @@ public class FlowAdminService {
         String result = flows.approveVersion(pending.id(), approverId.toString());
         return switch (result) {
             case "APPROVED" -> {
+                // single-user workflow: the trail says outright when the approver is the author
+                boolean selfApproved = approverId.toString().equals(flows.authorOf(pending.id()));
                 audit(ConfigAuditActions.FLOW_APPROVED, approverId, interfaceRow.id(), pending.id(),
                         ConfigAuditActions.state("status", "PENDING_APPROVAL"),
-                        ConfigAuditActions.state("status", "APPROVED"));
+                        ConfigAuditActions.state("status", "APPROVED", "selfApproved", selfApproved));
                 yield new ApprovalOutcome(200,
                         ConfigApiException.body("id", interfaceRow.id(), "version", pending.version()));
             }
             case "VERSION_NOT_FOUND" -> new ApprovalOutcome(404, ConfigApiException.notFound().body());
+            // row 544: a stamping bug, not a business refusal - never mislabelled NOT_PENDING_APPROVAL
+            case "REFUSED_NO_ACTOR", "REFUSED_ACTOR_MISMATCH" -> throw new IllegalStateException(
+                    "the approval actor was not stamped consistently: " + result);
             default -> new ApprovalOutcome(409, ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL").body());
         };
     }
@@ -368,11 +381,36 @@ public class FlowAdminService {
         return text == null || text.isBlank() ? fallback : text.trim();
     }
 
-    /** The typed interface code, or the mint when the body names none (B26). Uniqueness is the database's (V2_2_3). */
+    /**
+     * What a typed interface code may be (row 482, review F2). The code is the intake URL segment
+     * ({@code /api/v1/interfaces/{code}/messages}) and is never updatable, so it must be addressable: ASCII
+     * letters and digits, then letters, digits, {@code . _ -}; 1 to 63 characters. The strictest reasonable
+     * pattern - no business rule beyond "usable in a URL"; loosen it only on a stated need.
+     */
+    static final java.util.regex.Pattern CODE_PATTERN = java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,62}");
+
+    /**
+     * The typed interface code, or the mint when the body names none (B26). Absent, null and blank mint; anything
+     * typed must be a JSON string matching {@link #CODE_PATTERN} (400 naming the field). Uniqueness per tenant is
+     * the database's (V2_2_3) and answers a named 409 in {@link #create}.
+     */
     private static String typedCode(JsonNode body, String fallback) {
         JsonNode node = body == null ? null : body.path("code");
-        String text = node == null || node.isMissingNode() || node.isNull() ? null : node.asString();
-        return text == null || text.isBlank() ? fallback : text.trim();
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return fallback;
+        }
+        if (!node.isString()) {
+            throw ConfigApiException.validation("the interface code must be a string: code");
+        }
+        String text = node.asString().trim();
+        if (text.isEmpty()) {
+            return fallback;
+        }
+        if (!CODE_PATTERN.matcher(text).matches()) {
+            throw ConfigApiException.validation("the interface code is not usable in an address: code must be 1 to 63 "
+                    + "characters, letters, digits, '.', '_' or '-', starting with a letter or digit");
+        }
+        return text;
     }
 
     private static String businessKeyRule(JsonNode body) {

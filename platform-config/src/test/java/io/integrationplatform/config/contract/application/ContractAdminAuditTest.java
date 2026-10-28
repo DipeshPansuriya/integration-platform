@@ -48,9 +48,13 @@ class ContractAdminAuditTest {
     }
 
     private static VersionDetail version(String status) {
+        return version(status, ACTOR);
+    }
+
+    private static VersionDetail version(String status, UUID author) {
         return new VersionDetail(VERSION, CONTRACT, "tgt-a", "TARGET_REQUEST", "1.0", status,
                 "{\"type\":\"object\",\"properties\":{\"secretField\":{\"type\":\"string\"}}}", null, null, null,
-                ACTOR.toString(), null, Instant.now());
+                author.toString(), null, Instant.now());
     }
 
     private AuditEvent theOneAudit() {
@@ -93,7 +97,20 @@ class ContractAdminAuditTest {
         AuditEvent event = theOneAudit();
         assertThat(event.action()).isEqualTo(ConfigAuditActions.CONTRACT_VERSION_APPROVED);
         assertThat(event.before()).isEqualTo("{\"status\":\"PENDING_APPROVAL\"}");
-        assertThat(event.after()).isEqualTo("{\"status\":\"APPROVED\",\"versionLabel\":\"1.0\"}");
+        assertThat(event.after()).as("the author approved: the trail says so")
+                .isEqualTo("{\"status\":\"APPROVED\",\"versionLabel\":\"1.0\",\"selfApproved\":true}");
+    }
+
+    @Test
+    void anApprovalByAnotherUserIsNotFlaggedSelfApproved() {
+        when(contracts.approveVersion(VERSION, ACTOR.toString())).thenReturn("APPROVED");
+        when(contracts.findVersionDetail(VERSION)).thenReturn(Optional.of(version("APPROVED",
+                UUID.fromString("66666666-6666-6666-6666-666666666666"))));
+
+        service.approve(VERSION, ACTOR);
+
+        assertThat(theOneAudit().after())
+                .isEqualTo("{\"status\":\"APPROVED\",\"versionLabel\":\"1.0\",\"selfApproved\":false}");
     }
 
     @Test
@@ -134,6 +151,18 @@ class ContractAdminAuditTest {
 
         assertThatThrownBy(() -> service.submit(VERSION, JSON.readTree("{\"changeNote\":\"ready\"}"), ACTOR))
                 .isInstanceOf(ConfigApiException.class);
+        assertThat(audits()).isEmpty();
+    }
+
+    @Test
+    void aMissingOrMismatchedActorStampIsAServerErrorNeverANotPendingConflict() {
+        when(contracts.approveVersion(VERSION, ACTOR.toString())).thenReturn("REFUSED_NO_ACTOR",
+                "REFUSED_ACTOR_MISMATCH");
+
+        assertThatThrownBy(() -> service.approve(VERSION, ACTOR)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("REFUSED_NO_ACTOR");
+        assertThatThrownBy(() -> service.approve(VERSION, ACTOR)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("REFUSED_ACTOR_MISMATCH");
         assertThat(audits()).isEmpty();
     }
 

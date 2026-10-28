@@ -5,36 +5,39 @@ import {
   AUTH_IDENTITY_LABEL,
   CREDENTIAL_FIELDS_BY_AUTH,
   readEndpointAuth,
+  readMyRoles,
   readTargetCredentials,
   saveTargetCredentials,
   updateEndpointAuth,
-  type AuthMethod,
-  type EndpointAuthView,
-  type TargetCredentialView
+  type AuthMethod
 } from '../../api/systems';
-import { ERRORS_ID, ValidationErrors } from './SystemFields';
+import { ValidationErrors } from './SystemFields';
 
 export function EndpointAuthForm({ systemId }: { systemId: string }) {
   const [authMethod, setAuthMethod] = useState<AuthMethod>('NO_AUTH');
   const [authIdentity, setAuthIdentity] = useState('');
   const [authTokenUrl, setAuthTokenUrl] = useState('');
-  const [endpointId, setEndpointId] = useState<string | null>(null);
   const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
   const [sealedFields, setSealedFields] = useState<string[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Row 519: the save is TENANT_ADMIN-only (403 for anyone else). Row 540: GET /api/v1/me names the caller's roles, so
+  // the form is read-only BEFORE the first Save; the 403 on Save stays as the fallback when the roles are unknown.
+  const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
     let current = true;
     setLoading(true);
     void (async () => {
+      const roles = await readMyRoles();
+      if (!current) return;
+      if (roles && !roles.includes('TENANT_ADMIN')) setForbidden(true);
       const authResult = await readEndpointAuth(systemId);
       if (!current) return;
       if (authResult.ok) {
         const auth = authResult.data;
-        setEndpointId(auth.endpointId);
         setAuthMethod((auth.authMethod ?? 'NO_AUTH') as AuthMethod);
         setAuthIdentity(auth.authIdentity ?? '');
         setAuthTokenUrl(auth.authTokenUrl ?? '');
@@ -66,10 +69,13 @@ export function EndpointAuthForm({ systemId }: { systemId: string }) {
         authTokenUrl: needsTokenUrl ? authTokenUrl.trim() || null : null
       });
       if (!authResult.ok) {
+        if (authResult.status === 403) {
+          setForbidden(true);
+          return;
+        }
         setErrors(authResult.errors?.length ? authResult.errors : [`Save refused (HTTP ${authResult.status}).`]);
         return;
       }
-      setEndpointId(authResult.data.endpointId);
 
       const fieldsToSeal: Record<string, string> = {};
       for (const def of credentialDefs) {
@@ -97,7 +103,12 @@ export function EndpointAuthForm({ systemId }: { systemId: string }) {
 
   return (
     <form data-form="endpoint-auth" onSubmit={onSubmit}>
-      <fieldset data-settings-for="endpoint-auth">
+      {forbidden && (
+        <p role="status" className="systems-alert" data-endpoint-auth-forbidden="true">
+          Only a tenant admin can change target authentication. These settings are read-only for your role.
+        </p>
+      )}
+      <fieldset data-settings-for="endpoint-auth" disabled={forbidden}>
         <legend>Target authentication</legend>
 
         <label>
@@ -166,7 +177,7 @@ export function EndpointAuthForm({ systemId }: { systemId: string }) {
         })}
       </fieldset>
 
-      <button type="submit" data-action="save-endpoint-auth" disabled={saving}>
+      <button type="submit" data-action="save-endpoint-auth" disabled={saving || forbidden}>
         {saving ? 'Saving...' : 'Save auth settings'}
       </button>
       {saved && <p role="status" className="systems-alert systems-alert-success" data-saved="true">Auth settings saved.</p>}

@@ -159,11 +159,16 @@ public class ContractAdminService {
             case "APPROVED" -> {
                 VersionDetail approved = contracts.findVersionDetail(id)
                         .orElseThrow(() -> new IllegalStateException("the approved contract version vanished"));
-                audit(ConfigAuditActions.CONTRACT_VERSION_APPROVED, approverId, approved,
-                        ConfigAuditActions.state("status", "PENDING_APPROVAL"));
+                audit(ConfigAuditActions.CONTRACT_VERSION_APPROVED, approverId, approved.id(),
+                        ConfigAuditActions.state("status", "PENDING_APPROVAL"),
+                        ConfigAuditActions.state("status", approved.status(), "versionLabel", approved.versionLabel(),
+                                "selfApproved", approverId.toString().equals(approved.authorId())));
                 yield approved;
             }
             case "VERSION_NOT_FOUND" -> throw ConfigApiException.notFound();
+            // row 544: a stamping bug, not a business refusal - never mislabelled NOT_PENDING_APPROVAL
+            case "REFUSED_NO_ACTOR", "REFUSED_ACTOR_MISMATCH" -> throw new IllegalStateException(
+                    "the approval actor was not stamped consistently: " + result);
             default -> throw ConfigApiException.refusal(409, "NOT_PENDING_APPROVAL");
         };
     }

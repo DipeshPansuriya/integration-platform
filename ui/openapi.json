@@ -637,6 +637,12 @@
       },
       "Me": {
         "properties": {
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "tenantCode": {
             "type": "string"
           },
@@ -3558,6 +3564,146 @@
         ]
       }
     },
+    "/api/v1/admin/systems/{systemId}/endpoint-auth": {
+      "get": {
+        "operationId": "readEndpointAuth",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "systemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The endpoint's auth settings"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow the operation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the row is not visible to the bound tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not an outbound system, or no target endpoint"
+          }
+        },
+        "tags": [
+          "system-admin-controller"
+        ]
+      },
+      "put": {
+        "operationId": "updateEndpointAuth",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "systemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Saved: the updated auth settings"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Every validation error is listed (errors) and joined (error)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or the role does not allow the operation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not found: the row is not visible to the bound tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Not an outbound system, or no target endpoint"
+          }
+        },
+        "tags": [
+          "system-admin-controller"
+        ]
+      }
+    },
     "/api/v1/admin/systems/{systemId}/source-credentials": {
       "get": {
         "operationId": "listSourceCredentials",
@@ -4313,7 +4459,7 @@
   "servers": [
     {
       "description": "Generated server url",
-      "url": "http://127.0.0.1:60063"
+      "url": "http://127.0.0.1:56665"
     }
   ]
 }

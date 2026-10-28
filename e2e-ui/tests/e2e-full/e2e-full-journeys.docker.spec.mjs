@@ -20,8 +20,8 @@
 //   J7  dead-letter, fix the target, press Replay: the SAME delivery row delivers; exactly 2 sends; history kept;
 //       tenant B's failures read never shows it
 //
-// The intake is addressed by the seeded interface code (intakeCode), NOT FLOW.code: "orders" is the flow's
-// requested code, the interface gets a generated one (lib/interface-code.mjs), and posting to "orders" is a 404.
+// The intake is addressed by the seeded interface code (intakeCode), read back from the stored flow. Since PR #26 the flow
+// create stores the requested code (FLOW.code, "orders"), so the two are the same string; keep reading it back rather than assuming.
 //
 // Style: the screens suite's selectors (data-* of the built console, never text or position) and the
 // base-suite's helpers (imported, never edited, per documents/e2e-full.md "reusing the base-suite seed").

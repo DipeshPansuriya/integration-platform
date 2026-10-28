@@ -32,6 +32,8 @@ class SystemEndpointRolesTest {
                 new Rule("GET", SYSTEMS, Operation.READ_CONFIGURATION),
                 new Rule("GET", SYSTEMS + "/{systemId}", Operation.READ_CONFIGURATION),
                 new Rule("PUT", SYSTEMS + "/{systemId}", Operation.EDIT_CONFIGURATION),
+                new Rule("GET", SYSTEMS + "/{systemId}/endpoint-auth", Operation.READ_CONFIGURATION),
+                new Rule("PUT", SYSTEMS + "/{systemId}/endpoint-auth", Operation.MANAGE_TARGET_CREDENTIAL),
                 new Rule("POST", SYSTEMS + "/{systemId}/test-connection", Operation.EDIT_CONFIGURATION),
                 new Rule("GET", SYSTEMS + "/{systemId}/approved-tables", Operation.READ_CONFIGURATION),
                 new Rule("POST", SYSTEMS + "/{systemId}/approved-tables", Operation.EDIT_CONFIGURATION),

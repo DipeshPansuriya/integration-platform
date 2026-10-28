@@ -29,7 +29,8 @@ import { sessionHeaders, sessionLogin, startKeycloak } from './keycloak-harness.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '..', '..'); // the test project (e2e-ui) is one level below the repo root, like ui/ was
 export const UI = path.join(REPO, 'ui'); // L29: the console project (build, dist, vite config); the suites live in ../e2e-ui
-export const PG_IMAGE = 'postgres:17.11-alpine'; // R05: the exact tag compose/compose.yaml + TestImages.java use
+// R05 + F4 (row 554, CWE-1357): tag AND digest, like WireMock and Kafka. Row 558: the digest is the one deploy/hostinger/compose.yaml runs in production (OCI index, verified with docker buildx imagetools inspect 2026-10-28); a unit row keeps the two equal.
+export const PG_IMAGE = 'postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb';
 const AUDIENCE = 'integration-platform-api';
 /** The console's origin in the screen and perf protocols (tests/screens/console-server.mjs). */
 export const CONSOLE_ORIGIN = `http://127.0.0.1:${CONSOLE_PORT_DEFAULT}`;
@@ -43,10 +44,17 @@ const LOCK_PATH = process.env.DOCKER_SUITE_LOCK ?? (() => {
   return path.resolve(path.dirname(path.dirname(gitDir)), '.docker-suite.lock');
 })();
 
-function docker(args, timeout = 60000) {
-  const result = spawnSync('docker', args, { encoding: 'utf8', timeout, windowsHide: true });
+/** F1: the failure text of a docker call - argv is echoed, so a `-e NAME=value` of a secret-looking name is masked (a bare `-e NAME` stays). */
+export function dockerFailure(args, status, stderr) {
+  const shown = args.map((arg) => arg.replace(/^([A-Za-z0-9_]*(?:PASSWORD|SECRET|KEY|TOKEN)[A-Za-z0-9_]*)=.*$/s, '$1=***'));
+  return `docker ${shown.join(' ')} failed (${status}): ${(stderr ?? '').trim()}`;
+}
+
+/** `env` is ADDED to the child's environment: a secret named in argv (`-e NAME`) is passed by value this way, never on the command line. */
+function docker(args, timeout = 60000, env = undefined) {
+  const result = spawnSync('docker', args, { encoding: 'utf8', timeout, windowsHide: true, ...(env ? { env: { ...process.env, ...env } } : {}) });
   if (result.error || result.status !== 0) {
-    throw new Error(`docker ${args.join(' ')} failed (${result.status ?? result.error}): ${(result.stderr ?? '').trim()}`);
+    throw new Error(dockerFailure(args, result.status ?? result.error, result.stderr));
   }
   return result.stdout.trim();
 }
@@ -328,7 +336,9 @@ export function mergeAppEnv(base, ...extras) {
 // ONE KRaft Kafka broker+controller (BS-09 reads its topics' headers; auto-create off like the app expects).
 const SIDECARS = Object.freeze({
   wiremock: Object.freeze({ prefix: 'ipass-ui-bs-wm', containerPort: 8080, readyPath: '/__admin/health' }),
-  kafka: Object.freeze({ prefix: 'ipass-ui-bs-kafka', containerPort: 9092 })
+  kafka: Object.freeze({ prefix: 'ipass-ui-bs-kafka', containerPort: 9092 }),
+  // F3 (row 523, ADR-H-IPASS-03): the target database a DB approval dials with the restricted account - see targetDbPlan
+  targetDb: Object.freeze({ prefix: 'ipass-ui-bs-tdb', containerPort: 5432 })
 });
 const KAFKA_TOPIC = /^platform\.[a-z0-9.-]+$/;
 const KAFKA_INTERNAL = 'localhost:19092'; // the in-container listener: topic admin and console consumer
@@ -375,7 +385,40 @@ function kafkaPlan(key, sidecar, name, image, { topics } = {}, kafkaPort) {
     appEnv: { IPASS_KAFKA_BOOTSTRAP_SERVERS: `127.0.0.1:${kafkaPort}`, IPASS_KAFKA_PUBLISH_CLIENT_ID: KAFKA_CLIENT_ID }
   };
 }
-const PINNED_IMAGE = /^[a-z0-9]+(?:[._/-][a-z0-9]+)*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$/; // R05: tag AND digest
+const SQL_NAME = /^[a-z][a-z0-9_]{0,62}$/;
+
+/**
+ * F3 (row 523, ADR-H-IPASS-03 option A): the TARGET database a DB table approval dials. ApprovedTableService calls
+ * DbAccountWidth, which opens a credentialed JDBC connection to the DB system's host:port and reads the account's
+ * grants - a WireMock port cannot answer that, and no seam skips it. So the boot starts the platform's own Postgres
+ * image (PG_IMAGE: reuse, no new image) on 127.0.0.1:<hostPort> (the caller picks it: the app's destination
+ * allow-lists must name it before the JVM starts), creates `database` and `tables` as the owner, and nothing else:
+ * the narrow login accounts (INSERT and SELECT on those tables only) are created per tenant by the worker.
+ */
+function targetDbPlan(key, sidecar, name, declaration = {}) {
+  const { image, hostPort, database, tables } = declaration;
+  if (image !== PG_IMAGE) throw new Error(`boot-backend: service ${key} image must be the platform postgres ${PG_IMAGE}, got ${image}`);
+  if (!(Number.isInteger(hostPort) && hostPort >= 1 && hostPort <= 65535)) {
+    throw new Error(`boot-backend: service ${key} hostPort ${hostPort} is not a TCP port (an integer 1-65535)`);
+  }
+  if (typeof database !== 'string' || !SQL_NAME.test(database)) throw new Error(`boot-backend: service ${key} database ${database} is not a plain name`);
+  if (!Array.isArray(tables) || tables.length === 0 || new Set(tables).size !== tables.length
+    || !tables.every((table) => typeof table === 'string' && SQL_NAME.test(table))) {
+    throw new Error(`boot-backend: service ${key} tables must be a non-empty list of distinct plain names`);
+  }
+  return {
+    key,
+    name,
+    containerPort: sidecar.containerPort,
+    hostPort,
+    database,
+    env: { POSTGRES_PASSWORD: crypto.randomBytes(18).toString('base64url') }, // F1: by value in the spawn environment, never in argv
+    runArgs: ['run', '-d', '--rm', '--name', name, '-p', `127.0.0.1:${hostPort}:${sidecar.containerPort}`,
+      '-e', 'POSTGRES_USER=owner', '-e', 'POSTGRES_PASSWORD', '-e', `POSTGRES_DB=${database}`, image],
+    initSql: tables.map((table) => `CREATE TABLE public.${table} (delivery_id uuid UNIQUE, payload jsonb)`)
+  };
+}
+export const PINNED_IMAGE = /^[a-z0-9]+(?:[._/-][a-z0-9]+)*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$/; // R05: tag AND digest
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isStubMapping(mapping) {
@@ -405,6 +448,7 @@ export function servicePlan(services = {}, suffix, { kafkaPort } = {}) {
     if (typeof image !== 'string' || !PINNED_IMAGE.test(image)) {
       throw new Error(`boot-backend: service ${key} image must be pinned by tag AND digest (R05), got ${image}`);
     }
+    if (key === 'targetDb') return targetDbPlan(key, sidecar, `${sidecar.prefix}-${suffix}`, declaration);
     if (key === 'kafka') return kafkaPlan(key, sidecar, `${sidecar.prefix}-${suffix}`, image, declaration, kafkaPort);
     if (!Array.isArray(mappings)) throw new Error(`boot-backend: service ${key} needs its stub mappings (an array)`);
     for (const mapping of mappings) {
@@ -488,20 +532,26 @@ export function schedulerStartupFailure(logChunks) {
   return text.split(/\r?\n/).find((line) => line.includes('Unexpected error while executing OnStartup tasks')) ?? null;
 }
 
-export function psql(container, sql) {
+/** A psql failure that is only the cluster's start-up window (initdb's temporary server, the database not created yet). */
+export function transientPsqlFailure(out) {
+  return ['shutting down', 'still starting up', 'the database system', 'No such file or directory', 'Connection refused'].some((text) => out.includes(text))
+    || /FATAL: {2}database "[a-z0-9_]+" does not exist/.test(out);
+}
+
+export function psql(container, sql, database = 'platform') {
   // The initdb phase runs a temporary postgres that answers pg_isready and then shuts down
   // (measured 2026-10-05, lane D: FATAL "the database system is shutting down" after an early
   // CREATE ROLE; measured 2026-10-06 run 4: "connection to server on socket ... No such file
   // or directory" between pg_isready and the real cluster's socket). Retry transient
   // startup/shutdown states until the REAL cluster is up.
   for (let i = 0; i < 60; i++) {
-    const result = spawnSync('docker', ['exec', container, 'psql', '-U', 'owner', '-d', 'platform', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8', windowsHide: true });
+    const result = spawnSync('docker', ['exec', container, 'psql', '-U', 'owner', '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8', windowsHide: true });
     if (result.status === 0) return result.stdout.trim();
     const out = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-    if (!out.includes('shutting down') && !out.includes('still starting up') && !out.includes('the database system')
-      && !out.includes('No such file or directory') && !out.includes('Connection refused')) {
+    if (!transientPsqlFailure(out)) {
       throw new Error(`psql failed (${result.status}): ${out.trim()}`);
     }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500); // the cluster is still coming up: pause between tries
   }
   throw new Error('psql: the real postgres cluster never became ready');
 }
@@ -635,7 +685,7 @@ export default async function bootBackend({
       throw new Error('boot-backend: sourceCredentials, but the realm handed no platform-admin client secret');
     }
 
-    docker(['run', '-d', '--rm', '--name', pgName, '-P', '-e', 'POSTGRES_USER=owner', '-e', `POSTGRES_PASSWORD=${pgPassword}`, '-e', 'POSTGRES_DB=platform', PG_IMAGE]);
+    docker(['run', '-d', '--rm', '--name', pgName, '-P', '-e', 'POSTGRES_USER=owner', '-e', 'POSTGRES_PASSWORD', '-e', 'POSTGRES_DB=platform', PG_IMAGE], 60000, { POSTGRES_PASSWORD: pgPassword });
     container = pgName;
     const pgPort = Number(docker(['port', pgName, '5432']).split(':').pop());
     for (let i = 0; i < 60; i++) {
@@ -648,8 +698,13 @@ export default async function bootBackend({
     // one that will not come up fails the boot early. servicePlan declares WireMock and Kafka.
     const serviceInfo = {};
     for (const sidecar of sidecars) {
-      docker(sidecar.runArgs);
+      docker(sidecar.runArgs, 60000, sidecar.env);
       sidecarNames.push(sidecar.name);
+      if (sidecar.key === 'targetDb') {
+        for (const statement of sidecar.initSql) psql(sidecar.name, statement, sidecar.database); // psql retries until the real cluster is up
+        serviceInfo[sidecar.key] = { name: sidecar.name, port: sidecar.hostPort, database: sidecar.database };
+        continue;
+      }
       serviceInfo[sidecar.key] = sidecar.key === 'kafka' ? await readyKafka(sidecar) : await readyWireMock(sidecar);
     }
 

@@ -9,6 +9,8 @@
 //   DbTestConnection: an off-list port or a refused host -> {"result":"FAILED","reason":"DESTINATION_REFUSED"}
 
 export const DB_TABLE = 'f3_orders';
+/** A second table of the target database: the single-user scenario requests and approves its own (scenario 11). */
+export const DB_SELF_TABLE = 'f3_self_approved';
 export const DB_ACCOUNT = 'f3_etl';
 export const DB_NAME = 'f3orders';
 export const STATUS = Object.freeze({ pending: 'PENDING_APPROVAL', approved: 'APPROVED', revoked: 'REVOKED' });
@@ -18,16 +20,20 @@ export const REFUSAL = Object.freeze({
 });
 
 /** The DB target contract: every column the drawn mapping sends (the publish-time column check reads these). */
-export const DB_TARGET_COLUMNS = Object.freeze({ clientId: 'string', referenceNo: 'string', invoiceValue: 'number' });
+export const DB_TARGET_COLUMNS = Object.freeze({ clientId: 'string', referenceNo: 'string', invoiceValue: 'number', cardRef: 'string' });
 
 export const approvedTablesPath = (systemId, rowId, action) =>
   `/api/v1/admin/systems/${systemId}/approved-tables${rowId ? `/${rowId}` : ''}${action ? `/${action}` : ''}`;
 
-/** A DB system the tenant registers; `host`/`port` are the exception host (the only host the app allows). */
-export function dbSystemBody(code, name, exception) {
+/**
+ * A DB system the tenant registers; `host` is the exception host (the only host the app allows). `port` is the
+ * exception (WireMock) port unless the system points at the target database (`target.port`), and `account` is the
+ * restricted login the privilege probe dials with (default: the fixed name the unit rows use).
+ */
+export function dbSystemBody(code, name, exception, { port = exception.port, account = DB_ACCOUNT, table = DB_TABLE } = {}) {
   return {
     code, name, direction: 'OUTBOUND', type: 'DB',
-    settings: { host: exception.host, port: exception.port, database: DB_NAME, user: DB_ACCOUNT, table: DB_TABLE }
+    settings: { host: exception.host, port, database: DB_NAME, user: account, table }
   };
 }
 

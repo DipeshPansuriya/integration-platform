@@ -85,7 +85,7 @@ Every tenant-owned table has `tenant_id` and a row-level security policy; closed
 | Intake | `message` (interface version, source contract version, business key, **per-key sequence**, state `ACCEPTED`/`ROUTED`/`ROUTE_FAILED`, stage timestamps), `ordering_key` (tenant, interface, business key - unique together; `last_seq`; one row per key, taken by the intake transaction with an upsert that returns the next per-key sequence and holds the row lock to commit, so per key the sequence is commit order; not used when ordering is `NONE` - ADR-011 Decision 6), `payload`, `outbox` (`available_at`, `traceparent`, key bucket 0-63), `idempotency_key` (source credential, key, request-body hash, results; kept 24 hours) | Daily partitions for message and payload on the message's `accepted_at` (payload carries its message's `accepted_at`; ADR-014); payload retention 30 days (Dipesh, 2026-10-12); one day of message, payload and delivery is dropped together, and only when 0 dead-lettered or non-final deliveries reference it (ADR-011 Decision 8) |
 | Delivery | `delivery` (state, message and route - unique per message day as `(message_id, route_id, created_at)` with `created_at` = the message's `accepted_at`, so a delivery sits in its message's day partition (ADR-014); pinned target endpoint, contract and mapping versions, ordering key, `next_attempt_at`, `claim_token`, `claimed_at`, `bulkhead_deferrals`), `delivery_attempt` (append-only; layer, outcome class, timings), `delivery_event` (holds, releases, circuit, bulkhead and missing-key deferrals, late outcomes, reconciler re-drives, replays) | Daily partitions on the message's day; attempts keep their own insert-day partitions and are never updated or deleted |
 | Ledger | Stage timestamps on message and delivery; `daily_aggregate` per tenant, interface, target, day | The report reads aggregates, which a seeded test proves equal to the rows |
-| Audit | `audit_event` | Append-only; partition drop after 7 years |
+| Audit | `audit_outbox`, `audit_event` | Append-only; partition drop after 7 years. The application role appends to `audit_outbox` only; a row reaches `audit_event` only through the definer function `audit_relay_move` (ADR-011 Amendment 2026-10-28) |
 | Scheduler | Own schema `scheduler`: db-scheduler's task table, `job_definition`, `job_run`, `job_alert`, `operator_credential` (ADR-012) | Jobs are configuration rows; **platform-scoped, no `tenant_id` column**, access by grant only (control T3 exemption register, section 5) |
 
 **Stage timestamps** (*source: `ws/_specs/project-plan.md:118`*): received, validated, transform
@@ -175,6 +175,11 @@ dies mid-call, the stale-claim rule recovers the delivery (ADR-011 Decision 5).
   application role holds none (grant-inspection test; a call as the application role fails with
   42501). They are not T5 functions: they neither resolve nor return a tenant. They run in the job
   `AUDIT_PARTITION_MAINTENANCE`, the fifth member of ADR-012's job-type register.
+- **Amended 2026-10-27 (ADR-012 amendment 2026-10-27, ratified):** a third T6 function,
+  `payload_purge_days(cutoff, dry_run)` (`V2_4_1450`, guard made conservative by `V2_4_1460`), same shape -
+  definer owned by the table owner, pinned `search_path`, 5-second lock timeout, `EXECUTE` to
+  `ipaas_maintenance` only, no tenant in or out. It runs in the job `PAYLOAD_PURGE`, ships `OFF`, and keeps any
+  day that holds a delivery not `DELIVERED` or a message not `ROUTED`, for every tenant, suspended ones included.
 
 ## 6. Deployment view (development compose today: section 9)
 

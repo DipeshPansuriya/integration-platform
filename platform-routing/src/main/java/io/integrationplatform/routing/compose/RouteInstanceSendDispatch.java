@@ -3,7 +3,6 @@ package io.integrationplatform.routing.compose;
 import io.integrationplatform.delivery.port.SendOutcomes;
 import io.integrationplatform.domain.delivery.OutcomeClass;
 import io.integrationplatform.routing.credential.CredentialedDelivery;
-import io.integrationplatform.routing.credential.TargetCallCredentialHolder;
 import io.integrationplatform.routing.stage2.LayerOneRouteBuilder;
 import io.integrationplatform.routing.stage2.Stage2Send;
 import io.integrationplatform.routing.stage2.bulkhead.Stage2SendDispatch;
@@ -97,12 +96,15 @@ public final class RouteInstanceSendDispatch implements Stage2SendDispatch {
                 exchange -> exchange.getIn().setBody(send))
                 : credentialed.send(send.deliveryId(), send.claimToken(), send.targetEndpointId(),
                         opened -> {
-                            TargetCallCredentialHolder.set(opened);
-                            try {
-                                return producer.send(instance.consumerUri(), e -> e.getIn().setBody(send));
-                            } finally {
-                                TargetCallCredentialHolder.clear();
+                            Exchange sent = producer.send(instance.consumerUri(), e -> {
+                                e.getIn().setBody(send);
+                                // row 540: the secrets travel ON the exchange, never in a thread-local across the route
+                                e.setProperty(LayerOneRouteBuilder.TARGET_CALL_SECRETS, opened);
+                            });
+                            if (sent != null) {
+                                sent.removeProperty(LayerOneRouteBuilder.TARGET_CALL_SECRETS); // wiped on close anyway
                             }
+                            return sent;
                         })
                         .value();
         if (done == null) {

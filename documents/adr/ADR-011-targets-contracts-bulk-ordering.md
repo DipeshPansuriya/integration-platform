@@ -1,9 +1,9 @@
 ---
 type: ADR
 title: "ADR-011 - Target types, contract registry and version graph, bulk at intake, ordering, Kafka records carry ids only, background tenant from the row"
-status: "Accepted (team, 2026-10-02) - the project owner may reverse; Amendment 2026-10-27 Accepted - the project owner accepted the residual risk in writing on 2026-10-27"
+status: "Accepted (team, 2026-10-02) - the project owner may reverse; Amendment 2026-10-27 Accepted - the project owner accepted the residual risk in writing on 2026-10-27 (hub memory m-075db1); text checked against main e12f2949 and acknowledged by mahesh-architect 2026-10-27 (row 524); Amendment 2026-10-28 (audit ledger lockdown, option A, row 544) Accepted - option A approved by the project owner 2026-10-27 (spec clarifications Q1-Q6 signed); text checked against the code of the reviewed range 2ca1ad4e..dd0f6f03 of branch feat/row544-audit-relay-definer-r2 (the final tip is the merge commit) and acknowledged by mahesh-architect 2026-10-28 (row 544)"
 date: 2026-10-02
-revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy. 2026-10-22 - E16 F3 amendment (approved tables, D1-D4) and F3 hardening addendum (S1, S2, S3, S5, residuals). 2026-10-27 - Amendment: author/approver separation of duties removed for flow versions, contract versions and DB-table approvals (V2_4_1420); Accepted - the project owner accepted the residual risk in writing on 2026-10-27"
+revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy. 2026-10-22 - E16 F3 amendment (approved tables, D1-D4) and F3 hardening addendum (S1, S2, S3, S5, residuals). 2026-10-27 - Amendment: author/approver separation of duties removed for flow versions, contract versions and DB-table approvals (V2_4_1420); Accepted - the project owner accepted the residual risk in writing on 2026-10-27. 2026-10-28 - Amendment: audit ledger lockdown (option A, row 544) - insert-only definer relay, application role loses INSERT on audit_event and UPDATE (relayed_at) on audit_outbox, flow and contract approver from app.actor_id (V2_4_1490, V2_4_1500)"
 author: "mahesh-architect (ledger row 278, phase 0)"
 project: ipass/integration-platform
 provenance: new-decision
@@ -34,10 +34,10 @@ Source paths starting `ws/` are in the hub repository, project workspace
 *Sources: `ws/_memory/shared.md:25` (m-703833); `ws/_specs/project-plan.md:38-40`, `:46-48`,
 `:102`, `:105`, `:110`, `:113`, `:116`, `:137-147`, `:150`, `:202`; `ws/_specs/f3-plan-brief.md:40-43`.*
 
-Dipesh's requirement: a source calls **one common API**, possibly with a **bulk** request; the
+The project owner's requirement: a source calls **one common API**, possibly with a **bulk** request; the
 platform identifies customer, interface and the applicable targets, applies **each target's own
 versioned contract and mapping**, and sends to targets of type **API, DB, MQ (a CSV file on the
-target's queue manager) and File**. His example - one call from Customer A delivering
+target's queue manager) and File**. The project owner's example - one call from Customer A delivering
 `{customer_code, order_number, total_amount}` to Target A (contract v1.0) and `{clientId,
 referenceNo, invoiceValue}` to Target B (contract v2.0) - is the acceptance test of the idea.
 Decisions already applied (Mira, reversible): bulk accepts valid records and rejects invalid
@@ -56,8 +56,8 @@ carries; and how background work finds its tenant.
 | `API` | 1 | `camel-http` | `Idempotency-Key: <delivery id>` header | The one outbound destination check of ADR-010 section 8: every resolved address checked and the checked address pinned; refused ranges reachable only through an operator allow-list entry; redirects off unless the target enables them, every hop re-checked |
 | `MQ_CSV` | 1 | `camel-csv` / `camel-bindy` to format, `camel-jms` to send | JMS correlation id = delivery id, deduplicated by the target | Queue-manager product unknown; plugged in through its JMS connection factory, chosen from an allow-list of factory classes. **Bindy stays (2026-10-20):** camel-bindy is live in the Camel 4.22.x data-format docs with no deprecation notice and the project pins camel-spring-boot 4.22.1; the 404 Vikram saw is camel-beanio, removed in 3.17 - lanes do not re-litigate this |
 | `DB` | 2 | `camel-sql` | Insert-or-update on a natural key the target declares | Only tables on the target's approved list; a restricted per-target database account with no DDL rights; parameterised statements only |
-| `FILE` | 2 | `camel-file` | Deterministic file name from the delivery id; write to a temporary name, then atomic rename | A shared folder; SFTP is out of scope unless Dipesh names it; no half-written file is ever visible |
-| `KAFKA_TOPIC` | 2 | `camel-kafka` | Idempotent producer, key = delivery id | Kept in scope by Mira's decision (`ws/_specs/project-plan.md:151`); not in Dipesh's formal list |
+| `FILE` | 2 | `camel-file` | Deterministic file name from the delivery id; write to a temporary name, then atomic rename | A shared folder; SFTP is out of scope unless the project owner names it; no half-written file is ever visible |
+| `KAFKA_TOPIC` | 2 | `camel-kafka` | Idempotent producer, key = delivery id | Kept in scope by Mira's decision (`ws/_specs/project-plan.md:151`); not in the project owner's formal list |
 
 - Each type has a **settings schema** (JSON Schema) shipped in code. A target's settings are a
   JSONB column validated against its type's schema on every save. **Adding a target of an
@@ -124,7 +124,9 @@ carries; and how background work finds its tenant.
 - **Rules:**
   1. An `APPROVED` contract version is immutable. A new version needs approval by someone who
      is not its author. *(Superseded by Amendment 2026-10-27: a new version still needs an
-     approval by a holder of `APPROVE_VERSION`, who may be its author.)*
+     approval by a holder of `APPROVE_VERSION`, who may be its author. Amendment 2026-10-28: the
+     approver recorded is the actor stamped in `app.actor_id` in the approving transaction, not a
+     caller-supplied argument.)*
   2. A new target contract version takes effect only through a new mapping version bound to it,
      exercised against a sample, inside a published interface version - so no message is ever
      transformed against a contract its mapping was not tested with.
@@ -157,7 +159,7 @@ carries; and how background work finds its tenant.
   record, its message row, payload row and outbox row -> respond.
 - **Bulk is split here, before Kafka:** one record = one message = one Kafka record. Camel never
   splits bulk (it stays inside routing - ADR-010).
-- **Caps (team defaults, configurable per interface downward; Dipesh may change them):**
+- **Caps (team defaults, configurable per interface downward; the project owner may change them):**
   - a record over **1 MB** is rejected with a clear error (OQ-08);
   - a bulk call over **1,000 records** or over **10 MB** is refused as a whole with `413` and a
     clear error; nothing is persisted.
@@ -203,7 +205,7 @@ carries; and how background work finds its tenant.
 - **Answer to the source:** success -> `200` with the target's response mapped to the source's
   registered response contract; `PERMANENT` failure -> an error mapped through the target's
   error dictionary; anything else, or the 10 s budget reached -> `202` with the tracking id and
-  status `PENDING`, and the delivery continues on the asynchronous path. **Dipesh may reverse**
+  status `PENDING`, and the delivery continues on the asynchronous path. **The project owner may reverse**
   the `PENDING` rule (for example to a plain error on timeout) - one rule in the ingest phase.
 
 ## Decision 6 - Ordering and the head-of-line rule
@@ -223,7 +225,7 @@ carries; and how background work finds its tenant.
   with the same idempotency key). Clauses 1 and 2 below compare the **per-key sequence**, never
   a global sequence or a timestamp. When the interface's `ordering` is `NONE`, no counter row is
   taken, the message has no per-key sequence and the hold rule is skipped.
-- **Interface setting `ordering`:** `PER_KEY` (default, Dipesh's rule) or `NONE`.
+- **Interface setting `ordering`:** `PER_KEY` (default, the project owner's rule) or `NONE`.
 - **The hold rule (chosen, corrected for B3):** a delivery is held when **either**
   1. an earlier message (lower per-key sequence) with the same tenant, interface and business key
      is still `ACCEPTED` - not yet `ROUTED` or `ROUTE_FAILED` - so its deliveries do not exist yet;
@@ -339,7 +341,7 @@ dead letter from that day is unresolved.
 
 ## Amendment 2026-10-22 - who approves a DB target's tables, and where it is enforced (E16 finding F3)
 
-Dipesh decided D1-D4 on 2026-10-22; design note: option B of the E16 F3 note (`_documents/2026-10-22-design-job-state-change-and-approved-tables.md`
+The project owner decided D1-D4 on 2026-10-22; design note: option B of the E16 F3 note (`_documents/2026-10-22-design-job-state-change-and-approved-tables.md`
 in the project workspace). This amends the `DB` row of Decision 1 ("only tables on the target's approved list").
 
 - **Where the list lives.** Not in the system's `settings` (a configurator wrote both `table` and the list that was meant
@@ -400,7 +402,7 @@ both reports are static reads (neither reviewer ran them).
   beyond INSERT and SELECT appends `WIDE ACCOUNT` to the answer's `detail` text (`DbTestConnection.java:113-121`); the
   answer stays `SUCCESS` and nothing gates a send or an approval on it. Not probed: REFERENCES, column-level grants,
   CREATEROLE, the other predefined roles, privileges on other tables; a missing table reads as "none". **Open
-  decision (Dipesh):** refuse a WIDE account at approve time, or keep the probe informational - recommended: refuse,
+  decision (the project owner):** refuse a WIDE account at approve time, or keep the probe informational - recommended: refuse,
   after widening what counts as WIDE.
 - **S3 - `currentSchema=public` pinned** in `JdbcDbSender.accountProperties` (`JdbcDbSender.java:145-147`), shared by
   the send and the probe; it outranks a role-level `search_path` (test `theSchemaIsPinnedAgainstARoleSearchPath`).
@@ -412,10 +414,10 @@ both reports are static reads (neither reviewer ran them).
   (`DbTargetCall.java:138-144`); the same text also appears for other 42501 causes (missing USAGE on the schema or the
   table's sequence). Before go-live the operator lists every migrated PENDING row to the approver: DB sends stop until
   each table is approved.
-- **Known residuals - accepted risk pending Dipesh.**
+- **Known residuals - accepted risk pending the project owner.**
   (a) Code running as the app role still chooses `requested_by`, `requested_at` and `target_hash` on a PENDING row, so
   it can name another user as requester and then approve through the function with its own stamped actor; it cannot
-  insert an APPROVED row. **Open decision (Dipesh):** accept and record here, or add a `BEFORE INSERT` trigger deriving
+  insert an APPROVED row. **Open decision (the project owner):** accept and record here, or add a `BEFORE INSERT` trigger deriving
   `requested_by` from `app.actor_id` and `target_hash` from the live settings - recommended: accept; add the trigger
   only if he asks. *(Amendment 2026-10-27: (a) no longer buys anything - a requester may approve their own request -
   so the trigger is not needed for separation of duties; a forged `target_hash` is still caught at send and publish,
@@ -426,8 +428,10 @@ both reports are static reads (neither reviewer ran them).
 
 ## Amendment 2026-10-27 - single-user self-approval: author/approver separation of duties removed
 
-**Status: Accepted - the project owner accepted the residual risk in writing on 2026-10-27.** Built on branch `feat/single-user-self-approval`
-(`94aac35f` tests first, `cfb30de1` change); plan `_documents/PLAN-single-user-self-approval.md` in the project
+**Status: Accepted - the project owner accepted the residual risk in writing on 2026-10-27** (hub memory m-075db1,
+recorded by Mira; ledger row 486). Built on branch `feat/single-user-self-approval` (`94aac35f` tests first,
+`cfb30de1` change), merged to main as PR 39 (`dfafc420`); the explicit `selfApproved` audit flag followed in PR 50
+(`5714d52e`); plan `_documents/PLAN-single-user-self-approval.md` in the project
 workspace. This amendment supersedes, for the three approvals below, every statement above that an author or a
 requester cannot approve their own work (Decision 2 table check, Decision 3 rule 1, amendment 2026-10-22 D4 and
 honest limits, addendum S1, residual (a)). Those statements stay above as history, each marked where it is superseded.
@@ -460,10 +464,190 @@ honest limits, addendum S1, residual (a)). Those statements stay above as histor
   4. **Target hash** - an approval counts only while the system's live settings still hash to it (fingerprint incl.
      `sslmode`, S5); a repoint invalidates it.
   5. **Audit by actor** - every request, approval, revoke and publish leaves an `AuditEvent` with the actor stamped
-     from the validated session; this is now the only attribution.
+     from the validated session; this is now the only attribution. Since PR 50 each approval event also carries
+     `selfApproved` (true when the approver is the author or requester), so a one-person lifecycle is visible in
+     the trail without a join. *(Amendment 2026-10-28: the ledger these events reach is append-only end to end for
+     the application role, and the flow and contract approver now comes from the same stamped `app.actor_id` as the
+     DB-table decider; see "Amendment 2026-10-28" below for what that does and does not protect.)*
+- **Architect's acknowledgement (mahesh-architect, 2026-10-27, row 524) - the text matches main `e12f2949`.**
+  - The actor is still recorded on every approval: it comes from the validated session in each controller
+    (`platform-config/src/main/java/io/integrationplatform/config/flow/adapter/in/FlowAdminController.java:159`,
+    `.../contract/adapter/in/ContractVersionAdminController.java:165`,
+    `.../system/adapter/in/ApprovedTableAdminController.java:76`) and is written as the event's actor, never
+    taken from the request body.
+  - `selfApproved` is set at the three approval points: flow versions
+    (`platform-config/src/main/java/io/integrationplatform/config/flow/application/FlowAdminService.java:225-228`),
+    contract versions (`.../contract/application/ContractAdminService.java:162-165`) and DB-table approvals
+    (`.../system/application/ApprovedTableService.java:265-266`, written at `:301-309`; a revoke carries no flag).
+    Tests: `FlowAdminAuditTest`, `ContractAdminAuditTest`, `ApprovedTableServiceTest` and the real-database trail
+    `platform-app/src/test/java/io/integrationplatform/e5/contract/E12ConfigAuditTrailContainerTest.java`.
+  - The role check is unchanged: approving needs `APPROVE_VERSION` / `APPROVE_DB_TABLE` (TENANT_ADMIN, APPROVER).
+    Only the "not the author / not the requester" rule went, as the Decision bullet says.
+  - Nothing in this amendment changes tenant isolation: every approval still runs under the stamped tenant.
 - **Reversible by migration.** Re-add the three constraints and restore the three functions from `V2_2_4:124-148`,
-  `V2_2_5_1:25-45` and `V2_4_1330` in a new migration; prerequisite: no row has `approver_id = author_id` or
-  `decided_by = requested_by` (repoint those first). Recipe: `V2_4_1420__allow_self_approval.sql:21-27`.
+  `V2_2_5_1:25-45` and `V2_4_1330` in a new migration (never by editing `V2_4_1420`, which is applied and
+  checksummed). Add the constraints `NOT VALID` if any row was self-approved while this amendment was live; see
+  Rollback below. The comment block in `V2_4_1420__allow_self_approval.sql` lists the plain `ADD CONSTRAINT`
+  statements; where it and the Rollback below differ, the Rollback below governs.
+- **Rollback (manual; Flyway Community has no undo).**
+  1. Re-add `interface_version.approver_not_author`, `contract_version.approver_not_author` and
+     `db_target_approved_table_four_eyes` with `NOT VALID`, and restore the three functions (branches that refuse
+     author / requester) from the files named above.
+  2. `NOT VALID` checks only rows inserted or updated after the constraint exists, so rows self-approved while this
+     amendment was live are not scanned and the audit history is not falsified. Do not run `VALIDATE CONSTRAINT`
+     while such rows exist: it scans every row and fails on them.
+  3. Caveat: `NOT VALID` does not exempt old rows from UPDATEs. PostgreSQL still evaluates the CHECK on the new row
+     image of every UPDATE, so an UPDATE of a previously self-approved row fails with `23514` while
+     `approver_id = author_id` (interface and contract versions) or `decided_by = requested_by` (approved tables)
+     holds, even when the UPDATE does not touch those columns: publish, supersede or archive of a self-approved
+     version, and revoke of a self-approved table (the revoke keeps `decided_by`).
+  4. Remedy, at rollback time as the schema owner: list the self-approved rows first (`approver_id = author_id`;
+     `decided_by = requested_by`), then either leave them un-updatable on purpose or repoint `approver_id` /
+     `decided_by` to a real second person. Repointing rewrites the recorded history of who approved: do it
+     knowingly, row by row, and log each change (row id, old value, new value, reason, date) in the change record;
+     never as a bulk fix.
 - **Revisit if.** A tenant gets a second admin or approver who should be required; a regulated tenant or partner asks
   for four-eyes; any security incident traced to a single admin session; or the project owner does not accept this amendment
   (then revert by migration as above before merge).
+
+## Amendment 2026-10-28 - audit ledger lockdown (option A): insert-only definer relay, approver from the session
+
+**Status: Accepted - the project owner approved option A only on 2026-10-27** (options B hash chain, C separate writer role,
+D external sink are out of scope) and signed the six clarifications Q1-Q6 the same day (spec
+`_specs/2026-10-27-audit-option-a/spec.md` of the planning workspace, ledger row 544). Drafted by mahesh-architect;
+reviewed by varun-code-reviewer (approve with fixes) and karan-security (no Critical or High) on 2026-10-28. This amendment extends point 5 "Audit by actor" of the amendment of 2026-10-27; it
+changes no decision of that amendment and no tenant-isolation rule (ADR-009). Text checked against the code of the reviewed
+range 2ca1ad4e..dd0f6f03 (the final tip is the merge commit) and acknowledged by mahesh-architect 2026-10-28 (row 544), with the
+wording corrections of that check applied.
+
+- **Context.** The 2026-10-27 amendment made the audit trail the only attribution of a one-person lifecycle, but the
+  application role (`ipaas_app`, which the login `ipass_app` is a member of) could (1) `INSERT` any row straight into the
+  ledger `audit_event` (`V2_2_1220__audit_event.sql:54`) and (2) `UPDATE audit_outbox.relayed_at` (`V2_4_3:32`), i.e.
+  mark a pending event relayed so it never reaches the ledger - an effective delete. A second direct ledger writer,
+  `JdbcActivityWriter`, also inserted into `audit_event`. And the flow and contract approval functions took the approver
+  as a caller-supplied argument, while the DB-table approval already read it from the stamped `app.actor_id`
+  (`V2_4_1420:84-92`): two sources for "who approved".
+- **Decision.**
+  1. **One door into the ledger: an insert-only definer relay.** `public.audit_relay_move(p_outbox_id bigint) returns
+     integer` (`V2_4_1490__audit_relay_move_and_lockdown.sql`) moves one committed outbox row into the ledger in
+     ONE statement: it stamps `relayed_at` and inserts the ledger row, both or neither, and returns 1 (moved) or 0
+     (unknown id, another tenant's id, already relayed, or locked by another relay - no existence oracle). It is
+     `SECURITY DEFINER`, owned by the migration owner (which must be neither a superuser nor `BYPASSRLS` - a README post-check, not enforced by the
+     migration), `search_path = pg_catalog,
+     pg_temp`, every object schema-qualified, no dynamic SQL, `EXECUTE` revoked from `PUBLIC` and granted to `ipaas_app`
+     only - the `audit_purge_expired` pattern (`V2_4_1250`). It takes no tenant argument: the tenant is
+     `current_setting('app.tenant_id')` without `missing_ok`, so an unset or blank tenant raises (fail closed). It copies
+     tenant, actor, action, target ids, before/after state, event time and `trace_id` verbatim; ledger `created_at` is
+     the move time. FORCE RLS on both tables (`V2_4_3`) is unchanged and binds a non-superuser, non-`BYPASSRLS` owner; the
+     function's explicit tenant predicate is the second gate. The function only inserts into the ledger
+     and only sets `relayed_at` on the outbox: it can neither update nor delete a ledger row.
+  2. **The application role loses the two write paths.** `REVOKE INSERT ON public.audit_event` and
+     `REVOKE UPDATE (relayed_at) ON public.audit_outbox` from `ipaas_app` (`V2_4_1490`). It keeps `SELECT` on both
+     and `INSERT` on `audit_outbox` (the append in the business transaction); `UPDATE`, `DELETE`, `TRUNCATE` stay
+     revoked; monthly partitions carry no grant of their own. With no `UPDATE` left on any outbox column the relay's
+     batch pick can no longer `SELECT ... FOR UPDATE`; it becomes a plain ordered pick and `SKIP LOCKED` moves inside the
+     function (plan D-2).
+  3. **Every audit write goes through the outbox.** `JdbcActivityWriter` now appends to `audit_outbox` (new nullable
+     `audit_outbox.trace_id`, `V2_4_1490`) instead of the ledger (`JdbcActivityWriter.java`); `JdbcAuditEventStore`
+     relays through the function (Q1).
+  4. **Approver from `app.actor_id`.** `config_approve_version` and `config_approve_contract_version` keep their
+     2-argument signature (grants and owner kept), but the approver they write and the refusal actor come from
+     `nullif(current_setting('app.actor_id', true), '')` (`V2_4_1500__approval_actor_from_session.sql`). No stamp
+     answers `REFUSED_NO_ACTOR`; a stamp different from the argument answers `REFUSED_ACTOR_MISMATCH`; both are checked
+     before any lookup and write nothing (no state change, no refusal row). The repositories stamp the session actor in
+     the service transaction before the call (`JdbcFlowRepository.java`, `JdbcContractRepository.java`);
+     the services map both verdicts to a 500 (a programming error, never a business refusal - `FlowAdminService.java`,
+     `ContractAdminService.java`). Existing verdicts and HTTP outcomes are unchanged. All three approvals now share
+     one source for "who approved" (Q2).
+  5. **Detection of a lying `selfApproved` flag** is a read-only reconciliation query
+     (`deploy/hostinger/audit/reconcile-self-approved.sql`), run per tenant on demand and tested; it reports, never
+     repairs; no scheduled job (Q6).
+  6. **Delivery** is two new migrations, `V2_4_1490` (`platform-app`, audit) and `V2_4_1500` (`platform-config`,
+     approvals); `V2_2_1220`, `V2_4_3`, `V2_4_1250` and `V2_4_1420` are not edited (Q5, FR-009).
+- **Deploy order (one release, planned stop - plan D-1).** The previous application cannot run against these
+  migrations (its relay needs the revoked privileges; it never stamps an actor, so its approvals answer
+  `REFUSED_NO_ACTOR`), and `deploy.sh` runs Flyway while the running app still serves. So: (1) run the reconciliation
+  query once as a baseline; (2) **stop** `platform-app`; (3) **migrate** - `deploy.sh` (backup, validate, migrate
+  `V2_4_1490` then `V2_4_1500` as `ipass_migrator`); (4) **up** - start the new image, whose relay drains the pending
+  backlog; (5) post-checks (grants, function owner flags, pending outbox falls to 0, one approval end to end,
+  reconciliation empty). Downtime = migrate + start + health wait. The zero-downtime shape (three migrations over two
+  releases) was offered and not chosen.
+- **Rollback (two steps, in this order; the flag alone is not a rollback).** The flag `IPAAS_AUDIT_RELAY_MODE`
+  (property `ipaas.audit.relay.mode`; `DEFINER` default, `LEGACY`; any other value fails the start - `RelayMode.java`;
+  compose passes it through, `deploy/hostinger/compose.yaml`) selects the relay path. (1) Stop `platform-app`; run
+  the `ROLLBACK-BEGIN`/`ROLLBACK-END` block of `V2_4_1490` as the owner (re-grants exactly the two privileges, drops the
+  function; `trace_id` stays). (2) Set `IPAAS_AUDIT_RELAY_MODE=LEGACY` and start. If the application image is rolled back
+  too, also run the rollback block of `V2_4_1500` (restores the `V2_4_1420` bodies) before starting the old tag. `LEGACY`
+  logs one WARN at start. A later roll-forward is a new migration number, never an edit. The rollback SQL is the tested
+  SQL (`AuditOptionARollbackContainerTest` extracts and runs it).
+- **Consequences.**
+  - The application role can no longer write the ledger directly nor starve it: a ledger row exists only for an outbox
+    row that was committed first, and the app can neither change nor delete either row afterwards. A forged event is
+    still possible (below); a rewritten or removed one is not.
+  - Two concurrent relays on one tenant now pick the same oldest ids; the second moves 0 until the first commits, so
+    relay throughput under a backlog is serialised per tenant (no loss, no duplicate - proven by
+    `AuditRelayDeliveryContainerTest`). Batch sizes are unchanged (200 loop, 50 after commit).
+  - Activity rows appear in the ledger only after a relay runs; the relay loop exists only when Kafka is configured,
+    so a future non-Kafka caller of the activity writer must trigger a relay.
+  - A poison outbox row (e.g. the current month has no ledger partition: the ledger is partitioned by `created_at`, the
+    move time, not by the event time) still rolls back its tenant's batch every cycle and stays visible in the WARN log
+    (pre-existing, kept - plan D-13). The partition window (pre-created to 12 months after the first migration) is
+    therefore a calendar-driven operational item for the release statement; whether a maintenance job extends it is
+    UNVERIFIED.
+  - One more release step: the app must be stopped for the migration.
+- **What this does NOT protect (residuals, stated for the release statement).**
+  1. **Forgery at write time.** `ipaas_app` keeps `INSERT` on every `audit_outbox` column, so a compromised application
+     session can write any actor, action, target ids, before/after state, event time (back- or forward-dated) and
+     `trace_id` for a tenant it stamps, and it stamps `app.actor_id` itself: the stamp is a consistency control, not an
+     authentication boundary. It cannot choose the ledger id or `created_at`, and the move takes the tenant from the outbox
+     row, which the policy pins to the `app.tenant_id` the application stamps itself: it can only move rows of the tenant it
+     stamps, and it stamps the tenant itself (moving a row verbatim only brings that event forward). `trace_id` and the text
+     columns are unbounded (a storage-growth lever for a compromised application, CWE-770). `selfApproved` is also an
+     application claim; the reconciliation query detects only disagreement with the business row.
+  2. **Pre-relayed outbox row.** The same column-wide `INSERT` lets the app insert an outbox row with `relayed_at`
+     already set; it never reaches the ledger. This equals not writing the event (omission), which option A cannot
+     detect anyway; it does not hide anyone else's event. Untested; a column-level outbox `INSERT` grant without
+     `relayed_at` would close it (follow-up, not in this change).
+  3. **Owner / DBA rewrite.** The migration owner (and any superuser) can still `UPDATE`, `DELETE` or drop ledger
+     partitions. Detecting that is option B (hash chain plus verify job), out of scope.
+  4. **Flow-version attribution via column grants (Q3 / Karan M3).** `ipaas_app` still holds
+     `UPDATE (status, ..., approver_id, decided_at, ...)` on `interface_version` (`V2_2_4:155-157`), so a compromised
+     application role can approve a flow version directly with any approver id, without the function, the stamp check
+     or an audit event. Accepted by the project owner as Low (Q3); closing it is one
+     `REVOKE UPDATE (approver_id, decided_at) ON public.interface_version FROM ipaas_app` plus a container test - the
+     next row. `contract_version` and `db_target_approved_table` have no direct `UPDATE` grant.
+  5. **Owner credentials in the application container (Karan M1).** The `platform-app` service also receives the
+     migration owner's login (`deploy/hostinger/compose.yaml:161-162`) for its in-app Flyway. Option A therefore holds
+     against a compromise of the application *role* (SQL injection, a stolen `ipass_app` password), not against code
+     execution in the application container, which can log in as the owner. Follow-up row: switch off in-app Flyway
+     for the VPS profile and remove `DB_MIGRATION_*` from the app service once the `deploy.sh` Flyway path is proven.
+     Until then the release statement says: "the ledger is append-only for the application role; it is not
+     tamper-proof against code execution in the application container."
+  6. **Standing-open ledger after a manual re-grant.** Nothing at start checks that `ipaas_app` lacks `INSERT` on `audit_event`
+     in `DEFINER` mode; a manual re-grant or a restore from an old dump would leave the ledger open and only the `LEGACY`
+     warning exists (optional hardening, follow-up row).
+- **Gates (counts; each claimed control has its conformance test, container suite, run before merge).**
+  1. As an `ipaas_app` member: `INSERT` into `audit_event`, `INSERT` into the current month partition,
+     `UPDATE audit_outbox SET relayed_at`, `SELECT ... FOR UPDATE` on `audit_outbox` - 4 attempts, 4 refusals with
+     SQLSTATE `42501`; a role outside `ipaas_app` calling the function - 1 refusal (`AuditLedgerLockdownContainerTest`).
+  2. One pending row moved twice - 1 ledger row, second call returns 0; another tenant's id - 0 rows moved, 0 ledger
+     rows; unset and blank tenant - 2 raises, 0 writes; forced ledger failure - outbox row still pending, 0 ledger rows
+     (`AuditRelayMoveFunctionContainerTest`).
+  3. 50 audit events over 2 tenants moved by the relay statement - exactly 50 ledger rows with identical fields; 100 events on one
+     tenant moved by two concurrent relays - exactly 100 ledger rows, 0 duplicates, 0 lost; a tenant whose batch fails keeps its rows
+     pending and does not block the other (`AuditRelayDeliveryContainerTest`; the after-commit path is `AuditWriterContainerTest`).
+  4. Flow and contract approval with no stamp and with a mismatched stamp - 4 refusals, 0 state changes, 0 refusal rows
+     (`ApprovalActorFunctionContainerTest`, `22_scenario_approvals.sql`).
+  5. Seeded lying `selfApproved` flags for flow, contract and DB table - 3 of 3 reported, plus a missing flag and a vanished business
+     row - 5 of 5 reported; 3 malformed rows (non-JSON `after_state`, non-boolean flag, non-array `target_ids`) reported without
+     aborting the run, and an `after_state` over 4096 characters is not parsed but reported (`ApprovalAuditReconciliationContainerTest`; the
+     query uses `pg_input_is_valid`, PostgreSQL 16+).
+  6. Rollback SQL applied, flag `LEGACY` - legacy relay delivers; re-applied - definer relay delivers
+     (`AuditOptionARollbackContainerTest`, `AuditRelayModeContainerTest`).
+  7. 0 lines changed in `V2_2_1220`, `V2_4_3`, `V2_4_1250`, `V2_4_1420` (`git diff --name-only`).
+  The function is also exercised under a NOSUPERUSER NOBYPASSRLS owner (`AuditRelayMoveFunctionContainerTest`); the
+  production owner's actual flags are a post-check (README), not a test.
+- **Revisit if.** Any residual above is used in an incident; a regulated tenant or partner asks for tamper *detection*
+  (then option B); the application stops holding the owner credential (then residual 5 is closed and the release
+  statement changes); the Q3 revoke lands (then residual 4 is closed); or an alert on relay lag is added and fires
+  (then reconsider the per-tenant serialisation).

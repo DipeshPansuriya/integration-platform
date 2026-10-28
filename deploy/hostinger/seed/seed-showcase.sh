@@ -5,8 +5,14 @@
 #    passwords from SHOWCASE_PASSWORD_* in the server .env - never printed;
 # 2. binds them to two tenants with seed.sql (tenant, app_user, role_grant), as the bootstrap superuser.
 # Idempotent. Needs: docker compose, the server .env, the stack up.
+#    Login (row 543): the first-start window uses the bootstrap admin; afterwards the master service-account client ipass-kcadm
+#    (KC_CLIENT_SECRET from the environment or a silent prompt - see keycloak/kc-login.sh). Fallback: --password-login with
+#    KC_ADMIN_USER (named admin without TOTP).
 set -eu
 cd "$(dirname "$0")/.."
+. ./keycloak/kc-login.sh
+kc_parse_flags "$@"; shift "$KC_SHIFT"
+kc_auth_check
 ENV_FILE="${ENV_FILE:-./.env}"
 COMPOSE="${COMPOSE:-docker compose}"
 if [ "${DRY_RUN:-0}" = 1 ]; then
@@ -21,9 +27,8 @@ KCADM=/opt/keycloak/bin/kcadm.sh
 # passwords travel as environment NAMES (docker compose exec -e NAME) so no value reaches a host command line
 if $COMPOSE exec -T keycloak sh -c '[ -n "$KC_BOOTSTRAP_ADMIN_PASSWORD" ]'; then   # first-start window: the bootstrap override is active
   $COMPOSE exec -T keycloak sh -c "$KCADM config credentials --server http://localhost:8080 --realm master --user \"\$KC_BOOTSTRAP_ADMIN_USERNAME\" --password \"\$KC_BOOTSTRAP_ADMIN_PASSWORD\"" >/dev/null
-else   # bootstrap admin retired: a named admin, password prompted by kcadm on the terminal
-  : "${KC_ADMIN_USER:?the bootstrap admin is retired: set KC_ADMIN_USER to a named realm admin}"
-  $COMPOSE exec keycloak $KCADM config credentials --server http://localhost:8080 --realm master --user "$KC_ADMIN_USER" >/dev/null
+else   # bootstrap admin retired (row 543): the master service-account client ipass-kcadm; --password-login = named admin, prompted by kcadm
+  kc_login
 fi
 
 ensure_user() { # username, password-variable-name -> prints the realm user id

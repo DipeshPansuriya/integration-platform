@@ -340,6 +340,48 @@ class T015FlowAdminContainerTest {
     }
 
     @Test
+    @DisplayName("Row 482 Scenario: A typed interface code is stored and returned; unique per tenant, not across tenants")
+    void aTypedInterfaceCodeIsStoredAndUniquePerTenantOnly() {
+        String base = ConfigAdminApi.baseUrl(port);
+        Actors actors = actors();
+        String code = LaneCIdentities.randomCode("ord");
+        String sourceA = LaneCIdentities.randomCode("src");
+        String sourceB = LaneCIdentities.randomCode("src");
+        String target = LaneCIdentities.randomCode("tgt");
+        for (String[] system : new String[][] {{sourceA, "INBOUND"}, {target, "OUTBOUND"}}) {
+            assertThat(ConfigAdminApi.call("POST", base + ConfigAdminApi.SYSTEMS, actors.author(),
+                    ConfigAdminApi.createSystem(system[0], "tenant A " + system[1], system[1])).status()).isEqualTo(201);
+        }
+
+        Response created = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS, actors.author(),
+                ConfigAdminApi.createFlowWithCode(sourceA, List.of(target), "$.orderId", " " + code + " "));
+        assertThat(created.status()).as("the typed code is accepted, body: %s", created.body()).isEqualTo(201);
+        Response read = ConfigAdminApi.call("GET", base + ConfigAdminApi.FLOWS + "/" + created.json().path("id").asString(),
+                actors.author(), null);
+        assertThat(read.json().path("code").asString()).as("stored as typed (trimmed): the code intake binds").isEqualTo(code);
+
+        Response again = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS, actors.author(),
+                ConfigAdminApi.createFlowWithCode(sourceA, List.of(target), "$.orderId", code));
+        assertThat(again.status()).as("the same code twice in one tenant: %s", again.body()).isEqualTo(409);
+        assertThat(again.body()).as("a named refusal, not the generic constraint text").contains(code);
+
+        Response illegal = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS, actors.author(),
+                ConfigAdminApi.createFlowWithCode(sourceA, List.of(target), "$.orderId", "a/b c"));
+        assertThat(illegal.status()).as("an unaddressable code is a 400: %s", illegal.body()).isEqualTo(400);
+
+        // the same code in another tenant is free: uniqueness is (tenant, code)
+        assertThat(ConfigAdminApi.call("POST", base + ConfigAdminApi.SYSTEMS, actors.otherTenantUser(),
+                ConfigAdminApi.createSystem(sourceB, "tenant B source", "INBOUND")).status()).isEqualTo(201);
+        assertThat(ConfigAdminApi.call("POST", base + ConfigAdminApi.SYSTEMS, actors.otherTenantUser(),
+                ConfigAdminApi.createSystem(target, "tenant B target", "OUTBOUND")).status()).isEqualTo(201);
+        Response otherTenant = ConfigAdminApi.call("POST", base + ConfigAdminApi.FLOWS, actors.otherTenantUser(),
+                ConfigAdminApi.createFlowWithCode(sourceB, List.of(target), "$.orderId", code));
+        assertThat(otherTenant.status()).as("tenant B may use tenant A's code: %s", otherTenant.body()).isEqualTo(201);
+        assertThat(ConfigAdminApi.call("GET", base + ConfigAdminApi.FLOWS + "/" + otherTenant.json().path("id").asString(),
+                actors.otherTenantUser(), null).json().path("code").asString()).isEqualTo(code);
+    }
+
+    @Test
     @Tag("negative")
     @Tag("tenant")
     @DisplayName("@negative @tenant Scenario: Another tenant's flow is invisible - 404, no tenant A row read")

@@ -10,7 +10,8 @@
 // public.delivery_daily_aggregate, which ONLY the DAILY_REPORT scheduler job writes (DailyReportPlaceholderHandler,
 // "yesterday" per active tenant) - no API produces it, so, as failures/message-detail do for message rows, the
 // aggregate row goes into the suite's own pinned postgres as owner (screen-sql.mjs binds app.tenant_id for FORCE
-// RLS). Each scenario reads its OWN far-past day (2020-01-xx), so no other spec's data can land in its figures.
+// RLS). Each scenario reads its OWN past day (utcDay(-10) to utcDay(-13): the report refuses a day older than 31 days,
+// DeliveryReportController.java:33,40), so no other spec's data can land in its figures.
 
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
@@ -51,13 +52,13 @@ test('a day with an aggregate shows one row per interface/target: failures colla
   const target = randomUUID();
   const otherTarget = randomUUID();
   psql(aggregateRowSql({
-    tenantId: tenantIdOf(), day: '2020-01-15', interfaceId: flow.id, targetId: target,
+    tenantId: tenantIdOf(), day: utcDay(-10), interfaceId: flow.id, targetId: target,
     successes: 5, failuresTransient: 3, failuresAmbiguous: 1, failuresPermanent: 2,
     retriesMade: 4, retriedThenSucceeded: 2, stillStuck: 1
   }));
-  psql(aggregateRowSql({ tenantId: tenantIdOf(), day: '2020-01-15', interfaceId: flow.id, targetId: otherTarget, successes: 7 }));
+  psql(aggregateRowSql({ tenantId: tenantIdOf(), day: utcDay(-10), interfaceId: flow.id, targetId: otherTarget, successes: 7 }));
 
-  await openReport(page, '2020-01-15');
+  await openReport(page, utcDay(-10));
   const rows = page.locator(`[data-report-row^="${flow.id}/"]`);
   await expect(rows).toHaveCount(2);
 
@@ -70,17 +71,17 @@ test('a day with an aggregate shows one row per interface/target: failures colla
 test('changing the day re-reads: a day with no aggregate lists no rows, going back brings the figures back', async ({ page }) => {
   const flow = await freshFlow(page, 'day-change');
   const target = randomUUID();
-  psql(aggregateRowSql({ tenantId: tenantIdOf(), day: '2020-01-16', interfaceId: flow.id, targetId: target, successes: 9 }));
+  psql(aggregateRowSql({ tenantId: tenantIdOf(), day: utcDay(-11), interfaceId: flow.id, targetId: target, successes: 9 }));
 
-  await openReport(page, '2020-01-16');
+  await openReport(page, utcDay(-11));
   await expect(page.locator(`[data-report-row="${flow.id}/${target}"]`)).toBeVisible();
 
-  await page.locator('[data-day-filter]').fill('2020-01-17');
+  await page.locator('[data-day-filter]').fill(utcDay(-12));
   await settled(page);
   await expect(page.locator(`[data-report-row="${flow.id}/${target}"]`)).toHaveCount(0);
   await expect(page.locator('[data-report-row]')).toHaveCount(0);
 
-  await page.locator('[data-day-filter]').fill('2020-01-16');
+  await page.locator('[data-day-filter]').fill(utcDay(-11));
   await expect(page.locator(`[data-report-row="${flow.id}/${target}"] td`).nth(2)).toHaveText('9');
 });
 
@@ -112,25 +113,25 @@ test.fixme('clearing the day keeps the input so another day can be picked (produ
 test("@negative @tenant the other tenant's reader sees none of tenant A's report rows for the same day", async ({ page }) => {
   const flow = await freshFlow(page, 'tenant-reader');
   const target = randomUUID();
-  psql(aggregateRowSql({ tenantId: tenantIdOf(), day: '2020-01-18', interfaceId: flow.id, targetId: target, successes: 3 }));
+  psql(aggregateRowSql({ tenantId: tenantIdOf(), day: utcDay(-13), interfaceId: flow.id, targetId: target, successes: 3 }));
 
-  await openReport(page, '2020-01-18');
+  await openReport(page, utcDay(-13));
   await expect(page.locator(`[data-report-row="${flow.id}/${target}"]`)).toBeVisible(); // A sees its own row
 
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant-reader' });
-  await openReport(page, '2020-01-18');
+  await openReport(page, utcDay(-13));
   await expect(page.locator('[role="alert"][data-refusal]')).toHaveCount(0);
   await expect(page.locator(`[data-report-row="${flow.id}/${target}"]`)).toHaveCount(0);
   await expect(page.locator('[data-report-row]')).toHaveCount(0);
 });
 
 // @negative @role: the report rides READ_MESSAGE_TIMELINE; the other-tenant binding is a CONFIGURATOR of tenant B -
-// refused (403) with the permission wording, and no table (so no figures) is rendered.
+// refused (403) with the no-access wording, and no table (so no figures) is rendered.
 test("@negative @role the other tenant's configurator is refused with the permission wording and sees no table", async ({ page }) => {
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
   await page.goto(consoleUrl());
   await page.click('[data-nav="reports"]');
   await expect(page.locator('[role="alert"][data-refusal="delivery-report-refused"]')).toHaveText(
-    'You do not have permission to read the message timeline, so the delivery report is refused.');
+    'You do not have access to this page. Ask an administrator if you need it.');
   await expect(page.locator('[data-delivery-report]')).toHaveCount(0);
 });

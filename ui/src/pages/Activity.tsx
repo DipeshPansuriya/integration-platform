@@ -20,6 +20,7 @@ import {
   type RefusalState
 } from './activity-view';
 import { refusalWords } from '../ui/refusal-words';
+import { NoAccess } from '../ui/NoAccess';
 import { utcText } from './message-timeline';
 import './operator.css';
 
@@ -29,6 +30,7 @@ type Filter = { action: string; from: string; to: string };
 const NO_FILTER: Filter = { action: '', from: '', to: '' };
 
 function Refusal({ state, status }: { state: RefusalState; status: number }) {
+  if (state === 'no-access') return <NoAccess refusal="activity-no-access" />;
   return (
     <p role="alert" className="op-alert op-alert-danger" data-refusal={`activity-${state}`}>
       {state === 'failed' && status > 0 ? refusalWords(status, 'the activity') : REFUSAL_COPY[state]}

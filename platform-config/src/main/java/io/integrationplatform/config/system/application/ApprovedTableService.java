@@ -261,8 +261,9 @@ public class ApprovedTableService {
         }
         ApprovedTableRow after = tables.find(id)
                 .orElseThrow(() -> new IllegalStateException("the decided approved table vanished"));
-        audit(result.equals("APPROVED") ? ConfigAuditActions.DB_TABLE_APPROVED : ConfigAuditActions.DB_TABLE_REVOKED,
-                actorId, after, beforeStatus);
+        boolean approved = result.equals("APPROVED");
+        audit(approved ? ConfigAuditActions.DB_TABLE_APPROVED : ConfigAuditActions.DB_TABLE_REVOKED, actorId, after,
+                beforeStatus, approved ? actorId.toString().equals(after.requestedBy()) : null);
         return view(after);
     }
 
@@ -293,12 +294,19 @@ public class ApprovedTableService {
     }
 
     private void audit(String action, UUID actorId, ApprovedTableRow row, String beforeStatus) {
+        audit(action, actorId, row, beforeStatus, null);
+    }
+
+    /** {@code selfApproved} (approval only; null = not part of the event): the approver is the requester. */
+    private void audit(String action, UUID actorId, ApprovedTableRow row, String beforeStatus, Boolean selfApproved) {
         UUID tenantId = tenant.get().orElseThrow(() -> new IllegalStateException("no tenant bound"));
         events.publishEvent(ConfigAuditActions.event(action, tenantId, actorId,
                 List.of(ConfigAuditActions.target("system", row.systemId()),
                         ConfigAuditActions.target("db_table_approval", row.id())),
                 beforeStatus == null ? null : ConfigAuditActions.state("status", beforeStatus),
-                ConfigAuditActions.state("status", row.status(), "table", row.tableName())));
+                selfApproved == null ? ConfigAuditActions.state("status", row.status(), "table", row.tableName())
+                        : ConfigAuditActions.state("status", row.status(), "table", row.tableName(),
+                                "selfApproved", selfApproved)));
     }
 
     private static Map<String, Object> view(ApprovedTableRow row) {

@@ -1,6 +1,6 @@
 // T174b: the Release 1 reference example (REF-ORDER) through the REAL admin API only: one source, two targets -
 // target A an API system (contract v1.0) on the compose WireMock, target B an MQ system (contract v2.0) on the compose
-// Artemis - every contract and the flow approved by a second user (four-eyes: the author never approves).
+// Artemis - every contract and the flow approved by a second user (the seed uses a separate approver login; the author may also approve their own version since V2_4_1420).
 //
 // T176 (on main f0a5095f) added the MQ-CSV `contract` to the admin API's MQ settings, so the whole seed is API-driven:
 // no owner SQL. Each mapping also needs a passing sample run of its pinned content before publish (T-037).

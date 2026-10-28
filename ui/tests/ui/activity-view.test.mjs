@@ -98,7 +98,7 @@ test('404 is the plain not-found state (another tenant\'s event gives nothing)',
 
 test('403 is the no-access state', () => {
   assert.equal(refusalState(403), 'no-access');
-  assert.equal(REFUSAL_COPY['no-access'], 'You do not have access to the activity view.');
+  assert.equal(REFUSAL_COPY['no-access'], 'You do not have access to this page. Ask an administrator if you need it.');
   assert.equal(refusalState(500), 'failed');
   assert.equal(refusalState(400), 'failed');
 });

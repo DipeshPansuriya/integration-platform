@@ -21,11 +21,11 @@ When this file and a document disagree, the document wins.
 
 ## Stack
 
-- **Java 25**, **Spring Boot** 4.1.1, Maven (use the wrapper `./mvnw`).
+- **Java 25**, **Spring Boot** 4.1.2, Maven (use the wrapper `./mvnw`).
 - **Apache Camel** 4.22.1 - only in `platform-routing` (R12, ADR-010).
 - **Apache Kafka** client 4.3.1 - exactly one kafka-clients version, no spring-kafka (R12, ADR-005).
 - **PostgreSQL 17**, schema owned by Flyway (ADR-002).
-- A **React** console in `ui/`, served as static files and calling only the admin API - not built yet.
+- A **React** console in `ui/`, served as static files and calling only the admin API (built; see `documents/HANDOVER.md` section 10.4).
 - `e2e-ui/` holds the console's end-to-end suites (Playwright, base-suite, Release 1 journey, trial, perf) and their runner scripts - test-only, like `platform-e2e`. `ui/` keeps product code and product unit tests; the `ui` npm script names still work (they delegate to `e2e-ui`, extra args forward). Run `npm ci` in BOTH `ui/` and `e2e-ui/`: `ui` `npm test` also runs the e2e-ui unit tests (`npm run test:product` = ui only).
 
 ## Modules

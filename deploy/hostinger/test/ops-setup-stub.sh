@@ -19,7 +19,8 @@ disp() { case "$1" in auth-username-password-form) echo "Username Password Form"
 level_of() { [ "$1" = ops-browser ] && echo -1 || awk -F'|' -v a="$1" '$3==a{print $6; exit}' "$S/execs"; }   # row: parent|id|name|provider|req|level|cfg
 n=$(( $(cat "$S/counter" 2>/dev/null || echo 0) + 1 )); echo $n > "$S/counter"
 case "$verb $path" in
- "config credentials"|"config truncate") exit 0;;
+ "config credentials") exit 0;;
+ "config truncate") echo "Unmatched argument at index 1: 'truncate'" >&2; exit 2;;   # the real 26.8.1 has no such sub-command (B1)
  "get roles") [ -s "$S/roles" ] && cat "$S/roles"; exit 0;;
  "get roles/ops-operator") echo "r-1"; exit 0;;
  "create roles") echo ops-operator > "$S/roles"; exit 0;;
@@ -77,8 +78,11 @@ mkdir -p "$T/noawk"; printf '#!/bin/sh
 echo "awk is not in the keycloak container" >&2; exit 127
 ' > "$T/noawk/awk"; chmod +x "$T/noawk/awk"
 
+# Row 543: the default login is the master service-account client (KC_CLIENT_ID + KC_CLIENT_SECRET, no admin user/password);
+# the admin-password login is the explicit fallback (KC_AUTH=password). RUN_ENV adds/overrides variables for one scenario.
+RUN_ENV=()
 run() { # scenario-dir -> runs the real script against the stub; sets RC and OUT
-  S="$1"; OUT="$(PATH="$T/noawk:$PATH" STUB_DIR="$S" KCADM="$T/kcadm" IPASS_DOMAIN=example.test KC_ADMIN_USERNAME=u KC_ADMIN_PASSWORD=p OPS_KAFBAT_CLIENT_SECRET=s bash "$SCRIPT" 2>&1)"; RC=$?; }
+  S="$1"; mkdir -p "$S/.keycloak"; echo "token-and-secret" > "$S/.keycloak/kcadm.config"; OUT="$(env -u KC_ADMIN_USERNAME -u KC_ADMIN_PASSWORD -u KC_AUTH -u KC_CLIENT_ID PATH="$T/noawk:$PATH" HOME="$S" STUB_DIR="$S" KCADM="$T/kcadm" IPASS_DOMAIN=example.test KC_CLIENT_SECRET=cs OPS_KAFBAT_CLIENT_SECRET=s "${RUN_ENV[@]}" bash "$SCRIPT" 2>&1)"; RC=$?; }
 mk() { rm -rf "$T/$1"; mkdir -p "$T/$1"; : > "$T/$1/calls"; echo "$T/$1"; }
 
 # 1. fresh realm
@@ -126,5 +130,23 @@ grep -q "NOT as expected" <<<"$OUT" && ok "an inverted role gate (negate=false) 
 # 5. a failing `get clients` stops the run: no duplicate create, no false 'created'
 S5="$(mk getfail)"; touch "$S5/get-clients-fails"; run "$S5"
 [ $RC -ne 0 ] && ! grep -q "create clients" "$S5/calls" && ! grep -q "client ops-kafbat created" <<<"$OUT" && ok "a failing client lookup aborts (no create, no false success)" || bad "get clients failure treated as absent (rc=$RC)"
+
+# 6. Row 543 - login: client credentials by default, admin password only as the explicit fallback
+S7="$(mk loginclient)"; run "$S7"
+l="$(grep '^config credentials' "$S7/calls" | head -1)"
+[ $RC -eq 0 ] && grep -q -- "--client ipass-kcadm" <<<"$l" && grep -q -- "--secret" <<<"$l" && ! grep -q -- "--user\|--password" <<<"$l" && ok "login: default is the client ipass-kcadm with a secret, no --user/--password" || bad "login default (rc=$RC): $l"
+! grep -qE "(^| )cs( |$)" <<<"$OUT" && ok "login: the client secret is not printed" || bad "client secret in output"
+[ ! -e "$S7/.keycloak/kcadm.config" ] && ! grep -q "config truncate" "$S7/calls" && ok "login: the kcadm token (and stored secret) is removed at exit (config file deleted)" || bad "login: kcadm config file left behind or config truncate used"
+S8="$(mk loginid)"; RUN_ENV=(KC_CLIENT_ID=my-client); run "$S8"; RUN_ENV=()
+grep -q -- "--client my-client" "$S8/calls" && ok "login: KC_CLIENT_ID overrides the client id" || bad "login: client id override"
+S9="$(mk loginpw)"; RUN_ENV=(KC_AUTH=password KC_ADMIN_USERNAME=u KC_ADMIN_PASSWORD=p); run "$S9"; RUN_ENV=()
+l="$(grep '^config credentials' "$S9/calls" | head -1)"
+[ $RC -eq 0 ] && grep -q -- "--user u" <<<"$l" && grep -q -- "--password p" <<<"$l" && ! grep -q -- "--client" <<<"$l" && ok "login: KC_AUTH=password is the explicit admin-password fallback" || bad "login fallback (rc=$RC): $l"
+S10="$(mk nosecret)"; RUN_ENV=(KC_CLIENT_SECRET=); run "$S10"; RUN_ENV=()
+[ $RC -ne 0 ] && ! grep -q "create roles\|create clients" "$S10/calls" && ok "login: client mode without KC_CLIENT_SECRET stops before any change" || bad "login: missing secret not refused (rc=$RC)"
+S11="$(mk nopw)"; RUN_ENV=(KC_AUTH=password); run "$S11"; RUN_ENV=()
+[ $RC -ne 0 ] && ! grep -q "create roles\|create clients" "$S11/calls" && ok "login: password mode without user/password stops before any change" || bad "login: password mode not refused (rc=$RC)"
+S12="$(mk badauth)"; RUN_ENV=(KC_AUTH=bogus); run "$S12"; RUN_ENV=()
+[ $RC -ne 0 ] && ! grep -q "^config credentials" "$S12/calls" && ok "login: an unknown KC_AUTH value is refused (no silent fallback)" || bad "login: unknown KC_AUTH accepted"
 
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"; exit $fail

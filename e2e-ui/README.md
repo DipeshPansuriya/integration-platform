@@ -10,15 +10,15 @@ keycloak-harness, run-release1-gate, run-release1-journey, release1/*, trial-up,
 
 Install: `npm ci` here (own lock; same npm cache as `ui/`; offline works from the cache). Needs `../ui` installed too (vite config, build).
 
-**Both folders need `npm ci`:** `ui` `npm test` ends by running `npm --prefix ../e2e-ui test`, so a checkout with only `ui` installed fails it (run `npm run test:product` there for the ui-only 383). Extra arguments forward through the `ui` delegates: `cd ui && npm run test:screens -- --list` (also `-- login.docker.spec.mjs`, `test:release1-journey -- <log>`).
+**Both folders need `npm ci`:** `ui` `npm test` ends by running `npm --prefix ../e2e-ui test`, so a checkout with only `ui` installed fails it (run `npm run test:product` there for the ui-only tests). Extra arguments forward through the `ui` delegates: `cd ui && npm run test:screens -- --list` (also `-- login.docker.spec.mjs`, `test:release1-journey -- <log>`).
 
 | Command (run in `e2e-ui/`) | Was (in `ui/`) |
 |---|---|
-| `npm test` (112 unit tests) | part of `npm test` |
+| `npm test` (offline `node --test` unit tests; the count is printed at the end of the run, 112 on 2026-10-27) | part of `npm test` |
 | `npm run test:screens` / `test:mocked` / `test:e2e-full-ui` | same names |
 | `npm run test:release1-journey -- <log>` / `node scripts/run-release1-gate.mjs <log>` | same names |
 | `npx playwright test -c playwright.base-suite.config.mjs` / `playwright.security.config.mjs` / `playwright.release1.config.mjs` | same files |
 | `npm run test:container` / `test:trial` / `trial` / `perf` / `test:perf` | same names |
 
 From `ui/` every old script name still works: it runs `npm --prefix ../e2e-ui run <name>` (extra args: run it in `e2e-ui/` instead).
-`ui` `npm test` = 383 own tests + the 112 here = 495; `npm run test:product` runs only the 383.
+`ui` `npm test` = its own tests, then the ones here; `npm run test:product` runs only the `ui` ones. Counts move with every added test, so read them from the run summary (2026-10-27 on `7b916dd7`: `ui` 387, `e2e-ui` 112).

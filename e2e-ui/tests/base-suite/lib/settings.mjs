@@ -34,7 +34,7 @@ const RESOLVER_OVERRIDES = /jdk\.net\.hosts\.file|sun\.net\.spi\.nameservice/i;
  * (DestinationGuard.java:165), after the host passed allowed-hosts (:158) - Spring Boot's env names of
  * platform.config.destinations.showcase-local-ports / .allowed-hosts (SystemPersistenceConfiguration.java:53-57).
  */
-const SHOWCASE_PORTS_VAR = 'PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS';
+export const SHOWCASE_PORTS_VAR = 'PLATFORM_CONFIG_DESTINATIONS_SHOWCASE_LOCAL_PORTS';
 const ALLOWED_HOSTS_VAR = 'PLATFORM_CONFIG_DESTINATIONS_ALLOWED_HOSTS';
 /** Publish refuses an endpoint URI whose scheme is not approved (PipelineCompositionConfiguration.allowedSchemes; unset = none): a system's default endpoint is the placeholder https://endpoint.invalid/ (JdbcSystemRepository.INSERT_ENDPOINT) and the WireMock target is plain http - both approved, TEST environment only. */
 const ALLOWED_SCHEMES_VAR = 'ROUTING_CORE_ALLOWED_SCHEMES';

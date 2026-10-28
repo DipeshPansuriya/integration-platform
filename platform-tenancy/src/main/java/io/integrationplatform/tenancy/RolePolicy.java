@@ -74,8 +74,9 @@ public final class RolePolicy {
         // (E5-F1-S3 "Only a tenant admin manages credentials"); rotating a SOURCE one is issuing a second one
         // (ADR-007 Decision 3), so that stays ISSUE_SOURCE_CREDENTIAL.
         MANAGE_TARGET_CREDENTIAL(Caller.ROLE, TENANT_ADMIN),
-        // E16 F3 (Dipesh D1, 2026-10-22): the tenant's approver approves or revokes a DB target's table (never the
-        // requester: the definer function's check, D4); requesting one is EDIT_CONFIGURATION
+        // E16 F3 (Dipesh D1, 2026-10-22): the tenant's approver approves or revokes a DB target's table; since V2_4_1420
+        // (single-user workflow) the requester may approve their own request, the definer function checks only tenant
+        // and state; requesting one is EDIT_CONFIGURATION
         APPROVE_DB_TABLE(Caller.ROLE, TENANT_ADMIN, APPROVER),
         READ_MESSAGE_TIMELINE(Caller.ROLE, TENANT_ADMIN, SUPPORT, READ_ONLY),
         REPLAY_DEAD_LETTER(Caller.ROLE, TENANT_ADMIN, SUPPORT),
