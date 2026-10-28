@@ -60,9 +60,8 @@ test('A10 wiring: deep links, aria-disabled retry, FlowsList Retry', () => {
   assert.match(list, /orderingWord\(/);
 });
 
-test('A11 wiring: Login shows a pending state after the SSO click', () => {
+test('A11 wiring: Login announces the redirect to sign-in (row 571: automatic, no SSO click)', () => {
   const login = read('pages/Login.tsx');
-  assert.match(login, /aria-disabled=\{redirecting\}/);
   assert.match(login, /Redirecting to sign-in/);
   assert.match(login, /role="status"/);
 });
