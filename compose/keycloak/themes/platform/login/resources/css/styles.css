@@ -41,12 +41,29 @@ body {
   box-sizing: border-box;
   width: 100%;
   max-width: 420px;
-  margin: 96px auto 48px;
+  margin: 12vh auto 48px;
   background: var(--platform-surface);
   border: 1px solid var(--platform-border);
+  /* row 571: Kale Deep Sea card signature - 4px rule on top, 4px rule at the foot (tokens.css) */
+  border-top: 4px solid var(--platform-rule-top);
+  border-bottom: 4px solid var(--platform-rule-bottom);
   border-radius: var(--platform-r-2); /* cards = 12px */
-  padding: 24px; /* card padding on the 4/8 grid */
+  padding: 28px 32px 32px; /* card padding on the 4/8 grid */
   box-shadow: var(--platform-shadow-1);
+}
+
+/* row 571: the brand line the console's sign-in state also carries, as a technical eyebrow (uppercase,
+   wide tracking - the one place the brand allows caps besides status pills). Decorative text, same as the
+   console's "Integration Platform"; the page's one heading stays h1#kc-page-title. */
+.platform-card::before {
+  content: "Integration Platform";
+  display: block;
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--platform-ink-muted);
 }
 
 /* The page's one heading, h1#kc-page-title "Sign in", inside the card: the page-title
@@ -90,7 +107,8 @@ select,
 textarea {
   width: 100%;
   box-sizing: border-box;
-  padding: 8px 12px;
+  min-height: 44px; /* row 571: comfortable touch and pointer target */
+  padding: 10px 12px;
   font-family: var(--platform-font);
   font-size: 14px;
   color: var(--platform-ink);
@@ -114,31 +132,55 @@ textarea:hover {
    the accessible name (WCAG 2.5.3). Fixed min-width: Show/Hide never shifts the input. */
 .platform-input-group {
   display: flex;
-  gap: 8px;
   align-items: stretch;
+  /* row 571: field and toggle read as ONE control - the group carries the boundary (same control token),
+     the field inside has none, the toggle sits at its end behind a hairline */
+  background: var(--platform-surface);
+  border: 1px solid var(--platform-border-control);
+  border-radius: var(--platform-r-1);
+  transition: border-color var(--platform-motion);
+}
+.platform-input-group:hover {
+  border-color: var(--platform-ink-faint);
 }
 .platform-input-group > input {
   flex: 1 1 auto;
   min-width: 0;
+  border: 0;
+  border-radius: var(--platform-r-1) 0 0 var(--platform-r-1);
+  background: transparent;
+}
+/* the ring belongs to the whole control, so it is drawn on the group when the field has focus */
+@supports selector(:has(*)) {
+  .platform-input-group > input:focus-visible {
+    outline: 0;
+    box-shadow: none;
+  }
+  .platform-input-group:has(> input:focus-visible) {
+    outline: 2px solid var(--platform-focus);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px var(--platform-halo);
+  }
 }
 
 .platform-password-toggle {
   flex: none;
   min-width: 64px;
-  padding: 0 12px;
+  padding: 0 14px;
   font-family: var(--platform-font);
   font-size: 13px;
-  font-weight: 500;
-  color: var(--platform-ink-muted);
-  background: var(--platform-surface);
-  border: 1px solid var(--platform-border);
-  border-radius: var(--platform-r-1);
+  font-weight: 600;
+  color: var(--platform-link); /* >= 5.17:1 on the card in both themes (T90b) */
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--platform-border);
+  border-radius: 0 var(--platform-r-1) var(--platform-r-1) 0;
   cursor: pointer;
-  transition: border-color var(--platform-motion), color var(--platform-motion);
+  transition: background var(--platform-motion);
 }
 .platform-password-toggle:hover {
-  color: var(--platform-ink);
-  border-color: var(--platform-border-strong);
+  background: var(--platform-canvas);
+  text-decoration: underline;
 }
 .platform-password-toggle > i {
   font-style: normal;
@@ -173,8 +215,9 @@ button[type="submit"],
 button.primary {
   display: inline-block;
   width: 100%;
-  margin-top: 20px;
-  padding: 9px 16px;
+  margin-top: 24px;
+  min-height: 44px;
+  padding: 10px 16px;
   font-family: var(--platform-font);
   font-size: 14px;
   font-weight: 500;
@@ -269,7 +312,7 @@ small {
 #kc-info-message {
   position: relative;
   margin: 0 0 16px;
-  padding: 10px 12px 10px 34px;
+  padding: 10px 12px;
   font-size: 14px;
   border-radius: var(--platform-r-1);
   border: 1px solid transparent;
@@ -281,11 +324,11 @@ small {
 #kc-success-message::before,
 #kc-warning-message::before,
 #kc-info-message::before {
-  position: absolute;
-  left: 10px;
-  top: 10px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
 
 .alert-error,
@@ -296,7 +339,7 @@ small {
 }
 .alert-error::before,
 #kc-error-message::before {
-  content: "!";
+  content: "Error";
 }
 
 .alert-warning,
@@ -307,7 +350,7 @@ small {
 }
 .alert-warning::before,
 #kc-warning-message::before {
-  content: "!";
+  content: "Warning";
 }
 
 .alert-success,
@@ -318,7 +361,7 @@ small {
 }
 .alert-success::before,
 #kc-success-message::before {
-  content: "OK";
+  content: "Done";
 }
 
 .alert-info,
@@ -329,7 +372,7 @@ small {
 }
 .alert-info::before,
 #kc-info-message::before {
-  content: "i";
+  content: "Note";
 }
 
 /* links inside tinted alerts keep the paired ink */

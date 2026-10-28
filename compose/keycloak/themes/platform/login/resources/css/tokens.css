@@ -69,6 +69,11 @@
   --platform-shadow-2: 0 2px 4px rgba(15, 23, 42, .06), 0 16px 40px -12px rgba(15, 23, 42, .18);
   /* 02-style-guide focus halo (soft glow beside the 2px ring) */
   --platform-halo: rgba(37, 99, 235, .22);
+  /* row 571, Kale Deep Sea card signature: a 4px Deep Sea rule on top and a 4px Noon rule at the foot of the
+     card (decorative only, never text; Noon stays off the dark ground per the brand rule). Brand tokens
+     --deep-sea #081F4B and --noon #EB4A26, light theme only; the dark card keeps its hairline. */
+  --platform-rule-top: #081f4b;
+  --platform-rule-bottom: #eb4a26;
   /* v3 radius pair (01 §3 execution revision): r-1 8px small elements,
      r-2 12px cards/inputs/buttons, r-3 14px large panels */
   --platform-r-1: 8px;
@@ -124,6 +129,9 @@
     --platform-shadow-1: none;
     --platform-shadow-2: 0 0 0 1px var(--platform-border-strong);
     --platform-halo: rgba(59, 130, 246, .28);
+    /* row 571: Evening Sky #76CBFF top rule on the dark slate card (decorative, well above 3:1); no Noon on a dark ground */
+    --platform-rule-top: #76cbff;
+    --platform-rule-bottom: var(--platform-border);
     color-scheme: dark;
   }
 }
