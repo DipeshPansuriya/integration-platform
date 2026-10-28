@@ -50,6 +50,8 @@ import { NoAccess } from './ui/NoAccess';
 import { PageHeader } from './ui/PageHeader';
 import { focusMainHeading, skipToMain } from './route-focus';
 import { ApprovalsLanding, MessagesLanding } from './pages/GuidedLandings';
+import { SectionTabs } from './ui/SectionTabs';
+import { sectionOf } from './section-tabs';
 import { canOperate } from './pages/message-guide';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
@@ -321,7 +323,10 @@ export function App() {
   const shown = open ? route.page : null;
 
   function renderNavItem(entry: NavItem) {
-    const active = route.page === entry.page;
+    const exact = route.page === entry.page;
+    // Row 575 S6: a hub tab's page (queue, activity, contracts) keeps its owning item highlighted - aria-current="true" (the section), while the tab itself is the page.
+    const owns = !exact && sectionOf(route.page) === entry.page;
+    const active = exact || owns;
     return (
       <a
         key={entry.nav}
@@ -330,7 +335,7 @@ export function App() {
         data-initial={entry.initial}
         href={entry.hash}
         title={entry.label}
-        aria-current={active ? 'page' : undefined}
+        aria-current={exact ? 'page' : owns ? 'true' : undefined}
       >
         <span className="nav-icon-pill" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d={NAV_ICONS[entry.nav] || ''} /></svg></span>
         <span className="nav-label">{entry.label}</span>
@@ -442,6 +447,7 @@ export function App() {
               <NoAccess refusal="ROLE_NOT_GRANTED" />
             </>
           )}
+          {shown && <SectionTabs page={route.page} />}
           {shown === 'flows' &&
             (route.flowId ? (
               <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} roles={roles} />

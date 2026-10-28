@@ -61,11 +61,11 @@ test('each item\'s role set equals the RolePolicy operation it depends on', () =
 });
 
 test('moreFor: the temporary legacy group keeps every data-nav and is role-filtered', () => {
-  assert.deepEqual(navs(moreFor(['TENANT_ADMIN'])), ['queue', 'failures', 'activity', 'versions', 'contracts', 'rules', 'mappings']);
-  assert.deepEqual(navs(moreFor(['CONFIGURATOR'])), ['versions', 'contracts', 'rules', 'mappings']);
-  assert.deepEqual(navs(moreFor(['SUPPORT'])), ['queue', 'failures', 'activity']);
-  assert.deepEqual(navs(moreFor(['APPROVER'])), ['versions', 'contracts', 'rules', 'mappings']);
-  assert.equal(moreFor(null).length, 7);
+  assert.deepEqual(navs(moreFor(['TENANT_ADMIN'])), ['failures', 'versions', 'rules', 'mappings']); // S6: queue, activity, contracts are tabs
+  assert.deepEqual(navs(moreFor(['CONFIGURATOR'])), ['versions', 'rules', 'mappings']);
+  assert.deepEqual(navs(moreFor(['SUPPORT'])), ['failures']);
+  assert.deepEqual(navs(moreFor(['APPROVER'])), ['versions', 'rules', 'mappings']);
+  assert.equal(moreFor(null).length, 4);
 });
 
 test('no data-nav is shown twice (primary vs legacy group)', () => {
