@@ -1,0 +1,65 @@
+/* Contracts screen - tokens only (colours via var(--*), no literals) */
+.contracts-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.lane-c-region {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.lane-c-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: var(--surface-muted);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-3);
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.lane-c-empty-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lane-c-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-faint);
+}
+
+.lane-c-file {
+  color: var(--ink-muted);
+}
+
+.lane-c-colrow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.lane-c-kv-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.lane-c-errors {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+.entity-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}

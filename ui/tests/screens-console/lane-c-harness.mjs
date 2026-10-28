@@ -12,6 +12,19 @@ export { childElements, findAll } from '../ui/hook-harness.mjs';
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
 const FRAGMENT = Symbol.for('hook-harness.fragment');
 
+// DS Drawer's focus-trap effect touches document; give it an inert host in tests
+// (keydown listeners are inert, focus restore is guarded on prev being non-null).
+if (typeof globalThis.document !== 'object') {
+  globalThis.document = { activeElement: null, addEventListener() {}, removeEventListener() {} };
+}
+
+const FAKE_DOM_EL = () => ({
+  querySelectorAll: () => [],
+  querySelector: () => null,
+  focus() {},
+  style: {}
+});
+
 const STUBS = {
   react: 'export const useState = (i) => globalThis.__hookHarness.useState(i);\n'
     + 'export const useEffect = (f, d) => globalThis.__hookHarness.useEffect(f, d);\n'
@@ -123,7 +136,13 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
         components.push({ type, props: elementProps });
         return type(elementProps);
       }
-      return { type, props: elementProps };
+      const host = { type, props: elementProps };
+      // DS components attach DOM-element refs (Drawer's focus trap); give the
+      // ref a minimal fake node so its effects stay safe under the harness.
+      if (elementProps && typeof elementProps.ref === 'object' && elementProps.ref !== null && 'current' in elementProps.ref) {
+        elementProps.ref.current = FAKE_DOM_EL();
+      }
+      return host;
     }
   };
   const Screen = (await load(page, apiSpecifiers ?? []))[exportName];
@@ -160,19 +179,23 @@ export async function mount(page, exportName, props, api, apiSpecifiers) {
   };
 }
 
-/** The concatenated direct text (strings + numbers) inside a rendered element tree. */
+/** The concatenated direct text (strings + numbers) inside a rendered element tree. Accepts either
+ * a host element ({ props: { children } }) or the props object components() returns ({ children }). */
 export function textOf(node) {
   const out = [];
   const walk = (c) => {
     if (typeof c === 'string' || typeof c === 'number') out.push(String(c));
     else if (Array.isArray(c)) c.forEach(walk);
     else if (c && typeof c === 'object' && 'props' in c) walk(c.props?.children);
+    else if (c && typeof c === 'object' && 'children' in c) walk(c.children);
   };
-  walk(node?.props?.children);
+  walk(node?.props?.children ?? node?.children);
   return out.join(' ');
 }
 
-/** Fires a mouse-lookalike click event with the preventDefault/stopPropagation stubs. */
+/** Fires a mouse-lookalike click event with the preventDefault/stopPropagation stubs. Accepts either
+ * a host element or the props object components() returns. */
 export function click(el) {
-  return el.props.onClick({ preventDefault() {}, stopPropagation() {}, target: el });
+  const p = el && typeof el === 'object' && el.props ? el.props : el;
+  return p.onClick({ preventDefault() {}, stopPropagation() {}, target: el });
 }
