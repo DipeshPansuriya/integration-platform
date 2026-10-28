@@ -1,0 +1,50 @@
+/* Rules screen — tokens only (ip-* custom properties), no raw colours. */
+.rules-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ip-space-md);
+}
+
+.lane-c-region {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ip-space-sm);
+}
+
+.lane-c-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ip-space-xs);
+  padding: var(--ip-space-xl) var(--ip-space-md);
+  border: 1px dashed var(--ip-border);
+  border-radius: var(--ip-radius);
+}
+
+.lane-c-empty-title {
+  margin: 0;
+  font-weight: var(--ip-font-semibold);
+  color: var(--ip-fg);
+}
+
+.lane-c-note {
+  margin: 0;
+  color: var(--ip-fg-muted);
+  font-size: var(--ip-font-size-sm);
+}
+
+.lane-c-colrow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ip-space-xs);
+}
+
+.lane-c-kv-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ip-space-xs);
+}
+
+.entity-grid {
+  margin-top: var(--ip-space-sm);
+}

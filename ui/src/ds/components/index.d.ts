@@ -19,7 +19,7 @@ export declare function Icon(props: IconProps): React.ReactElement | null;
 // ── Actions ──
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   /** secondary (default) · primary (one per header or footer, last) · danger (text in err-t). */
-  variant?: 'secondary' | 'primary' | 'danger';
+  variant?: "secondary" | "primary" | "danger" | "ghost" | "link";
   /** sm = table row actions · md · lg = full-width login buttons. */
   size?: 'sm' | 'md' | 'lg';
   icon?: IconName;
