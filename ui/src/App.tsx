@@ -50,6 +50,7 @@ import { NoAccess } from './ui/NoAccess';
 import { PageHeader } from './ui/PageHeader';
 import { focusMainHeading, skipToMain } from './route-focus';
 import { ApprovalsLanding, MessagesLanding } from './pages/GuidedLandings';
+import { canOperate } from './pages/message-guide';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
 // #/rules/<ruleSetId> authors one as decision tables beside the always-visible test panel. Loaded on
@@ -451,7 +452,7 @@ export function App() {
           {shown === 'systems' && <Systems />}
           {shown === 'queue' && <QueueDashboard />}
           {shown === 'failures' && <Failures />}
-          {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} />)}
+          {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
           {shown === 'approvals' && <ApprovalsLanding />}
           {shown === 'activity' && <Activity />}
           {shown === 'reports' && <DeliveryReport />}
