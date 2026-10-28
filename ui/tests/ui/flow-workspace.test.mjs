@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { findAll, mount } from './hook-harness.mjs';
 
 const { flowStepper, flowTabs } = await import('../../src/pages/flow-stepper.ts');
-const { createFirstMessagePoll, POLL_INTERVAL_MS, POLL_MAX_MS } = await import('../../src/pages/first-message-poll.ts');
+const { createFirstMessagePoll, POLL_INTERVAL_MS, POLL_MAX_MS, POLL_CHECK_TIMEOUT_MS } = await import('../../src/pages/first-message-poll.ts');
 
 const ID = '0b6c2d1e-7f8a-4b9c-8d0e-1f2a3b4c5d6e';
 const flow = (status, over = {}) => ({ id: ID, code: 'F1', name: 'Nested appointment', ordering: 'PER_KEY', status, sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'k', ...over });
@@ -102,10 +102,11 @@ test('tabs: Setup, Mapping, Rules, Versions as links; Messages only for roles th
 // ---- the first-message poll --------------------------------------------------------------------------------------------
 function clock() {
   let now = 0;
+  let nextId = 0;
   const timers = [];
   return {
     now: () => now,
-    setTimer: (fn, ms) => { const t = { fn, at: now + ms, id: timers.length + 1 }; timers.push(t); return t.id; },
+    setTimer: (fn, ms) => { const t = { fn, at: now + ms, id: ++nextId }; timers.push(t); return t.id; },
     clearTimer: (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); },
     async advance(ms) {
       const target = now + ms;
@@ -115,7 +116,8 @@ function clock() {
         if (!t || t.at > target) break;
         timers.shift();
         now = t.at;
-        await t.fn();
+        void t.fn(); // not awaited: a hung check must not block the clock
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
       }
       now = target;
     },
@@ -267,7 +269,7 @@ test('FlowDefinition: Draft-saved link goes to this flow\'s versions; the leave 
   const src = read('pages/FlowDefinition.tsx');
   assert.ok(!src.includes('<a href="#/versions">Submit it for approval</a>'), 'the bare #/versions link is fixed');
   assert.ok(src.includes('#/versions/${'));
-  assert.ok(src.includes("hasAttribute('data-leaves-editor')"), 'links inside the page opt in to the guard');
+  assert.ok(src.includes('shouldInterceptLeave(link)'), 'the click guard uses the tested decision');
   assert.ok(src.includes('<FlowWorkspace'), 'the workspace renders in the editor');
 });
 
@@ -279,4 +281,129 @@ test('RulesEditor: #/rules?flow=<id> pre-selects that flow', () => {
 test('App.tsx hands the editor the role facts for the workspace', () => {
   const app = read('App.tsx');
   assert.ok(/<FlowDefinition[^>]*roles=\{roles\}/.test(app));
+});
+
+// ---- review fixes (Varun, PR #99) --------------------------------------------------------------------------------------
+test('poll: a tab becoming visible resumes ONLY from a hidden stop - arrived, time and error stops stay stopped', async () => {
+  const stoppedTime = poll(['none']);
+  stoppedTime.p.start();
+  await stoppedTime.c.advance(POLL_MAX_MS + 60000);
+  assert.equal(stoppedTime.seen.at(-1), 'stopped-time');
+  const before = stoppedTime.calls();
+  stoppedTime.p.resumeFromHidden();
+  await stoppedTime.c.advance(60000);
+  assert.equal(stoppedTime.seen.at(-1), 'stopped-time');
+  assert.equal(stoppedTime.calls(), before);
+
+  const arrived = poll(['arrived']);
+  arrived.p.start();
+  await arrived.c.advance(15000);
+  assert.equal(arrived.seen.at(-1), 'arrived');
+  arrived.p.resumeFromHidden();
+  await arrived.c.advance(60000);
+  assert.equal(arrived.seen.at(-1), 'arrived');
+  assert.equal(arrived.calls(), 1);
+
+  const failing = poll(['error']);
+  failing.p.start();
+  await failing.c.advance(15000 * 6);
+  assert.equal(failing.seen.at(-1), 'stopped-errors');
+  const failingCalls = failing.calls();
+  failing.p.resumeFromHidden();
+  await failing.c.advance(60000);
+  assert.equal(failing.calls(), failingCalls);
+
+  let hidden = false;
+  const paused = poll(['none'], { isHidden: () => hidden });
+  paused.p.start();
+  hidden = true;
+  await paused.c.advance(15000);
+  assert.equal(paused.seen.at(-1), 'stopped-hidden');
+  hidden = false;
+  paused.p.resumeFromHidden();
+  assert.equal(paused.seen.at(-1), 'waiting');
+  await paused.c.advance(1);
+  assert.ok(paused.calls() >= 1);
+});
+
+test('poll: each check has a 10 s timeout; a hung call counts as an error and three of them stop the poll', async () => {
+  assert.equal(POLL_CHECK_TIMEOUT_MS, 10000);
+  const c = clock();
+  const seen = [];
+  let calls = 0;
+  const p = createFirstMessagePoll({
+    check: () => { calls += 1; return new Promise(() => {}); },
+    onState: (s) => seen.push(s),
+    now: c.now, setTimer: c.setTimer, clearTimer: c.clearTimer, isHidden: () => false,
+  });
+  p.start();
+  await c.advance(15000);
+  assert.equal(calls, 1);
+  await c.advance(9000);
+  assert.equal(seen.at(-1), 'waiting', 'not yet 10 s');
+  await c.advance(2000);
+  await c.advance(15000 * 6);
+  assert.equal(calls, 3);
+  assert.equal(seen.at(-1), 'stopped-errors');
+  assert.equal(c.pending(), 0);
+});
+
+test('poll: a stale in-flight answer after stop() is ignored and schedules nothing', async () => {
+  const c = clock();
+  const seen = [];
+  let release;
+  const p = createFirstMessagePoll({
+    check: () => new Promise((resolve) => { release = resolve; }),
+    onState: (s) => seen.push(s),
+    now: c.now, setTimer: c.setTimer, clearTimer: c.clearTimer, isHidden: () => false,
+  });
+  p.start();
+  await c.advance(15000);
+  p.stop();
+  release('arrived');
+  await Promise.resolve();
+  await Promise.resolve();
+  await c.advance(60000);
+  assert.deepEqual(seen, ['waiting'], 'no arrived, no further state');
+  assert.equal(c.pending(), 0, 'nothing scheduled after the stale answer');
+});
+
+test('poll: an answer that belongs to an earlier run is ignored after start() again', async () => {
+  const c = clock();
+  const seen = [];
+  const releases = [];
+  const p = createFirstMessagePoll({
+    check: () => new Promise((resolve) => { releases.push(resolve); }),
+    onState: (s) => seen.push(s),
+    now: c.now, setTimer: c.setTimer, clearTimer: c.clearTimer, isHidden: () => false,
+  });
+  p.start();
+  await c.advance(15000);
+  p.start();
+  releases[0]('arrived');
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(seen, ['waiting', 'waiting']);
+});
+
+// ---- the editor's leave guard, as a behaviour ----------------------------------------------------------------------------
+const { shouldInterceptLeave } = await import('../../src/pages/flow-lifecycle.ts');
+const fakeLink = ({ insideEditor = false, optIn = false } = {}) => ({
+  closest: (sel) => (sel === '[data-page="flow-definition"]' && insideEditor ? {} : null),
+  hasAttribute: (name) => name === 'data-leaves-editor' && optIn,
+});
+
+test('leave guard: links outside the editor and workspace links ask first; the forms own links do not', () => {
+  assert.equal(shouldInterceptLeave(null), false);
+  assert.equal(shouldInterceptLeave(fakeLink({ insideEditor: false })), true, 'a menu link');
+  assert.equal(shouldInterceptLeave(fakeLink({ insideEditor: true, optIn: true })), true, 'breadcrumb, step and tab links');
+  assert.equal(shouldInterceptLeave(fakeLink({ insideEditor: true, optIn: false })), false, 'a link inside the form');
+});
+
+test('wording: the tab says Failed messages; the waiting line never says "first" for a flow that may be old', () => {
+  const src = readFileSync(fileURLToPath(new URL('../../src/pages/FlowWorkspace.tsx', import.meta.url)), 'utf8');
+  assert.ok(!src.includes('Waiting for the first message'));
+  assert.ok(src.includes('No message has reached this flow today (UTC) yet'));
+  const tabs = flowTabs({ flowId: ID, routes: [], roles: ADMIN });
+  assert.equal(tabs.find((tab) => tab.key === 'messages').label, 'Failed messages');
 });

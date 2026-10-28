@@ -17,7 +17,7 @@ import { todayUtc } from './failures-view';
 type Loaded = { flow: FlowDetail; routes: FlowRoute[] };
 
 const POLL_WORDS: Record<PollState, string> = {
-  waiting: 'Waiting for the first message. This page checks every 15 seconds for up to 10 minutes.',
+  waiting: 'No message has reached this flow today (UTC) yet. This page checks every 15 seconds for up to 10 minutes.',
   arrived: 'A message reached this flow today (UTC).',
   'stopped-time': 'Stopped checking after 10 minutes.',
   'stopped-errors': 'Could not check for messages.',
@@ -71,7 +71,8 @@ export function FlowWorkspace({ flowId, roles }: { flowId: string; roles: Worksp
     poll.current = p;
     p.start({ immediate: true });
     const onVisible = () => {
-      if (typeof document !== 'undefined' && !document.hidden) p.start({ immediate: true });
+      // Only a hidden stop resumes; arrived / time / error stops stay stopped (they have their own Check again).
+      if (typeof document !== 'undefined' && !document.hidden) p.resumeFromHidden();
     };
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
     return () => {
@@ -121,7 +122,7 @@ export function FlowWorkspace({ flowId, roles }: { flowId: string; roles: Worksp
         <div className="op-panel" data-first-message={pollState}>
           <p role="status" className="dashboard-muted">{POLL_WORDS[pollState]}</p>
           {pollState === 'arrived' && (
-            <a className="btn" href={`#/failures?flow=${encodeURIComponent(flowId)}`} data-leaves-editor="true">Open messages</a>
+            <a className="btn" href={`#/failures?flow=${encodeURIComponent(flowId)}`} data-leaves-editor="true">Open failed messages</a>
           )}
           {(pollState === 'stopped-time' || pollState === 'stopped-errors') && (
             <button type="button" className="btn" onClick={() => poll.current?.start({ immediate: true })}>Check again</button>
