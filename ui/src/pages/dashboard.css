@@ -13,6 +13,7 @@
 }
 .dashboard-head h1 {
   margin: 0;
+  letter-spacing: -0.02em;
 }
 .dashboard-greeting {
   margin: 2px 0 0;
@@ -61,11 +62,28 @@
   color: var(--color-ink);
   text-decoration: none;
   transition: border-color var(--tr), box-shadow var(--tr);
+  position: relative;
+  overflow: hidden;
 }
 a.tile:hover {
   border-color: var(--color-accent);
   text-decoration: none;
 }
+/* V4 5a: 3px accent bar on the tile's left edge; variant classes recolour it. */
+.tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 3px 0 0 3px;
+  background: var(--color-accent);
+}
+.tile-bar-success::before { background: var(--color-success); }
+.tile-bar-warn::before { background: var(--color-warn-text); }
+.tile-bar-danger::before { background: var(--color-danger); }
+.tile-bar-accent::before { background: var(--color-accent); }
 .tile-label {
   color: var(--color-ink-muted);
   font-size: 12.5px;
@@ -81,6 +99,27 @@ a.tile:hover {
 .tile-sub {
   color: var(--color-ink-muted);
   font-size: 12.5px;
+}
+/* V4 5b: mini bar chart inside a tile (CSS only; tiles currently render numbers, per the
+   dataviz rule - class available for when data arrives). */
+.tile-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 28px;
+  margin-top: auto;
+}
+.tile-bars > span {
+  flex: 1;
+  min-width: 4px;
+  max-width: 8px;
+  background: var(--color-accent);
+  opacity: 0.25;
+  border-radius: 2px 2px 0 0;
+  transition: opacity var(--tr);
+}
+.tile:hover .tile-bars > span {
+  opacity: 0.45;
 }
 /* Loading = static skeletons (no shimmer: the counts refresh on navigation only). */
 .skeleton {
