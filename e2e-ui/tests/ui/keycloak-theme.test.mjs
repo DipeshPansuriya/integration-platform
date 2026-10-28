@@ -77,16 +77,20 @@ test('the harness puts the platform theme where Keycloak loads themes, beside th
   ]);
 });
 
-// Row 571: the realm login keeps the Kale Deep Sea card signature and worded (never glyph-only) status.
-test('the card carries the 4px Deep Sea / Noon rules, and the dark theme never puts Noon on its ground', () => {
+// Row 571 follow-up: the project does not use kale-design (overview, Dipesh 2026-10-22), so the card rules are the
+// project's own neutral tokens, light and dark - no brand colour; status stays worded (never glyph-only).
+test('the card carries 4px rules in the project accent and hairline, no brand colours', () => {
   const card = declarations(`.${themeClass(properties(), 'kcFormCardClass')}`);
   assert.equal(card['border-top'], '4px solid var(--platform-rule-top)');
   assert.equal(card['border-bottom'], '4px solid var(--platform-rule-bottom)');
-  const tokens = fs.readFileSync(path.join(LOGIN, 'resources', 'css', 'tokens.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const raw = fs.readFileSync(path.join(LOGIN, 'resources', 'css', 'tokens.css'), 'utf8');
+  assert.doesNotMatch(raw, /#081f4b|#eb4a26|#76cbff|kale|deep sea|noon|evening sky/i, 'no brand colour or wording');
+  const tokens = raw.replace(/\/\*[\s\S]*?\*\//g, '');
   const [light, dark] = tokens.split('@media (prefers-color-scheme: dark)');
-  assert.match(light, /--platform-rule-top:\s*#081f4b/i, 'Deep Sea');
-  assert.match(light, /--platform-rule-bottom:\s*#eb4a26/i, 'Noon, light ground only');
-  assert.doesNotMatch(dark, /#eb4a26/i, 'no Noon on the dark ground');
+  for (const part of [light, dark]) {
+    assert.match(part, /--platform-rule-top:\s*var\(--platform-accent\)/);
+    assert.match(part, /--platform-rule-bottom:\s*var\(--platform-border\)/);
+  }
 });
 
 test('alerts name their status in words, not a glyph', () => {

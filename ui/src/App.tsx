@@ -41,6 +41,7 @@ import { MappingDesigner } from './pages/MappingDesigner';
 import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
 import { clearAttempt, landingAfterLogin, markLoggedOut, rememberReturnTo, takeReturnTo } from './pages/login-flow';
+import { Destinations } from './pages/Destinations';
 import { safeDecode } from './safe-decode';
 // Row 575 (S1 of the guided flow): the six-item role-aware menu is one table (nav-model.ts); legacy screens sit in a temporary "More" group.
 import type { Route } from './route-types';
@@ -54,6 +55,24 @@ import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // #/rules/<ruleSetId> authors one as decision tables beside the always-visible test panel. Loaded on
 // first use: the decision-table editor is a large bundle no other screen should pay for (page-load p95).
 const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
+
+// V4 4a: nav icon pills - inline 16x16 stroke paths keyed by the nav's [data-nav] value.
+// No routing or attribute semantics change; missing keys render an empty (invisible) path.
+const NAV_ICONS: Record<string, string> = {
+  home: 'M1 1h6v6H1zM9 1h6v3.5H9zM1 9h6v3.5H1zM9 6.5h6v6H9z',
+  queue: 'M2.5 8.5 4 3h8l1.5 5.5M2.5 8.5h3a1 1 0 0 1 1 1v.5a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-.5a1 1 0 0 1 1-1h3v3.5a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1z',
+  approvals: 'M3 8.5l3 3 7-7M2 2.5h12v11H2z',
+  messages: 'M1.5 3.5h13v9h-13zM1.5 4l6.5 5 6.5-5',
+  failures: 'M7.3 2.2a.8.8 0 0 1 1.4 0L14 12a.8.8 0 0 1-.7 1.2H2.7a.8.8 0 0 1-.7-1.2zM8 6v3M8 11v.01',
+  activity: 'M1 8h2.5l2-4.5 3 9 2-4.5H14',
+  reports: 'M1.5 1.5h13v13h-13zM5 11V7M8 11V5M11 11V8',
+  flows: 'M5 3.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM11 12.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM5 5.5v2.5a2.5 2.5 0 0 0 2.5 2.5H9',
+  versions: 'M8 1.5 1.5 5 8 8.5 14.5 5zM1.5 8.5l6.5 3.5 6.5-3.5M1.5 11.5l6.5 3.5 6.5-3.5',
+  systems: 'M1 5.5h5.5v5.5H1zM9.5 5.5H15v5.5H9.5zM6.5 8.25h3',
+  contracts: 'M4 1.5h6l3.5 3.5V13a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 13V3A1.5 1.5 0 0 1 4 1.5zM10 1.5v3.5h3.5M6 8h4M6 10.5h2',
+  rules: 'M8 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z',
+  mappings: 'M4 4.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zM12 4.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zM4 11.5a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6zM12 11.5a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6zM5.8 4.5h4.4M5.8 11.5h4.4',
+};
 
 type Me = {
   userId?: string;
@@ -96,6 +115,7 @@ function parseHash(): Route {
   const routeId = /^mappings\/(.+)$/.exec(hash);
   if (routeId) return { page: 'mappings', flowId: null, routeId: safeDecode(routeId[1]) };
   if (hash.startsWith('mappings')) return { page: 'mappings', flowId: null, routeId: null };
+  if (hash.startsWith('destinations')) return { page: 'destinations', flowId: null };
   return { page: 'home', flowId: null };
 }
 
@@ -311,6 +331,7 @@ export function App() {
         title={entry.label}
         aria-current={active ? 'page' : undefined}
       >
+        <span className="nav-icon-pill" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d={NAV_ICONS[entry.nav] || ''} /></svg></span>
         <span className="nav-label">{entry.label}</span>
       </a>
     );
@@ -336,8 +357,18 @@ export function App() {
           </svg>
         </button>
         <span className="brand">Integration Platform</span>
+        <span className="topbar-sep" aria-hidden="true" />
+        <div className="cmd-search">
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            <path d="m11 11 3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          <input placeholder="Search flows, systems, contracts…" aria-label="Search" />
+          <kbd>⌘K</kbd>
+        </div>
         <div className="topbar-right">
           {me?.tenantCode && <span className="chip" data-session-tenant>{me.tenantCode}</span>}
+          <span className="env-badge"><span className="env-badge-dot" />{me?.tenantCode || 'Production'}</span>
           <button
             type="button"
             className="btn btn-icon"
@@ -359,7 +390,11 @@ export function App() {
           </button>
           {me && (
             <details className="account">
-              <summary className="chip account-summary" data-action="account">Account</summary>
+              <summary className="avatar-btn" data-action="account">
+                <span className="avatar-circle">{(me?.userId || 'A').charAt(0).toUpperCase()}</span>
+                <span style={{ fontSize: '12.5px', fontWeight: 500, color: 'var(--color-ink-muted)' }}>Account</span>
+                <svg width="12" height="12" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 3.5 5 6l2.5-2.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </summary>
               <div className="menu">
                 {showPlatformTools(roles) && (
                   <>
@@ -427,6 +462,7 @@ export function App() {
             </Suspense>
           )}
           {shown === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
+          {shown === 'destinations' && <Destinations />}
           {shown === 'home' &&
             (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} />)}
         </main>

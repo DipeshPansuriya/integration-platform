@@ -106,3 +106,10 @@ test('screens do not print raw enums: ordering options are worded, the state bad
   assert.doesNotMatch(src('pages/MessageDetail.tsx'), /title=\{timeline\.state\}/, 'no raw-state tooltip');
   assert.match(src('pages/MessageDetail.tsx'), /data-state-raw=\{timeline\.state\}/, 'the data hook stays');
 });
+
+test('contract list prints the role in words in the card heading and the table caption, never the raw role', () => {
+  const list = src('pages/contracts/ContractList.tsx');
+  assert.match(list, /import \{[^}]*\broleWord\b[^}]*\} from '\.\/contracts-view'/, 'roleWord is imported');
+  assert.doesNotMatch(list, /\{group\.contract\.role\}/, 'no raw role printed');
+  assert.equal((list.match(/roleWord\(group\.contract\.role \?\? ''\)/g) ?? []).length, 2, 'heading and caption');
+});

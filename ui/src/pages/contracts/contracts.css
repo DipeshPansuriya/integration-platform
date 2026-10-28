@@ -230,3 +230,6 @@
 .contracts-page .contracts-table-wrap th:nth-child(4) {
   width: 12rem;
 }
+
+/* V4 6d: heading tightness */
+.contracts-page .contracts-head h1 { letter-spacing: -0.02em; }

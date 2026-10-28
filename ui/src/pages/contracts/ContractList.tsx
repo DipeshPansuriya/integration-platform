@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Contract, ContractVersionSummary } from '../../api/contracts';
-import { contractGroups, rowActionLabel, statusBadge } from './contracts-view';
+import { contractGroups, roleWord, rowActionLabel, statusBadge } from './contracts-view';
 
 export const versionKey = (contract: Contract, version: ContractVersionSummary) =>
   `${contract.system ?? ''}/${contract.role ?? ''}/${version.versionLabel ?? ''}`;
@@ -163,7 +163,7 @@ export function ContractList({
         <article key={group.contract.contractId ?? group.contract.id ?? group.key} className="contracts-card" data-contract={group.key}>
           <header className="contracts-card-head">
             <h3>
-              <span className="contracts-mono">{group.contract.system}</span> - {group.contract.role}
+              <span className="contracts-mono">{group.contract.system}</span> - {roleWord(group.contract.role ?? '')}
             </h3>
             {group.contract.name && <span className="contracts-muted-cell">{group.contract.name}</span>}
           </header>
@@ -171,7 +171,7 @@ export function ContractList({
           <div className="contracts-table-wrap">
             <table className="table">
               <caption className="contracts-sr-only">
-                Versions of {group.contract.system} - {group.contract.role}
+                Versions of {group.contract.system} - {roleWord(group.contract.role ?? '')}
               </caption>
               <thead>
                 <tr>

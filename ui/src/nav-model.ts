@@ -65,6 +65,12 @@ export function moreFor(roles: Roles): NavItem[] {
 export const ALLOW_ALL_PAGES: readonly Route['page'][] = ['home', 'login'];
 
 /**
+ * Screens deliberately refused to every KNOWN tenant role until a role need is agreed (Mira + Karan, row 575): Destinations (PR #88)
+ * edits the operator allow-list, so it is in neither the menu nor PAGE_NEEDS. Unknown roles still open it; the server decides.
+ */
+export const REFUSED_PAGES: readonly Route['page'][] = ['destinations'];
+
+/**
  * The role need of every other screen. A page missing here is REFUSED (closed by default; a test fails for an unmapped page).
  * Approvals (Mira, 28-Oct, row 575): open only to Approver and Tenant admin - the menu item and canOpen use the same need,
  * so a configurator or read-only user who types #/approvals gets NoAccess.
@@ -80,6 +86,7 @@ export const PAGE_NEEDS: Partial<Record<Route['page'], Exclude<Need, 'ALL'>>> = 
 export function canOpen(roles: Roles, page: Route['page']): boolean {
   if (ALLOW_ALL_PAGES.includes(page)) return true;
   if (unknown(roles)) return true;
+  if (REFUSED_PAGES.includes(page)) return false;
   const need = PAGE_NEEDS[page];
   return need !== undefined && allowed(roles, need);
 }

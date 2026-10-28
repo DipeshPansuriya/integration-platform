@@ -144,8 +144,18 @@ export function Dashboard({ user, readsConfiguration = true }: { user?: string; 
                 <span className="skeleton skeleton-sub" />
               </div>
             ))
+          /* V4 8: colour the tile's 3px spine - warm for the approval queue, green for systems, accent otherwise. */
           : tilesOf(lists).map((tile) => (
-              <a key={tile.kind} className="tile" href={tile.href} data-tile={tile.kind} aria-label={tileName(tile.kind, tile.count)}>
+              <a
+                key={tile.kind}
+                className={
+                  'tile' +
+                  (tile.kind === 'pending' ? ' tile-bar-warn' : tile.kind === 'systems' ? ' tile-bar-success' : ' tile-bar-accent')
+                }
+                href={tile.href}
+                data-tile={tile.kind}
+                aria-label={tileName(tile.kind, tile.count)}
+              >
                 <span className="tile-label">{tile.label}</span>
                 <span className="tile-number">{tile.count ?? '-'}</span>
                 <span className="tile-sub">{tile.count === null ? 'Count not available' : tile.sub}</span>

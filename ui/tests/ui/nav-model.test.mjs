@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { navFor, moreFor, canOpen, showPlatformTools, platformTools, titleOf, OPERATION_ROLES, PRIMARY_NAV, LEGACY_NAV, PAGE_NEEDS, ALLOW_ALL_PAGES } = await import('../../src/nav-model.ts');
+const { navFor, moreFor, canOpen, showPlatformTools, platformTools, titleOf, OPERATION_ROLES, PRIMARY_NAV, LEGACY_NAV, PAGE_NEEDS, ALLOW_ALL_PAGES, REFUSED_PAGES } = await import('../../src/nav-model.ts');
 const { ROUTE_PAGES } = await import('../../src/route-types.ts');
 const here = dirname(fileURLToPath(import.meta.url));
 const labels = (items) => items.map((i) => i.label);
@@ -114,7 +114,7 @@ test('App.tsx: builds the menu from the table, no 15-entry NAV_GROUPS, tools in 
 test('every route page is mapped to a role need or listed as allow-all - a new page is never open by default', () => {
   const mapped = Object.keys(PAGE_NEEDS);
   for (const page of ROUTE_PAGES) {
-    assert.ok(mapped.includes(page) || ALLOW_ALL_PAGES.includes(page), `route page "${page}" must be in PAGE_NEEDS or ALLOW_ALL_PAGES`);
+    assert.ok(mapped.includes(page) || ALLOW_ALL_PAGES.includes(page) || REFUSED_PAGES.includes(page), `route page "${page}" must be in PAGE_NEEDS, ALLOW_ALL_PAGES or REFUSED_PAGES`);
   }
   assert.deepEqual([...ALLOW_ALL_PAGES].sort(), ['home', 'login']);
   assert.equal(canOpen(['SUPPORT'], 'not-a-page'), false, 'an unmapped page is refused for known roles');
@@ -136,4 +136,12 @@ test('titleOf names the screen for the NoAccess heading', () => {
   assert.equal(titleOf('flows'), 'Flows');
   assert.equal(titleOf('messages'), 'Messages');
   assert.equal(titleOf('home'), 'Home');
+});
+
+test('Destinations (PR #88) is in neither the menu nor PAGE_NEEDS; known roles are refused, unknown roles are not blocked client-side', () => {
+  assert.deepEqual([...REFUSED_PAGES], ['destinations']);
+  assert.ok(!('destinations' in PAGE_NEEDS));
+  assert.ok(![...PRIMARY_NAV, ...LEGACY_NAV].some((i) => i.page === 'destinations'));
+  for (const role of ['TENANT_ADMIN', 'CONFIGURATOR', 'APPROVER', 'SUPPORT', 'READ_ONLY']) assert.equal(canOpen([role], 'destinations'), false);
+  assert.equal(canOpen(null, 'destinations'), true);
 });
