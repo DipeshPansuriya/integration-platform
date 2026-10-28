@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ADR-011 - Target types, contract registry and version graph, bulk at intake, ordering, Kafka records carry ids only, background tenant from the row"
-status: "Accepted (team, 2026-10-02) - the project owner may reverse; Amendment 2026-10-27 Accepted - the project owner accepted the residual risk in writing on 2026-10-27 (hub memory m-075db1); text checked against main e12f2949 and acknowledged by mahesh-architect 2026-10-27 (row 524); Amendment 2026-10-28 (audit ledger lockdown, option A, row 544) Accepted - option A approved by the project owner 2026-10-27 (spec clarifications Q1-Q6 signed)"
+status: "Accepted (team, 2026-10-02) - the project owner may reverse; Amendment 2026-10-27 Accepted - the project owner accepted the residual risk in writing on 2026-10-27 (hub memory m-075db1); text checked against main e12f2949 and acknowledged by mahesh-architect 2026-10-27 (row 524); Amendment 2026-10-28 (audit ledger lockdown, option A, row 544) Accepted - option A approved by the project owner 2026-10-27 (spec clarifications Q1-Q6 signed); text checked against the code of the reviewed range 2ca1ad4e..dd0f6f03 of branch feat/row544-audit-relay-definer-r2 (the final tip is the merge commit) and acknowledged by mahesh-architect 2026-10-28 (row 544)"
 date: 2026-10-02
 revised: "2026-10-02 - vikram-cto's challenge applied (memory m-817272): hold rule covers unrouted earlier messages, release in the same transaction, synchronous outbox deferral, idempotency-key scope, retire and purge guards, publish-time pin check, destination check per type. 2026-10-02 - vikram-cto's re-check applied (memory m-6a410c): per-key commit-ordered sequence (B5), every state change takes the key lock first, broker-address check and egress policy. 2026-10-22 - E16 F3 amendment (approved tables, D1-D4) and F3 hardening addendum (S1, S2, S3, S5, residuals). 2026-10-27 - Amendment: author/approver separation of duties removed for flow versions, contract versions and DB-table approvals (V2_4_1420); Accepted - the project owner accepted the residual risk in writing on 2026-10-27. 2026-10-28 - Amendment: audit ledger lockdown (option A, row 544) - insert-only definer relay, application role loses INSERT on audit_event and UPDATE (relayed_at) on audit_outbox, flow and contract approver from app.actor_id (V2_4_1490, V2_4_1500)"
 author: "mahesh-architect (ledger row 278, phase 0)"
@@ -516,7 +516,9 @@ honest limits, addendum S1, residual (a)). Those statements stay above as histor
 D external sink are out of scope) and signed the six clarifications Q1-Q6 the same day (spec
 `_specs/2026-10-27-audit-option-a/spec.md` of the planning workspace, ledger row 544). Drafted by mahesh-architect;
 reviewed by varun-code-reviewer (approve with fixes) and karan-security (no Critical or High) on 2026-10-28. This amendment extends point 5 "Audit by actor" of the amendment of 2026-10-27; it
-changes no decision of that amendment and no tenant-isolation rule (ADR-009).
+changes no decision of that amendment and no tenant-isolation rule (ADR-009). Text checked against the code of the reviewed
+range 2ca1ad4e..dd0f6f03 (the final tip is the merge commit) and acknowledged by mahesh-architect 2026-10-28 (row 544), with the
+wording corrections of that check applied.
 
 - **Context.** The 2026-10-27 amendment made the audit trail the only attribution of a one-person lifecycle, but the
   application role (`ipaas_app`, which the login `ipass_app` is a member of) could (1) `INSERT` any row straight into the
@@ -530,12 +532,14 @@ changes no decision of that amendment and no tenant-isolation rule (ADR-009).
      integer` (`V2_4_1490__audit_relay_move_and_lockdown.sql`) moves one committed outbox row into the ledger in
      ONE statement: it stamps `relayed_at` and inserts the ledger row, both or neither, and returns 1 (moved) or 0
      (unknown id, another tenant's id, already relayed, or locked by another relay - no existence oracle). It is
-     `SECURITY DEFINER`, owned by the migration owner (never a superuser, never `BYPASSRLS`), `search_path = pg_catalog,
+     `SECURITY DEFINER`, owned by the migration owner (which must be neither a superuser nor `BYPASSRLS` - a README post-check, not enforced by the
+     migration), `search_path = pg_catalog,
      pg_temp`, every object schema-qualified, no dynamic SQL, `EXECUTE` revoked from `PUBLIC` and granted to `ipaas_app`
      only - the `audit_purge_expired` pattern (`V2_4_1250`). It takes no tenant argument: the tenant is
      `current_setting('app.tenant_id')` without `missing_ok`, so an unset or blank tenant raises (fail closed). It copies
      tenant, actor, action, target ids, before/after state, event time and `trace_id` verbatim; ledger `created_at` is
-     the move time. FORCE RLS on both tables is unchanged and binds the owner. The function only inserts into the ledger
+     the move time. FORCE RLS on both tables (`V2_4_3`) is unchanged and binds a non-superuser, non-`BYPASSRLS` owner; the
+     function's explicit tenant predicate is the second gate. The function only inserts into the ledger
      and only sets `relayed_at` on the outbox: it can neither update nor delete a ledger row.
   2. **The application role loses the two write paths.** `REVOKE INSERT ON public.audit_event` and
      `REVOKE UPDATE (relayed_at) ON public.audit_outbox` from `ipaas_app` (`V2_4_1490`). It keeps `SELECT` on both
@@ -636,7 +640,8 @@ changes no decision of that amendment and no tenant-isolation rule (ADR-009).
      (`ApprovalActorFunctionContainerTest`, `22_scenario_approvals.sql`).
   5. Seeded lying `selfApproved` flags for flow, contract and DB table - 3 of 3 reported, plus a missing flag and a vanished business
      row - 5 of 5 reported; 3 malformed rows (non-JSON `after_state`, non-boolean flag, non-array `target_ids`) reported without
-     aborting the run (`ApprovalAuditReconciliationContainerTest`; the query uses `pg_input_is_valid`, PostgreSQL 16+).
+     aborting the run, and an `after_state` over 4096 characters is not parsed but reported (`ApprovalAuditReconciliationContainerTest`; the
+     query uses `pg_input_is_valid`, PostgreSQL 16+).
   6. Rollback SQL applied, flag `LEGACY` - legacy relay delivers; re-applied - definer relay delivers
      (`AuditOptionARollbackContainerTest`, `AuditRelayModeContainerTest`).
   7. 0 lines changed in `V2_2_1220`, `V2_4_3`, `V2_4_1250`, `V2_4_1420` (`git diff --name-only`).

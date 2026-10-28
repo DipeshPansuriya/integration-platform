@@ -29,7 +29,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * it. A stamped actor is recorded; no actor is refused ({@code REFUSED_NO_ACTOR}) and so is a stamp that disagrees
  * with the argument ({@code REFUSED_ACTOR_MISMATCH}), both with no state change and no refusal row; the existing
  * verdicts are unchanged.
- *
  */
 @Tag("container")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)

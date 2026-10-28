@@ -215,7 +215,7 @@ Then approve one flow version end to end and confirm the ledger shows the event.
 **Reconciliation of `selfApproved` (read-only, one tenant per run).** `audit/reconcile-self-approved.sql` compares the flag on every
 `FLOW_APPROVED`, `CONTRACT_VERSION_APPROVED` and `DB_TABLE_APPROVED` event with the business row (approver = author, or decided_by =
 requested_by). No rows returned = everything reconciles; any row is a mismatch to investigate (it is never repaired automatically). A
-malformed `after_state`, a non-boolean flag or a non-array `target_ids` does not abort the run: that row is reported itself (its
+malformed `after_state` (one longer than 4096 characters is not parsed at all), a non-boolean flag or a non-array `target_ids` does not abort the run: that row is reported itself (its
 `claimed_self_approved` or `target_id` is empty). Run one tenant, one psql session (stdin keeps the tenant setting and the query together;
 needs PostgreSQL 16+ for `pg_input_is_valid`):
 

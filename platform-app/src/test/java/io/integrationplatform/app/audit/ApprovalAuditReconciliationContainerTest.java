@@ -248,6 +248,49 @@ class ApprovalAuditReconciliationContainerTest {
     }
 
     @Test
+    @Tag("negative")
+    void anAfterStateAtTheParseBoundAndOneBeyondItAreBothReportedAndDoNotAbortTheRun() throws Exception {
+        UUID atBound = flowVersion(U1, U1);
+        UUID beyondBound = flowVersion(U1, U1);
+        UUID nestedValid = flowVersion(U1, U1);
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement()) {
+            for (Object[] row : new Object[][] {{atBound, "repeat('[', 4096)"}, {beyondBound, "repeat('[', 4097)"},
+                    {nestedValid, "repeat('[', 2000) || repeat(']', 2000)"}}) {
+                sql.execute("insert into public.audit_event (tenant_id, actor, action, target_ids, after_state,"
+                        + " event_at) values ('" + TENANT_A + "', 'rec-actor', 'FLOW_APPROVED',"
+                        + " jsonb_build_array('interface_version:" + row[0] + "'), " + row[1] + ", now())");
+            }
+        }
+
+        List<String> reported = reconcile(TENANT_A);
+
+        assertThat(reported).containsExactlyInAnyOrder("FLOW_APPROVED|" + atBound + "|null|t",
+                "FLOW_APPROVED|" + beyondBound + "|null|t", "FLOW_APPROVED|" + nestedValid + "|null|t");
+    }
+
+    /**
+     * Measurement only (never fails the build): what the pinned server does with 65536 nested brackets, which settles
+     * whether the stack-depth check is a hard error that {@code pg_input_is_valid} does not catch.
+     */
+    @Test
+    void measureWhatTheServerDoesWithSixtyFiveThousandNestedBrackets() throws Exception {
+        String outcome;
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement();
+                ResultSet rs = sql.executeQuery("select pg_input_is_valid(repeat('[', 65536), 'jsonb')")) {
+            rs.next();
+            outcome = rs.getBoolean(1) ? "VALID" : "INVALID (soft error, no abort)";
+        } catch (SQLException e) {
+            outcome = "ERROR sqlstate=" + e.getSQLState() + " " + e.getMessage().lines().findFirst().orElse("");
+        }
+        try (Connection owner = PlatformTestWiring.ownerConnection(POSTGRES); Statement sql = owner.createStatement();
+                ResultSet rs = sql.executeQuery("select version(), current_setting('max_stack_depth')")) {
+            rs.next();
+            outcome += " | " + rs.getString(1).split(",")[0] + " | max_stack_depth=" + rs.getString(2);
+        }
+        System.out.println("ROW544-MEASURE-JSON pg_input_is_valid(repeat('[',65536),'jsonb') -> " + outcome);
+    }
+
+    @Test
     void anotherTenantsRunSeesNothingOfThisTenantsEvents() throws Exception {
         UUID lied = flowVersion(U1, U2);
         event(TENANT_A, "FLOW_APPROVED", "interface_version", lied, claim(true));

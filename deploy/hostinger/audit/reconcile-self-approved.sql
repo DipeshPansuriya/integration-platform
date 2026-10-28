@@ -23,9 +23,9 @@ with approvals as (
     select e.id as audit_event_id,
            e.action,
            -- total casts (PostgreSQL 16+): a malformed after_state or a non-boolean flag yields NULL = reported, never an abort
-           -- an after_state longer than 65536 characters is not parsed at all (the JSON parser's stack-depth check is a hard
-           -- error, not a soft one): it yields NULL = reported, like any other malformed value
-           case when length(e.after_state) <= 65536 then
+           -- an after_state longer than 4096 characters is not parsed at all (the JSON parser is recursive and its stack-depth check
+           -- is a hard error, not a soft one; a real approval event is under 100 characters): it yields NULL = reported, like any other malformed value
+           case when length(e.after_state) <= 4096 then
                 case when pg_input_is_valid(e.after_state, 'jsonb') then
                      case when pg_input_is_valid((e.after_state::jsonb) ->> 'selfApproved', 'boolean')
                           then ((e.after_state::jsonb) ->> 'selfApproved')::boolean end

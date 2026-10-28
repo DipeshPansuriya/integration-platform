@@ -21,9 +21,15 @@ class RollbackScriptsTest {
     }
 
     private static String script(String name) throws IOException {
-        Path folder = Path.of(System.getProperty("basedir", ".")).toAbsolutePath().normalize().getParent()
-                .resolve("deploy/hostinger/audit");
-        return Files.readString(folder.resolve(name), StandardCharsets.UTF_8);
+        // walk up from the working directory (module under Maven, repo root under an IDE) to the folder that holds it
+        for (Path dir = Path.of(System.getProperty("basedir", ".")).toAbsolutePath().normalize(); dir != null;
+                dir = dir.getParent()) {
+            Path candidate = dir.resolve("deploy/hostinger/audit").resolve(name);
+            if (Files.isRegularFile(candidate)) {
+                return Files.readString(candidate, StandardCharsets.UTF_8);
+            }
+        }
+        throw new IllegalStateException("deploy/hostinger/audit/" + name + " not found above the working directory");
     }
 
     @Test
