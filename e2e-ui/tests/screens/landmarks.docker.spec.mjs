@@ -28,10 +28,23 @@ for (const [hash, dataPage] of SHELL_ROUTES) {
   });
 }
 
-test('#/login without a session: the sign-in card keeps its single main landmark', async ({ browser }) => {
+// Row 571: a first no-session visit goes straight to the realm login form (no console card, so no console landmark).
+test('#/login without a session: the first visit ends on the Keycloak realm login form', async ({ browser }) => {
   const context = await browser.newContext(NO_SESSION);
   const page = await context.newPage();
   await page.goto(`${consoleUrl()}/#/login`);
+  await page.waitForURL((url) => url.toString().startsWith(process.env.CONSOLE_ISSUER));
+  await expect(page.locator('#kc-form-login')).toBeVisible();
+  await context.close();
+});
+
+// The sign-in card itself appears on the second no-session arrival (Back from the form): it keeps its single main landmark.
+test('#/login without a session, after an abandoned login: the sign-in card keeps its single main landmark', async ({ browser }) => {
+  const context = await browser.newContext(NO_SESSION);
+  const page = await context.newPage();
+  await page.goto(consoleUrl());
+  await page.waitForURL((url) => url.toString().startsWith(process.env.CONSOLE_ISSUER));
+  await page.goto(consoleUrl());
   await expect(page.locator('[data-page="login"]')).toBeVisible();
   await expect(page.getByRole('main')).toHaveCount(1);
   await context.close();
