@@ -7,13 +7,19 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const { focusMainHeading, skipToMain } = await import('../../src/route-focus.ts');
-const fakeEl = (tag) => ({ tag, focused: null, focus(opts) { this.focused = opts ?? {}; } });
+const fakeEl = (tag, attrs = {}) => ({
+  tag, attrs, focused: null,
+  focus(opts) { this.focused = opts ?? {}; },
+  hasAttribute(name) { return name in this.attrs; },
+  setAttribute(name, value) { this.attrs[name] = value; },
+});
 
 test('focusMainHeading: focuses the first h1 in main (no scroll jump) and says so', () => {
-  const h1 = fakeEl('h1');
+  const h1 = fakeEl('h1', { tabindex: '-1' });
   const main = { ...fakeEl('main'), querySelector: (sel) => (sel === 'h1' ? h1 : null) };
   assert.equal(focusMainHeading(main), true);
   assert.deepEqual(h1.focused, { preventScroll: true });
+  assert.equal(h1.attrs.tabindex, '-1');
   assert.equal(main.focused, null);
 });
 
@@ -46,4 +52,19 @@ test('App.tsx: first control is the skip link, main has the target id and tabInd
 test('base.css: the skip link is hidden until focused', () => {
   const css = readFileSync(fileURLToPath(new URL('../../src/ui/base.css', import.meta.url)), 'utf8');
   assert.ok(/\.skip-link\s*\{/.test(css) && /\.skip-link:focus/.test(css));
+});
+
+test('focusMainHeading: a bare h1 (FlowsList, Systems render none with tabIndex) gets tabindex=-1 so focus() takes effect', () => {
+  const h1 = fakeEl('h1');
+  const main = { ...fakeEl('main'), querySelector: (sel) => (sel === 'h1' ? h1 : null) };
+  assert.equal(focusMainHeading(main), true);
+  assert.equal(h1.attrs.tabindex, '-1');
+  assert.deepEqual(h1.focused, { preventScroll: true });
+});
+
+test('focusMainHeading: an h1 that already has a tabindex keeps it', () => {
+  const h1 = fakeEl('h1', { tabindex: '0' });
+  const main = { ...fakeEl('main'), querySelector: () => h1 };
+  focusMainHeading(main);
+  assert.equal(h1.attrs.tabindex, '0');
 });
