@@ -1,6 +1,5 @@
 package io.integrationplatform.config.destination.adapter.in;
 
-import io.integrationplatform.config.adapter.in.ConfigActors;
 import io.integrationplatform.config.adapter.in.ConfigErrorBody;
 import io.integrationplatform.config.application.ConfigApiException;
 import io.integrationplatform.config.destination.DbBackedAllowList;
@@ -27,6 +26,10 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code operator_allowed_host} (V2_4_1410). These entries are unioned with the deployment
  * configuration ({@code platform.config.destinations.allowed-hosts}) by {@link DbBackedAllowList},
  * so changes take effect immediately without a restart.
+ *
+ * <p>Row 578 (CWE-862): the list is ONE global list bounding every tenant's outbound calls, so each route is an
+ * OPERATOR_AGENT operation ({@link OperatorAllowedHostEndpointRoles}); the role interceptor refuses every tenant
+ * role with 403 before a handler runs, and the operator agent binds no tenant user, so no actor is read here.
  */
 @RestController
 @RequestMapping(OperatorAllowedHostController.PATH)
@@ -35,20 +38,17 @@ public class OperatorAllowedHostController {
     static final String PATH = "/api/v1/admin/operator/allowed-hosts";
 
     private final DbBackedAllowList allowList;
-    private final ConfigActors actors;
 
-    public OperatorAllowedHostController(DbBackedAllowList allowList, ConfigActors actors) {
+    public OperatorAllowedHostController(DbBackedAllowList allowList) {
         this.allowList = Objects.requireNonNull(allowList, "allowList");
-        this.actors = Objects.requireNonNull(actors, "actors");
     }
 
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "All DB-stored allowed-host patterns"),
-        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER",
+        @ApiResponse(responseCode = "403", description = "ROLE_NOT_GRANTED (every tenant role; operator agent only)",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @GetMapping
     public ResponseEntity<List<Map<String, Object>>> list() {
-        actors.requireActor();
         return ResponseEntity.ok(allowList.list().stream()
                 .map(e -> Map.<String, Object>of("id", e.id().toString(), "pattern", e.pattern()))
                 .toList());
@@ -58,11 +58,10 @@ public class OperatorAllowedHostController {
         @ApiResponse(responseCode = "201", description = "Pattern added"),
         @ApiResponse(responseCode = "400", description = "Invalid or duplicate pattern",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
-        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER",
+        @ApiResponse(responseCode = "403", description = "ROLE_NOT_GRANTED (every tenant role; operator agent only)",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @PostMapping
     public ResponseEntity<Map<String, Object>> add(@RequestBody Map<String, String> body) {
-        actors.requireActor();
         String pattern = body.getOrDefault("pattern", "").trim();
         if (pattern.isEmpty()) {
             throw ConfigApiException.validation("pattern is required");
@@ -80,13 +79,12 @@ public class OperatorAllowedHostController {
 
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Pattern removed"),
-        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER",
+        @ApiResponse(responseCode = "403", description = "ROLE_NOT_GRANTED (every tenant role; operator agent only)",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
         @ApiResponse(responseCode = "404", description = "Pattern not found",
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> remove(@PathVariable UUID id) {
-        actors.requireActor();
         if (!allowList.remove(id)) {
             throw ConfigApiException.notFound();
         }

@@ -15,13 +15,23 @@ export type LoginView = 'wait' | 'redirect' | 'failed' | 'logged-out' | 'prompt'
 export const ATTEMPT_KEY = 'ip.loginAttempt';
 export const LOGGED_OUT_KEY = 'ip.loggedOut';
 export const RETURN_KEY = 'ip.returnTo';
+const PROBE_KEY = 'ip.probe';
 /** An attempt younger than this that comes back signed-out is a failed/cancelled login, not a first visit. */
 export const ATTEMPT_TTL_MS = 10 * 60 * 1000;
 
-const RETURN_PATTERN = /^#\/[A-Za-z0-9._~%!$&'()*+,;=:@/-]*$/;
+const RETURN_PATTERN = /^#\/[A-Za-z0-9._~%!$&'()*+,;=:@/?-]*$/;
+/** Encoded NUL, CR, LF and backslash: never part of a real route. */
+const ENCODED_CONTROL = /%(?:00|0d|0a|5c)/i;
 const MAX_RETURN_LENGTH = 512;
 
-export type LoginMemory = { attemptAt: number | null; loggedOut: boolean; storageOk: boolean; now: number };
+export type LoginMemory = {
+  attemptAt: number | null;
+  loggedOut: boolean;
+  storageOk: boolean;
+  now: number;
+  /** The browser restored this page from its back/forward cache: whatever it was doing is over (follow-up 2). */
+  restored?: boolean;
+};
 
 /** What to show at #/login. Pure: every input is passed in. */
 export function decideLoginView(input: { state: LoginState } & LoginMemory): LoginView {
@@ -30,6 +40,8 @@ export function decideLoginView(input: { state: LoginState } & LoginMemory): Log
   if (input.loggedOut) return 'logged-out';
   // Without storage the loop guard cannot work, so a button decides - never an automatic jump.
   if (!input.storageOk) return 'prompt';
+  // A bfcache restore means the visitor came Back, so the attempt is spent however old its stamp is.
+  if (input.restored) return 'failed';
   if (input.attemptAt !== null && input.now - input.attemptAt < ATTEMPT_TTL_MS) return 'failed';
   return 'redirect';
 }
@@ -37,8 +49,16 @@ export function decideLoginView(input: { state: LoginState } & LoginMemory): Log
 /** A hash worth coming back to: a real screen route, not the sign-in state, not a stray value. */
 export function sanitizeReturnTo(hash: string | null | undefined): string | null {
   if (!hash || hash.length > MAX_RETURN_LENGTH) return null;
-  if (!RETURN_PATTERN.test(hash)) return null;
-  if (hash === '#/' || hash.startsWith('#/login')) return null;
+  if (!RETURN_PATTERN.test(hash) || ENCODED_CONTROL.test(hash)) return null;
+  // '#//' and '#/?' have no route name; the sign-in state in any spelling (case, %-encoding) is never a destination.
+  if (hash === '#/' || hash.startsWith('#//') || hash.startsWith('#/?')) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(hash);
+  } catch {
+    return null;
+  }
+  if (/^#\/login/i.test(decoded)) return null;
   return hash;
 }
 
@@ -55,7 +75,10 @@ function store(): Store | null {
   try {
     const s = (globalThis as { sessionStorage?: Store }).sessionStorage;
     if (!s) return null;
-    s.getItem(ATTEMPT_KEY); // blocked storage throws here, not at the property read
+    // Blocked storage throws at the first call, full or hardened storage only at a write - and the loop guard
+    // is a write, so the probe is one (follow-up 3).
+    s.setItem(PROBE_KEY, '1');
+    s.removeItem(PROBE_KEY);
     return s;
   } catch {
     return null;
