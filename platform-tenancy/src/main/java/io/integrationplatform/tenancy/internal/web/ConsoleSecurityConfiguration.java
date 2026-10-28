@@ -264,10 +264,18 @@ class ConsoleSecurityConfiguration {
     /**
      * R13 fallback for a login: an identity provider that cannot be reached is a clear 503 (try again shortly), any
      * other failure a 401 - never a 500, never a half-created session. No detail of the provider's answer is echoed.
+     * Row 571 follow-up: a browser navigation (Accept names text/html, not an API path) is redirected to the console's
+     * sign-in state with a short flag instead - its loop guard shows "Try again" - so a cancelled or expired login
+     * never ends on raw JSON with the single-use code in the address bar. API clients keep the JSON answer.
      */
-    private static void loginFailed(HttpServletRequest request, HttpServletResponse response,
+    static void loginFailed(HttpServletRequest request, HttpServletResponse response,
             AuthenticationException failure) throws IOException {
-        if (unreachable(failure)) {
+        boolean down = unreachable(failure);
+        if (browserNavigation(request)) {
+            response.setHeader("Cache-Control", "no-store");
+            response.sendRedirect(request.getContextPath() + "/#/login?error="
+                    + (down ? "idp_unavailable" : "login_failed"));
+        } else if (down) {
             json(response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, "{\"error\":\"identity_provider_unavailable\","
                     + "\"message\":\"The login service cannot be reached. Please try again in a few minutes.\"}");
         } else {
@@ -275,6 +283,11 @@ class ConsoleSecurityConfiguration {
                     + "\"message\":\"The login did not complete. Please start it again.\",\"login\":\""
                     + LOGIN_ENTRY + "\"}");
         }
+    }
+
+    private static boolean browserNavigation(HttpServletRequest request) {
+        String accept = request.getHeader("Accept");
+        return accept != null && accept.toLowerCase(java.util.Locale.ROOT).contains("text/html") && !isApi(request);
     }
 
     private static boolean unreachable(Throwable failure) {
