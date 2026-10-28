@@ -4,6 +4,12 @@
 # docker-suite lock held.
 services:
   platform-app:
+    # smoke boots a fresh database without the deploy.sh pipeline, so in-app Flyway is switched back on HERE ONLY (never deployed);
+    # the pipeline itself is proved by flyway-local-proof.sh
+    environment:
+      SPRING_FLYWAY_ENABLED: "true"
+      DB_MIGRATION_USERNAME: ipass_migrator
+      DB_MIGRATION_PASSWORD: ${DB_MIGRATION_PASSWORD:?set DB_MIGRATION_PASSWORD}
     ports: ["127.0.0.1:18080:8080"]
     networks: [ipass-smoke]
   keycloak:
