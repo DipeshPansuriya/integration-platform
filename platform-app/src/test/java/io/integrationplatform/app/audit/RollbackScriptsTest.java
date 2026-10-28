@@ -47,4 +47,20 @@ class RollbackScriptsTest {
 
         assertThat(normalised(script("rollback-V2_4_1500.sql"))).isEqualTo(normalised(header));
     }
+
+    @Test
+    void theInterfaceVersionRollbackScriptEqualsTheMigrationHeaderBlock() throws IOException {
+        String header = AuditContainerSupport.rollbackSql(
+                AuditContainerSupport.migration("V*__interface_version_revoke_approval_columns.sql"));
+
+        assertThat(normalised(script("rollback-V2_4_1510.sql"))).isEqualTo(normalised(header));
+    }
+
+    @Test
+    void theOutboxInsertRollbackScriptEqualsTheMigrationHeaderBlock() throws IOException {
+        String header = AuditContainerSupport.rollbackSql(
+                AuditContainerSupport.migration("V*__audit_outbox_insert_without_relayed_at.sql"));
+
+        assertThat(normalised(script("rollback-V2_4_1520.sql"))).isEqualTo(normalised(header));
+    }
 }

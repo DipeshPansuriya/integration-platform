@@ -160,4 +160,17 @@ class AuditLedgerLockdownGuardStartupContainerTest {
             asOwner("revoke insert on public.audit_event from ipaas_app");
         }
     }
+
+    /** Row 570 (M1): the hosted compose gives the app no owner login and turns in-app Flyway off; deploy.sh migrated first. */
+    @Test
+    void theApplicationStartsWithoutTheOwnerCredentialsOnceTheDatabaseIsMigratedBeforehand() {
+        assertThatCode(() -> boot(null)).doesNotThrowAnyException(); // the deploy.sh stand-in: migrates this database
+        Map<String, Object> run = new HashMap<>(properties);
+        run.remove("DB_MIGRATION_USERNAME");
+        run.remove("DB_MIGRATION_PASSWORD");
+        run.put("spring.flyway.enabled", "false");
+
+        assertThatCode(() -> new SpringApplicationBuilder(IntegrationPlatformApplication.class, GrantAppRole.class)
+                .properties(run).run().close()).doesNotThrowAnyException();
+    }
 }
