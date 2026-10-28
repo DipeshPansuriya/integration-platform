@@ -24,7 +24,8 @@ export function Login({ state, onRetry }: { state: LoginState; onRetry: () => vo
   // What the tab remembers, read once per arrival (and again when the browser restores the page from its
   // back/forward cache, where this component's memory of "redirecting" would otherwise be frozen: a restore
   // always lands on 'failed' + Try again, whatever the age of the attempt stamp).
-  const [memory, setMemory] = useState(() => readLoginMemory());
+  // A '?error=' flag (the backend sends a failed code exchange here) is a restore too: never redirect again.
+  const [memory, setMemory] = useState(() => ({ ...readLoginMemory(), restored: /[?&]error=/.test(window.location.hash) }));
   const view = decideLoginView({ state, ...memory });
 
   // Row 372 M8: Back from the identity provider can restore this page from the bfcache.

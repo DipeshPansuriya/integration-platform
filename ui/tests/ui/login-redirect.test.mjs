@@ -260,6 +260,18 @@ test('Login: a page restored from the bfcache after the attempt went stale shows
   delete globalThis.sessionStorage;
 });
 
+test('Login: arriving from a failed code exchange (#/login?error=...) shows Try again even with no attempt on record', async () => {
+  const { assigned } = stubWindow();
+  globalThis.window.location.hash = '#/login?error=login_failed';
+  globalThis.sessionStorage = fakeStorage();
+  const screen = await login('signed-out');
+  await screen.settle();
+  assert.deepEqual(assigned, [], 'no automatic redirect');
+  assert.equal(textOf(by(screen, 'data-action', 'sso')[0]), 'Try again');
+  screen.unmount();
+  delete globalThis.sessionStorage;
+});
+
 test('Login: a storage that cannot be written shows the Sign in button, so Back is never a trap', async () => {
   const { assigned } = stubWindow();
   globalThis.sessionStorage = { getItem: () => null, setItem() { throw new Error('QuotaExceededError'); }, removeItem() {} };
