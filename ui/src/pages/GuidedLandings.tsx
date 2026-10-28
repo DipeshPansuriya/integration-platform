@@ -1,5 +1,4 @@
-// Row 575 (S1/S3 of the guided flow): the two new menu targets. Messages (S3) is the tracking-id search and the two tabs; Approvals
-// stays a worded stub until S5. Hook-light, tokens-only.
+// Row 575 (S1/S3 of the guided flow): the two new menu targets. Messages (S3) is the tracking-id search and the two tabs; Approvals is its own screen (Approvals.tsx, S5). Hook-light, tokens-only.
 import { useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
 import { TRACKING_ID_HINT, trackingHash } from './home-steps';
@@ -39,18 +38,6 @@ export function MessagesLanding() {
       </nav>
       <p className="dashboard-muted">
         Searching by what the business knows (for example an appointment number) and listing recent messages need a new read service and are not available yet. Use the tracking id, or open Needs attention to see failed messages.
-      </p>
-    </section>
-  );
-}
-
-export function ApprovalsLanding() {
-  return (
-    <section data-page="approvals-landing">
-      <PageHeader title="Approvals" breadcrumb={[{ label: 'Approvals' }]} next={<>open <a href="#/versions">Versions</a> to approve a flow version.</>} />
-      <p>
-        Flow versions and contract versions that wait for approval are listed on their own screens for now:{' '}
-        <a href="#/versions">Versions</a>, <a href="#/contracts">Contracts</a>.
       </p>
     </section>
   );

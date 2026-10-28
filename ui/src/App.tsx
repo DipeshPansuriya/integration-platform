@@ -49,7 +49,8 @@ import { canOpen, moreFor, navFor, platformTools, showPlatformTools, titleOf, ty
 import { NoAccess } from './ui/NoAccess';
 import { PageHeader } from './ui/PageHeader';
 import { focusMainHeading, skipToMain } from './route-focus';
-import { ApprovalsLanding, MessagesLanding } from './pages/GuidedLandings';
+import { MessagesLanding } from './pages/GuidedLandings';
+import { Approvals } from './pages/Approvals';
 import { SectionTabs } from './ui/SectionTabs';
 import { sectionOf } from './section-tabs';
 import { canOperate } from './pages/message-guide';
@@ -457,9 +458,9 @@ export function App() {
           {shown === 'versions' && <Versions selectId={route.flowId} />}
           {shown === 'systems' && <Systems />}
           {shown === 'queue' && <QueueDashboard />}
-          {shown === 'failures' && <Failures />}
+          {shown === 'failures' && <Failures canOperate={canOperate(roles)} />}
           {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
-          {shown === 'approvals' && <ApprovalsLanding />}
+          {shown === 'approvals' && <Approvals />}
           {shown === 'activity' && <Activity />}
           {shown === 'reports' && <DeliveryReport />}
           {shown === 'contracts' && <ContractVersions />}
