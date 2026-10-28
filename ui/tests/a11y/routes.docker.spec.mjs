@@ -1,6 +1,6 @@
 // BS-14 (lane 4, QA release-suite base): WCAG AA basics on every console route - keyboard, focus,
 // labels, text contrast - measured in the REAL console behind the REAL backend (the screens protocol:
-// tests/screens/global-setup.mjs boots it, the signed-in storage state is the session). No axe: the
+// e2e-ui/tests/screens/global-setup.mjs boots it, the signed-in storage state is the session). No axe: the
 // checks are Playwright built-ins judged by the pure helpers in ./lib (node --test units in ./unit).
 // The probes themselves are proven on inline pages in fixtures.fixture.spec.mjs.
 //
@@ -18,7 +18,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { expect, test } from '@playwright/test';
-import { consoleUrl, STORAGE_STATE } from '../screens/boot-state.mjs';
+import { consoleUrl, STORAGE_STATE } from '../../../e2e-ui/tests/screens/boot-state.mjs';
 import { describeFailures, describeStops, labelAudit, tabWalk, textContrast } from './lib/audit.mjs';
 import { appliedTheme } from './lib/probes.mjs';
 

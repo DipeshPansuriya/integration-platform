@@ -8,7 +8,7 @@
 // style) judged by the pure helpers in tests/a11y/lib (node --test tests/a11y/unit/*.test.mjs).
 
 import { defineConfig } from '@playwright/test';
-import { STORAGE_STATE } from './tests/screens/boot-state.mjs';
+import { STORAGE_STATE } from '../e2e-ui/tests/screens/boot-state.mjs';
 
 const FIXTURES_ONLY = process.env.A11Y_FIXTURES_ONLY === '1';
 

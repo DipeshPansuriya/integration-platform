@@ -1,1 +1,1 @@
-export { default } from '../screens/global-teardown.mjs';
+export { default } from '../../../e2e-ui/tests/screens/global-teardown.mjs';
