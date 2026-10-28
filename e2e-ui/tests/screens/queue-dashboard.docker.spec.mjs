@@ -133,7 +133,8 @@ test("the other tenant's console is refused and lists none of tenant A's work", 
   const flow = await freshFlow(page, 'tenant-cut');
 
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
-  await openQueue(page);
-  await expect(page.locator('[data-refusal="queue-summary-refused"]')).toBeVisible();
+  // Row 575 S1: the menu hides Queue from a configurator; opened by address, the shell shows the no-access state.
+  await page.goto(`${consoleUrl()}/#/queue`);
+  await expect(page.locator('[role="alert"][data-no-access="true"]')).toBeVisible();
   await expect(page.locator(`[data-queue-row="${flow.id}"]`)).toHaveCount(0);
 });
