@@ -129,11 +129,12 @@ test('a flow with no message or delivery rows shows no row - the dashboard never
 // @negative @tenant @role: the figures ride READ_MESSAGE_TIMELINE (tenant admin, support, read-only)
 // and are tenant-scoped - the harness's other-tenant binding is a CONFIGURATOR of tenant B, whose
 // console is refused outright and never lists tenant A's work (or anyone's).
-test("the other tenant's console is refused and lists none of tenant A's work", async ({ page }) => {
+test("the other tenant's console is refused by the role gate and lists none of tenant A's work", async ({ page }) => {
   const flow = await freshFlow(page, 'tenant-cut');
 
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
   // Row 575 S1: the menu hides Queue from a configurator; opened by address, the shell shows the no-access state.
+  // The refusal here is by the role gate (UX); the server 403 is covered by ForgedTenantDenialSuite.
   await page.goto(`${consoleUrl()}/#/queue`);
   await expect(page.locator('[role="alert"][data-no-access="true"]')).toBeVisible();
   await expect(page.locator(`[data-queue-row="${flow.id}"]`)).toHaveCount(0);
