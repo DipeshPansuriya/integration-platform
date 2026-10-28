@@ -28,9 +28,15 @@ export function RulesEditor({ ruleSetId }: { ruleSetId: string | null }) {
   return ruleSetId ? <RuleSetEditor key={ruleSetId} ruleSetId={ruleSetId} /> : <RulesHome />;
 }
 
+/** Row 575 S4: #/rules?flow=<id> (from a flow's Rules tab) pre-selects that flow, so the flow is never asked for twice. */
+function flowFromHash(): string {
+  const hash = typeof window === 'undefined' ? '' : window.location.hash;
+  return hash.includes('?') ? new URLSearchParams(hash.slice(hash.indexOf('?') + 1)).get('flow') ?? '' : '';
+}
+
 function RulesHome() {
   const [flows, setFlows] = useState<FlowSummary[]>([]);
-  const [flowId, setFlowId] = useState('');
+  const [flowId, setFlowId] = useState(flowFromHash);
   const [kind, setKind] = useState<RuleKind>('VALIDATION');
   const [name, setName] = useState('');
   const [ruleSets, setRuleSets] = useState<RuleSet[]>([]);
