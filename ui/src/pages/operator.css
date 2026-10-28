@@ -249,3 +249,66 @@
 
 /* V4 6c: heading tightness (h1 only) */
 .operator-page .op-head h1 { letter-spacing: -0.02em; }
+
+/* Row 575 S3: the message stage strip, the "What to do next" panel and the Messages tabs - tokens only. */
+.stage-strip {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.stage-step {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-1);
+  background: var(--color-surface);
+}
+.stage-step[aria-current='step'] {
+  border-color: var(--color-accent);
+}
+.stage-step-failed .stage-step-mark,
+.stage-step-failed .stage-step-word {
+  color: var(--color-danger-text);
+}
+.stage-step-done .stage-step-mark {
+  color: var(--color-success-text);
+}
+.stage-step-not-reached,
+.stage-step-not-recorded {
+  color: var(--color-ink-muted);
+}
+.stage-step-word,
+.stage-step-detail {
+  font-size: 12px;
+}
+.next-step p {
+  margin: 0 0 var(--space-2);
+}
+.op-tabs {
+  display: flex;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-3);
+}
+.op-tabs a {
+  padding: var(--space-2) 0;
+  text-decoration: none;
+}
+.op-tabs a[aria-current='page'] {
+  border-bottom: 2px solid var(--color-accent);
+  font-weight: 600;
+}
+@media (max-width: 720px) {
+  .stage-strip {
+    grid-template-columns: 1fr;
+  }
+}
+.op-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
