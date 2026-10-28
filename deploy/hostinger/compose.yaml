@@ -158,8 +158,9 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ipass}
       DB_USERNAME: ipass_app                  # K1: a restricted member of ipaas_app, owns nothing
       DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
-      DB_MIGRATION_USERNAME: ipass_migrator   # Flyway owner, in-app at startup (ADR Decision 3)
-      DB_MIGRATION_PASSWORD: ${DB_MIGRATION_PASSWORD:?set DB_MIGRATION_PASSWORD}
+      # row 570 M1: no schema-owner login in the app container. deploy.sh / flyway/migrate.sh migrate BEFORE the app starts
+      # (README, Migration pipeline); a first install runs migrate.sh before the first `up -d`.
+      SPRING_FLYWAY_ENABLED: "false"
       OIDC_ISSUER_URI: ${OIDC_ISSUER_URI:-https://auth.${IPASS_DOMAIN}/realms/platform}
       # the auth host also serves /admin now (row 489), but the app still reaches Keycloak's admin REST API on the internal service address
       # (tokens and the issuer stay the public URL above). If the issuer is overridden to an

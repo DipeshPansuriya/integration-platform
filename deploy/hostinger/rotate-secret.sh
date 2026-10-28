@@ -32,7 +32,7 @@ set_env_value() {
 plan() {
   case "$1" in
     DB_PASSWORD)            KIND=db; TARGET=ipass_app; SERVICES=platform-app;;
-    DB_MIGRATION_PASSWORD)  KIND=db; TARGET=ipass_migrator; SERVICES=platform-app;;
+    DB_MIGRATION_PASSWORD)  KIND=db; TARGET=ipass_migrator; SERVICES="";;   # row 570: only migrate.sh reads it now
     BACKUP_DB_PASSWORD)     KIND=db; TARGET=ipass_backup; SERVICES=pg-backup;;
     RESTORE_DB_PASSWORD)    KIND=db; TARGET=ipass_restore; SERVICES="";;
     KEYCLOAK_DB_PASSWORD)   KIND=db; TARGET="${KEYCLOAK_DB_USERNAME:-keycloak}"; SERVICES="keycloak pg-backup";;

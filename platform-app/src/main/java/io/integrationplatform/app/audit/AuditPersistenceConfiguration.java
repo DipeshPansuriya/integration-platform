@@ -40,6 +40,14 @@ class AuditPersistenceConfiguration {
         return new JdbcAuditEventStore(jdbcClient, bound != null ? bound : neverBound(), mode);
     }
 
+    /** Row 570 (L3): a standing-open ledger fails the start in DEFINER mode; eager even under lazy initialization. */
+    @Bean
+    @org.springframework.context.annotation.Lazy(false)
+    AuditLedgerLockdownGuard auditLedgerLockdownGuard(ObjectProvider<javax.sql.DataSource> dataSource,
+            @Value("${ipaas.audit.relay.mode:DEFINER}") String relayMode) {
+        return new AuditLedgerLockdownGuard(dataSource, RelayMode.parse(relayMode));
+    }
+
     @Bean
     AuditEventWriter auditEventWriter(JdbcAuditEventStore store, ObjectProvider<TenantContext> tenantContexts,
             PlatformTransactionManager transactionManager) {

@@ -245,4 +245,68 @@ class ApprovalActorFunctionContainerTest {
         assertThat(call("config_approve_contract_version", other, UUID.randomUUID(), other))
                 .isEqualTo("VERSION_NOT_FOUND");
     }
+
+    // ---------------------------------------------------------------- row 570 M3: no UPDATE of the approval columns
+
+    /** Runs one statement as the app login with the tenant stamped; returns the SQLSTATE of the refusal, or "ok". */
+    private String asApp(String sql) throws SQLException {
+        try (Connection app = DriverManager.getConnection(postgres.getJdbcUrl(), appUser, appPassword)) {
+            try (PreparedStatement stamp = app.prepareStatement("select set_config('app.tenant_id', ?, false)")) {
+                stamp.setString(1, tenant.toString());
+                stamp.execute();
+            }
+            try (Statement statement = app.createStatement()) {
+                statement.execute(sql);
+                return "ok";
+            } catch (SQLException e) {
+                return e.getSQLState();
+            }
+        }
+    }
+
+    @Test
+    @Tag("negative")
+    void theAppRoleCannotWriteTheApproverOrTheDecisionTimeOfAFlowVersionDirectly() throws SQLException {
+        UUID version = pendingFlowVersion();
+
+        assertThat(asApp("update public.interface_version set approver_id = '" + other + "' where id = '" + version
+                + "'")).as("approver_id").isEqualTo("42501");
+        assertThat(asApp("update public.interface_version set decided_at = now() where id = '" + version + "'"))
+                .as("decided_at").isEqualTo("42501");
+        assertThat(asApp("update public.interface_version set status = 'APPROVED', approver_id = '" + other
+                + "', decided_at = now() where id = '" + version + "'")).as("the forged approval").isEqualTo("42501");
+
+        assertThat(scalar("select status || '/' || coalesce(approver_id::text, 'none') from public.interface_version"
+                + " where id = '" + version + "'")).isEqualTo("PENDING_APPROVAL/none");
+    }
+
+    @Test
+    @Tag("negative")
+    void aDirectApprovalWithoutAnApproverIsStillRefusedByTheTransitionGuard() throws SQLException {
+        UUID version = pendingFlowVersion();
+
+        assertThat(asApp("update public.interface_version set status = 'APPROVED' where id = '" + version + "'"))
+                .isEqualTo("P0001");
+    }
+
+    @Test
+    void theAppRoleKeepsTheLifecycleColumnsAndTheDefinerPathStillApproves() throws SQLException {
+        for (String column : List.of("status", "change_note", "rejection_comment", "submitted_at", "published_at")) {
+            assertThat(scalar("select has_column_privilege('ipaas_app', 'public.interface_version', '" + column
+                    + "', 'UPDATE')")).as(column).isEqualTo("t");
+        }
+        for (String column : List.of("approver_id", "decided_at")) {
+            assertThat(scalar("select has_column_privilege('ipaas_app', 'public.interface_version', '" + column
+                    + "', 'UPDATE')")).as(column).isEqualTo("f");
+        }
+        UUID version = pendingFlowVersion();
+        assertThat(call("config_approve_version", other, version, other)).isEqualTo("APPROVED");
+        // the trigger still stamps decided_at, and publishing (a status-only update) still works
+        assertThat(scalar("select (decided_at is not null)::text from public.interface_version where id = '" + version
+                + "'")).isEqualTo("true");
+        assertThat(asApp("update public.interface_version set status = 'PUBLISHED' where id = '" + version + "'"))
+                .isEqualTo("ok");
+        assertThat(asApp("update public.interface_version set status = 'ARCHIVED' where id = '" + version + "'"))
+                .isEqualTo("ok");
+    }
 }
