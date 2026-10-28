@@ -74,10 +74,12 @@ pub="$(docker ps --filter "label=com.docker.compose.project=$P" --format '{{.Nam
 members="$(docker network inspect ipass-hosting-smoke-web --format '{{range .Containers}}{{.Name}} {{end}}')"
 [ "$(echo $members | wc -w)" = 1 ] && echo "$members" | grep -q edge && ok "only edge is on the shared web network ($members)" || bad "web network members: $members"
 code() { curl -s -o /dev/null -w '%{http_code}' -H "Host: $1" "http://127.0.0.1:18082$2"; }
-[ "$(code ipass.smoke.invalid /actuator/health)" = 404 ] && [ "$(code ipass.smoke.invalid /v3/api-docs)" = 404 ] && ok "edge: actuator and OpenAPI are 404" || bad "edge actuator/v3"
+# row 489: the edge passes /actuator and /v3 to the app; the app answers (health anonymous 200, /v3/api-docs needs login = 401)
+[ "$(code ipass.smoke.invalid /actuator/health)" = 200 ] && [ "$(code ipass.smoke.invalid /v3/api-docs)" = 401 ] && ok "edge: actuator/health is 200 and OpenAPI needs login (401), both answered by the app" || bad "edge actuator/v3"
 [ "$(code ipass.smoke.invalid /)" = 200 ] && ok "edge: / serves the ui" || bad "edge ui"
 case "$(code ipass.smoke.invalid /api/v1/tenants)" in 401|403) ok "edge: /api reaches the app (unauthenticated = 401/403)";; *) bad "edge /api";; esac
-[ "$(code auth.smoke.invalid /admin/)" = 404 ] && [ "$(code auth.smoke.invalid /realms/master/.well-known/openid-configuration)" = 404 ] && ok "edge: Keycloak /admin and master realm are 404" || bad "edge keycloak admin"
+# row 489 chunk C: the auth host serves all of Keycloak; /admin/ redirects to the console login, the master realm answers
+[ "$(code auth.smoke.invalid /admin/)" = 302 ] && [ "$(code auth.smoke.invalid /realms/master/.well-known/openid-configuration)" = 200 ] && ok "edge: Keycloak /admin/ redirects (302) and the master realm answers (200), proxied not blocked" || bad "edge keycloak admin"
 [ "$(code auth.smoke.invalid /realms/platform/.well-known/openid-configuration)" = 200 ] && ok "edge: platform realm discovery is 200" || bad "edge realm"
 docker inspect $(docker ps -q --filter "label=com.docker.compose.project=$P") --format '{{range .Mounts}}{{.Source}} {{end}}' | grep -qi 'docker.sock' && bad "a container mounts the Docker socket" || ok "no container mounts the Docker socket"
 # C1: the migrator login is refused by the K1 guard

@@ -28,7 +28,9 @@ read -r r429 rother <<<"$(burst auth.t.invalid POST /realms/platform/protocol/op
 [ "$(req auth.t.invalid POST /realms/platform/login-actions/authenticate 10.0.0.2)" != 429 ] && ok "the authenticate path is served for a client under budget" || bad "authenticate"
 read -r a429 _ <<<"$(burst auth.t.invalid POST /realms/platform/login-actions/authenticate 10.0.0.4 12)"
 [ "$a429" -ge 1 ] && ok "login-actions/authenticate: excess calls get 429" || bad "authenticate burst"
-[ "$(req auth.t.invalid POST /realms/master/protocol/openid-connect/token 10.0.0.9)" = 404 ] && ok "master realm token stays 404 (not reachable, not merely limited)" || bad "master realm"
+# row 489 chunk C: the master realm is proxied like any realm and its token path is rate limited the same way (edge.conf: realm-agnostic)
+read -r m429 mother <<<"$(burst auth.t.invalid POST /realms/master/protocol/openid-connect/token 10.0.0.9 12)"
+[ "$mother" -eq 6 ] && [ "$m429" -eq 6 ] && ok "master realm token is proxied (not 404) and limited like any realm: 6 served, 6 refused with 429" || bad "master realm token burst: 429=$m429 other=$mother"
 read -r d429 _ <<<"$(burst auth.t.invalid GET /realms/platform/.well-known/openid-configuration 10.0.0.5 15)"
 [ "$d429" -eq 0 ] && ok "discovery and other Keycloak paths are not limited" || bad "discovery limited ($d429)"
 read -r l429 _ <<<"$(burst ipass.t.invalid GET /login/oauth2/code/keycloak 10.0.0.6 12)"
