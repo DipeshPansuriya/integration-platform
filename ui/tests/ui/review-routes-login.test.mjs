@@ -1,6 +1,5 @@
-// Row 372 review M9 / M8 / L3: a malformed address escape never blanks the shell, the SSO button recovers when
-// the browser restores the page from its back/forward cache, and the Activity / Delivery report read failures use
-// the shared plain words instead of "(HTTP n)".
+// Row 372 review M9 / L3: a malformed address escape never blanks the shell, and the Activity / Delivery report read failures use
+// the shared plain words instead of "(HTTP n)". (M8, the bfcache reset of the SSO button, moved to login-redirect.test.mjs in row 571.)
 // Run: node --import ./tests/rules/ts-resolve.mjs --test tests/ui/review-routes-login.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,35 +22,6 @@ test('M9 App.parseHash decodes every route id through safeDecode', () => {
   const app = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(app, /decodeURIComponent\(/, 'no raw decodeURIComponent left in the router');
   assert.equal((app.match(/safeDecode\(/g) ?? []).length, 3, 'versions, rules and mappings ids');
-});
-
-// ---------- M8 ----------
-test('M8 Login: a page restored from the back/forward cache resets the redirecting state', async () => {
-  const listeners = {};
-  const assigned = [];
-  globalThis.window = {
-    location: { assign: (u) => assigned.push(u), hash: '' },
-    addEventListener: (type, fn) => { listeners[type] = fn; },
-    removeEventListener: (type) => { delete listeners[type]; }
-  };
-  const screen = await mount('pages/Login.tsx', 'Login', { state: 'signed-out', onRetry() {} }, { LOGIN_ENTRY: '/login' }, ['../api/client']);
-  const sso = () => by(screen, 'data-action', 'sso')[0];
-  sso().props.onClick();
-  await screen.settle();
-  assert.equal(sso().props['aria-disabled'], true);
-  assert.equal(assigned.length, 1);
-  assert.equal(typeof listeners.pageshow, 'function', 'a pageshow listener is registered');
-
-  listeners.pageshow({ persisted: false }); // an ordinary first load must not reset a live redirect
-  await screen.settle();
-  assert.equal(sso().props['aria-disabled'], true);
-
-  listeners.pageshow({ persisted: true }); // Back from the identity provider
-  await screen.settle();
-  assert.equal(sso().props['aria-disabled'], false);
-  assert.equal(textOf(sso()), 'Continue with SSO');
-  screen.unmount();
-  assert.equal(listeners.pageshow, undefined, 'the listener is removed on unmount');
 });
 
 // ---------- L3 ----------

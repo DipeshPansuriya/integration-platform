@@ -606,26 +606,41 @@ wording corrections of that check applied.
      application claim; the reconciliation query detects only disagreement with the business row.
   2. **Pre-relayed outbox row.** The same column-wide `INSERT` lets the app insert an outbox row with `relayed_at`
      already set; it never reaches the ledger. This equals not writing the event (omission), which option A cannot
-     detect anyway; it does not hide anyone else's event. Untested; a column-level outbox `INSERT` grant without
-     `relayed_at` would close it (follow-up, not in this change).
+     detect anyway; it does not hide anyone else's event. **Closed by PR #81 once merged (row 570, Karan C2):**
+     `V2_4_1520__audit_outbox_insert_without_relayed_at.sql` revokes table-level `INSERT` on `audit_outbox` and grants
+     `INSERT` on the writer columns only (no `relayed_at`), pinned by `AuditLedgerLockdownContainerTest`.
   3. **Owner / DBA rewrite.** The migration owner (and any superuser) can still `UPDATE`, `DELETE` or drop ledger
      partitions. Detecting that is option B (hash chain plus verify job), out of scope.
   4. **Flow-version attribution via column grants (Q3 / Karan M3).** `ipaas_app` still holds
      `UPDATE (status, ..., approver_id, decided_at, ...)` on `interface_version` (`V2_2_4:155-157`), so a compromised
      application role can approve a flow version directly with any approver id, without the function, the stamp check
-     or an audit event. Accepted by the project owner as Low (Q3); closing it is one
-     `REVOKE UPDATE (approver_id, decided_at) ON public.interface_version FROM ipaas_app` plus a container test - the
-     next row. `contract_version` and `db_target_approved_table` have no direct `UPDATE` grant.
+     or an audit event. Accepted by the project owner as Low (Q3). **Closed by PR #81 once merged (row 570):**
+     `V2_4_1510__interface_version_revoke_approval_columns.sql` runs
+     `REVOKE UPDATE (approver_id, decided_at) ON public.interface_version FROM ipaas_app`, covered by
+     `ApprovalActorFunctionContainerTest`. `contract_version` and `db_target_approved_table` have no direct `UPDATE`
+     grant. The `INSERT` side of the same table stays open - residual 7.
   5. **Owner credentials in the application container (Karan M1).** The `platform-app` service also receives the
      migration owner's login (`deploy/hostinger/compose.yaml:161-162`) for its in-app Flyway. Option A therefore holds
      against a compromise of the application *role* (SQL injection, a stolen `ipass_app` password), not against code
      execution in the application container, which can log in as the owner. Follow-up row: switch off in-app Flyway
      for the VPS profile and remove `DB_MIGRATION_*` from the app service once the `deploy.sh` Flyway path is proven.
      Until then the release statement says: "the ledger is append-only for the application role; it is not
-     tamper-proof against code execution in the application container."
-  6. **Standing-open ledger after a manual re-grant.** Nothing at start checks that `ipaas_app` lacks `INSERT` on `audit_event`
-     in `DEFINER` mode; a manual re-grant or a restore from an old dump would leave the ledger open and only the `LEGACY`
-     warning exists (optional hardening, follow-up row).
+     tamper-proof against code execution in the application container." **Closed by PR #81 once merged (row 570):**
+     the app service gets `SPRING_FLYWAY_ENABLED: "false"` and no `DB_MIGRATION_*` (`deploy/hostinger/compose.yaml`);
+     `deploy.sh` / `flyway/migrate.sh` migrate as the migration user before the app starts. The smoke overlay
+     (`deploy/hostinger/test/compose.smoke.yaml`) keeps in-app Flyway for the smoke run only. Once merged and deployed,
+     the release statement drops the container caveat.
+  6. **Standing-open ledger after a manual re-grant (Karan L3).** **Closed by PR #81 once merged (row 570):**
+     `AuditLedgerLockdownGuard` runs after Flyway, as `current_user`, in `DEFINER` mode, and refuses to start when the
+     app login can again `INSERT` on `audit_event` or a partition, or write `audit_outbox.relayed_at`; a failed check
+     also refuses start (fails closed), covered by `AuditLedgerLockdownGuardStartupContainerTest`.
+  7. **Approved flow version by direct INSERT (Karan, Medium, CWE-863) - OPEN, ledger row 576.** `ipaas_app` keeps
+     table-level `INSERT` on `interface_version` (`V2_2_4:154`), and the transition guard is `BEFORE UPDATE` only
+     (`V2_2_4:117-119`), so a compromised application role can insert a row already `APPROVED` with a forged
+     `approver_id` / `decided_at`, bypassing the approval function, the stamp check and the audit event. Planned fix
+     (row 576): narrow the `INSERT` grant to the writer columns, plus a `BEFORE INSERT` trigger that forces `DRAFT` and
+     null `approver_id` / `decided_at`, with a container test for the refusal. Until it lands the release statement
+     names this residual.
 - **Gates (counts; each claimed control has its conformance test, container suite, run before merge).**
   1. As an `ipaas_app` member: `INSERT` into `audit_event`, `INSERT` into the current month partition,
      `UPDATE audit_outbox SET relayed_at`, `SELECT ... FOR UPDATE` on `audit_outbox` - 4 attempts, 4 refusals with
@@ -648,6 +663,8 @@ wording corrections of that check applied.
   The function is also exercised under a NOSUPERUSER NOBYPASSRLS owner (`AuditRelayMoveFunctionContainerTest`); the
   production owner's actual flags are a post-check (README), not a test.
 - **Revisit if.** Any residual above is used in an incident; a regulated tenant or partner asks for tamper *detection*
-  (then option B); the application stops holding the owner credential (then residual 5 is closed and the release
-  statement changes); the Q3 revoke lands (then residual 4 is closed); or an alert on relay lag is added and fires
-  (then reconsider the per-tenant serialisation).
+  (then option B); PR #81 does not merge or is reverted (then residuals 2, 4, 5 and 6 reopen); row 576 lands (then
+  residual 7 is closed); or an alert on relay lag is added and fires (then reconsider the per-tenant serialisation).
+- **Amendment note 2026-10-28 (row 570).** Residuals 2 (C2), 4 (M3), 5 (M1) and 6 (L3) are closed by draft PR #81
+  (`feat/row570-audit-followups`, `57753bb5`) once merged; until then they stand as written above. Residual 7 is the
+  one open item, tracked as ledger row 576.

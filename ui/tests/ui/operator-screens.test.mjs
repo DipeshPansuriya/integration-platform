@@ -158,7 +158,7 @@ const { stateBadge } = await import('../../src/pages/message-timeline.ts');
 test('B6 stateBadge words the enum and tints by outcome', () => {
   assert.deepEqual(stateBadge('ROUTED'), { word: 'Routed', tone: 'success' });
   assert.deepEqual(stateBadge('ROUTE_FAILED'), { word: 'Route failed', tone: 'danger' });
-  assert.deepEqual(stateBadge('DEAD_LETTERED'), { word: 'Dead lettered', tone: 'danger' });
+  assert.deepEqual(stateBadge('DEAD_LETTERED'), { word: 'Gave up', tone: 'danger' });
   assert.deepEqual(stateBadge('ACCEPTED'), { word: 'Accepted', tone: 'info' });
   assert.deepEqual(stateBadge('WEIRD_THING'), { word: 'Weird thing', tone: 'neutral' });
 });

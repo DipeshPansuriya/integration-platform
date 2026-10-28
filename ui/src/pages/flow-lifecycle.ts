@@ -2,6 +2,7 @@
 // (10-screens §3/§4). No React, no API - unit-tested by tests/ui/flows-versions.test.mjs.
 
 import type { FlowSummary } from '../api/flows';
+import { statusWord } from '../ui/status-words';
 
 export type LifecycleAction = 'save-draft' | 'submit-for-approval' | 'approve' | 'publish' | 'new-draft';
 
@@ -107,7 +108,7 @@ export function fieldA11y(validationField: string | null, field: string): { 'ari
 
 /** A11: the ordering enum in words for a table cell. */
 export function orderingWord(ordering: string): string {
-  return ordering === 'PER_KEY' ? 'Per key' : ordering === 'NONE' ? 'None' : ordering;
+  return statusWord('ordering', ordering).word;
 }
 
 /** A11: the sentence a polite live region announces after the flow filter changes ('' = nothing to say). */

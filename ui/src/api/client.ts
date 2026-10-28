@@ -10,11 +10,12 @@
 // deployment behaves like the same-origin console); a state-changing call carries the CSRF
 // header from the readable XSRF-TOKEN cookie; and a 401 (the JSON no-session answer, never a
 // redirect) sends the browser to the console's own sign-in card (#/login, row 310 lane A,
-// 10-screens §2 / 00-portal-ia §4), whose one action - Continue with SSO - goes to the backend's
-// login entry point, which starts the Authorization Code + PKCE flow with Keycloak.
+// 10-screens §2 / 00-portal-ia §4), which (row 571) goes on to the backend's login entry point by
+// itself, once; that starts the Authorization Code + PKCE flow with Keycloak.
 
 import createClient from 'openapi-fetch';
 import type { paths } from './openapi.d';
+import { rememberReturnTo } from '../pages/login-flow';
 
 /** The backend's login entry point (Spring Security's authorization endpoint, registration `keycloak`). */
 export const LOGIN_ENTRY = '/oauth2/authorization/keycloak';
@@ -49,7 +50,11 @@ export async function consoleFetch(input: RequestInfo | URL, init?: RequestInit)
   if (response.status === 401 && typeof window !== 'undefined') {
     // The backend answered the JSON 401 (no session): show the in-app sign-in card. A hash change,
     // not a page load - and none at all when the card already shows (its own /me check 401s too).
-    if (window.location.hash !== LOGIN_ROUTE) window.location.hash = LOGIN_ROUTE;
+    // The screen asked for is remembered (hash routes only) and restored after the sign-in (row 571).
+    if (window.location.hash !== LOGIN_ROUTE) {
+      rememberReturnTo(window.location.hash);
+      window.location.hash = LOGIN_ROUTE;
+    }
   }
   return response;
 }
