@@ -49,7 +49,8 @@ import { canOpen, moreFor, navFor, platformTools, showPlatformTools, titleOf, ty
 import { NoAccess } from './ui/NoAccess';
 import { PageHeader } from './ui/PageHeader';
 import { focusMainHeading, skipToMain } from './route-focus';
-import { ApprovalsLanding, MessagesLanding } from './pages/GuidedLandings';
+import { MessagesLanding } from './pages/GuidedLandings';
+import { Approvals } from './pages/Approvals';
 import { canOperate } from './pages/message-guide';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
@@ -453,7 +454,7 @@ export function App() {
           {shown === 'queue' && <QueueDashboard />}
           {shown === 'failures' && <Failures />}
           {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
-          {shown === 'approvals' && <ApprovalsLanding />}
+          {shown === 'approvals' && <Approvals />}
           {shown === 'activity' && <Activity />}
           {shown === 'reports' && <DeliveryReport />}
           {shown === 'contracts' && <ContractVersions />}
