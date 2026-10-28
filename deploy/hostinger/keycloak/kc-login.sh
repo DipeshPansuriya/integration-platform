@@ -49,10 +49,17 @@ kc_read_secret() {
 # here (kcadm prompts for the password).
 kc_require_login_inputs() { kc_auth_check || return $?; [ "$KC_AUTH" = client ] && { kc_read_secret || return $?; }; return 0; }
 
-# kc_login : needs $COMPOSE, optional $KCADM. Opens the kcadm session in the container; arms kc_logout on exit.
+# kc_login : needs $COMPOSE, optional $KCADM. Opens the kcadm session in the container. kc_logout is armed BEFORE the login (a Ctrl-C
+# during `config credentials` must not leave the file) on EXIT and on INT, TERM and HUP: dash and other POSIX shells skip the EXIT trap
+# when a signal ends the script, and a dropped SSH session is a HUP. SIGKILL / OOM / `docker kill` cannot be trapped and always leave
+# the file. Callers that finish the session themselves run: kc_logout; trap - EXIT INT TERM HUP
 kc_login() {
   _K="${KCADM:-/opt/keycloak/bin/kcadm.sh}"; _SRV=http://localhost:8080
   kc_require_login_inputs || return $?
+  trap 'kc_logout' EXIT
+  trap 'trap - EXIT; kc_logout; exit 130' INT
+  trap 'trap - EXIT; kc_logout; exit 143' TERM
+  trap 'trap - EXIT; kc_logout; exit 129' HUP
   if [ "$KC_AUTH" = client ]; then
     $COMPOSE exec -T -e KC_CLIENT_SECRET keycloak sh -c "$_K config credentials --server $_SRV --realm master --client '$KC_CLIENT_ID' --secret \"\$KC_CLIENT_SECRET\"" >/dev/null
   else
@@ -60,7 +67,6 @@ kc_login() {
     echo "WARNING: password login works only while $KC_ADMIN_USER has NO TOTP; prefer the ipass-kcadm client (keycloak/kcadm-client-setup.sh)" >&2
     $COMPOSE exec keycloak $_K config credentials --server $_SRV --realm master --user "$KC_ADMIN_USER" >/dev/null
   fi
-  trap 'kc_logout' EXIT
 }
 
 # kc_logout : removes the token (and, in client mode, the stored client secret) kcadm keeps in the container's writable layer. Row 543

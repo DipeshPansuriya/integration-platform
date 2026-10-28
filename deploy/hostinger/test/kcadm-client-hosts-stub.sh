@@ -3,7 +3,7 @@
 # retire-bootstrap-admin.sh, rotate-secret.sh, seed/seed-showcase.sh. A fake `compose` records every call, and the value of
 # KC_CLIENT_SECRET it receives in its ENVIRONMENT. Proves: default login is the master service-account client (client
 # credentials, secret travels as an env NAME, never in argv, never printed); the admin-password path exists only behind
-# --password-login / KC_AUTH=password; a missing secret without a terminal stops the run; kcadm's token is truncated.
+# --password-login / KC_AUTH=password; a missing secret without a terminal stops the run; the kcadm config file (token, stored secret) is deleted on exit.
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
@@ -12,8 +12,11 @@ SECRET="cs-0123456789-marker"
 cat > "$T/fakecompose" <<'FAKE'
 #!/bin/sh
 echo "ARGS: $*" >> "$FAKE_LOG"
+# signal tests (D1): FAKE_CFG stands for the kcadm config file in the container
 [ "${FAKE_FAIL:-0}" = 1 ] && exit 7
 case "$*" in *"-e KC_CLIENT_SECRET"*) echo "ENVSECRET: ${KC_CLIENT_SECRET:-unset}" >> "$FAKE_LOG";; esac
+case "$*" in *"config credentials"*) [ -n "${FAKE_CFG:-}" ] && : > "$FAKE_CFG"; [ -n "${FAKE_SIG_LOGIN:-}" ] && kill -s "$FAKE_SIG_LOGIN" $PPID; exit 0;; esac
+case "$*" in *"rm -f"*kcadm.config*) [ -n "${FAKE_CFG:-}" ] && rm -f "$FAKE_CFG"; exit 0;; esac
 case "$*" in *"-e KC_NEW_CLIENT_SECRET"*) echo "ENVNEW: new=${KC_NEW_CLIENT_SECRET:-unset} pw=${KC_ADMIN_PASSWORD:-unset} rotate=${ROTATE:-} master=${WITH_MASTER_USERS:-} client=${KC_CLIENT_ID:-}" >> "$FAKE_LOG"; echo "STDIN-BYTES: $(wc -c)" >> "$FAKE_LOG"; exit 0;; esac
 case "$*" in
   *KC_BOOTSTRAP_ADMIN_PASSWORD*"-n"*|*'[ -n'*) [ "${FAKE_BOOTSTRAP:-0}" = 1 ]; exit $?;;
@@ -38,16 +41,16 @@ not_in_argv() { ! grep '^ARGS:' "$T/log" | grep -qF -- "$SECRET"; }
 no_leak() { ! grep -qF -- "$SECRET" <<<"$OUT" && ! grep -qF -- "$SECRET" "$T/rot.log" 2>/dev/null; }
 clientlogin() { grep '^ARGS:' "$T/log" | grep -q -- 'config credentials.*--realm master.*--client' && grep '^ARGS:' "$T/log" | grep -q -- '--secret'; }
 nopwlogin() { ! grep '^ARGS:' "$T/log" | grep -q -- 'config credentials.*--user'; }
-# B1 (proof, Keycloak 26.8.1): `kcadm.sh config truncate` does not exist (config knows only credentials and truststore), so the token
-# and the stored client secret are removed by deleting the config file in the container instead; "config truncate" must not be used.
-truncated() { grep '^ARGS:' "$T/log" | grep -q 'rm -f .*kcadm.config' && ! grep '^ARGS:' "$T/log" | grep -q 'config truncate'; }
+# B1 (proof, Keycloak 26.8.1): kcadm has no sub-command to wipe its config (it knows only credentials and truststore), so the token
+# and the stored client secret are removed by deleting the config file in the container; that retired sub-command must not be used.
+cfg_removed() { grep '^ARGS:' "$T/log" | grep -q 'rm -f .*kcadm.config' && ! grep '^ARGS:' "$T/log" | grep -q 'config trunc'; }
 CS="KC_CLIENT_SECRET=$SECRET"
 
 # --- retire-bootstrap-admin.sh
 run retire "$CS" KC_ADMIN_USER=ignored "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh; 
 [ $RC -eq 0 ] && clientlogin && nopwlogin && ok "retire: default login is the service-account client (no --user)" || bad "retire: default login (rc=$RC) $OUT"
 grep -q "^ENVSECRET: $SECRET" "$T/log" && not_in_argv && no_leak && ok "retire: the secret travels in the environment only (not argv, not output)" || bad "retire: secret handling"
-truncated && ok "retire: kcadm token truncated" || bad "retire: no config truncate"
+cfg_removed && ok "retire: kcadm config file deleted on exit" || bad "retire: config file not deleted"
 run retire2 KC_ADMIN_USER=alice FAKE_USER_ID=u-1 -- sh keycloak/retire-bootstrap-admin.sh
 [ $RC -ne 0 ] && grep -qi "KC_CLIENT_SECRET\|terminal\|secret" <<<"$OUT" && ! grep -q 'config credentials' "$T/log" && ok "retire: no secret and no terminal -> stops before any login" || bad "retire: missing secret not refused (rc=$RC)"
 run retire3 KC_ADMIN_USER=alice "FAKE_NAMED=nid-1,true" -- sh keycloak/retire-bootstrap-admin.sh --password-login
@@ -63,7 +66,7 @@ run m1a "$CS" FAKE_USER_ID=u-1 -- sh keycloak/retire-bootstrap-admin.sh
 run m1b "$CS" KC_ADMIN_USER=bootstrap-admin FAKE_USER_ID=u-1 -- sh keycloak/retire-bootstrap-admin.sh
 [ $RC -ne 0 ] && [ ! -s "$T/log" ] && ok "retire M1: the named admin may not be bootstrap-admin itself (client mode too)" || bad "retire M1b (rc=$RC) $OUT"
 run m1c "$CS" KC_ADMIN_USER=alice FAKE_USER_ID=u-1 FAKE_NAMED= -- sh keycloak/retire-bootstrap-admin.sh
-[ $RC -ne 0 ] && ! grep -q 'delete users' "$T/log" && ! grep -q 'force-recreate' "$T/log" && truncated && ok "retire M1: named admin absent -> refused, nothing deleted, token truncated" || bad "retire M1c (rc=$RC) $OUT"
+[ $RC -ne 0 ] && ! grep -q 'delete users' "$T/log" && ! grep -q 'force-recreate' "$T/log" && cfg_removed && ok "retire M1: named admin absent -> refused, nothing deleted, config file deleted" || bad "retire M1c (rc=$RC) $OUT"
 run m1d "$CS" KC_ADMIN_USER=alice FAKE_USER_ID=u-1 "FAKE_NAMED=nid-1,false" -- sh keycloak/retire-bootstrap-admin.sh
 [ $RC -ne 0 ] && ! grep -q 'delete users' "$T/log" && ok "retire M1: named admin disabled -> refused, nothing deleted" || bad "retire M1d (rc=$RC) $OUT"
 run m1e "$CS" KC_ADMIN_USER=alice FAKE_USER_ID=u-1 "FAKE_NAMED=nid-1,true" FAKE_NAMED_ROLES=default-roles-master -- sh keycloak/retire-bootstrap-admin.sh
@@ -78,7 +81,7 @@ run m1g KC_ADMIN_USER=alice FAKE_USER_ID=u-1 "FAKE_NAMED=nid-1,true" -- sh keycl
 # --- rotate-secret.sh (client secret)
 run rot "$CS" -- sh rotate-secret.sh CONSOLE_OIDC_CLIENT_SECRET
 [ $RC -eq 0 ] && clientlogin && nopwlogin && not_in_argv && no_leak && ok "rotate: client login, secret only in the environment" || bad "rotate: (rc=$RC) $OUT"
-grep '^ARGS:' "$T/log" | grep -q 'update clients/cid-1' && truncated && ok "rotate: still updates the client and truncates the token" || bad "rotate: update/truncate"
+grep '^ARGS:' "$T/log" | grep -q 'update clients/cid-1' && cfg_removed && ok "rotate: still updates the client and deletes the config file" || bad "rotate: update/config-file delete"
 run rot2 KC_ADMIN_USER=alice -- sh rotate-secret.sh --password-login CONSOLE_OIDC_CLIENT_SECRET
 [ $RC -eq 0 ] && grep '^ARGS:' "$T/log" | grep -q -- '--user alice' && ok "rotate: --password-login fallback (flag before the name)" || bad "rotate: fallback (rc=$RC) $OUT"
 run rot3 "$CS" -- sh rotate-secret.sh DB_PASSWORD
@@ -91,7 +94,7 @@ run seed2 FAKE_BOOTSTRAP=1 -- sh seed/seed-showcase.sh
 [ $RC -eq 0 ] && ! grep -q -- '--client' "$T/log" && ok "seed: first-start window keeps using the bootstrap admin (the client does not exist yet)" || bad "seed: bootstrap window (rc=$RC) $OUT"
 run seed3 KC_ADMIN_USER=alice FAKE_BOOTSTRAP=0 -- sh seed/seed-showcase.sh --password-login
 [ $RC -eq 0 ] && grep '^ARGS:' "$T/log" | grep -q -- '--user alice' && ok "seed: --password-login fallback" || bad "seed: fallback (rc=$RC) $OUT"
-truncated && ok "seed: kcadm token truncated" || bad "seed: no config truncate"
+cfg_removed && ok "seed: kcadm config file deleted on exit" || bad "seed: config file not deleted"
 
 # --- ops-setup.sh (feeds ops-setup-kcadm.sh into the container)
 run ops "$CS" -- bash keycloak/ops-setup.sh
@@ -151,5 +154,27 @@ run n1 "$CS" KC_ADMIN_USER=Bootstrap-Admin FAKE_USER_ID=u-1 -- sh keycloak/retir
 [ $RC -ne 0 ] && [ ! -s "$T/log" ] && ok "retire N1: Bootstrap-Admin (any case) is refused as the named admin, before any login" || bad "retire N1 (rc=$RC) $OUT"
 run p403 "$CS" KC_ADMIN_USER=alice FAKE_USER_ID=u-1 FAKE_FAIL_USERS=1 -- sh keycloak/retire-bootstrap-admin.sh
 [ $RC -ne 0 ] && ! grep -q 'delete users' "$T/log" && ! grep -q 'force-recreate' "$T/log" && grep -qi "master-realm" <<<"$OUT" && ! grep -qi "not found in realm" <<<"$OUT" && ok "retire 403: a failed lookup says the master roles are missing (not 'admin not found'), nothing deleted" || bad "retire 403 message (rc=$RC) $OUT"
+
+# --- N1 (Karan delta): the lock-out guard compares user IDS, not names: the named admin must not be the bootstrap-admin user
+run n1id "$CS" KC_ADMIN_USER=alice FAKE_USER_ID=same-id "FAKE_NAMED=same-id,true" -- sh keycloak/retire-bootstrap-admin.sh
+[ $RC -ne 0 ] && ! grep -q 'delete users' "$T/log" && ! grep -q 'force-recreate' "$T/log" && cfg_removed && ok "retire N1: named admin with the SAME id as bootstrap-admin -> refused, nothing deleted" || bad "retire N1 id (rc=$RC) $OUT"
+
+# --- D1 (Karan delta): the host clean-up runs on EXIT and on INT/TERM/HUP, also under dash, and is armed BEFORE the login
+SHELLS="bash"; command -v dash >/dev/null 2>&1 && SHELLS="dash bash"
+sigrun() { # shell signal when  -> $T/cfg present or not afterwards
+  rm -f "$T/cfg"; : > "$T/log"
+  if [ "$3" = login ]; then FS="$2"; WH=none; else FS=""; WH=after; fi
+  env -i PATH="$PATH" HOME="$T" COMPOSE="$T/fakecompose" FAKE_LOG="$T/log" FAKE_CFG="$T/cfg" FAKE_SIG_LOGIN="$FS" KC_CLIENT_SECRET="$SECRET" SIG="$2" WH="$WH" HERE="$HERE"     "$1" -c '. "$HERE/keycloak/kc-login.sh"; kc_login; [ "$WH" = after ] && kill -s "$SIG" $$; :; exit 0' </dev/null >/dev/null 2>&1
+} 2>/dev/null
+for sh_ in $SHELLS; do
+  sigrun "$sh_" EXIT none
+  [ ! -e "$T/cfg" ] && grep -q 'rm -f' "$T/log" && ok "D1 [$sh_]: normal exit removes the kcadm config file" || bad "D1 [$sh_]: config file left after a normal exit"
+  for sg in INT TERM HUP; do
+    sigrun "$sh_" "$sg" after
+    [ ! -e "$T/cfg" ] && ok "D1 [$sh_]: SIG$sg after login -> config file (token, secret) deleted" || bad "D1 [$sh_]: SIG$sg left the kcadm config file behind"
+    sigrun "$sh_" "$sg" login
+    [ ! -e "$T/cfg" ] && ok "D1 [$sh_]: SIG$sg DURING login -> config file deleted (cleanup armed before the login)" || bad "D1 [$sh_]: SIG$sg during login left the kcadm config file behind"
+  done
+done
 
 echo; [ $fail -eq 0 ] && echo "ALL PASSED" || echo "FAILURES"; exit $fail

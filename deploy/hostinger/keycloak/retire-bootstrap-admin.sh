@@ -20,8 +20,9 @@ BOOT_FILE="${IPASS_BOOTSTRAP_ADMIN_FILE:-.env.bootstrap-admin}"
 K=/opt/keycloak/bin/kcadm.sh
 kc_auth_check
 : "${KC_ADMIN_USER:?set KC_ADMIN_USER to the named admin that replaces $BOOT_USER (lock-out guard)}"
-# Keycloak lower-cases user names, so Bootstrap-Admin IS bootstrap-admin (proof, N1)
-[ "$(printf '%s' "$KC_ADMIN_USER" | tr 'A-Z' 'a-z')" != "$BOOT_USER" ] || { echo "KC_ADMIN_USER must be a different user than $BOOT_USER" >&2; exit 2; }
+# Keycloak lower-cases user names, so Bootstrap-Admin IS bootstrap-admin (proof, N1): cheap early refusal by name; the real guard
+# compares the user IDS below (the named admin's id must differ from the bootstrap-admin id)
+[ "$(printf '%s' "$KC_ADMIN_USER" | tr '[:upper:]' '[:lower:]')" != "$BOOT_USER" ] || { echo "KC_ADMIN_USER must be a different user than $BOOT_USER" >&2; exit 2; }
 if [ "${DRY_RUN:-0}" = 1 ]; then
   if [ "$KC_AUTH" = client ]; then who="client $KC_CLIENT_ID (secret from KC_CLIENT_SECRET or a silent prompt)"; else who="$KC_ADMIN_USER (password prompted by kcadm)"; fi
   echo "login to master as $who; check that $KC_ADMIN_USER exists, is enabled and has the admin role; delete user $BOOT_USER from realm master; rm $BOOT_FILE; $COMPOSE up -d --no-deps --force-recreate keycloak"
@@ -38,8 +39,9 @@ roles="$(kcq get-roles -r master --uusername "$KC_ADMIN_USER" --effective --fiel
 printf '%s\n' "$roles" | grep -qx 'admin' || { echo "named admin $KC_ADMIN_USER does not hold the admin role: refusing to delete $BOOT_USER" >&2; exit 1; }
 out="$(kcq get users -r master -q "username=$BOOT_USER" -q exact=true --fields id --format csv --noquotes)" || exit 1
 id="$(printf '%s\n' "$out" | head -1)"
+[ -z "$id" ] || [ "$id" != "${named%%,*}" ] || { echo "named admin $KC_ADMIN_USER is the same user as $BOOT_USER (same id): refusing to delete $BOOT_USER (it would lock everyone out)" >&2; exit 1; }
 if [ -n "$id" ]; then $COMPOSE exec -T keycloak $K delete "users/$id" -r master; echo "deleted $BOOT_USER"; else echo "$BOOT_USER not present"; fi
-kc_logout; trap - EXIT
+kc_logout; trap - EXIT INT TERM HUP
 rm -f "$BOOT_FILE"
 $COMPOSE up -d --no-deps --force-recreate keycloak
 echo "bootstrap admin retired; keycloak re-created without it"
