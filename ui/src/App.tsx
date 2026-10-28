@@ -451,7 +451,7 @@ export function App() {
           {shown === 'versions' && <Versions selectId={route.flowId} />}
           {shown === 'systems' && <Systems />}
           {shown === 'queue' && <QueueDashboard />}
-          {shown === 'failures' && <Failures />}
+          {shown === 'failures' && <Failures canOperate={canOperate(roles)} />}
           {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
           {shown === 'approvals' && <ApprovalsLanding />}
           {shown === 'activity' && <Activity />}

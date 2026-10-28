@@ -11,7 +11,7 @@
 //  - Double submit: two concurrent replays of one delivery -> exactly one 200 and one 409, one REPLAY event.
 //  - Retry now on detail for a RETRY_WAIT delivery whose last call was TRANSIENT -> queued text, one REDRIVE event.
 //  - Replay on a RETRY_WAIT delivery / Retry on a DEAD_LETTERED one -> 409 wrong state, nothing moves.
-//  - @negative @role: a READ_ONLY user sees the button on its own tenant's failure, gets the 403 text, nothing moves.
+//  - @negative @role: a READ_ONLY user sees its own tenant's failure but no Replay button (row 582); a forced POST gets 403, nothing moves.
 //  - @negative @tenant: tenant B's users POSTing tenant A's delivery id never move it (403 before scoping for
 //    the harness roles; a tenant-B admin's 404 is covered in DeliveryOperatorControllerTest - no harness login).
 //  - a11y: the button is reachable by Tab, has a visible focus ring, and the answer lands in role=status.
@@ -257,7 +257,7 @@ test('wrong state through the API: replay of RETRY_WAIT and retry of DEAD_LETTER
   expect(stateOf(dead)).toBe('DEAD_LETTERED');
 });
 
-test('@negative @role a READ_ONLY user sees its own failure, is refused the replay with the 403 text, nothing moves', async ({ page }) => {
+test('@negative @role a READ_ONLY user sees its own failure but no Replay button (row 582), and a forced replay is still refused with 403, nothing moves', async ({ page }) => {
   const otherFlow = process.env.CONSOLE_OTHER_TENANT_FLOW;
   test.skip(!otherFlow, 'the harness exported no tenant-B flow');
   const tenantB = psql(`select tenant_id::text from public.interface where id = '${otherFlow}'::uuid`);
@@ -265,9 +265,17 @@ test('@negative @role a READ_ONLY user sees its own failure, is refused the repl
   const delivery = seedDelivery(tenantB, otherFlow, msg, 'DEAD_LETTERED');
 
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant-reader' });
-  await openFailures(page, otherFlow);
-  await armAndPress(replayButton(page, msg));
-  await expect(answerOf(page, delivery)).toHaveText(TEXT.refused);
+  // All flows (the default): a reader cannot list flows, so the Flow filter has no options for it.
+  await page.goto(`${consoleUrl()}/#/failures`);
+  await expect(page.locator(`${FAILURES}[data-failures-loaded="true"]`)).toBeVisible();
+  await expect(page.locator(`[data-failure-row="${msg}"]`), 'the reader still sees the failure').toBeVisible();
+  await expect(replayButton(page, msg), 'row 582: no Replay for a role that cannot operate').toHaveCount(0);
+  await expect(page.locator(`${FAILURES} [data-action-cell]`)).toHaveCount(0);
+  await expect(page.getByRole('columnheader', { name: 'Action' })).toHaveCount(0);
+
+  // The server is still the gate: the same POST the button would send is refused.
+  const forced = await inBrowser(page, 'POST', `/api/v1/admin/messages/deliveries/${delivery}/replay`);
+  expect(forced.status).toBe(403);
   expect(stateOf(delivery)).toBe('DEAD_LETTERED');
   expect(eventsOf(delivery, 'REPLAY')).toBe(0);
 });

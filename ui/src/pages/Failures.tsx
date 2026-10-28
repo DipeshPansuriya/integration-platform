@@ -6,7 +6,8 @@
 //
 // Replay (T111/T112): a dead-lettered delivery row (failing stage DELIVER, with a delivery id) carries a Replay
 // button (OperatorActionButton, with a confirm step); a route failure has no delivery to replay, so its action
-// cell is empty. After an accepted replay the list is re-read silently; the acted row stays in place with its answer.
+// cell is empty. Row 582: Replay is REPLAY_DEAD_LETTER (tenant admin, support) - `canOperate` (message-guide.ts, the same gate as the
+// message detail's Retry/Replay) drops the button AND the Action column for other roles; UX only, the server still answers 403. After an accepted replay the list is re-read silently; the acted row stays in place with its answer.
 //
 // Masked fields: no payload field is shown. lastError is rendered as a React text child (escaped,
 // never parsed as HTML); masking any sensitive value inside it is the backend's (T108), not this screen's.
@@ -46,9 +47,10 @@ function initialParams() {
 }
 
 /** One failure row, its replay action the last cell. The Flow cell shows only in the All-flows view. */
-function FailureRowView({ row, showFlow, action, now, copied, onCopy, onDone }: {
+function FailureRowView({ row, showFlow, showAction, action, now, copied, onCopy, onDone }: {
   row: FailureRow;
   showFlow: boolean;
+  showAction: boolean;
   action: OperatorAction | null;
   now: Date;
   copied: boolean;
@@ -80,12 +82,12 @@ function FailureRowView({ row, showFlow, action, now, copied, onCopy, onDone }: 
         <time dateTime={row.failedAt} className="op-mono">{row.failedAtText}</time>
         <div className="op-sub">{relativeAge(row.failedAt, now)}</div>
       </td>
-      <td data-action-cell>{action && <OperatorActionButton action={action} confirm onDone={onDone} />}</td>
+      {showAction && <td data-action-cell>{action && <OperatorActionButton action={action} confirm onDone={onDone} />}</td>}
     </tr>
   );
 }
 
-export function Failures() {
+export function Failures({ canOperate = true }: { canOperate?: boolean }) {
   const [flows, setFlows] = useState<FlowSummary[]>([]);
   const [flowId, setFlowId] = useState(() => initialParams().flowId);
   const [date, setDate] = useState(() => initialParams().date ?? todayUtc(new Date()));
@@ -272,7 +274,7 @@ export function Failures() {
                   {column}
                 </th>
               ))}
-              <th scope="col">Action</th>
+              {canOperate && <th scope="col">Action</th>}
             </tr>
           </thead>
           <tbody>
@@ -281,6 +283,7 @@ export function Failures() {
                 key={row.key}
                 row={row}
                 showFlow={showFlow}
+                showAction={canOperate}
                 action={failureAction(answered[i])}
                 now={now}
                 copied={copied === row.trackingId}

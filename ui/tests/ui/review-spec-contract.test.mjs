@@ -12,13 +12,14 @@ import { findAll, mount } from './hook-harness.mjs';
 const tests = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'e2e-ui', 'tests'); // L29: the specs it reads moved to e2e-ui/tests
 const spec = (p) => readFileSync(join(tests, p), 'utf8');
 
-test('H1 the READ_ONLY 403 replay spec arms Replay before it presses (Failures asks to confirm first)', () => {
+test('H1 (row 582) the READ_ONLY spec asserts no Replay button on Failures and still pins the server 403 with a forced POST', () => {
   const text = spec('screens/operator-actions.docker.spec.mjs');
   const start = text.indexOf('a READ_ONLY user sees its own failure');
   const end = text.indexOf('tenant B', start);
   const body = text.slice(start, end);
-  assert.match(body, /armAndPress\(replayButton\(page, msg\)\)/);
-  assert.doesNotMatch(body, /replayButton\(page, msg\)\.click\(\)/, 'a single click only arms; no POST would be sent');
+  assert.match(body, /expect\(replayButton\(page, msg\)[^;]*\)\.toHaveCount\(0\)/, 'no Replay button for the reader');
+  assert.doesNotMatch(body, /armAndPress|replayButton\(page, msg\)\.click\(\)/, 'nothing clicks a button that is not there');
+  assert.match(body, /inBrowser\(page, 'POST', `[^`]*\/replay`\)[\s\S]*toBe\(403\)/, 'the server still answers 403');
 });
 
 test('M1 MessageDetail: the state dd shows the word and carries the raw enum in data-state-raw', async () => {
