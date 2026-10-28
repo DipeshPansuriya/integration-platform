@@ -129,9 +129,9 @@ test("@negative @tenant the other tenant's reader sees none of tenant A's report
 // refused (403) with the no-access wording, and no table (so no figures) is rendered.
 test("@negative @role the other tenant's configurator is refused with the permission wording and sees no table", async ({ page }) => {
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
-  await page.goto(consoleUrl());
-  await page.click('[data-nav="reports"]');
-  await expect(page.locator('[role="alert"][data-refusal="delivery-report-refused"]')).toHaveText(
+  // Row 575 S1: the role-aware menu no longer offers Reports to a configurator, so the screen is opened by its address; the shell refuses it.
+  await page.goto(`${consoleUrl()}/#/reports`);
+  await expect(page.locator('[role="alert"][data-no-access="true"]')).toHaveText(
     'You do not have access to this page. Ask an administrator if you need it.');
   await expect(page.locator('[data-delivery-report]')).toHaveCount(0);
 });

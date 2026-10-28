@@ -464,7 +464,7 @@ export function App() {
           {shown === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
           {shown === 'destinations' && <Destinations />}
           {shown === 'home' &&
-            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} />)}
+            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} roles={roles} />)}
         </main>
       </div>
     </div>
