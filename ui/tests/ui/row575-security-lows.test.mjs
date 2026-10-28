@@ -31,12 +31,12 @@ test('Home: roles known and without READ_CONFIGURATION -> no flows/systems/contr
   assert.equal(alerts(screen).length, 0);
 });
 
-test('Home: a role that reads configuration still loads the three lists (and a refusal still shows the banner)', async () => {
+test('Home: a role that reads configuration still loads the three lists (a 403 answer is omitted without a banner - row 575 S2)', async () => {
   const { calls, api } = counting();
   const screen = await mount('pages/Dashboard.tsx', 'Dashboard', {}, api, SPECS);
   await screen.settle();
   assert.deepEqual([...calls].sort(), ['contracts', 'flows', 'systems']);
-  assert.equal(alerts(screen).length, 1);
+  assert.equal(alerts(screen).length, 0);
 });
 
 test('App.tsx hands the Dashboard readsConfiguration from the role table', () => {
