@@ -4,8 +4,7 @@
 #   ./flyway/migrate.sh validate         applied history agrees with the files: checksums, missing files (read-only; pending is not an error)
 #   ./flyway/migrate.sh migrate          validate first, then apply every pending migration; refuses to run if validate fails
 #   ./flyway/migrate.sh repair --yes     rewrites flyway_schema_history (drops failed rows, re-aligns checksums); needs --yes
-# The app keeps running Flyway at start-up as before (SPRING_FLYWAY_ENABLED is untouched); this runs the same migrations
-# BEFORE the app is deployed. The hosted app does not run Flyway (row 570); this is the only migration path.
+# Runs the same migrations the application carries, BEFORE the app is deployed. The hosted app does not run Flyway (row 570); this is the only migration path.
 #
 # Settings, in the order compose itself uses: the process environment, then the env file (default ./.env, override ENV_FILE):
 #   IMAGE_TAG (required)        the tag of the Flyway image = the commit being released (a caller-supplied value is kept)
