@@ -25,16 +25,24 @@ import {
 import {
   TRACKING_ID_HINT,
   approvalsWaiting,
-  dayOf,
   flowsInProgress,
   homeBlocks,
   setupSteps,
   trackingHash
 } from './home-steps';
+import { todayUtc } from './failures-view';
 import './dashboard.css';
 
 /** Each list's answer: the rows, or null when that list could not be loaded. */
-type Lists = { flows: FlowSummary[] | null; systems: SystemView[] | null; contracts: Contract[] | null };
+type Lists = {
+  flows: FlowSummary[] | null;
+  systems: SystemView[] | null;
+  contracts: Contract[] | null;
+  /** A list that answered 403 is not an error: its blocks are omitted and no banner is raised. */
+  denied: { flows: boolean; systems: boolean; contracts: boolean };
+};
+const NONE_DENIED = { flows: false, systems: false, contracts: false };
+const isDenied = (answer: { ok: boolean; status?: number } | null): boolean => answer !== null && !answer.ok && answer.status === 403;
 
 /** Today's failures for the Messages block: rows, off (role has no such block), hidden (403: block not rendered) or error. */
 type Failures = { kind: 'rows'; rows: Failure[] } | { kind: 'off' } | { kind: 'hidden' } | { kind: 'error' };
@@ -95,7 +103,7 @@ const QUICK_ACTIONS = [
 // Row 575 (S2): Home "Next steps" - role blocks (homeBlocks) over the lists Home already reads; `roles` null = not loaded (all blocks).
 export function Dashboard({ user, readsConfiguration = true, roles = null }: { user?: string; readsConfiguration?: boolean; roles?: readonly string[] | null }) {
   const blocks = homeBlocks(roles);
-  const today = dayOf(new Date());
+  const today = todayUtc(new Date()); // the backend's days are UTC days - same default as the Failures screen
   const [failures, setFailures] = useState<Failures>({ kind: 'off' });
   const [trackingInput, setTrackingInput] = useState('');
   const [trackingError, setTrackingError] = useState(false);
@@ -112,7 +120,7 @@ export function Dashboard({ user, readsConfiguration = true, roles = null }: { u
       : Promise.resolve<Failures>({ kind: 'off' });
     if (!readsConfiguration) {
       setFailures(await failuresCall);
-      setLists({ flows: null, systems: null, contracts: null });
+      setLists({ flows: null, systems: null, contracts: null, denied: NONE_DENIED });
       return;
     }
     const [flows, systems, contracts, failureAnswer] = await Promise.all([
@@ -125,7 +133,8 @@ export function Dashboard({ user, readsConfiguration = true, roles = null }: { u
     setLists({
       flows: flows?.ok ? flows.data : null,
       systems: systems?.ok ? systems.data : null,
-      contracts: contracts?.ok ? contracts.data : null
+      contracts: contracts?.ok ? contracts.data : null,
+      denied: { flows: isDenied(flows), systems: isDenied(systems), contracts: isDenied(contracts) }
     });
   }, [readsConfiguration, blocks.messages, today]);
 
@@ -133,7 +142,10 @@ export function Dashboard({ user, readsConfiguration = true, roles = null }: { u
     void load();
   }, [load]);
 
-  const failed = readsConfiguration && lists !== null && (lists.flows === null || lists.systems === null || lists.contracts === null);
+  const failed =
+    readsConfiguration &&
+    lists !== null &&
+    ((lists.flows === null && !lists.denied.flows) || (lists.systems === null && !lists.denied.systems) || (lists.contracts === null && !lists.denied.contracts));
   const recent = lists?.flows ? recentVersions(lists.flows) : [];
   const steps = lists?.systems && lists.contracts && lists.flows ? setupSteps({ systems: lists.systems, contracts: lists.contracts, flows: lists.flows }) : null;
   const waiting = lists?.flows && lists.contracts ? approvalsWaiting(lists.flows, lists.contracts) : null;
@@ -201,19 +213,20 @@ export function Dashboard({ user, readsConfiguration = true, roles = null }: { u
       {lists !== null && blocks.approvals && waiting && (
         <section className="dashboard-panel home-block" data-home-block="approvals" aria-labelledby="home-approvals">
           <h2 id="home-approvals">Waiting for your approval ({waiting.total})</h2>
+          {/* Plain links: the Versions and Contracts screens do not read a status filter yet (S3/S5 add it); ?date= below does work. */}
           {waiting.total === 0 ? (
             <p className="dashboard-muted">Nothing waits for approval.</p>
           ) : (
             <ul className="home-progress">
               {waiting.flows > 0 && (
-                <li><a href="#/versions?status=SUBMITTED">{waiting.flows} {waiting.flows === 1 ? 'flow version' : 'flow versions'}</a> submitted</li>
+                <li><a href="#/versions">{waiting.flows} {waiting.flows === 1 ? 'flow version' : 'flow versions'}</a> submitted</li>
               )}
               {waiting.contracts > 0 && (
-                <li><a href="#/contracts?status=PENDING_APPROVAL">{waiting.contracts} {waiting.contracts === 1 ? 'contract' : 'contracts'}</a> to approve</li>
+                <li><a href="#/contracts">{waiting.contracts} {waiting.contracts === 1 ? 'contract' : 'contracts'}</a> to approve</li>
               )}
             </ul>
           )}
-          <a href="#/versions?status=SUBMITTED">Open list</a>
+          <a href="#/versions">Open versions</a>
         </section>
       )}
 
@@ -240,8 +253,9 @@ export function Dashboard({ user, readsConfiguration = true, roles = null }: { u
             />
             <button type="submit" className="btn btn-primary">Go</button>
           </form>
-          {trackingError && <p id="home-tracking-hint" className="dashboard-muted" role="status">{TRACKING_ID_HINT}</p>}
-          <h3>Needs attention today</h3>
+          {/* The live region is always mounted (empty first) so the hint is announced when it appears. */}
+          <p id="home-tracking-hint" className="dashboard-muted" role="status">{trackingError ? TRACKING_ID_HINT : ''}</p>
+          <h3>Needs attention today (UTC)</h3>
           {failures.kind === 'error' ? (
             <p className="dashboard-muted">Failed messages could not be loaded.</p>
           ) : failures.rows.length === 0 ? (

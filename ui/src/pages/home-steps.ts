@@ -144,9 +144,3 @@ export function trackingHash(input: string): string | null {
   const id = input.trim();
   return UUID.test(id) ? `#/messages/${id}` : null;
 }
-
-/** Today as yyyy-mm-dd (the failures call and its link take a day). */
-export function dayOf(date: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
-}
