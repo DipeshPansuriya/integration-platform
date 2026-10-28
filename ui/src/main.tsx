@@ -10,6 +10,11 @@ import './ds.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
+// W5: the ONLY mock install point. Off unless VITE_API_MODE=mock (default = the real backend);
+// static import so the switch is decided before React mounts. mock.ts itself never reads env.
+import { installMockApi } from './api/mock';
+
+if (import.meta.env.VITE_API_MODE === 'mock') installMockApi();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
