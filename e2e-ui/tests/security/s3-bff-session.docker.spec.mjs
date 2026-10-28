@@ -149,7 +149,7 @@ test.describe('S3 BFF session (browser)', () => {
     await page.click('[data-action="account"]');
     await page.click('[data-action="logout"]');
     await page.waitForURL((url) => url.toString().startsWith(consoleUrl()) && url.hash === '#/login');
-    await expect(page.locator('[data-action="sso"]')).toBeVisible();
+    await expect(page.locator('[data-action="sso"]')).toHaveText('Sign in'); // row 571: the logged-out landing waits for a click
 
     expect(sessionRow(id), 'the Spring Session row is invalidated').toBe('0');
     expect(psql(`select count(*) from console_session.spring_session_attributes a where not exists (select 1 from console_session.spring_session s where s.primary_id = a.session_primary_id)`), 'no orphaned attribute rows').toBe('0');
