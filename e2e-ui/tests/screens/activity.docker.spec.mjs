@@ -218,6 +218,6 @@ test("@negative @role the other tenant's configurator is refused with the no-acc
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
   await openActivity(page);
   await expect(page.locator('[role="alert"][data-refusal="activity-no-access"]'))
-    .toHaveText('You do not have access to the activity view.');
+    .toHaveText('You do not have access to this page. Ask an administrator if you need it.');
   await expect(page.locator(`[data-activity-row]:has-text("interface:${flow.id}")`)).toHaveCount(0);
 });

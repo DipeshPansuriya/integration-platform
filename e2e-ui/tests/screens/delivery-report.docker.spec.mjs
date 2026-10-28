@@ -126,12 +126,12 @@ test("@negative @tenant the other tenant's reader sees none of tenant A's report
 });
 
 // @negative @role: the report rides READ_MESSAGE_TIMELINE; the other-tenant binding is a CONFIGURATOR of tenant B -
-// refused (403) with the permission wording, and no table (so no figures) is rendered.
+// refused (403) with the no-access wording, and no table (so no figures) is rendered.
 test("@negative @role the other tenant's configurator is refused with the permission wording and sees no table", async ({ page }) => {
   await page.setExtraHTTPHeaders({ 'X-Harness-Login': 'other-tenant' });
   await page.goto(consoleUrl());
   await page.click('[data-nav="reports"]');
   await expect(page.locator('[role="alert"][data-refusal="delivery-report-refused"]')).toHaveText(
-    'You do not have permission to read the message timeline, so the delivery report is refused.');
+    'You do not have access to this page. Ask an administrator if you need it.');
   await expect(page.locator('[data-delivery-report]')).toHaveCount(0);
 });

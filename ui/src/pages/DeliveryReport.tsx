@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { deliveryReport } from '../api/reports';
 import { refusalWords } from '../ui/refusal-words';
+import { NoAccess } from '../ui/NoAccess';
 import {
   NO_DAY_COPY,
   emptyReportText,
@@ -20,10 +21,7 @@ import './operator.css';
 
 type Load = 'loading' | 'ready' | 'refused' | 'error';
 
-const REFUSAL_COPY: Record<'refused' | 'error', string> = {
-  refused: 'You do not have permission to read the message timeline, so the delivery report is refused.',
-  error: 'The delivery report could not be loaded.',
-};
+const ERROR_COPY = 'The delivery report could not be loaded.';
 
 function Count({ value }: { value: number }) {
   return countTone(value) === 'danger' ? <span className="badge badge-danger">{value}</span> : <>{value}</>;
@@ -86,9 +84,10 @@ export default function DeliveryReport() {
           {NO_DAY_COPY}
         </p>
       )}
-      {(view === 'refused' || view === 'error') && (
+      {view === 'refused' && status === 403 && <NoAccess refusal="delivery-report-refused" />}
+      {(view === 'error' || (view === 'refused' && status !== 403)) && (
         <p role="alert" className="op-alert op-alert-danger" data-refusal={`delivery-report-${view}`}>
-          {view === 'error' && status > 0 ? refusalWords(status, 'the delivery report') : REFUSAL_COPY[view]}
+          {status > 0 ? refusalWords(status, 'the delivery report') : ERROR_COPY}
         </p>
       )}
       {view === 'loading' && (

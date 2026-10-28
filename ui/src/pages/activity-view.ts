@@ -3,6 +3,7 @@
 // or re-sorts. No DOM, no fetch - unit-tested under node (tests/ui/activity-view.test.mjs).
 
 import type { Activity, ActivityFilter } from '../api/activity';
+import { NO_ACCESS_COPY } from '../ui/no-access';
 
 /** ConfigAuditActions.SYSTEM_ACTOR: the nil UUID the backend records for system-made changes. */
 export const SYSTEM_ACTOR = '00000000-0000-0000-0000-000000000000';
@@ -80,7 +81,7 @@ export function refusalState(status: number): RefusalState {
 
 export const REFUSAL_COPY: Record<RefusalState, string> = {
   'not-found': 'Activity event not found.',
-  'no-access': 'You do not have access to the activity view.',
+  'no-access': NO_ACCESS_COPY,
   failed: 'The activity could not be read.'
 };
 
