@@ -180,7 +180,7 @@ test.describe('S3 BFF session (browser)', () => {
     const poolErrorsBefore = await appLog('Could not open JDBC Connection');
     let unresponsive = null;
     for (const [label, value] of Object.entries(tampered)) {
-      const probe = await contextWith(browser, value);
+      const probe = await contextWith(browser, value, { bare: true });
       const me = await api(probe.page, 'GET', '/api/v1/me');
       expect.soft(me.status, `${label}: refused with 401 (not 500) (answer: ${me.text.slice(0, 60).replace(/\s+/g, ' ')})`).toBe(401);
       expect.soft(me.text, `${label}: no tenant data in the answer`).not.toContain(process.env.CONSOLE_TENANT_CODE);
