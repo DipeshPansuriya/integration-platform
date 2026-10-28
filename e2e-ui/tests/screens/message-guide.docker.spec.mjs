@@ -188,8 +188,10 @@ test('Scenario: tenant admin and support are told to Replay a dead-lettered mess
   await expect(nextStep(reader.page)).toContainText(NOT_OPERATOR_REPLAY);
   await expect(nextStep(reader.page), 'read-only is not told to Replay').not.toContainText(REPLAY_WORDS);
   await expect(reader.page.locator(`${PAGE} ${ACTION_BUTTONS}`), 'read-only: no Retry / Replay button on the detail').toHaveCount(0);
-  // Not asserted: the Failures LIST still offers Replay to read-only and the server refuses it with the 403 text - that contract is pinned by
-  // operator-actions.docker.spec.mjs ('a READ_ONLY user ... is refused the replay'). Only the detail screen hides it (S3).
+  // Row 582: the Failures LIST hides Replay from read-only too (the server's 403 is pinned by operator-actions.docker.spec.mjs).
+  const readerRow = await openFailuresRow(reader.page, msg);
+  await expect(readerRow, 'read-only still sees the failure').toBeVisible();
+  await expect(readerRow.locator('button[data-action="replay"]'), 'read-only: no Replay on the Failures list').toHaveCount(0);
   await reader.context.close();
 });
 
