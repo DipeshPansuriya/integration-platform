@@ -44,6 +44,7 @@ for (const [role, shown] of Object.entries(SHOWN)) {
       if (shown.includes(block)) {
         await expect(section, `${role}: ${block} block`).toBeVisible();
         await expect(section.getByRole('heading', { level: 2, name: HEADING[block] })).toBeVisible();
+        if (block === 'approvals') await expect(section.getByRole('link', { name: 'Open versions' })).toHaveAttribute('href', '#/versions');
       } else {
         await expect(section, `${role}: no ${block} block`).toHaveCount(0);
       }
@@ -81,6 +82,9 @@ test('Scenario: Find a message - a valid tracking id opens its message address',
 test('@negative Scenario: Find a message - an invalid tracking id stays on Home and shows the hint, announced and linked to the field', async ({ browser }) => {
   const { context, page } = await homeAs(browser, 'TENANT_ADMIN');
   const input = page.getByLabel('Tracking id');
+  // The live region is mounted before anything is wrong (so the first hint is announced) and empty until then.
+  await expect(page.locator('#home-tracking-hint')).toHaveAttribute('role', 'status');
+  await expect(page.locator('#home-tracking-hint')).toHaveText('');
   for (const bad of ['', 'not-a-uuid', randomUUID().slice(0, 35), `${randomUUID()}x`]) {
     await input.fill(bad);
     await page.getByRole('button', { name: 'Go' }).click();
@@ -93,7 +97,7 @@ test('@negative Scenario: Find a message - an invalid tracking id stays on Home 
   await context.close();
 });
 
-test('Scenario: the setup checklist says it in words - six steps, each with a mark AND a state word, one Next step', async ({ browser }) => {
+test('Scenario: the setup checklist says it in words - six steps, each with a mark AND a state word, steps 4 and 6 are info', async ({ browser }) => {
   const { context, page } = await homeAs(browser, 'TENANT_ADMIN');
   const steps = page.locator('[data-home-block="setup"] ol > li[data-step]');
   await expect(steps).toHaveCount(6);
@@ -106,14 +110,23 @@ test('Scenario: the setup checklist says it in words - six steps, each with a ma
     current: el.getAttribute('aria-current'),
   })));
   const pairs = { done: ['✓', 'Done'], next: ['●', 'Next'], todo: ['○', 'To do'] };
-  for (const row of rows) {
-    const state = Object.keys(pairs).find((k) => row.cls.includes(`home-step-${k}`));
+  // Steps 4 (Test) and 6 (Go live) are not tracked by the list data: an info state with its own words, never next/done.
+  const infoWords = { 3: 'Checked when you publish', 5: 'Not tracked here' };
+  for (const [index, row] of rows.entries()) {
+    const state = [...Object.keys(pairs), 'info'].find((k) => row.cls.includes(`home-step-${k}`));
     expect(state, `a state class on ${JSON.stringify(row)}`).toBeTruthy();
-    expect([row.mark, row.word], `mark + word for a ${state} step`).toEqual(pairs[state]);
+    if (index in infoWords) {
+      expect(state, `step ${index + 1} is info, never next/done`).toBe('info');
+      expect([row.mark, row.word]).toEqual(['–', infoWords[index]]);
+    } else {
+      expect(state, `step ${index + 1} is not info`).not.toBe('info');
+      expect([row.mark, row.word], `mark + word for a ${state} step`).toEqual(pairs[state]);
+    }
     expect(row.markHidden, 'the glyph is decoration; the word carries the state').toBe('true');
     expect(row.current).toBe(state === 'next' ? 'step' : null);
   }
-  expect(rows.filter((r) => r.cls.includes('home-step-next')), 'exactly one Next step').toHaveLength(1);
+  expect(rows.filter((r) => r.cls.includes('home-step-next')).length, 'at most one Next step').toBeLessThanOrEqual(1);
+  await expect(page.locator('[data-step="golive"]').getByRole('link', { name: 'Open Systems' })).toHaveAttribute('href', '#/systems');
   // every state word is rendered and visible (not colour alone, not display:none)
   for (const word of await steps.locator('.home-step-state').all()) await expect(word).toBeVisible();
   await context.close();
