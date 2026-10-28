@@ -1,0 +1,26 @@
+/* iPaaS Console — spacing, radius and blur tokens, generated from tokens.json. Motion lives in components/components.css (--tr, --tr-s). */
+:root {
+  /* spacing — The prototype's own measures, not a generic scale. Grids use gap everywhere. */
+  --nav-w: 248px; /* Sidebar width. */
+  --topbar-h: 54px; /* Topbar height; the theme popover opens 6px below it. */
+  --drawer-w: 520px; /* Drawer width (max 92vw). */
+  --gap: 14px; /* Gap in every grid: tiles, panels, card grids, KPI rows. */
+  --pad-page-top: 24px; /* Content area top padding. */
+  --pad-page-x: 26px; /* Content area side padding. */
+  --pad-page-bottom: 40px; /* Content area bottom padding. */
+  --space-header: 22px; /* Below the page header. */
+  --space-section: 24px; /* Between dashboard rows (tiles, panels, bottom row). */
+  --pad-card: 20px; /* Card and panel-header side padding; table cell side padding. */
+  --pad-drawer: 24px; /* Drawer body padding and head/foot side padding. */
+  /* radius — Soft and consistent; small chips 6px, items 8px, controls 10px, cards 14px. */
+  --r-badge: 6px; /* Badges, tags, segmented buttons, chart period buttons. */
+  --r-item: 8px; /* Nav items, drawer close button, mode buttons, nav icon pill is 7px. */
+  --r-1: 10px; /* Buttons, inputs, command search, quick actions, pipeline chips, code blocks, logo mark. */
+  --r-2: 14px; /* Cards, tiles, panels, popover, dropzone. */
+  --r-3: 18px; /* Reserved for large containers (unused in the prototype). */
+  --r-pill: 999px; /* Pills and round dots. */
+  /* blur — Backdrop blurs for glass surfaces. */
+  --glass-blur: 18px; /* Tiles, panels, cards (backdrop-filter: blur). */
+  --cmd-blur: 10px; /* Command search and login feature chips. */
+  --env-blur: 8px; /* Environment badge. */
+}
