@@ -42,6 +42,7 @@ for (const [role, items] of Object.entries(EXPECTED)) {
     if (!items.includes('messages')) {
       await expect(page.locator('nav[aria-label="Primary"] [data-nav="messages"]'), `${role}: no Messages item`).toHaveCount(0);
     }
+    await expect(page.locator('[data-nav="destinations"]'), `${role}: Destinations is in no menu`).toHaveCount(0);
     await context.close();
   });
 }
@@ -87,10 +88,12 @@ test('Scenario: keyboard - the first Tab stop is the skip link, Enter moves focu
   await page.goto(`${consoleUrl()}/#/flows`);
   await expect(page.locator('main')).toBeVisible();
   const hashBefore = new URL(page.url()).hash;
-  await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
+  // A fresh load puts the sequential-focus start at the top of the document (a blur() would keep it at the focused heading).
+  await page.reload();
+  await expect(page.locator('main')).toBeVisible();
   await page.keyboard.press('Tab');
   const skip = page.locator('a.skip-link');
-  await expect(skip, 'the skip link is the first control').toBeFocused();
+  await expect(skip, `the skip link is the first control (focus is on: ${await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80))})`).toBeFocused();
   await expect(skip).toBeInViewport();
   await page.keyboard.press('Enter');
   await expect(page.locator('#main-content'), 'focus moves to the main landmark').toBeFocused();
@@ -114,5 +117,17 @@ test('Scenario: after a menu navigation focus lands on the new screen heading (o
   }
   const initials = await page.locator('nav[aria-label="Primary"] [data-nav][data-initial]').evaluateAll((els) => els.map((el) => el.getAttribute('data-initial')));
   expect(new Set(initials).size, `collapsed-menu marks are unique: ${initials.join(',')}`).toBe(initials.length);
+  await context.close();
+});
+
+// Destinations is operator-only: refused for every tenant role, even the tenant admin, and offered in no menu.
+test('@negative @role Scenario: a tenant admin typing #/destinations gets the NoAccess alert and no menu offers Destinations', async ({ browser }) => {
+  const { context, page } = await signedInAs(browser, 'TENANT_ADMIN');
+  await page.goto(`${consoleUrl()}/#/destinations`);
+  await expect(page.locator('main [role="alert"][data-no-access="true"]')).toBeVisible();
+  await expect(page.locator('main [data-page]'), 'no screen content behind the alert').toHaveCount(0);
+  await page.click('[data-action="account"]');
+  await expect(page.locator('[data-nav="destinations"]')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /destinations/i })).toHaveCount(0);
   await context.close();
 });
