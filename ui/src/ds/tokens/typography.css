@@ -1,0 +1,39 @@
+/* iPaaS Console — type families + one class per type style, generated from tokens.json. */
+:root {
+  --font-sans: Inter, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+/* Display & numerals — Weight 800 with negative tracking; every numeral is tabular. */
+.display-login { font-family: var(--font-sans); font-size: 34px; line-height: 1.1; font-weight: 900; letter-spacing: -0.04em; } /* Login hero headline only (gradient text ink to accent). */
+.value-tile { font-family: var(--font-sans); font-size: 30px; line-height: 1; font-weight: 800; letter-spacing: -0.03em; } /* StatTile value. */
+.value-stat { font-family: var(--font-sans); font-size: 28px; line-height: 1.1; font-weight: 800; letter-spacing: -0.02em; } /* KpiCard size lg (queue stats). */
+.value-ring { font-family: var(--font-sans); font-size: 26px; line-height: 1.1; font-weight: 800; letter-spacing: -0.02em; } /* Donut centre total. */
+.title-page { font-family: var(--font-sans); font-size: 24px; line-height: 1.2; font-weight: 800; letter-spacing: -0.03em; } /* Page title (h1), one per page. */
+.value-kpi { font-family: var(--font-sans); font-size: 24px; line-height: 1.2; font-weight: 800; letter-spacing: -0.02em; } /* KpiCard size md. */
+.title-login { font-family: var(--font-sans); font-size: 22px; line-height: 1.25; font-weight: 800; letter-spacing: -0.02em; } /* Login card title. */
+.title-drawer { font-family: var(--font-sans); font-size: 18px; line-height: 1.3; font-weight: 800; letter-spacing: -0.02em; } /* Drawer title. */
+.value-kpi-sm { font-family: var(--font-sans); font-size: 18px; line-height: 1.2; font-weight: 800; letter-spacing: -0.02em; } /* KpiCard size sm (inside drawers). */
+/* Interface */
+.title-card { font-family: var(--font-sans); font-size: 14px; line-height: 1.35; font-weight: 700; letter-spacing: -0.01em; } /* Panel, card and entity titles. */
+.product-name { font-family: var(--font-sans); font-size: 13.5px; line-height: 1.3; font-weight: 700; letter-spacing: -0.02em; } /* Topbar product name. */
+.body { font-family: var(--font-sans); font-size: 13px; line-height: 1.5; font-weight: 400; } /* Default UI text: inputs, timeline, page subtitle. */
+.control { font-family: var(--font-sans); font-size: 13px; line-height: 1.2; font-weight: 600; } /* Buttons. */
+.nav { font-family: var(--font-sans); font-size: 13px; line-height: 1.2; font-weight: 500; } /* Sidebar items. */
+.body-sm { font-family: var(--font-sans); font-size: 12.5px; line-height: 1.5; font-weight: 400; } /* Table cells, card descriptions, health rows, switch labels. */
+.label { font-family: var(--font-sans); font-size: 12px; line-height: 1.3; font-weight: 600; } /* Form labels, callout titles, key-value rows. */
+.meta { font-family: var(--font-sans); font-size: 11.5px; line-height: 1.4; font-weight: 400; } /* Tile sub-lines, card meta rows, 'See all' links (600). */
+.help { font-family: var(--font-sans); font-size: 10.5px; line-height: 1.4; font-weight: 400; } /* Help text, quick-action descriptions, ring label. */
+.badge { font-family: var(--font-sans); font-size: 10.5px; line-height: 1.5; font-weight: 600; } /* StatusBadge. */
+/* Labels — Set in uppercase (text-transform) with the tracking shown. */
+.label-tile { font-family: var(--font-sans); font-size: 11.5px; line-height: 1.3; font-weight: 600; letter-spacing: 0.03em; } /* StatTile label, uppercase. */
+.label-section { font-family: var(--font-sans); font-size: 11px; line-height: 1.3; font-weight: 700; letter-spacing: 0.06em; } /* Drawer and popover section labels, uppercase. */
+.env { font-family: var(--font-sans); font-size: 10.5px; line-height: 1.3; font-weight: 600; letter-spacing: 0.04em; } /* EnvBadge, uppercase. */
+.label-table { font-family: var(--font-sans); font-size: 10px; line-height: 1.3; font-weight: 700; letter-spacing: 0.04em; } /* Table headers, uppercase. */
+.label-nav { font-family: var(--font-sans); font-size: 10px; line-height: 1.3; font-weight: 700; letter-spacing: 0.08em; } /* Sidebar group titles, uppercase. */
+/* Mono — Every identifier: flow names, message IDs, codes, URLs, schema paths. */
+.id-lg { font-family: var(--font-mono); font-size: 13px; line-height: 1.4; font-weight: 600; } /* Flow name in a FlowCard header. */
+.id { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.4; font-weight: 600; } /* Identifiers in tables and rows. */
+.code { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7; font-weight: 400; } /* CodePreview (schema). */
+.mono-cell { font-family: var(--font-mono); font-size: 11px; line-height: 1.45; font-weight: 400; } /* DecisionTable and field-mapping cells; base URLs in key-value rows. */
+.mono-sm { font-family: var(--font-mono); font-size: 10.5px; line-height: 1.4; font-weight: 500; } /* Latency in health rows; chart axis labels at 10px. */
+.kbd { font-family: var(--font-mono); font-size: 10px; line-height: 1.6; font-weight: 600; } /* Keyboard hint in the command search. */
