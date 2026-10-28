@@ -128,3 +128,16 @@ test('Signed in, the sign-in state never shows: #/login goes on to the Dashboard
   await expect(page.locator('[data-action="sso"]')).toHaveCount(0);
   await expect(page.locator('[data-session-tenant]')).toHaveText(process.env.CONSOLE_TENANT_CODE);
 });
+
+// Row 571 follow-up 5: a failed code exchange (here: the provider answered error=access_denied) used to end on raw
+// JSON. A browser navigation is sent to the console's sign-in state, which shows Try again (never a second jump).
+test.describe('a failed code exchange', () => {
+  test.use(NO_SESSION);
+  test('a browser lands on the sign-in state with Try again, not on JSON', async ({ page }) => {
+    await page.goto(`${consoleUrl()}/login/oauth2/code/keycloak?error=access_denied&state=stale`);
+    await page.waitForURL((url) => url.toString().startsWith(consoleUrl()) && url.hash.startsWith('#/login'));
+    expect(new URL(page.url()).search, 'no code or state is left in the address bar').toBe('');
+    const card = await atTheConsoleSignInState(page, 'failed');
+    await expect(card.getByRole('button', { name: 'Try again' })).toBeFocused();
+  });
+});
