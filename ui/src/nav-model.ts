@@ -66,7 +66,7 @@ export const ALLOW_ALL_PAGES: readonly Route['page'][] = ['home', 'login'];
 
 /**
  * Screens deliberately refused to every KNOWN tenant role until a role need is agreed (Mira + Karan, row 575): Destinations (PR #88)
- * edits the operator allow-list, so it is in neither the menu nor PAGE_NEEDS. Unknown roles still open it; the server decides.
+ * is operator-only (PR #90: every tenant call answers 403), so it is in neither the menu nor PAGE_NEEDS and is refused for every tenant caller, roles known or not.
  */
 export const REFUSED_PAGES: readonly Route['page'][] = ['destinations'];
 
@@ -85,8 +85,8 @@ export const PAGE_NEEDS: Partial<Record<Route['page'], Exclude<Need, 'ALL'>>> = 
 /** False when the roles are known and none may use this screen (the shell then shows NoAccess). Unmapped pages are refused. */
 export function canOpen(roles: Roles, page: Route['page']): boolean {
   if (ALLOW_ALL_PAGES.includes(page)) return true;
+  if (REFUSED_PAGES.includes(page)) return false; // before the unknown-roles rule: Destinations is operator-only whatever /me said
   if (unknown(roles)) return true;
-  if (REFUSED_PAGES.includes(page)) return false;
   const need = PAGE_NEEDS[page];
   return need !== undefined && allowed(roles, need);
 }
