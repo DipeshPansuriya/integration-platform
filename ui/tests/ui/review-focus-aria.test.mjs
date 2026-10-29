@@ -112,7 +112,8 @@ async function systems() {
     listSystems: async () => ({ ok: true, data: [SYSTEM] }),
     readSystem: async () => ({ ok: true, data: SYSTEM }),
     testConnection: () => { const d = deferred(); tests.push(d); return d.promise; },
-    TYPE_LABELS: {}
+    TYPE_LABELS: {},
+    readMyRoles: async () => null
   };
   const screen = await mount('pages/Systems.tsx', 'Systems', {}, api, ['../api/systems']);
   await screen.settle();

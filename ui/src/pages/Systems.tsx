@@ -9,10 +9,12 @@
 // drawer's content in place) and each row's connection-test result in its own cell, next to its trigger.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { listSystems, readSystem, testConnection, TYPE_LABELS, type SystemType, type SystemView } from '../api/systems';
+import { listSystems, readMyRoles, readSystem, testConnection, TYPE_LABELS, type SystemType, type SystemView } from '../api/systems';
 import { Drawer } from '../ui/Drawer';
 import { EditSystemForm } from './systems/EditSystemForm';
 import { RegisterSystemForm } from './systems/RegisterSystemForm';
+import { GoLiveApprovedTables } from './systems/GoLiveApprovedTables';
+import { GoLiveSourceCredentials } from './systems/GoLiveSourceCredentials';
 import { refusalWords } from '../ui/refusal-words';
 import { canStartTest, drawerMode, filterSystems, settingsSummary, TESTING_WORD, testCell, type TestOutcome } from './systems/systems-view';
 import './systems/systems.css';
@@ -35,6 +37,7 @@ export function Systems() {
   const [open, setOpen] = useState<SystemView | null>(null);
   const [openRefusal, setOpenRefusal] = useState<string | null>(null);
   const [outcomes, setOutcomes] = useState<Record<string, TestOutcome>>({});
+  const [roles, setRoles] = useState<string[] | null>(null);
 
   // V-3 (row 306): the row's Test connection button - the endpoint's answer (one fixed shape) is
   // shown as it names it; a refusal (403/404 and the 429 TEST_CONNECTION_RATE_LIMITED) is surfaced
@@ -99,6 +102,16 @@ export function Systems() {
     };
   }, [openId]);
 
+  useEffect(() => {
+    let current = true;
+    void readMyRoles().then((r) => {
+      if (current) setRoles(r);
+    });
+    return () => {
+      current = false;
+    };
+  }, [openId]);
+
   const onSaved = async () => {
     await refresh();
   };
@@ -117,6 +130,9 @@ export function Systems() {
           ? 'System not found'
           : 'Open system';
   const shown = filterSystems(systems, filter);
+  // roles === null means "unknown" (older server, failed call, empty list): fail open here; the server's 403 stays the gate.
+  const canIssue = roles === null || (roles?.includes('TENANT_ADMIN') ?? false);
+  const canApprove = canIssue || (roles?.includes('APPROVER') ?? false) || roles === null;
 
   return (
     <div data-page="systems" data-systems-loaded={String(loaded)}>
@@ -285,6 +301,13 @@ export function Systems() {
           )}
           {mode === 'edit' && !open && openRefusal === null && <p className="systems-muted">Loading the system...</p>}
           {mode === 'edit' && open && <EditSystemForm key={open.id} system={open} onSaved={onSaved} />}
+          {open && (
+            <section className="systems-go-live" data-go-live data-system-code={open.code}>
+              <h2>Go live</h2>
+              <GoLiveSourceCredentials systemId={open.id} systemName={open.code || open.name} canIssue={canIssue} />
+              <GoLiveApprovedTables systemId={open.id} systemName={open.code || open.name} canApprove={canApprove} />
+            </section>
+          )}
           {mode === 'register' && <RegisterSystemForm onRegistered={refresh} />}
         </Drawer>
       </div>
