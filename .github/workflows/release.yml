@@ -120,6 +120,20 @@ jobs:
       - name: Resolve release tag
         id: tag
         run: echo "value=${{ github.event.inputs.release_tag || needs.build-push.outputs.short_sha }}" >> "$GITHUB_OUTPUT"
+      - name: Provision deploy script on VPS
+        # Self-provisioning: copy the authoritative repo copy of github-deploy.sh
+        # to the VPS before every deploy so no host-side manual step is ever needed.
+        # strip_components: 2 drops deploy/hostinger/ so the file lands at
+        # /docker/ipass/github-deploy.sh exactly where github-deploy.sh expects it.
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "deploy/hostinger/github-deploy.sh"
+          target: "/docker/ipass/"
+          strip_components: 2
+          overwrite: true
       - name: SSH deploy
         uses: appleboy/ssh-action@v1
         env:
@@ -133,6 +147,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: IMAGE_TAG,APP_IMAGE,UI_IMAGE,DB_PASSWORD
           script: |
+            chmod 700 /docker/ipass/github-deploy.sh
             /docker/ipass/github-deploy.sh
       - name: Smoke status
         run: echo "Deploy job finished; deploy.sh health gate is the smoke check."
