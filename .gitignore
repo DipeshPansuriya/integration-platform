@@ -10,3 +10,4 @@ deploy/hostinger/outside/tls/
 .claude/worktrees/
 # Journey run outputs (videos, traces and HTML reports hold run-scoped credentials)
 /_reports/
+*.png

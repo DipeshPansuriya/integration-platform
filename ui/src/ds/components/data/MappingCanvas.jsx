@@ -10,6 +10,7 @@ export function MappingCanvas({ source = 'FWB (XML)', target = 'CUSTOMS (JSON)',
   React.useLayoutEffect(() => {
     const calc = () => {
       if (!box.current || !a.current || !b.current || !t.current) return;
+      if (typeof box.current.getBoundingClientRect !== "function") return;
       const B = box.current.getBoundingClientRect();
       const A = a.current.getBoundingClientRect();
       const C = b.current.getBoundingClientRect();

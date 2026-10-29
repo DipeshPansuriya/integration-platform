@@ -21,7 +21,8 @@ const STUBS = {
     + 'export const useId = () => ":r0:";\n'
     + 'export const createContext = (d) => ({ Provider: Symbol("Provider"), _d: d });\n'
     + 'export const useContext = (c) => c._d;\n'
-    + 'export const Fragment = Symbol.for("hook-harness.fragment");\n',
+    + 'export const Fragment = Symbol.for("hook-harness.fragment");\n'
+    + 'export const createElement = (type, config, ...kids) => { const props = config ? { ...config } : {}; if (kids.length === 1) props.children = kids[0]; else if (kids.length > 1) props.children = kids; return globalThis.__hookHarness.element(type, props); };\n',
   'react/jsx-runtime': 'const h = (type, props) => globalThis.__hookHarness.element(type, props);\n'
     + 'export const jsx = h; export const jsxs = h; export const Fragment = Symbol.for("hook-harness.fragment");\n'
 };
