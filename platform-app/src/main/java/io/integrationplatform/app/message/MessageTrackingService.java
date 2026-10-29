@@ -72,6 +72,10 @@ public class MessageTrackingService {
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) DeliveryState state) {
     }
 
+    /** S8 search hit: a bound-tenant message within the requested day; no payload. */
+    public record SearchResult(String trackingId, String flowId, String state, String acceptedAt) {
+    }
+
     /** One failed or dead-lettered message: where it failed, the error class and the last error text. */
     public record Failure(String trackingId, String deliveryId, String flowId, String targetId, String failingStage,
             String errorClass, String lastError, String origin, String failedAt) {
@@ -129,6 +133,29 @@ public class MessageTrackingService {
             return new Timeline(message.id(), message.flowId(), message.state(), text(message.acceptedAt()), stages,
                     total, failingStage(message.state(), deliveryRows), deliveryTimes(deliveryRows));
         });
+    }
+
+    /** Bounded business-key (or recent) search in a single UTC day for the bound tenant; never payload. */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true, timeout = 1)
+    public List<SearchResult> search(String businessKey, UUID flowId, LocalDate day) {
+        LocalDate d = day == null ? LocalDate.now(java.time.ZoneOffset.UTC) : day;
+        java.time.Instant dayStart = d.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        java.time.Instant dayEnd = d.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        UUID flowUuid = flowId;
+        List<JdbcMessageTrackingStore.MessageRow> rows = store.search(
+                (businessKey == null || businessKey.isBlank()) ? null : businessKey,
+                flowUuid,
+                dayStart,
+                dayEnd);
+        List<SearchResult> result = new ArrayList<>();
+        for (JdbcMessageTrackingStore.MessageRow row : rows) {
+            try {
+                result.add(new SearchResult(row.id(), row.flowId(), row.state(), text(row.acceptedAt())));
+            } catch (IllegalArgumentException ignored) {
+                // ignore malformed ids
+            }
+        }
+        return result;
     }
 
     /** The bound tenant's failed work, optionally narrowed to one flow and one UTC day, newest first. */

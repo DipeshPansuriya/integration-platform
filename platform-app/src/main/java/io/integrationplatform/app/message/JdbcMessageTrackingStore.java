@@ -180,6 +180,29 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
         return String.join(" and ", conditions);
     }
 
+    List<MessageRow> search(String businessKey, java.util.UUID flowId, java.time.Instant dayStart, java.time.Instant dayEnd) {
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        StringBuilder cond = new StringBuilder("true");
+        if (businessKey != null && !businessKey.isBlank()) {
+            cond.append(" and business_key = :business_key");
+            params.put("business_key", businessKey.trim());
+        }
+        if (flowId != null) {
+            cond.append(" and interface_id = :flow_id::uuid");
+            params.put("flow_id", flowId.toString());
+        }
+        if (dayStart != null && dayEnd != null) {
+            cond.append(" and accepted_at >= :day_start and accepted_at < :day_end");
+            params.put("day_start", java.time.OffsetDateTime.ofInstant(dayStart, java.time.ZoneOffset.UTC));
+            params.put("day_end", java.time.OffsetDateTime.ofInstant(dayEnd, java.time.ZoneOffset.UTC));
+        }
+        return query("select id::text as id, interface_id::text as interface_id, state, accepted_at"
+                + " from public.message",
+                cond.toString(), params,
+                (rs, n) -> new MessageRow(rs.getString("id"), rs.getString("interface_id"), rs.getString("state"),
+                        instant(rs, "accepted_at")));
+    }
+
     private static Instant instant(ResultSet rs, String column) throws SQLException {
         OffsetDateTime value = rs.getObject(column, OffsetDateTime.class);
         return value == null ? null : value.toInstant();
