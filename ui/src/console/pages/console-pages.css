@@ -1,0 +1,35 @@
+/* Console wiring: hides the screen widgets that have no backend source yet (no fake data), so the
+   containers in src/console/pages never edit src/screens. Each rule is opt-in through a class the
+   container passes as the screen's className. */
+
+/* Header actions with no endpoint behind them (Queue Pause All / Retry Failed, Failures Retry All). */
+.cp-hide-ph-actions .ip-ph-actions { display: none; }
+/* A subtitle the screen derives from data the container does not have (Queue "N messages waiting"). */
+.cp-hide-ph-sub .ip-ph-sub { display: none; }
+/* The screen's own table panel, when the container renders the richer old table beside it. */
+.cp-hide-panel .ip-panel { display: none; }
+
+/* Dashboard: Throughput and Top Flows have no source (no telemetry, no per-flow message counts). */
+.cp-dash-loaded .ip-grid-panels { grid-template-columns: minmax(0, 1fr); }
+.cp-dash-loaded .ip-grid-panels > :nth-child(1),
+.cp-dash-loaded .ip-grid-panels > :nth-child(2) { display: none; }
+/* Roles without EDIT_CONFIGURATION: no New Flow button, no Quick Actions card. */
+.cp-dash-no-setup .ip-ph-actions .ip-btn--primary { display: none; }
+.cp-dash-no-setup .ip-grid-2 > :nth-child(2) { display: none; }
+/* Roles without READ_CONFIGURATION: no list is read, so no tile / chart / card is shown. */
+.cp-dash-no-config .ip-grid-tiles,
+.cp-dash-no-config .ip-grid-panels,
+.cp-dash-no-config .ip-grid-2 { display: none; }
+.cp-dash-no-config .ip-ph-actions .ip-btn--primary { display: none; }
+.cp-tile-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+/* Queue: four state-register figures (Queued, Processed, Converted, Failed). */
+.cp-queue .ip-grid-stats { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 800px) {
+  .cp-queue .ip-grid-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+.cp-below { margin-top: var(--space-5, 20px); }
+
+/* Only the screen's header stays (a day prompt or a no-access state is shown by the container below it). */
+.cp-header-only > :not(.ip-ph) { display: none; }

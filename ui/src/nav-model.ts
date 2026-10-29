@@ -63,10 +63,10 @@ export function moreFor(roles: Roles): NavItem[] {
 export const ALLOW_ALL_PAGES: readonly Route['page'][] = ['home', 'login'];
 
 /**
- * Screens deliberately refused to every KNOWN tenant role until a role need is agreed (Mira + Karan, row 575): Destinations (PR #88)
- * is operator-only (PR #90: every tenant call answers 403), so it is in neither the menu nor PAGE_NEEDS and is refused for every tenant caller, roles known or not.
+ * Screens deliberately refused to every KNOWN tenant role until a role need is agreed (Mira + Karan, row 575).
+ * Destinations was operator-only (PR #88/#90) but is now open to TENANT_ADMIN via PAGE_NEEDS (READ_CONFIGURATION).
  */
-export const REFUSED_PAGES: readonly Route['page'][] = ['destinations'];
+export const REFUSED_PAGES: readonly Route['page'][] = [];
 
 /**
  * The role need of every other screen. A page missing here is REFUSED (closed by default; a test fails for an unmapped page).
@@ -75,8 +75,8 @@ export const REFUSED_PAGES: readonly Route['page'][] = ['destinations'];
  */
 export const PAGE_NEEDS: Partial<Record<Route['page'], Exclude<Need, 'ALL'>>> = {
   flows: 'READ_CONFIGURATION', versions: 'READ_CONFIGURATION', systems: 'READ_CONFIGURATION', contracts: 'READ_CONFIGURATION',
-  rules: 'READ_CONFIGURATION', mappings: 'READ_CONFIGURATION', approvals: 'APPROVE_VERSION',
-  messages: 'READ_MESSAGE_TIMELINE', failures: 'READ_MESSAGE_TIMELINE', queue: 'READ_MESSAGE_TIMELINE',
+  rules: 'READ_CONFIGURATION', mappings: 'READ_CONFIGURATION', destinations: 'READ_CONFIGURATION', approvals: 'APPROVE_VERSION',
+  messages: 'READ_MESSAGE_TIMELINE', failures: 'READ_MESSAGE_TIMELINE', delivered: 'READ_MESSAGE_TIMELINE', queue: 'READ_MESSAGE_TIMELINE',
   activity: 'READ_MESSAGE_TIMELINE', reports: 'READ_MESSAGE_TIMELINE',
 };
 

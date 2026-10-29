@@ -7,6 +7,8 @@ import './ui/base.css';
 // iPaaS Console design system: ONE root import (W3) — tokens + components as a
 // library; ds.css keeps the app chrome winning the collisions (removed in W6).
 import './ds.css';
+// W6: the console adopts the DS look (accent engine, glass, shell restyle) - loaded last so it wins.
+import './console/adopt.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';

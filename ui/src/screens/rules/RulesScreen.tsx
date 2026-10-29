@@ -46,6 +46,8 @@ export interface RulesScreenProps {
   detailError?: string | null;
   onDetailClose?: () => void;
   onEditRule?: () => void;
+  /** Pass-through: extra attributes on the header New Rule button (console wiring keeps old e2e hooks). */
+  newButtonProps?: Record<string, string | boolean | undefined>;
 }
 
 /** Drawer.Section is a runtime-only export (Drawer.d.ts declares only the Drawer function). */
@@ -59,7 +61,7 @@ export default function RulesScreen(props: RulesScreenProps) {
   const {
     rows, loading, error, onRetry, onRowSelect,
     newOpen, onNewOpen, onNewClose, saving, onRuleCreate,
-    detailOpen, detail, detailError, onDetailClose, onEditRule
+    detailOpen, detail, detailError, onDetailClose, onEditRule, newButtonProps
   } = props;
 
   const [draft, setDraft] = useState<RuleDraft>({ ...DEFAULT_DRAFT });
@@ -116,7 +118,7 @@ export default function RulesScreen(props: RulesScreenProps) {
         title="Rules"
         subtitle="Decision rules that route messages"
         actions={
-          <Button variant="primary" icon="plus" onClick={openNew}>New Rule</Button>
+          <Button variant="primary" icon="plus" onClick={openNew} {...newButtonProps}>New Rule</Button>
         }
       />
 

@@ -81,6 +81,11 @@ public class MessageTrackingService {
             String errorClass, String lastError, String origin, String failedAt) {
     }
 
+    /** One successfully delivered message: tracking id, flow, target and the last attempt's outcome. */
+    public record Delivered(String trackingId, String deliveryId, String flowId, String targetId,
+            String outcome, String deliveredAt) {
+    }
+
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     /** T156: read-only users see lastError; enough for a status line plus a diagnostic, not a whole target body. */
@@ -186,6 +191,19 @@ public class MessageTrackingService {
         return failures.stream()
                 .sorted(Map.Entry.<Instant, Failure>comparingByKey().reversed())
                 .map(Map.Entry::getValue)
+                .toList();
+    }
+
+    /** The bound tenant's successfully delivered messages, optionally narrowed to one flow and one UTC day, newest first. */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public List<Delivered> delivered(UUID flowId, LocalDate day) {
+        Instant dayStart = day == null ? null : day.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant dayEnd = day == null ? null : day.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        return store.deliveredMessages(flowId, dayStart, dayEnd).stream()
+                .sorted(Comparator.comparing(JdbcMessageTrackingStore.DeliveredRow::deliveredAt).reversed())
+                .map(row -> new Delivered(row.trackingId(), row.deliveryId(), row.flowId(),
+                        row.targetId(), row.outcomeClass(),
+                        row.deliveredAt() == null ? null : row.deliveredAt().toString()))
                 .toList();
     }
 

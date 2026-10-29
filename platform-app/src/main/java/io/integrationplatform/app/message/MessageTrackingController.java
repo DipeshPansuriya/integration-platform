@@ -108,6 +108,20 @@ public class MessageTrackingController {
         return ResponseEntity.ok().header("Cache-Control", "no-store").body(results);
     }
 
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "OK"),
+        @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or ROLE_NOT_GRANTED: a message-timeline read",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+    @GetMapping("/delivered")
+    public ResponseEntity<List<MessageTrackingService.Delivered>> delivered(
+            @RequestParam(value = "flowId", required = false) UUID flowId,
+            @RequestParam(value = "date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        actors.requireActor();
+        return ResponseEntity.ok(service.delivered(flowId, date));
+    }
+
+    /** The one denied-attempt record a path-named foreign row earns: bound tenant, method and the raw request path (which carries the id; the recorder neutralises it). */
     private void recordPathIdDenial(HttpServletRequest request) {
         TenantDenialRecorder recorder = recorders.getIfAvailable();
         if (recorder == null) {

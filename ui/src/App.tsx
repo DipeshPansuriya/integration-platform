@@ -14,34 +14,20 @@
 // The [data-nav] attribute values, the sign-out semantics and the hash routes are UNCHANGED
 // - the screen e2e suite keys off these exact attributes and URLs.
 
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, LOGIN_ROUTE, readCookie } from './api/client';
 import { FlowDefinition, type EditorGuard } from './pages/FlowDefinition';
 import { hashMove } from './pages/flow-lifecycle'; // row 310 B12: Back / typed address vs unsaved edits
-import { FlowsList } from './pages/FlowsList'; // row 310 lane B (T88): #/flows list landing
 import { Versions } from './pages/Versions';
-// E5 seam (arjun-fullstack, F13): route + menu stubs for E5 lane D's screens (T-159 systems registry, T-160
-// contract versions); lane D fills the two page files and never edits this shell.
-import { Systems } from './pages/Systems';
-import { ContractVersions } from './pages/ContractVersions';
-// F10-narrow seam (arjun-fullstack, row278 plan step 8): route + menu entry for lane D's queue
-// dashboard; the page file is the whole slice's UI - this shell line stays one route + one menu line.
-import { QueueDashboard } from './pages/QueueDashboard';
-// T112 (row327 lane D): #/failures (menu, beside Queue) and #/messages/<trackingId> (reached from Failures).
-import { Failures } from './pages/Failures';
+// T112 (row327 lane D): #/messages/<trackingId> (reached from Failures). The list screens (Dashboard, Flows,
+// Systems, Contracts, Queue, Failures, Activity, Reports, Rules, Mappings) are the W6 containers below.
 import { MessageDetail } from './pages/MessageDetail';
 import { parseMessageRoute } from './pages/message-timeline';
-// Row 327 T119 (lane D): the tenant's activity view (#/activity, #/activity/<eventId>) - one route + one menu line.
-import { Activity } from './pages/Activity';
-import DeliveryReport from './pages/DeliveryReport';
-// E7 seam (arjun-fullstack, F5): route + menu stub for lane D1's mapping canvas (#/mappings/<routeId>, T-034);
-// lane D fills the page file and never edits this shell.
-import { MappingDesigner } from './pages/MappingDesigner';
-// Row 310 lane A (sanjay-developer, T87): the Dashboard at #/ and the in-app sign-in card at #/login.
-import { Dashboard } from './pages/Dashboard';
+// Row 310 lane A (sanjay-developer, T87): the in-app sign-in card at #/login.
 import { Login } from './pages/Login';
 import { clearAttempt, landingAfterLogin, markLoggedOut, rememberReturnTo, takeReturnTo } from './pages/login-flow';
 import { Destinations } from './pages/Destinations';
+import { DeliveredMessages } from './pages/DeliveredMessages';
 import { safeDecode } from './safe-decode';
 // Row 575 (S1 of the guided flow): the six-item role-aware menu is one table (nav-model.ts); legacy screens sit in a temporary "More" group.
 import type { Route } from './route-types';
@@ -54,11 +40,24 @@ import { Approvals } from './pages/Approvals';
 import { SectionTabs } from './ui/SectionTabs';
 import { sectionOf } from './section-tabs';
 import { canOperate } from './pages/message-guide';
+// W6 (design adoption): the DS theme picker (six accents) and logo mark in the existing shell markup.
+import { ThemePicker } from './ds/components/shell/ThemePicker.jsx';
+import { LogoMark } from './ds/components/brand/LogoMark.jsx';
+import { ACCENTS, type Accent } from './console/theme';
+// W6: the redesigned screens, each a container over the real API with the same props as the page it replaces.
+import { DashboardPage } from './console/pages/DashboardPage';
+import { QueuePage } from './console/pages/QueuePage';
+import { FailuresPage } from './console/pages/FailuresPage';
+import { ReportsPage } from './console/pages/ReportsPage';
+import { ActivityPage } from './console/pages/ActivityPage';
+import { SystemsPage } from './console/pages/SystemsPage';
+import { ContractsPage } from './console/pages/ContractsPage';
+import { FlowsPage } from './console/pages/FlowsPage';
+import { RulesPage } from './console/pages/RulesPage';
+import { MappingsPage } from './console/pages/MappingsPage';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
-// E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
-// #/rules/<ruleSetId> authors one as decision tables beside the always-visible test panel. Loaded on
-// first use: the decision-table editor is a large bundle no other screen should pay for (page-load p95).
-const RulesEditor = lazy(() => import('./rules/RulesEditor').then((m) => ({ default: m.RulesEditor })));
+// E6 (lane D, T-025/T-028): #/rules/<ruleSetId> - RulesPage lazy-loads the decision-table editor on first
+// use (a large bundle no other screen should pay for, page-load p95).
 
 // V4 4a: nav icon pills - inline 16x16 stroke paths keyed by the nav's [data-nav] value.
 // No routing or attribute semantics change; missing keys render an empty (invisible) path.
@@ -93,6 +92,12 @@ function currentTheme(): Theme {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
 }
 
+/** The accent index.html resolved pre-paint (data-accent, DS key ip-t); indigo when unknown. */
+function currentAccent(): Accent {
+  const value = document.documentElement.dataset.accent;
+  return (ACCENTS as readonly string[]).includes(value ?? '') ? (value as Accent) : 'indigo';
+}
+
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#\/?/, '');
   if (hash.startsWith('login')) return { page: 'login', flowId: null };
@@ -109,6 +114,7 @@ function parseHash(): Route {
   if (hash.startsWith('approvals')) return { page: 'approvals', flowId: null }; // the Approvals list (S5 fills it)
   const message = /^messages\/(.+)$/.exec(hash);
   if (message) return { page: 'messages', flowId: null, ...parseMessageRoute(message[1]) };
+  if (hash.startsWith('delivered')) return { page: 'delivered', flowId: null };
   if (hash.startsWith('activity')) return { page: 'activity', flowId: null };
   if (hash.startsWith('reports')) return { page: 'reports', flowId: null };
   if (hash.startsWith('contracts')) return { page: 'contracts', flowId: null };
@@ -124,7 +130,6 @@ function parseHash(): Route {
 }
 
 export function App() {
-  const consoleEnabled = new URLSearchParams(window.location.search).get("console") === "1";
   const [route, setRoute] = useState<Route>(parseHash());
   // Row 310 B11: one count per routed address change - the editor is keyed by it, so #/flow/A -> #/flow/new
   // (or a saved create-mode editor -> #/flow/new again) remounts it empty instead of keeping A's state.
@@ -140,6 +145,7 @@ export function App() {
   const sessionChecked = useRef(false);
   // The theme index.html already applied before first paint - React mirrors it for the toggle.
   const [theme, setTheme] = useState<Theme>(currentTheme);
+  const [accent, setAccent] = useState<Accent>(currentAccent);
   // Collapse state persisted per browser (00-§2); storage may be unavailable in hardened runs.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
@@ -297,10 +303,27 @@ export function App() {
     requestAnimationFrame(() => requestAnimationFrame(() => html.classList.remove('theme-switching')));
     try {
       localStorage.setItem('ip.theme', next);
+      localStorage.setItem('ip-m', next); // the DS mode key (ThemePicker) stays in step
     } catch {
       /* storage unavailable - the toggle still works for this session */
     }
     setTheme(next);
+  }
+
+  /** The DS ThemePicker's Light / Dark choice: a flip only when it differs from the current mode. */
+  function chooseMode(next: Theme) {
+    if (next !== theme) toggleTheme();
+  }
+
+  /** The DS ThemePicker's accent swatch: data-accent on <html> re-points every accent token (adopt.css). */
+  function chooseAccent(next: Accent) {
+    document.documentElement.dataset.accent = next;
+    try {
+      localStorage.setItem('ip-t', next);
+    } catch {
+      /* storage unavailable - the choice still applies for this session */
+    }
+    setAccent(next);
   }
 
   /** RP-initiated logout: POST /logout (CSRF-protected), then the answer names the sign-out URL. */
@@ -396,6 +419,7 @@ export function App() {
               </svg>
             )}
           </button>
+          <ThemePicker accent={accent} mode={theme} onAccentChange={chooseAccent} onModeChange={chooseMode} />
           {me && (
             <details className="account">
               <summary className="avatar-btn" data-action="account">
@@ -431,7 +455,15 @@ export function App() {
       </header>
       <div className="shell-body">
         <nav className="sidenav" aria-label="Primary">
+          <div className="sb-logo">
+            <LogoMark size={32} label="iPaaS Console" />
+            <div className="sb-text">
+              <div className="sb-title">iPaaS Console</div>
+              {me?.tenantCode && <div className="sb-ver">{me.tenantCode}</div>}
+            </div>
+          </div>
           <div className="nav-group">
+            <p className="nav-title">Workspace</p>
             {navFor(roles).map((item) => renderNavItem(item))}
           </div>
           {moreItems.length > 0 && (
@@ -450,30 +482,27 @@ export function App() {
             </>
           )}
           {shown && <SectionTabs page={route.page} />}
-          {!consoleEnabled && shown === 'flows' &&
+          {shown === 'flows' &&
             (route.flowId ? (
               <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} roles={roles} />
             ) : (
-              <FlowsList />
+              <FlowsPage />
             ))}
-          {!consoleEnabled && shown === 'versions' && <Versions selectId={route.flowId} />}
-          {!consoleEnabled && shown === 'systems' && <Systems />}
-          {!consoleEnabled && shown === 'queue' && <QueueDashboard />}
-          {!consoleEnabled && shown === 'failures' && <Failures canOperate={canOperate(roles)} />}
-          {!consoleEnabled && shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
-          {!consoleEnabled && shown === 'approvals' && <Approvals />}
-          {!consoleEnabled && shown === 'activity' && <Activity />}
-          {!consoleEnabled && shown === 'reports' && <DeliveryReport />}
-          {!consoleEnabled && shown === 'contracts' && <ContractVersions />}
-          {!consoleEnabled && shown === 'rules' && (
-            <Suspense fallback={<p>Loading the rules editor...</p>}>
-              <RulesEditor ruleSetId={route.ruleSetId ?? null} />
-            </Suspense>
-          )}
-          {!consoleEnabled && shown === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
-          {!consoleEnabled && shown === 'destinations' && <Destinations />}
-          {!consoleEnabled && shown === 'home' &&
-            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} roles={roles} />)}
+          {shown === 'versions' && <Versions selectId={route.flowId} />}
+          {shown === 'systems' && <SystemsPage />}
+          {shown === 'queue' && <QueuePage />}
+          {shown === 'failures' && <FailuresPage canOperate={canOperate(roles)} />}
+          {shown === 'delivered' && <DeliveredMessages />}
+          {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
+          {shown === 'approvals' && <Approvals />}
+          {shown === 'activity' && <ActivityPage />}
+          {shown === 'reports' && <ReportsPage />}
+          {shown === 'contracts' && <ContractsPage />}
+          {shown === 'rules' && <RulesPage ruleSetId={route.ruleSetId ?? null} />}
+          {shown === 'mappings' && <MappingsPage routeId={route.routeId ?? null} />}
+          {shown === 'destinations' && <Destinations />}
+          {shown === 'home' &&
+            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <DashboardPage readsConfiguration={canOpen(roles, 'flows')} roles={roles} />)}
         </main>
       </div>
     </div>

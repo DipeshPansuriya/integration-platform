@@ -67,6 +67,10 @@ export interface FlowsScreenProps {
   onRetry?: () => void;
   onOpenFlow?: (flow: FlowRow) => void;
   onNewFlow?: () => void;
+  /** Pass-through: extra class on the PageHeader (console wiring keeps old e2e hooks). */
+  headerClassName?: string;
+  /** Pass-through: extra attributes on the header New Flow button (may override data-action). */
+  newFlowProps?: Record<string, string | boolean | undefined>;
 }
 
 export interface FlowDetailDrawerProps {

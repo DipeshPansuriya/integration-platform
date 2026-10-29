@@ -234,14 +234,15 @@ test('landing: a labelled tracking-id search; a bad id is worded and does not na
   }
 });
 
-test('landing: tabs are links - Results (current) and Needs attention (#/failures); Results says plainly what it cannot do yet', async () => {
+test('landing: tabs are links - Results (current), Delivered (#/delivered) and Needs attention (#/failures); Results says plainly what it cannot do yet', async () => {
   const screen = await mount('pages/GuidedLandings.tsx', 'MessagesLanding', {}, {}, []);
   await screen.settle();
   const [tabs] = findAll(screen.tree(), (n) => n.props?.['data-message-tabs'] !== undefined);
   const links = findAll(tabs, (n) => n.type === 'a');
-  assert.deepEqual(links.map((a) => a.props.href), ['#/messages', '#/failures']);
+  assert.deepEqual(links.map((a) => a.props.href), ['#/messages', '#/delivered', '#/failures']);
   assert.equal(links[0].props['aria-current'], 'page');
   assert.equal(links[1].props['aria-current'], undefined);
+  assert.equal(links[2].props['aria-current'], undefined);
   assert.equal(findAll(screen.tree(), (n) => n.props?.['data-nav'] !== undefined).length, 0, 'no second data-nav="failures" next to the menu entry');
   assert.match(text(screen.tree()), /tracking id/i);
   assert.doesNotMatch(text(screen.tree()), /business key.*(search|find)\b.*\bnow\b/i);

@@ -12,7 +12,7 @@
       (function () {
         var theme = 'light';
         try {
-          var stored = localStorage.getItem('ip.theme');
+          var stored = localStorage.getItem('ip-m') || localStorage.getItem('ip.theme');
           theme = stored === 'dark' || stored === 'light'
             ? stored
             : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
