@@ -1,0 +1,72 @@
+/* Lane D: Reports screen - tokens only (design-tokens guard over src/**, excluding ds/tokens.css/base.css). */
+.scr-reports {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.scr-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+@media (max-width: 1279px) {
+  .scr-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 719px) {
+  .scr-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.scr-loading {
+  display: flex;
+  flex-direction: column;
+}
+/* Mirrors the pages' .skeleton family until integration (pages css stays live meanwhile). */
+.scr-skeleton {
+  display: block;
+  border-radius: var(--r-1);
+  background: var(--color-neutral-bg);
+}
+.scr-skeleton-label {
+  width: 60%;
+  height: 12px;
+}
+.scr-skeleton-number {
+  width: 30%;
+  height: 30px;
+  margin: 4px 0;
+}
+.scr-skeleton-sub {
+  width: 45%;
+  height: 12px;
+}
+.scr-empty {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--r-3);
+  color: var(--color-ink-muted);
+  font-size: 13.5px;
+  text-align: center;
+}
+/* Success-band colouring on the Success % column. */
+.scr-band {
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: var(--r-2);
+  font-size: 12.5px;
+}
+.scr-band-ok {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+.scr-band-warn {
+  background: var(--color-warn-bg);
+  color: var(--color-warn-text);
+}
+.scr-band-err {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}

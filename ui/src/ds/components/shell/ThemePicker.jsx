@@ -14,22 +14,36 @@ export const ACCENTS = [
 
 /** Reads, applies and persists the theme: data-accent and data-theme on the target (default <html>), localStorage keys ip-t / ip-m. */
 export function useConsoleTheme({ accent: a0 = 'indigo', mode: m0, target, persist = true } = {}) {
+  const storage = () => (typeof window !== 'undefined' ? window.localStorage : null);
   const read = (k, d) => {
     if (!persist) return d;
-    try { return localStorage.getItem(k) || d; } catch (e) { return d; }
+    try {
+      const s = storage();
+      if (!s) return d;
+      return s.getItem(k) || d;
+    } catch (e) { return d; }
   };
   const systemMode = () => {
-    try { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) { return 'light'; }
+    try {
+      if (typeof window === 'undefined' || !window.matchMedia) return 'light';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch (e) { return 'light'; }
   };
   const [accent, setAccent] = React.useState(() => read('ip-t', a0));
   const [mode, setMode] = React.useState(() => read('ip-m', m0 || systemMode()));
   React.useEffect(() => {
-    const el = (target && target.current) || document.documentElement;
-    el.setAttribute('data-accent', accent);
-    el.setAttribute('data-theme', mode);
-    if (persist) {
-      try { localStorage.setItem('ip-t', accent); localStorage.setItem('ip-m', mode); } catch (e) { /* storage blocked */ }
-    }
+    try {
+      const el = (target && target.current) || (typeof document !== 'undefined' ? document.documentElement : null);
+      if (!el) return;
+      el.setAttribute('data-accent', accent);
+      el.setAttribute('data-theme', mode);
+      if (persist) {
+        try {
+          const s = storage();
+          if (s) { s.setItem('ip-t', accent); s.setItem('ip-m', mode); }
+        } catch (e) { /* storage blocked */ }
+      }
+    } catch (e) { /* dom unavailable */ }
   }, [accent, mode]);
   return { accent, mode, setAccent, setMode, toggleMode: () => setMode((m) => (m === 'dark' ? 'light' : 'dark')) };
 }

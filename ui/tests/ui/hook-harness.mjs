@@ -21,7 +21,8 @@ const STUBS = {
     + 'export const useId = () => ":r0:";\n'
     + 'export const createContext = (d) => ({ Provider: Symbol("Provider"), _d: d });\n'
     + 'export const useContext = (c) => c._d;\n'
-    + 'export const Fragment = Symbol.for("hook-harness.fragment");\n',
+    + 'export const Fragment = Symbol.for("hook-harness.fragment");\n'
+    + 'export const createElement = (type, config, ...kids) => { const props = config ? { ...config } : {}; if (kids.length === 1) props.children = kids[0]; else if (kids.length > 1) props.children = kids; return globalThis.__hookHarness.element(type, props); };\n',
   'react/jsx-runtime': 'const h = (type, props) => globalThis.__hookHarness.element(type, props);\n'
     + 'export const jsx = h; export const jsxs = h; export const Fragment = Symbol.for("hook-harness.fragment");\n'
 };
@@ -46,7 +47,7 @@ async function load(page, apiSpecifiers) {
           b.onLoad({ filter: /\.css$/ }, () => ({ contents: '', loader: 'js' })); // pages import their own stylesheet; Vite handles it, the harness ignores it
           b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: STUBS[a.path], loader: 'js' }));
           b.onLoad({ filter: /.*/, namespace: 'api' }, () => ({
-            contents: 'export default null;\n' + [...new Set(['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery', 'queueSummary', 'deliveryReport', ...Object.keys(globalThis.__hookHarness.api)])]
+            contents: 'export default null;\n' + [...new Set(['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery', 'queueSummary', 'deliveryReport', 'readMyRoles', 'issueSourceCredential', 'listSourceCredentials', 'revokeSourceCredential', 'rotateSourceCredential', 'approveApprovedTable', 'listApprovedTables', 'requestApprovedTable', 'revokeApprovedTable', ...Object.keys(globalThis.__hookHarness.api)])]
               .map((n) => `export const ${n} = (...a) => globalThis.__hookHarness.api.${n}(...a);`).join('\n'),
             loader: 'js'
           }));

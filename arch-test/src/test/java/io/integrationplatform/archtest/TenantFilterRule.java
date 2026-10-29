@@ -92,6 +92,30 @@ final class TenantFilterRule {
     static final String TARGET_DB_SENDER_REASON = "writes to the customer's external target database over its own "
             + "driver connection, never the platform datasource (ADR-011 Decision 1; T-149)";
 
+    /**
+     * Row 586/587 release unblock: exact-class exemptions for reviewed platform-wide SQL access (neither consults tenant
+     * data, so R08's tenant predicate has nothing to apply to). Unlike {@link #TARGET_DB_SENDER}, these classes run
+     * against the platform datasource / Spring JDBC types and are therefore exempt as whole classes through
+     * {@link #isExempt} rather than through {@link #isTargetConnectionCall}. The exemption is EXACT-CLASS AND TOP-LEVEL ONLY:
+     * the constants hold fully qualified top-level names and never match a nested type. The reasons are documented with
+     * each constant; a rename must not leave a dead exemption (the production scan asserts presence).
+     */
+    static final String AUDIT_LEDGER_LOCKDOWN_GUARD = "io.integrationplatform.app.audit.AuditLedgerLockdownGuard";
+    static final String DB_BACKED_ALLOW_LIST = "io.integrationplatform.config.destination.DbBackedAllowList";
+
+    /** 'audit-ledger role-probe startup check' (row 570 L3; reads {@code audit_event} privileges as the app login). */
+    static final String AUDIT_LEDGER_LOCKDOWN_GUARD_REASON = "audit-ledger role-probe startup check";
+    /** 'operator_allowed_host platform-wide config' (rows 579-580; allow-list stored in platform-wide operator config). */
+    static final String DB_BACKED_ALLOW_LIST_REASON = "operator_allowed_host platform-wide config";
+
+    static final Set<String> REVIEWED_PLATFORM_WIDE_SQL_ACCESS = Set.of(
+            AUDIT_LEDGER_LOCKDOWN_GUARD, DB_BACKED_ALLOW_LIST);
+
+    // Common aliases kept for compatibility with callers that name the set rather than the per-class constant.
+    static final Set<String> PLATFORM_WIDE_SQL_ACCESS = REVIEWED_PLATFORM_WIDE_SQL_ACCESS;
+    static final Set<String> PLATFORM_WIDE_REVIEWED_SQL_ACCESS = REVIEWED_PLATFORM_WIDE_SQL_ACCESS;
+    static final Set<String> REVIEWED_PLATFORM_WIDE_ACCESS = REVIEWED_PLATFORM_WIDE_SQL_ACCESS;
+
     private static final Set<String> TARGET_CONNECTION_TYPES = Set.of("java.sql.Connection", "java.sql.Statement");
 
     private static final DescribedPredicate<JavaClass> REPOSITORY_BASE_OR_REVIEWED_CROSSING = DescribedPredicate.describe(
@@ -160,11 +184,18 @@ final class TenantFilterRule {
     }
 
     private static boolean isExempt(JavaClass javaClass) {
+        // Platform-wide SQL access is reviewed as EXACT TOP-LEVEL CLASSES ONLY: the constants in
+        // REVIEWED_PLATFORM_WIDE_SQL_ACCESS hold fully qualified top-level names; a nested type must never inherit the
+        // exemption merely because it sits inside one of those classes. The top-level guard below enforces this by class
+        // name alone (R08; E16-T2; row 586/587).
         JavaClass outermost = javaClass;
         while (outermost.getEnclosingClass().isPresent()) {
             outermost = outermost.getEnclosingClass().get();
         }
-        return outermost.getName().equals(REPOSITORY_BASE) || isReviewedCrossing(outermost);
+        return outermost.getName().equals(REPOSITORY_BASE)
+                || isReviewedCrossing(outermost)
+                || (javaClass.getEnclosingClass().isEmpty()
+                        && REVIEWED_PLATFORM_WIDE_SQL_ACCESS.contains(javaClass.getName()));
     }
 
     private static boolean isReviewedCrossing(JavaClass javaClass) {

@@ -1,0 +1,118 @@
+/* Lane B (systems) page-level layout. Tokens only — themes via tokens.css. */
+
+.lb-page {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.lb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-3);
+}
+
+/* Loading / empty / stale / error */
+.lb-skel {
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-2);
+  animation: lb-pulse 1.2s ease-in-out infinite;
+}
+
+.lb-skel-card {
+  height: 148px;
+}
+
+.lb-skel-row {
+  height: 18px;
+}
+
+@keyframes lb-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.lb-empty {
+  grid-column: 1 / -1;
+  padding: var(--space-6);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--r-2);
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  text-align: center;
+}
+
+.lb-stale {
+  color: var(--color-warn-text);
+  background: var(--color-warn-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.lb-errorbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Drawer footer: Close/Cancel first, exactly one primary pushed right, last. */
+.lb-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.lb-foot-primary {
+  margin-left: auto;
+}
+
+/* Detail rows */
+.lb-form {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.lb-row {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.lb-lab {
+  display: inline-block;
+  color: var(--color-ink-muted);
+  margin-bottom: var(--space-1);
+}
+
+.lb-hint {
+  color: var(--color-ink-faint);
+}
+
+.lb-muted {
+  color: var(--color-ink-muted);
+}
+
+.lb-code {
+  font-family: var(--font-mono);
+}
+
+.lb-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 4-column KPI band in the system detail drawer */
+.lb-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+/* Pause-flow confirm dialog lives in flows.css; systems drawers reuse the same
+   footer/row classes only. */

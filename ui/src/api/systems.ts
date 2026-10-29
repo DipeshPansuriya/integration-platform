@@ -373,3 +373,117 @@ export function clientSettingsErrors(type: string, values: Record<string, string
   if (settings.topic === undefined) errors.push('settings.topic is required for type KAFKA');
   return errors;
 }
+
+// --- Source credentials (S7a: Go live, console side) ---
+// Base /api/v1/admin. The raw secret is returned ONLY on issue and rotate (never on list).
+
+export type SourceCredentialView = { id: string; systemId: string; customerId: string; clientId: string; status: string; secret?: string };
+
+export async function issueSourceCredential(systemId: string, customerId: string): Promise<ListedAnswer<SourceCredentialView>> {
+  const response = await consoleFetch(`/api/v1/admin/systems/${encodeURIComponent(systemId)}/source-credentials`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(customerId ? { customerId } : {})
+  });
+  const data = await response.json().catch(() => null);
+  if (response.ok && data) return { ok: true, data: data as SourceCredentialView };
+  const body = (data ?? {}) as { error?: string; refusal?: string; errors?: unknown; parserErrors?: unknown };
+  const listed = Array.isArray(body.errors) ? body.errors : Array.isArray(body.parserErrors) ? body.parserErrors : null;
+  const errors = listed ? listed.map((item) => refusalWords(String(item))) : body.error ? [refusalWords(body.error)] : [];
+  const refusalText = body.refusal ?? body.error;
+  return { ok: false, status: response.status, error: body.error ? refusalWords(body.error) : undefined, refusal: typeof refusalText === 'string' ? refusalWords(refusalText) : undefined, errors };
+}
+
+export async function listSourceCredentials(systemId: string): Promise<ListedAnswer<SourceCredentialView[]>> {
+  const response = await consoleFetch(`/api/v1/admin/systems/${encodeURIComponent(systemId)}/source-credentials`);
+  const data = await response.json().catch(() => null);
+  if (response.ok && Array.isArray(data)) return { ok: true, data: data as SourceCredentialView[] };
+  const body = (data ?? {}) as { error?: string; refusal?: string; errors?: unknown };
+  const listed = Array.isArray(body.errors) ? body.errors : null;
+  const errors = listed ? listed.map((item) => refusalWords(String(item))) : body.error ? [refusalWords(body.error)] : [];
+  const refusalText = body.refusal ?? body.error;
+  return { ok: false, status: response.status, error: body.error ? refusalWords(body.error) : undefined, refusal: typeof refusalText === 'string' ? refusalWords(refusalText) : undefined, errors };
+}
+
+export async function rotateSourceCredential(credentialId: string): Promise<ListedAnswer<SourceCredentialView>> {
+  const response = await consoleFetch(`/api/v1/admin/source-credentials/${encodeURIComponent(credentialId)}/rotate`, {
+    method: 'POST'
+  });
+  const data = await response.json().catch(() => null);
+  if (response.ok && data) return { ok: true, data: data as SourceCredentialView };
+  const body = (data ?? {}) as { error?: string; refusal?: string; errors?: unknown };
+  const listed = Array.isArray(body.errors) ? body.errors : null;
+  const errors = listed ? listed.map((item) => refusalWords(String(item))) : body.error ? [refusalWords(body.error)] : [];
+  const refusalText = body.refusal ?? body.error;
+  return { ok: false, status: response.status, error: body.error ? refusalWords(body.error) : undefined, refusal: typeof refusalText === 'string' ? refusalWords(refusalText) : undefined, errors };
+}
+
+export async function revokeSourceCredential(credentialId: string): Promise<ListedAnswer<SourceCredentialView & { idpDisablePending?: boolean }>> {
+  const response = await consoleFetch(`/api/v1/admin/source-credentials/${encodeURIComponent(credentialId)}/revoke`, {
+    method: 'POST'
+  });
+  const data = await response.json().catch(() => null);
+  if (response.ok && data) return { ok: true, data: data as SourceCredentialView & { idpDisablePending?: boolean } };
+  const body = (data ?? {}) as { error?: string; refusal?: string; errors?: unknown };
+  const listed = Array.isArray(body.errors) ? body.errors : null;
+  const errors = listed ? listed.map((item) => refusalWords(String(item))) : body.error ? [refusalWords(body.error)] : [];
+  const refusalText = body.refusal ?? body.error;
+  return { ok: false, status: response.status, error: body.error ? refusalWords(body.error) : undefined, refusal: typeof refusalText === 'string' ? refusalWords(refusalText) : undefined, errors };
+}
+
+// --- Approved tables (S7b: Go live, DB side) ---
+// Base URL /api/v1/admin/systems/{systemId}/approved-tables
+
+export type ApprovedTableView = { id: string; table?: string; status?: string; [key: string]: unknown };
+
+export async function listApprovedTables(systemId: string): Promise<ListedAnswer<ApprovedTableView[]>> {
+  const response = await consoleFetch(`/api/v1/admin/systems/${encodeURIComponent(systemId)}/approved-tables`);
+  const data = await response.json().catch(() => null);
+  if (response.ok && Array.isArray(data)) return { ok: true, data: data as ApprovedTableView[] };
+  const body = (data ?? {}) as { error?: string; refusal?: string; errors?: unknown };
+  const listed = Array.isArray(body.errors) ? body.errors : null;
+  const errors = listed ? listed.map((item) => refusalWords(String(item))) : body.error ? [refusalWords(body.error)] : [];
+  const refusalText = body.refusal ?? body.error;
+  return { ok: false, status: response.status, error: body.error ? refusalWords(body.error) : undefined, refusal: typeof refusalText === 'string' ? refusalWords(refusalText) : undefined, errors };
+}
+
+export async function requestApprovedTable(systemId: string, table: string): Promise<ListedAnswer<ApprovedTableView>> {
+  const response = await consoleFetch(`/api/v1/admin/systems/${encodeURIComponent(systemId)}/approved-tables`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table })
+  });
+  const data = await response.json().catch(() => null);
+  if (response.ok && data) return { ok: true, data: data as ApprovedTableView };
+  const body = (data ?? {}) as { error?: string; refusal?: string; errors?: unknown };
+  const listed = Array.isArray(body.errors) ? body.errors : null;
+  const errors = listed ? listed.map((item) => refusalWords(String(item))) : body.error ? [refusalWords(body.error)] : [];
+  const refusalText = body.refusal ?? body.error;
+  return { ok: false, status: response.status, error: body.error ? refusalWords(body.error) : undefined, refusal: typeof refusalText === 'string' ? refusalWords(refusalText) : undefined, errors };
+}
+
+export async function approveApprovedTable(systemId: string, id: string): Promise<ListedAnswer<ApprovedTableView>> {
+  const response = await consoleFetch(`/api/v1/admin/systems/${encodeURIComponent(systemId)}/approved-tables/${encodeURIComponent(id)}/approve`, {
+    method: 'POST'
+  });
+  const data = await response.json().catch(() => null);
+  if (response.ok && data) return { ok: true, data: data as ApprovedTableView };
+  const body = (data ?? {}) as { error?: string; refusal?: string; errors?: unknown };
+  const listed = Array.isArray(body.errors) ? body.errors : null;
+  const errors = listed ? listed.map((item) => refusalWords(String(item))) : body.error ? [refusalWords(body.error)] : [];
+  const refusalText = body.refusal ?? body.error;
+  return { ok: false, status: response.status, error: body.error ? refusalWords(body.error) : undefined, refusal: typeof refusalText === 'string' ? refusalWords(refusalText) : undefined, errors };
+}
+
+export async function revokeApprovedTable(systemId: string, id: string): Promise<ListedAnswer<ApprovedTableView>> {
+  const response = await consoleFetch(`/api/v1/admin/systems/${encodeURIComponent(systemId)}/approved-tables/${encodeURIComponent(id)}/revoke`, {
+    method: 'POST'
+  });
+  const data = await response.json().catch(() => null);
+  if (response.ok && data) return { ok: true, data: data as ApprovedTableView };
+  const body = (data ?? {}) as { error?: string; refusal?: string; errors?: unknown };
+  const listed = Array.isArray(body.errors) ? body.errors : null;
+  const errors = listed ? listed.map((item) => refusalWords(String(item))) : body.error ? [refusalWords(body.error)] : [];
+  const refusalText = body.refusal ?? body.error;
+  return { ok: false, status: response.status, error: body.error ? refusalWords(body.error) : undefined, refusal: typeof refusalText === 'string' ? refusalWords(refusalText) : undefined, errors };
+}

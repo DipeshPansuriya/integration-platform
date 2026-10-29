@@ -13,6 +13,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -67,7 +70,7 @@ public class OperatorAllowedHostController {
             throw ConfigApiException.validation("pattern is required");
         }
         try {
-            HostEntry entry = allowList.add(pattern);
+            HostEntry entry = allowList.add(pattern, agentClientId());
             return ResponseEntity.status(201)
                     .body(Map.of("id", entry.id().toString(), "pattern", entry.pattern()));
         } catch (org.springframework.dao.DuplicateKeyException duplicate) {
@@ -85,9 +88,21 @@ public class OperatorAllowedHostController {
                 content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> remove(@PathVariable UUID id) {
-        if (!allowList.remove(id)) {
+        if (!allowList.remove(id, agentClientId())) {
             throw ConfigApiException.notFound();
         }
         return ResponseEntity.noContent().build();
+    }
+
+    /** Read the authenticated operator agent's client id (JWT subject) for audit attribution. */
+    private String agentClientId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof Jwt jwt) {
+            String subject = jwt.getSubject();
+            if (subject != null && !subject.isBlank()) {
+                return subject;
+            }
+        }
+        return authentication == null || authentication.getName() == null ? "-" : authentication.getName();
     }
 }

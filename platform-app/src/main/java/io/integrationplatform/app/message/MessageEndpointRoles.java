@@ -22,6 +22,8 @@ public class MessageEndpointRoles implements ApiOperationRules {
                 // T-137 narrow: one message's stages, timestamps and the durations between them
                 new Rule("GET", MESSAGES + "/{trackingId}/timeline", Operation.READ_MESSAGE_TIMELINE),
                 // E12 failure-diagnosis read side: failed and dead-lettered messages per flow and day
-                new Rule("GET", MESSAGES + "/failures", Operation.READ_MESSAGE_TIMELINE));
+                new Rule("GET", MESSAGES + "/failures", Operation.READ_MESSAGE_TIMELINE),
+                // S8: business-key / recent message search (read only, tenant-bound)
+                new Rule("GET", MESSAGES, Operation.READ_MESSAGE_TIMELINE));
     }
 }
