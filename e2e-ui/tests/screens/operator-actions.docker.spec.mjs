@@ -118,7 +118,9 @@ const eventsOf = (deliveryId, type) =>
 
 async function openFailures(page, flowId) {
   await page.goto(consoleUrl());
-  await page.click('[data-nav="failures"]');
+  // S10 pre-condition: the Failures screen opens from the Messages landing's Needs attention tab.
+  await page.click('[data-nav="messages"]');
+  await page.getByRole('link', { name: 'Needs attention' }).click();
   await expect(page.locator(`${FAILURES}[data-failures-loaded="true"]`)).toBeVisible();
   await page.getByRole('combobox', { name: 'Flow', exact: true }).selectOption(flowId);
   await expect(page.locator(`${FAILURES}[data-failures-loaded="true"]`)).toBeVisible();

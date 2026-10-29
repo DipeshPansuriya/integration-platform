@@ -345,9 +345,14 @@ function sampleCalls(page) {
 }
 
 // T93 (row 278 close-E7, T-162 gap 2): a mapping is opened from the screens - clicks only.
-test("T93: the Mappings menu lists the run's flows, a flow's routes, and opens the Target B route's mapping", async ({ page }) => {
-  await page.goto(consoleUrl());
-  await page.click('[data-nav="mappings"]');
+// S10 pre-condition: the legacy Mappings menu item is gone - reached through the flow workspace's
+// Mapping tab, then the designer's own "All mappings" link re-opens the worklist.
+test("T93: the flow workspace opens a route's mapping, and the worklist lists the run's flows and routes", async ({ page }) => {
+  await page.goto(`${consoleUrl()}/#/flow/${FLOW_ID}`);
+  await expect(page.locator('[data-page="flow-definition"]')).toBeVisible();
+  await page.click('[data-flow-tab="mapping"]');
+  await expect(page.locator(`${PAGE}[data-mapping-loaded="true"]`)).toBeVisible(); // the Mapping tab opens routes[0]'s designer
+  await page.click('[data-action="all-mappings"]');
   const flows = page.locator('[data-mapping-flows]');
   await expect(flows).toBeVisible();
   const flow = page.locator(`[data-mapping-flow="${FLOW_ID}"]`);

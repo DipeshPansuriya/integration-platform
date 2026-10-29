@@ -88,7 +88,9 @@ function seedDeadLetter(tenantId, flowId, messageId, at, { deadLetterClass, atte
 
 async function openFailures(page) {
   await page.goto(consoleUrl());
-  await page.click('[data-nav="failures"]');
+  // S10 pre-condition: the Failures screen opens from the Messages landing's Needs attention tab.
+  await page.click('[data-nav="messages"]');
+  await page.getByRole('link', { name: 'Needs attention' }).click();
   await expect(page.locator(`${PAGE}[data-failures-loaded="true"]`)).toBeVisible();
 }
 

@@ -106,9 +106,13 @@ async function save(page) {
   return { body: JSON.parse((await request).postData() ?? 'null'), status: (await response).status() };
 }
 
-test('the console menu reaches the rules screen', async ({ page }) => {
+// S10 pre-condition: the legacy "More" menu group is gone - the rules screen is reached through the flow workspace's Rules tab.
+test('the flow workspace reaches the rules screen', async ({ page }) => {
   await page.goto(consoleUrl());
-  await page.click('[data-nav="rules"]');
+  const flowId = await tenantAFlowId(page);
+  await page.goto(`${consoleUrl()}/#/flow/${flowId}`);
+  await expect(page.locator('[data-page="flow-definition"]')).toBeVisible();
+  await page.click('[data-flow-tab="rules"]');
   await expect(page.locator('[data-page="rules-home"]')).toBeVisible();
 });
 
