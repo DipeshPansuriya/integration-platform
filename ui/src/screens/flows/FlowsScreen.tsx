@@ -14,8 +14,13 @@ export default function FlowsScreen({
   onRetry,
   onOpenFlow,
   onNewFlow,
+  onStartFromTemplate,
+  onTemplate,
+  onNewFromTemplate,
+  onChooseTemplate,
 }: FlowsScreenProps) {
   const hasData = Boolean(flows?.length);
+  const startFromTemplate = onStartFromTemplate ?? onTemplate ?? onNewFromTemplate ?? onChooseTemplate;
   const flowRows = flows ?? [];
   return (
     <div className="lb-page" data-page="flows">
@@ -27,6 +32,9 @@ export default function FlowsScreen({
             <Button data-action="filter-flows">Filter</Button>
             <Button variant="primary" data-action="new-flow" onClick={onNewFlow}>
               New Flow
+            </Button>
+            <Button data-action="start-from-template" data-template-entry="true" onClick={startFromTemplate}>
+              Start from template
             </Button>
           </>
         }

@@ -95,7 +95,8 @@ const QUICK_ACTIONS = [
   { label: 'Register a system', href: '#/systems', primary: true },
   { label: 'Import a contract', href: '#/contracts', primary: false },
   { label: 'Define a flow', href: '#/flows', primary: false },
-  { label: 'Create a rule set', href: '#/rules', primary: false }
+  { label: 'Create a rule set', href: '#/rules', primary: false },
+  { label: 'Start from template', href: '#/flows', primary: false }
 ];
 
 // Row 575 (S1, Karan Low 2): `readsConfiguration` is false only when the roles are KNOWN and lack READ_CONFIGURATION (Support, no

@@ -67,6 +67,10 @@ export interface FlowsScreenProps {
   onRetry?: () => void;
   onOpenFlow?: (flow: FlowRow) => void;
   onNewFlow?: () => void;
+  onStartFromTemplate?: () => void;
+  onTemplate?: () => void;
+  onNewFromTemplate?: () => void;
+  onChooseTemplate?: () => void;
 }
 
 export interface FlowDetailDrawerProps {
@@ -93,6 +97,7 @@ export interface NewFlowDrawerProps {
   mappings?: FlowOption[];
   rules?: FlowOption[];
   draft?: FlowDraft | null;
+  initial?: FlowDraft | null;
   onClose?: () => void;
   onSaveDraft?: (draft: FlowDraft) => void;
   onCreateDeploy?: (draft: FlowDraft) => void;
