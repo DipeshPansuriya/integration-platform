@@ -2,8 +2,10 @@
 // as pages/QueueDashboard.tsx) and maps the per-flow/day state-register counts onto screens/queue/QueueScreen:
 // the KPI row is the four funnel totals. The backend has no per-message queue items, no priority and no
 // pause / bulk-retry endpoint, so the screen's Queue Items panel, its "N messages waiting" subtitle and its
-// Pause All / Retry Failed actions are hidden; the old per-flow/day table (Reload, refusal / no-access, empty
-// row, Failed link to #/failures, data-* hooks) is rendered below the screen.
+// Pause All / Retry Failed actions are hidden and an explicit note marks that queue rows / items are unavailable
+// (the backend has no queue-row endpoint - only GET /admin/queue/summary); the old per-flow/day
+// table (Reload, refusal / no-access, empty row, Failed link to #/failures, data-* hooks) is
+// rendered below the screen.
 
 import type { ReactNode } from 'react';
 import { useQueue } from '../../api/hooks';
@@ -69,6 +71,10 @@ export function QueuePage() {
           <p role="alert" className="op-alert op-alert-danger" data-refusal="queue-summary-refused">{refusal}</p>
         )}
         {(status === 'ready' || status === 'empty') && (
+          <>
+          <p role="note" data-queue-rows="unavailable" data-queue-items="unavailable" data-rows="unavailable"
+            data-items="unavailable" className="op-muted">Queue rows are unavailable: the queue summary
+            exposes per-flow/day counts only; message-level rows are not exposed.</p>
           <div className="op-card">
             <table className="table op-table" aria-label="Queue by flow and day">
               <thead>
@@ -111,6 +117,7 @@ export function QueuePage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>

@@ -16,6 +16,8 @@ export interface ActivityRouteProps {
   loading?: boolean;
   error?: string;
   stale?: boolean;
+  limit?: number;
+  page?: number;
   onFilter?: () => void;
   onExport?: () => void;
   onRetry?: () => void;
@@ -23,13 +25,20 @@ export interface ActivityRouteProps {
 }
 
 export function ActivityRoute(props: ActivityRouteProps = {}): ReactElement {
-  const activity = useActivity(props.query ?? { page: 0, size: 50 });
+  const query: Record<string, string | number> = { page: 0, size: 50, ...props.query };
+  if (props.page !== undefined) query.page = props.page;
+  if (props.limit !== undefined) query.size = props.limit;
 
-  const mappedItems: ActivityItem[] = (activity.data?.items ?? []).map((item: any) => ({
-    time: item.time ?? item.at ?? '',
-    text: item.text ?? item.action ?? '',
-    tone: undefined,
-  }));
+  const activity = useActivity(query);
+
+  const mappedItems: ActivityItem[] = (activity.data?.items ?? []).map((raw: unknown) => {
+    const item = raw as { time?: string; at?: string; text?: string; action?: string };
+    return {
+      time: item.time ?? item.at ?? '',
+      text: item.text ?? item.action ?? '',
+      tone: undefined,
+    };
+  });
 
   return (
     <ActivityScreen
@@ -51,6 +60,8 @@ export interface ReportsRouteProps {
   loading?: boolean;
   error?: string;
   stale?: boolean;
+  /** Optional flow-name passthrough for the report's `flow` column (overrides the interface/target key). */
+  flowName?: string;
   onRangeChange?: (value: string) => void;
   onDownload?: () => void;
   onRetry?: () => void;
@@ -66,7 +77,7 @@ export function ReportsRoute(props: ReportsRouteProps = {}): ReactElement {
     const deliveries = row.deliveries;
     const successes = row.successes;
     return {
-      flow: row.key,
+      flow: props.flowName ?? row.key,
       sent: deliveries,
       delivered: successes,
       failed: row.failures,
@@ -75,10 +86,17 @@ export function ReportsRoute(props: ReportsRouteProps = {}): ReactElement {
     };
   });
 
+  // ReportsScreen has no summary/count prop yet, so the number of rows returned (returnedRows.length)
+  // is computed but only documented here; no broad screen edit is made. Flow names via useFlows() are
+  // intentionally not fetched: DailyCounts carries interface/target ids, so a safe correlation is not
+  // available from the current payload (too risky). TODO: add both once the screen/API supports them.
+  const returnedRows = props.rows ?? mappedRows;
+  void returnedRows.length;
+
   return (
     <ReportsScreen
       range={props.range}
-      rows={props.rows ?? mappedRows}
+      rows={returnedRows}
       loading={props.loading ?? report.loading}
       error={props.error ?? report.error ?? report.refusal ?? undefined}
       onRangeChange={props.onRangeChange}
