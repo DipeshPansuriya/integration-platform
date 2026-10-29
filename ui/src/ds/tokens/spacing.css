@@ -5,9 +5,9 @@
   --topbar-h: 54px; /* Topbar height; the theme popover opens 6px below it. */
   --drawer-w: 520px; /* Drawer width (max 92vw). */
   --gap: 14px; /* Gap in every grid: tiles, panels, card grids, KPI rows. */
-  --pad-page-top: 24px; /* Content area top padding. */
-  --pad-page-x: 26px; /* Content area side padding. */
-  --pad-page-bottom: 40px; /* Content area bottom padding. */
+  --pad-page-top: 16px; /* Content area top padding. */
+  --pad-page-x: 16px; /* Content area side padding. */
+  --pad-page-bottom: 16px; /* Content area bottom padding. */
   --space-header: 22px; /* Below the page header. */
   --space-section: 24px; /* Between dashboard rows (tiles, panels, bottom row). */
   --pad-card: 20px; /* Card and panel-header side padding; table cell side padding. */
