@@ -48,6 +48,8 @@ import type { Route } from './route-types';
 import { canOpen, moreFor, navFor, platformTools, showPlatformTools, titleOf, type NavItem } from './nav-model';
 import { NoAccess } from './ui/NoAccess';
 import { PageHeader } from './ui/PageHeader';
+import { Screen } from './console/Screen';
+import { ThemePicker } from './ds/components/shell/ThemePicker.jsx';
 import { focusMainHeading, skipToMain } from './route-focus';
 import { MessagesLanding } from './pages/GuidedLandings';
 import { Approvals } from './pages/Approvals';
@@ -122,6 +124,7 @@ function parseHash(): Route {
 }
 
 export function App() {
+  ThemePicker.useConsoleTheme();
   const [route, setRoute] = useState<Route>(parseHash());
   // Row 310 B11: one count per routed address change - the editor is keyed by it, so #/flow/A -> #/flow/new
   // (or a saved create-mode editor -> #/flow/new again) remounts it empty instead of keeping A's state.
@@ -443,30 +446,42 @@ export function App() {
               <NoAccess refusal="ROLE_NOT_GRANTED" />
             </>
           )}
-          {shown === 'flows' &&
-            (route.flowId ? (
-              <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} roles={roles} />
-            ) : (
-              <FlowsList />
-            ))}
-          {shown === 'versions' && <Versions selectId={route.flowId} />}
-          {shown === 'systems' && <Systems />}
-          {shown === 'queue' && <QueueDashboard />}
-          {shown === 'failures' && <Failures canOperate={canOperate(roles)} />}
-          {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
-          {shown === 'approvals' && <Approvals />}
-          {shown === 'activity' && <Activity />}
-          {shown === 'reports' && <DeliveryReport />}
-          {shown === 'contracts' && <ContractVersions />}
-          {shown === 'rules' && (
-            <Suspense fallback={<p>Loading the rules editor...</p>}>
-              <RulesEditor ruleSetId={route.ruleSetId ?? null} />
-            </Suspense>
+          {shown === 'flows' && (
+            <Screen title={titleOf('flows')}>
+              {route.flowId ? (
+                <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} roles={roles} />
+              ) : (
+                <FlowsList />
+              )}
+            </Screen>
           )}
-          {shown === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
-          {shown === 'destinations' && <Destinations />}
-          {shown === 'home' &&
-            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} roles={roles} />)}
+          {shown === 'versions' && <Screen title={titleOf('versions')}><Versions selectId={route.flowId} /></Screen>}
+          {shown === 'systems' && <Screen title={titleOf('systems')}><Systems /></Screen>}
+          {shown === 'queue' && <Screen title={titleOf('queue')}><QueueDashboard /></Screen>}
+          {shown === 'failures' && <Screen title={titleOf('failures')}><Failures canOperate={canOperate(roles)} /></Screen>}
+          {shown === 'messages' && (
+            <Screen title={titleOf('messages')}>
+              {route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />}
+            </Screen>
+          )}
+          {shown === 'approvals' && <Screen title={titleOf('approvals')}><Approvals /></Screen>}
+          {shown === 'activity' && <Screen title={titleOf('activity')}><Activity /></Screen>}
+          {shown === 'reports' && <Screen title={titleOf('reports')}><DeliveryReport /></Screen>}
+          {shown === 'contracts' && <Screen title={titleOf('contracts')}><ContractVersions /></Screen>}
+          {shown === 'rules' && (
+            <Screen title={titleOf('rules')}>
+              <Suspense fallback={<p>Loading the rules editor...</p>}>
+                <RulesEditor ruleSetId={route.ruleSetId ?? null} />
+              </Suspense>
+            </Screen>
+          )}
+          {shown === 'mappings' && <Screen title={titleOf('mappings')}><MappingDesigner routeId={route.routeId ?? null} /></Screen>}
+          {shown === 'destinations' && <Screen title={titleOf('destinations')}><Destinations /></Screen>}
+          {shown === 'home' && (
+            <Screen title={titleOf('home')}>
+              {session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} roles={roles} />}
+            </Screen>
+          )}
         </main>
       </div>
     </div>

@@ -12,3 +12,12 @@ export type Mode = 'light' | 'dark';
 
 export interface ThemePickerProps { accent?: Accent; mode?: Mode; onAccentChange?: (a: Accent) => void; onModeChange?: (m: Mode) => void; defaultOpen?: boolean; /** Render the popover in flow (no trigger). */ inline?: boolean }
 export declare function ThemePicker(props: ThemePickerProps): React.ReactElement;
+export declare namespace ThemePicker {
+  function useConsoleTheme(options?: { accent?: Accent; mode?: Mode; target?: React.MutableRefObject<HTMLElement | null>; persist?: boolean }): {
+    accent: Accent;
+    mode: Mode;
+    setAccent: (a: Accent) => void;
+    setMode: (m: Mode) => void;
+    toggleMode: () => void;
+  };
+}

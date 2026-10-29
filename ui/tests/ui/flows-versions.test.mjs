@@ -134,7 +134,7 @@ test('§3 list landing exists and App routes #/flows to it, #/flow/<id> to the e
   }
   const app = readFileSync(join(pages, '..', 'App.tsx'), 'utf8');
   // B11: the editor is keyed per address change, so #/flow/A -> #/flow/new (or -> #/flow/B) remounts it empty.
-  assert.match(app, /shown === 'flows' &&\s*\(route\.flowId \?\s*\(?\s*<FlowDefinition key=\{[^}]+\}[^>]*openFlowId=\{route\.flowId\}/);
+  assert.match(app, /shown === 'flows' &&\s*\(\s*<Screen title=\{titleOf\('flows'\)\}>\s*\{route\.flowId \?[\s\S]*<FlowDefinition key=\{[^}]+\}[^>]*openFlowId=\{route\.flowId\}/);
 });
 
 // Row 310 B12 (vijay-developer): Back, Forward or a typed #/ address away from the editor is decided by
