@@ -57,6 +57,14 @@ class RollbackScriptsTest {
     }
 
     @Test
+    void theInterfaceVersionForceDraftInsertRollbackScriptEqualsTheMigrationHeaderBlock() throws IOException {
+        String header = AuditContainerSupport.rollbackSql(
+                AuditContainerSupport.migration("V*__interface_version_force_draft_insert.sql"));
+
+        assertThat(normalised(script("rollback-V2_4_1550.sql"))).isEqualTo(normalised(header));
+    }
+
+    @Test
     void theOutboxInsertRollbackScriptEqualsTheMigrationHeaderBlock() throws IOException {
         String header = AuditContainerSupport.rollbackSql(
                 AuditContainerSupport.migration("V*__audit_outbox_insert_without_relayed_at.sql"));

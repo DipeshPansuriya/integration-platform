@@ -133,9 +133,9 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
     private static final String READ_AUTHOR = "select v.author_id::text as author_id from public.interface_version v";
 
     private static final String INSERT_VERSION = "with ins as ("
-            + "insert into public.interface_version (tenant_id, interface_id, version, status,"
+            + "insert into public.interface_version (tenant_id, interface_id, version,"
             + "    business_key_rule, snapshot, source_contract_version_id, author_id)"
-            + " values (current_setting('app.tenant_id')::uuid, :interface_id::uuid, :version::integer, 'DRAFT',"
+            + " values (current_setting('app.tenant_id')::uuid, :interface_id::uuid, :version::integer,"
             + "    :business_key_rule, :snapshot::jsonb, :source_contract_version_id::uuid, :author_id::uuid)"
             + " returning id, tenant_id) select id::text from ins";
 
