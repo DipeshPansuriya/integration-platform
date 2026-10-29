@@ -3,6 +3,8 @@ package io.integrationplatform.tenantdenial;
 import io.integrationplatform.tenantdenial.EndpointMatrix.Entry;
 import io.integrationplatform.tenantdenial.EndpointMatrix.SeededTenant;
 import java.sql.Connection;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,6 +29,7 @@ final class E13TimelineMatrix implements LaneMatrix {
     private static final String MESSAGES = "/api/v1/admin/messages";
     private static final String TIMELINE = MESSAGES + "/{trackingId}/timeline";
     private static final String FAILURES = MESSAGES + "/failures";
+    private static final String DELIVERED = MESSAGES + "/delivered";
 
     @Override
     public List<Entry> entries() {
@@ -38,7 +41,16 @@ final class E13TimelineMatrix implements LaneMatrix {
                         s -> List.of(messageId(s.a()).toString())),
                 new Entry("GET", FAILURES, false,
                         s -> FAILURES, null, null,
-                        s -> List.of(messageId(s.a()).toString())));
+                        s -> List.of(messageId(s.a()).toString())),
+                // S8 search: the seeded message was accepted today (UTC), so A's search for the day answers A's id
+                new Entry("GET", MESSAGES, false,
+                        s -> MESSAGES + "?day=" + LocalDate.now(ZoneOffset.UTC), null, null,
+                        s -> List.of(messageId(s.a()).toString())),
+                // delivered list: the seeded message never delivered, so A's answer is empty - the marker check
+                // still proves no forgery surfaces tenant B's message
+                new Entry("GET", DELIVERED, false,
+                        s -> DELIVERED, null, null,
+                        s -> List.of()));
     }
 
     @Override

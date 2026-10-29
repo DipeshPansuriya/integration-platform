@@ -107,7 +107,10 @@ class RolePolicyTest {
                 Map.entry(ACKNOWLEDGE_JOB_ALERT, EnumSet.noneOf(Role.class)),
                 // row 578 (CWE-862): the one GLOBAL SSRF allow-list is operator-owned; no tenant role edits or reads it
                 Map.entry(Operation.READ_ALLOWED_HOSTS, EnumSet.noneOf(Role.class)),
-                Map.entry(Operation.EDIT_ALLOWED_HOSTS, EnumSet.noneOf(Role.class)));
+                Map.entry(Operation.EDIT_ALLOWED_HOSTS, EnumSet.noneOf(Role.class)),
+                // the tenant-scoped Destinations screen (TenantAllowedHostController): tenant admin only
+                Map.entry(Operation.READ_DESTINATIONS, EnumSet.of(Role.TENANT_ADMIN)),
+                Map.entry(Operation.EDIT_DESTINATIONS, EnumSet.of(Role.TENANT_ADMIN)));
 
         assertThat(EnumSet.allOf(Operation.class)).as("every operation has a row").isEqualTo(expected.keySet());
         expected.forEach((operation, roles) -> assertThat(RolePolicy.allowedRoles(operation))
