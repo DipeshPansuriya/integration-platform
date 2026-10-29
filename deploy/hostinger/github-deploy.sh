@@ -30,14 +30,14 @@ echo "=== preflight: database (read-only) ==="
 # The real POSTGRES_USER/POSTGRES_DB live in the host .env; compose.yaml defaults
 # (ipass_admin/ipass) may not match. Read them from $ENV_FILE without printing any
 # value. DB_USER/DB_NAME environment overrides still win.
-db_user_default="$(awk -F= '/^POSTGRES_USER=/{ sub(\r$, ""); v=$2; sub(/^"/, "", v); sub(/"$/, "", v); print v; exit }' "$ENV_FILE" 2>/dev/null)"
-db_name_default="$(awk -F= '/^POSTGRES_DB=/{ sub(\r$, ""); v=$2; sub(/^"/, "", v); sub(/"$/, "", v); print v; exit }' "$ENV_FILE" 2>/dev/null)"
+db_user_default="$(awk -F= '/^POSTGRES_USER=/{ sub(/\r$/, ""); v=$2; sub(/^"/, "", v); sub(/"$/ , "", v); print v; exit }' "$ENV_FILE")"
+db_name_default="$(awk -F= '/^POSTGRES_DB=/{ sub(/\r$/, ""); v=$2; sub(/^"/, "", v); sub(/"$/ , "", v); print v; exit }' "$ENV_FILE")"
 db_user="${DB_USER:-${db_user_default:-ipass_admin}}"
 db_name="${DB_NAME:-${db_name_default:-ipass}}"
 db_host_psql="no"
 db_compose_exec="no"
 db_container_exec="no"
-postgres_container="$(docker ps --filter name=postgres --format '{{.ID}}' 2>/dev/null | head -1)"
+postgres_container="$(docker ps --filter name=^/postgres$ --format '{{.ID}}' 2>/dev/null | head -1)"
 if command -v psql >/dev/null 2>&1; then
   if PGPASSWORD="$DB_PASSWORD" psql -h 127.0.0.1 -p 5432 -U "$db_user" -d "$db_name" -X -A -t -c 'SELECT 1' >/dev/null 2>&1; then
     db_host_psql="yes"
