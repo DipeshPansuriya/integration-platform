@@ -30,8 +30,8 @@ echo "=== preflight: database (read-only) ==="
 # The real POSTGRES_USER/POSTGRES_DB live in the host .env; compose.yaml defaults
 # (ipass_admin/ipass) may not match. Read them from $ENV_FILE without printing any
 # value. DB_USER/DB_NAME environment overrides still win.
-db_user_default="$(awk -F= '/^POSTGRES_USER=/{ sub(/\r$/, ""); v=$2; sub(/^"/, "", v); sub(/"$/ , "", v); print v; exit }' "$ENV_FILE")"
-db_name_default="$(awk -F= '/^POSTGRES_DB=/{ sub(/\r$/, ""); v=$2; sub(/^"/, "", v); sub(/"$/ , "", v); print v; exit }' "$ENV_FILE")"
+db_user_default="$(awk -F= '/^POSTGRES_USER=/{ sub(/\r$/, ""); v=$2; sub(/^"/, "", v); sub(/"$/, "", v); print v; exit }' "$ENV_FILE")"
+db_name_default="$(awk -F= '/^POSTGRES_DB=/{ sub(/\r$/, ""); v=$2; sub(/^"/, "", v); sub(/"$/, "", v); print v; exit }' "$ENV_FILE")"
 db_user="${DB_USER:-${db_user_default:-ipass_admin}}"
 db_name="${DB_NAME:-${db_name_default:-ipass}}"
 db_host_psql="no"
