@@ -57,11 +57,14 @@ test('01-§1 acceptance pairs hold in both themes', () => {
   }
 });
 
-test('[data-nav] contract: the six screen entries keep their exact values', () => {
-  const app = readFileSync(join(src, 'App.tsx'), 'utf8') + readFileSync(join(src, 'nav-model.ts'), 'utf8');
-  // Row 575 S1: the menu table lives in nav-model.ts. Values may be declared in that table (`nav: 'flows'`) or inline as
-  // data-nav="flows" — either way the exact literal must exist in the shell source.
-  for (const entry of ['flows', 'versions', 'systems', 'contracts', 'rules', 'mappings']) {
+test('[data-nav] contract: every live menu and tab entry keeps its exact value', () => {
+  const app = readFileSync(join(src, 'App.tsx'), 'utf8')
+    + readFileSync(join(src, 'nav-model.ts'), 'utf8')
+    + readFileSync(join(src, 'section-tabs.ts'), 'utf8');
+  // Row 575 S1: the menu and tab tables live in nav-model.ts and section-tabs.ts. Values may be declared in a table
+  // (`nav: 'flows'`) or inline as data-nav="flows" — either way the exact literal must exist in the shell source.
+  // S10: the temporary legacy entries (failures, versions, rules, mappings) are gone from every menu and tab.
+  for (const entry of ['home', 'flows', 'systems', 'approvals', 'messages', 'reports', 'queue', 'activity', 'contracts', 'destinations']) {
     const declared = new RegExp(`nav: '${entry}'`).test(app) || app.includes(`data-nav="${entry}"`);
     assert.ok(declared, `data-nav="${entry}" must survive the redesign`);
   }

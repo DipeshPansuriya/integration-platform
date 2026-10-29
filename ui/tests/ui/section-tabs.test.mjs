@@ -10,10 +10,11 @@ import { fileURLToPath } from 'node:url';
 import { findAll, mount } from './hook-harness.mjs';
 
 const { sectionTabs, sectionOf, REPORT_TABS, SYSTEMS_TABS } = await import('../../src/section-tabs.ts');
-const { moreFor, navFor, titleOf, canOpen } = await import('../../src/nav-model.ts');
+const { navFor, titleOf, canOpen } = await import('../../src/nav-model.ts');
 const { ROUTE_PAGES } = await import('../../src/route-types.ts');
 
 const read = (p) => readFileSync(fileURLToPath(new URL(`../../src/${p}`, import.meta.url)), 'utf8');
+const navs = (items) => items.map((i) => i.nav);
 
 test('reports hub: Queue, Daily delivery, Activity in that order, each a link to its legacy hash', () => {
   assert.deepEqual(REPORT_TABS.map((t) => [t.label, t.href]), [['Queue', '#/queue'], ['Daily delivery', '#/reports'], ['Activity', '#/activity']]);
@@ -44,14 +45,13 @@ test('sectionOf: the menu item that owns each page', () => {
   assert.equal(sectionOf('flows'), null);
 });
 
-test('the S1 More group loses queue, activity and contracts; the other legacy entries stay', () => {
-  assert.deepEqual(moreFor(['TENANT_ADMIN']).map((i) => i.nav), ['failures', 'versions', 'rules', 'mappings']);
-  assert.deepEqual(moreFor(['SUPPORT']).map((i) => i.nav), ['failures']);
-  assert.deepEqual(moreFor(['CONFIGURATOR']).map((i) => i.nav), ['versions', 'rules', 'mappings']);
+test('S10: the More group is gone - the legacy screens appear in no menu; their routes and tabs are untouched', () => {
+  const menu = navs(navFor(null));
+  for (const nav of ['failures', 'versions', 'rules', 'mappings', 'queue', 'activity', 'contracts']) assert.ok(!menu.includes(nav), nav);
 });
 
 test('every data-nav the specs click still has exactly one home: menu or tab, never both', () => {
-  const menu = [...navFor(null), ...moreFor(null)].map((i) => i.nav);
+  const menu = navs(navFor(null));
   const tabs = [...REPORT_TABS, ...SYSTEMS_TABS].map((t) => t.nav).filter(Boolean);
   for (const nav of ['queue', 'activity', 'contracts']) assert.ok(!menu.includes(nav) && tabs.includes(nav), nav);
   for (const nav of ['reports', 'systems']) assert.ok(menu.includes(nav) && !tabs.includes(nav), nav);

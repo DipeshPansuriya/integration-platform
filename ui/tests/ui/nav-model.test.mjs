@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { navFor, moreFor, canOpen, showPlatformTools, platformTools, titleOf, OPERATION_ROLES, PRIMARY_NAV, LEGACY_NAV, PAGE_NEEDS, ALLOW_ALL_PAGES, REFUSED_PAGES } = await import('../../src/nav-model.ts');
+const { navFor, canOpen, showPlatformTools, platformTools, titleOf, OPERATION_ROLES, PRIMARY_NAV, PAGE_NEEDS, ALLOW_ALL_PAGES, REFUSED_PAGES } = await import('../../src/nav-model.ts');
 const { ROUTE_PAGES } = await import('../../src/route-types.ts');
 const here = dirname(fileURLToPath(import.meta.url));
 const labels = (items) => items.map((i) => i.label);
@@ -31,7 +31,6 @@ test('navFor: roles NOT LOADED YET (null, undefined) show all six - the server 4
 
 test('navFor: roles LOADED as an empty list (no grants) see Home only, never the full menu (Varun blocker, row 575)', () => {
   assert.deepEqual(labels(navFor([])), ['Home']);
-  assert.deepEqual(navs(moreFor([])), []);
   assert.equal(canOpen([], 'flows'), false);
   assert.equal(canOpen([], 'messages'), false);
   assert.equal(canOpen([], 'home'), true);
@@ -60,16 +59,15 @@ test('each item\'s role set equals the RolePolicy operation it depends on', () =
   }
 });
 
-test('moreFor: the temporary legacy group keeps every data-nav and is role-filtered', () => {
-  assert.deepEqual(navs(moreFor(['TENANT_ADMIN'])), ['failures', 'versions', 'rules', 'mappings']); // S6: queue, activity, contracts are tabs
-  assert.deepEqual(navs(moreFor(['CONFIGURATOR'])), ['versions', 'rules', 'mappings']);
-  assert.deepEqual(navs(moreFor(['SUPPORT'])), ['failures']);
-  assert.deepEqual(navs(moreFor(['APPROVER'])), ['versions', 'rules', 'mappings']);
-  assert.equal(moreFor(null).length, 4);
+test('S10: the More group is gone - no moreFor export, no LEGACY_NAV, and App.tsx renders no more group', () => {
+  const model = readFileSync(join(here, '..', '..', 'src', 'nav-model.ts'), 'utf8');
+  const app = readFileSync(join(here, '..', '..', 'src', 'App.tsx'), 'utf8');
+  assert.ok(!model.includes('LEGACY_NAV') && !model.includes('moreFor'), 'the temporary legacy group and its filter are removed');
+  assert.ok(!app.includes('moreItems') && !app.includes('data-nav-group="more"'), 'App.tsx renders no More group');
 });
 
-test('no data-nav is shown twice (primary vs legacy group)', () => {
-  const all = [...navFor(null), ...moreFor(null)].map((i) => i.nav);
+test('no data-nav is shown twice (primary menu vs section tabs)', () => {
+  const all = navFor(null).map((i) => i.nav);
   assert.equal(new Set(all).size, all.length);
 });
 
@@ -121,21 +119,26 @@ test('every route page is mapped to a role need or listed as allow-all - a new p
 });
 
 test('every menu item points at a mapped page whose need equals the item need', () => {
-  for (const item of [...PRIMARY_NAV, ...LEGACY_NAV]) {
+  for (const item of [...PRIMARY_NAV]) {
     if (item.page === 'home') continue;
     assert.equal(PAGE_NEEDS[item.page], item.needs, `${item.nav}: menu need and canOpen need must match`);
   }
 });
 
 test('data-initial marks are unique across the menu (collapsed rail)', () => {
-  const marks = [...PRIMARY_NAV, ...LEGACY_NAV].map((i) => i.initial);
+  const marks = [...PRIMARY_NAV].map((i) => i.initial);
   assert.equal(new Set(marks).size, marks.length, marks.join(','));
 });
 
-test('titleOf names the screen for the NoAccess heading', () => {
+test('titleOf names the screen for the NoAccess heading - menu items and non-menu screens alike', () => {
   assert.equal(titleOf('flows'), 'Flows');
   assert.equal(titleOf('messages'), 'Messages');
   assert.equal(titleOf('home'), 'Home');
+  // S10: the four screens lost their menu entries; typing their hash still names the screen.
+  assert.equal(titleOf('failures'), 'Failures');
+  assert.equal(titleOf('versions'), 'Versions');
+  assert.equal(titleOf('rules'), 'Rules');
+  assert.equal(titleOf('mappings'), 'Mappings');
 });
 
 test('Destinations is open to READ_CONFIGURATION roles (TENANT_ADMIN, CONFIGURATOR, APPROVER, READ_ONLY) and refused for SUPPORT', () => {

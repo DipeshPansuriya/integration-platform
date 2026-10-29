@@ -29,9 +29,9 @@ import { clearAttempt, landingAfterLogin, markLoggedOut, rememberReturnTo, takeR
 import { Destinations } from './pages/Destinations';
 import { DeliveredMessages } from './pages/DeliveredMessages';
 import { safeDecode } from './safe-decode';
-// Row 575 (S1 of the guided flow): the six-item role-aware menu is one table (nav-model.ts); legacy screens sit in a temporary "More" group.
+// Row 575 (S1 of the guided flow): the six-item role-aware menu is one table (nav-model.ts); S10 removed the temporary "More" group.
 import type { Route } from './route-types';
-import { canOpen, moreFor, navFor, platformTools, showPlatformTools, titleOf, type NavItem } from './nav-model';
+import { canOpen, navFor, platformTools, showPlatformTools, titleOf, type NavItem } from './nav-model';
 import { NoAccess } from './ui/NoAccess';
 import { PageHeader } from './ui/PageHeader';
 import { DashboardRoute, FlowsRoute, SystemsRoute, ContractsRoute, RulesRoute, MappingsRoute, QueueRoute, FailuresRoute, ActivityRoute, ReportsRoute } from './console/adapters';
@@ -345,7 +345,6 @@ export function App() {
   // Row 575 (S1): the roles GET /api/v1/me answered; null = unknown, so nothing is hidden (the server's 403 stays the gate).
   // null = not loaded / failed (everything shown); a LOADED empty list means no grants (Home only) - Varun blocker, row 575.
   const roles = Array.isArray(me?.roles) ? me.roles : null;
-  const moreItems = moreFor(roles);
   const open = canOpen(roles, route.page);
   const shown = open ? route.page : null;
 
@@ -468,12 +467,6 @@ export function App() {
             <p className="nav-title">Workspace</p>
             {navFor(roles).map((item) => renderNavItem(item))}
           </div>
-          {moreItems.length > 0 && (
-            <div className="nav-group" data-nav-group="more">
-              <p className="nav-title">More</p>
-              {moreItems.map((item) => renderNavItem(item))}
-            </div>
-          )}
         </nav>
         <main className="content" id="main-content" tabIndex={-1}>
           {/* Row 575 (S1): a screen the known roles cannot use shows the NoAccess state, never a blank page. UX only - the server answers 403 regardless. */}

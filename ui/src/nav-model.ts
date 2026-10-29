@@ -28,17 +28,6 @@ export const PRIMARY_NAV: readonly NavItem[] = [
   { label: 'Reports', nav: 'reports', hash: '#/reports', page: 'reports', needs: 'READ_MESSAGE_TIMELINE', initial: 'Re' },
 ];
 
-/**
- * TEMPORARY "More" group (removed by S10): the legacy screens keep their exact data-nav values and hashes until S3-S6 move
- * them under Messages / Reports / Systems / the flow workspace, so no screen spec loses its click target.
- */
-export const LEGACY_NAV: readonly NavItem[] = [
-  { label: 'Failures', nav: 'failures', hash: '#/failures', page: 'failures', needs: 'READ_MESSAGE_TIMELINE', initial: 'Fa' },
-  { label: 'Versions', nav: 'versions', hash: '#/versions', page: 'versions', needs: 'READ_CONFIGURATION', initial: 'V' },
-  { label: 'Rules', nav: 'rules', hash: '#/rules', page: 'rules', needs: 'READ_CONFIGURATION', initial: 'Ru' },
-  { label: 'Mappings', nav: 'mappings', hash: '#/mappings', page: 'mappings', needs: 'READ_CONFIGURATION', initial: 'Ma' },
-];
-
 type Roles = readonly string[] | null | undefined;
 
 /** True only while the roles are not loaded. A loaded empty list is a real state (no grants), never "unknown". */
@@ -52,11 +41,6 @@ function allowed(roles: Roles, needs: Need): boolean {
 /** The primary items this role can use (TA 6, CF 3, AP 4, SU 3, RO 5; unknown roles: all six). */
 export function navFor(roles: Roles): NavItem[] {
   return PRIMARY_NAV.filter((item) => allowed(roles, item.needs));
-}
-
-/** The temporary legacy group, filtered by the same rule. */
-export function moreFor(roles: Roles): NavItem[] {
-  return LEGACY_NAV.filter((item) => allowed(roles, item.needs));
 }
 
 /** Screens every signed-in role may open (Home, and the sign-in card which has no shell). */
@@ -89,11 +73,20 @@ export function canOpen(roles: Roles, page: Route['page']): boolean {
   return need !== undefined && allowed(roles, need);
 }
 
+/**
+ * Screens that are neither menu items nor tabs (S10: the More group is gone) still name themselves above a NoAccess state.
+ * Their routes and PAGE_NEEDS stay; only the menu entry was removed.
+ */
+const ROLE_SCREEN_NAMES: Partial<Record<Route['page'], string>> = {
+  failures: 'Failures', versions: 'Versions', rules: 'Rules', mappings: 'Mappings',
+};
+
 /** The screen's name, for the heading above a NoAccess state. */
 export function titleOf(page: Route['page']): string {
   // Queue, Activity and Contracts are tabs now (S6), not menu items; their tab labels name them.
   const named = [...REPORT_TABS, ...SYSTEMS_TABS].find((t) => t.page === page && t.nav);
-  return [...PRIMARY_NAV, ...LEGACY_NAV].find((item) => item.page === page)?.label ?? named?.label ?? 'This screen';
+  // S10: the four screens lost their menu entries; typing their hash still names the screen.
+  return [...PRIMARY_NAV].find((item) => item.page === page)?.label ?? named?.label ?? ROLE_SCREEN_NAMES[page] ?? 'This screen';
 }
 
 /** Keycloak and Kafka UI are platform-operator consoles: tenant admin only, and never when the roles are unknown. */
