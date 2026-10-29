@@ -5,6 +5,7 @@
 // reason to skip a server check, and no API answer is filtered here.
 // Roles NOT LOADED (null / undefined: /me pending or failed) -> everything shown. Roles LOADED but empty (no grants) -> Home only.
 import type { Route } from './route-types';
+import { REPORT_TABS, SYSTEMS_TABS } from './section-tabs';
 
 export type Need = 'ALL' | 'READ_CONFIGURATION' | 'READ_MESSAGE_TIMELINE' | 'APPROVE_VERSION';
 
@@ -32,11 +33,8 @@ export const PRIMARY_NAV: readonly NavItem[] = [
  * them under Messages / Reports / Systems / the flow workspace, so no screen spec loses its click target.
  */
 export const LEGACY_NAV: readonly NavItem[] = [
-  { label: 'Queue', nav: 'queue', hash: '#/queue', page: 'queue', needs: 'READ_MESSAGE_TIMELINE', initial: 'Q' },
   { label: 'Failures', nav: 'failures', hash: '#/failures', page: 'failures', needs: 'READ_MESSAGE_TIMELINE', initial: 'Fa' },
-  { label: 'Activity', nav: 'activity', hash: '#/activity', page: 'activity', needs: 'READ_MESSAGE_TIMELINE', initial: 'Ac' },
   { label: 'Versions', nav: 'versions', hash: '#/versions', page: 'versions', needs: 'READ_CONFIGURATION', initial: 'V' },
-  { label: 'Contracts', nav: 'contracts', hash: '#/contracts', page: 'contracts', needs: 'READ_CONFIGURATION', initial: 'C' },
   { label: 'Rules', nav: 'rules', hash: '#/rules', page: 'rules', needs: 'READ_CONFIGURATION', initial: 'Ru' },
   { label: 'Mappings', nav: 'mappings', hash: '#/mappings', page: 'mappings', needs: 'READ_CONFIGURATION', initial: 'Ma' },
 ];
@@ -93,7 +91,9 @@ export function canOpen(roles: Roles, page: Route['page']): boolean {
 
 /** The screen's name, for the heading above a NoAccess state. */
 export function titleOf(page: Route['page']): string {
-  return [...PRIMARY_NAV, ...LEGACY_NAV].find((item) => item.page === page)?.label ?? 'This screen';
+  // Queue, Activity and Contracts are tabs now (S6), not menu items; their tab labels name them.
+  const named = [...REPORT_TABS, ...SYSTEMS_TABS].find((t) => t.page === page && t.nav);
+  return [...PRIMARY_NAV, ...LEGACY_NAV].find((item) => item.page === page)?.label ?? named?.label ?? 'This screen';
 }
 
 /** Keycloak and Kafka UI are platform-operator consoles: tenant admin only, and never when the roles are unknown. */

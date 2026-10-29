@@ -48,11 +48,11 @@ import type { Route } from './route-types';
 import { canOpen, moreFor, navFor, platformTools, showPlatformTools, titleOf, type NavItem } from './nav-model';
 import { NoAccess } from './ui/NoAccess';
 import { PageHeader } from './ui/PageHeader';
-import { Screen } from './console/Screen';
-import { ThemePicker } from './ds/components/shell/ThemePicker.jsx';
 import { focusMainHeading, skipToMain } from './route-focus';
 import { MessagesLanding } from './pages/GuidedLandings';
 import { Approvals } from './pages/Approvals';
+import { SectionTabs } from './ui/SectionTabs';
+import { sectionOf } from './section-tabs';
 import { canOperate } from './pages/message-guide';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
@@ -124,7 +124,6 @@ function parseHash(): Route {
 }
 
 export function App() {
-  ThemePicker.useConsoleTheme();
   const [route, setRoute] = useState<Route>(parseHash());
   // Row 310 B11: one count per routed address change - the editor is keyed by it, so #/flow/A -> #/flow/new
   // (or a saved create-mode editor -> #/flow/new again) remounts it empty instead of keeping A's state.
@@ -325,7 +324,10 @@ export function App() {
   const shown = open ? route.page : null;
 
   function renderNavItem(entry: NavItem) {
-    const active = route.page === entry.page;
+    const exact = route.page === entry.page;
+    // Row 575 S6: a hub tab's page (queue, activity, contracts) keeps its owning item highlighted - aria-current="true" (the section), while the tab itself is the page.
+    const owns = !exact && sectionOf(route.page) === entry.page;
+    const active = exact || owns;
     return (
       <a
         key={entry.nav}
@@ -334,7 +336,7 @@ export function App() {
         data-initial={entry.initial}
         href={entry.hash}
         title={entry.label}
-        aria-current={active ? 'page' : undefined}
+        aria-current={exact ? 'page' : owns ? 'true' : undefined}
       >
         <span className="nav-icon-pill" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d={NAV_ICONS[entry.nav] || ''} /></svg></span>
         <span className="nav-label">{entry.label}</span>
@@ -446,42 +448,31 @@ export function App() {
               <NoAccess refusal="ROLE_NOT_GRANTED" />
             </>
           )}
-          {shown === 'flows' && (
-            <Screen title={titleOf('flows')}>
-              {route.flowId ? (
-                <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} roles={roles} />
-              ) : (
-                <FlowsList />
-              )}
-            </Screen>
-          )}
-          {shown === 'versions' && <Screen title={titleOf('versions')}><Versions selectId={route.flowId} /></Screen>}
-          {shown === 'systems' && <Screen title={titleOf('systems')}><Systems /></Screen>}
-          {shown === 'queue' && <Screen title={titleOf('queue')}><QueueDashboard /></Screen>}
-          {shown === 'failures' && <Screen title={titleOf('failures')}><Failures canOperate={canOperate(roles)} /></Screen>}
-          {shown === 'messages' && (
-            <Screen title={titleOf('messages')}>
-              {route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />}
-            </Screen>
-          )}
-          {shown === 'approvals' && <Screen title={titleOf('approvals')}><Approvals /></Screen>}
-          {shown === 'activity' && <Screen title={titleOf('activity')}><Activity /></Screen>}
-          {shown === 'reports' && <Screen title={titleOf('reports')}><DeliveryReport /></Screen>}
-          {shown === 'contracts' && <Screen title={titleOf('contracts')}><ContractVersions /></Screen>}
+          {shown && <SectionTabs page={route.page} />}
+          {shown === 'flows' &&
+            (route.flowId ? (
+              <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} roles={roles} />
+            ) : (
+              <FlowsList />
+            ))}
+          {shown === 'versions' && <Versions selectId={route.flowId} />}
+          {shown === 'systems' && <Systems />}
+          {shown === 'queue' && <QueueDashboard />}
+          {shown === 'failures' && <Failures canOperate={canOperate(roles)} />}
+          {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
+          {shown === 'approvals' && <Approvals />}
+          {shown === 'activity' && <Activity />}
+          {shown === 'reports' && <DeliveryReport />}
+          {shown === 'contracts' && <ContractVersions />}
           {shown === 'rules' && (
-            <Screen title={titleOf('rules')}>
-              <Suspense fallback={<p>Loading the rules editor...</p>}>
-                <RulesEditor ruleSetId={route.ruleSetId ?? null} />
-              </Suspense>
-            </Screen>
+            <Suspense fallback={<p>Loading the rules editor...</p>}>
+              <RulesEditor ruleSetId={route.ruleSetId ?? null} />
+            </Suspense>
           )}
-          {shown === 'mappings' && <Screen title={titleOf('mappings')}><MappingDesigner routeId={route.routeId ?? null} /></Screen>}
-          {shown === 'destinations' && <Screen title={titleOf('destinations')}><Destinations /></Screen>}
-          {shown === 'home' && (
-            <Screen title={titleOf('home')}>
-              {session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} roles={roles} />}
-            </Screen>
-          )}
+          {shown === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
+          {shown === 'destinations' && <Destinations />}
+          {shown === 'home' &&
+            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} roles={roles} />)}
         </main>
       </div>
     </div>

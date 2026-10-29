@@ -47,7 +47,7 @@ async function load(page, apiSpecifiers) {
           b.onLoad({ filter: /\.css$/ }, () => ({ contents: '', loader: 'js' })); // pages import their own stylesheet; Vite handles it, the harness ignores it
           b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: STUBS[a.path], loader: 'js' }));
           b.onLoad({ filter: /.*/, namespace: 'api' }, () => ({
-            contents: 'export default null;\n' + [...new Set(['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery', 'queueSummary', 'deliveryReport', ...Object.keys(globalThis.__hookHarness.api)])]
+            contents: 'export default null;\n' + [...new Set(['messageTimeline', 'messageFailures', 'listFlows', 'replayDelivery', 'retryDelivery', 'queueSummary', 'deliveryReport', 'readMyRoles', 'issueSourceCredential', 'listSourceCredentials', 'revokeSourceCredential', 'rotateSourceCredential', 'approveApprovedTable', 'listApprovedTables', 'requestApprovedTable', 'revokeApprovedTable', ...Object.keys(globalThis.__hookHarness.api)])]
               .map((n) => `export const ${n} = (...a) => globalThis.__hookHarness.api.${n}(...a);`).join('\n'),
             loader: 'js'
           }));

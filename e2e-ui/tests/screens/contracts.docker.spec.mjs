@@ -74,6 +74,7 @@ async function importThroughApi(page, system, label, document) {
 
 async function openContracts(page) {
   await page.goto(consoleUrl());
+  await page.click('[data-nav="systems"]'); // row 575 S6: contracts is a tab of the systems hub now
   await page.click('[data-nav="contracts"]');
   await expect(page.locator(`${PAGE}[data-contracts-loaded="true"]`)).toBeVisible();
 }

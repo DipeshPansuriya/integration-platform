@@ -117,6 +117,7 @@ test('Contracts: 8px between a draft version\'s change note and its Submit butto
     system, role: 'TARGET_REQUEST', versionLabel: '1.0', format: 'JSON_SCHEMA',
     document: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { id: { type: 'string' } } }
   }), `contract ${system}`);
+  await page.click('[data-nav="systems"]'); // row 575 S6: contracts is a tab of the systems hub now
   await page.click('[data-nav="contracts"]');
   await expect(page.locator('[data-page="contracts"][data-contracts-loaded="true"]')).toBeVisible();
 

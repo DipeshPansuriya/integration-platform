@@ -68,6 +68,7 @@ const snapshot = async (messageId, deliveryId) => ({
 /** Tenant A's dashboard figures for one flow and UTC day (QueueDashboard.tsx:41, :58-60 on main). */
 async function dashboardFigures(page, flowId, day) {
   await page.goto(`${bsEnv('consoleUrl')}/`);
+  await page.click('[data-nav="reports"]'); // row 575 S6: queue is a tab of the reports hub now
   await page.click('[data-nav="queue"]');
   await expect(page.locator(`${QUEUE}[data-queue-loaded="true"]`)).toBeVisible();
   const row = page.locator(`[data-queue-row="${flowId}"][data-day="${day}"]`);
