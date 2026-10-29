@@ -85,7 +85,29 @@ public class MessageTrackingController {
         return ResponseEntity.ok(service.failures(flowId, date));
     }
 
-    /** The one denied-attempt record a path-named foreign row earns: bound tenant, method and the raw request path (which carries the id; the recorder neutralises it). */
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Up to 50 bound-tenant messages matching the search"),
+            @ApiResponse(responseCode = "400", description = "Invalid or missing arguments",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+            @ApiResponse(responseCode = "403", description = "NO_BOUND_USER, or ROLE_NOT_GRANTED",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+    @GetMapping("")
+    public ResponseEntity<?> search(
+            @RequestParam(value = "day", required = true)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate day,
+            @RequestParam(value = "businessKey", required = false) String businessKey,
+            @RequestParam(value = "flowId", required = false) UUID flowId) {
+        actors.requireActor();
+        if (businessKey != null && !businessKey.isBlank() && flowId == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "flowId is required when businessKey is given"));
+        }
+        if (businessKey == null && day == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "day is required"));
+        }
+        List<MessageTrackingService.SearchResult> results = service.search(businessKey, flowId, day);
+        return ResponseEntity.ok().header("Cache-Control", "no-store").body(results);
+    }
+
     private void recordPathIdDenial(HttpServletRequest request) {
         TenantDenialRecorder recorder = recorders.getIfAvailable();
         if (recorder == null) {
