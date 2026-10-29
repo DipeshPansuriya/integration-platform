@@ -221,7 +221,8 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
                 + " from public.message",
                 cond.toString(), params,
                 (rs, n) -> new MessageRow(rs.getString("id"), rs.getString("interface_id"), rs.getString("state"),
-                        instant(rs, "accepted_at")));
+                        instant(rs, "accepted_at")),
+                "accepted_at desc, id desc", 50);
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {
