@@ -415,6 +415,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/messages/delivered": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["delivered"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/messages/deliveries/{deliveryId}/replay": {
         parameters: {
             query?: never;
@@ -932,6 +964,14 @@ export interface components {
             /** Format: uuid */
             targetId?: string;
         };
+        Delivered: {
+            deliveredAt?: string;
+            deliveryId?: string;
+            flowId?: string;
+            outcome?: string;
+            targetId?: string;
+            trackingId?: string;
+        };
         DeliveryConflict: {
             error: string;
             /** @enum {string} */
@@ -1076,6 +1116,12 @@ export interface components {
             error?: string;
             /** @description Why the table is refused (the engine's own reason) */
             reason?: string;
+        };
+        SearchResult: {
+            acceptedAt?: string;
+            flowId?: string;
+            state?: string;
+            trackingId?: string;
         };
         StageTime: {
             /** Format: int64 */
@@ -2333,6 +2379,80 @@ export interface operations {
             };
             /** @description Not found: the mapping is unknown, not a uuid, or not visible to the bound tenant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    search: {
+        parameters: {
+            query: {
+                day: string;
+                businessKey?: string;
+                flowId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Up to 50 bound-tenant messages matching the search */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+            /** @description Invalid or missing arguments */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+            /** @description NO_BOUND_USER, or ROLE_NOT_GRANTED */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigErrorBody"];
+                };
+            };
+        };
+    };
+    delivered: {
+        parameters: {
+            query?: {
+                flowId?: string;
+                date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Delivered"][];
+                };
+            };
+            /** @description NO_BOUND_USER, or ROLE_NOT_GRANTED: a message-timeline read */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

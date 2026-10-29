@@ -61,6 +61,11 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
             Instant finishedAt, String outcomeClass) {
     }
 
+    /** A successfully delivered message with the last attempt's outcome class. */
+    record DeliveredRow(String trackingId, String deliveryId, String flowId, String targetId,
+            String outcomeClass, Instant deliveredAt) {
+    }
+
     /** T108: a message's payload body and the masked-field list of the interface version it was accepted on. */
     record MaskedSource(String bodyJson, String maskedFieldsJson) {
     }
@@ -161,6 +166,22 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
                         rs.getString("interface_id"), rs.getString("target_id"), rs.getString("dead_letter_class"),
                         rs.getString("attempt_detail"), rs.getString("dead_letter_detail"),
                         instant(rs, "updated_at")));
+    }
+
+    List<DeliveredRow> deliveredMessages(UUID flowId, Instant dayStart, Instant dayEnd) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        return query("select d.message_id::text as tracking_id, d.id::text as delivery_id,"
+                        + " d.interface_id::text as interface_id, d.target_id::text as target_id,"
+                        + " d.updated_at,"
+                        + " (select a.outcome_class from public.delivery_attempt a"
+                        + "   where a.delivery_id = d.id and a.tenant_id = d.tenant_id"
+                        + "   order by a.finished_at desc nulls last, a.id desc limit 1) as outcome_class"
+                        + " from public.delivery d",
+                narrowed("d.state = 'DELIVERED'", "d.interface_id", "d.created_at", flowId, dayStart, dayEnd, params),
+                params,
+                (rs, n) -> new DeliveredRow(rs.getString("tracking_id"), rs.getString("delivery_id"),
+                        rs.getString("interface_id"), rs.getString("target_id"),
+                        rs.getString("outcome_class"), instant(rs, "updated_at")));
     }
 
     /** The base condition, narrowed to one flow and one UTC day when given (constant fragments only). */

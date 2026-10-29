@@ -24,6 +24,8 @@ public class MessageEndpointRoles implements ApiOperationRules {
                 // E12 failure-diagnosis read side: failed and dead-lettered messages per flow and day
                 new Rule("GET", MESSAGES + "/failures", Operation.READ_MESSAGE_TIMELINE),
                 // S8: business-key / recent message search (read only, tenant-bound)
-                new Rule("GET", MESSAGES, Operation.READ_MESSAGE_TIMELINE));
+                new Rule("GET", MESSAGES, Operation.READ_MESSAGE_TIMELINE),
+                // Successfully delivered messages per flow and day
+                new Rule("GET", MESSAGES + "/delivered", Operation.READ_MESSAGE_TIMELINE));
     }
 }

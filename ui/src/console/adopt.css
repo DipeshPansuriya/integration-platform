@@ -1,0 +1,297 @@
+/*
+ * W6 (iPaaS Console design adoption): the console takes the DS look wholesale.
+ *
+ * Loaded LAST in main.tsx (after tokens.css, ui/base.css and the ds.css shim). It does not
+ * edit tokens.css - those hex pairs stay pinned by tests/ui/shell-tokens.test.mjs - it
+ * re-points the app's --color-accent* family at the DS accent engine (data-accent on <html>,
+ * six accents x light/dark), switches the structural tokens to the prototype values, and
+ * restyles the existing shell markup (.topbar / .sidenav / .nav-item / main.content) so every
+ * data-* hook, landmark and hash route stays exactly as the e2e suite expects.
+ * Spec: ipaas-console-design SKILL.md sections 2-4. Tokens only - no colour literal.
+ */
+
+/* --- 1. Accent engine: the app accent follows data-accent (0,2,0 beats tokens.css 0,1,0) --- */
+:root[data-theme],
+:root:not([data-theme]) {
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-h);
+  --color-link: var(--accent-ink);
+  --color-accent-faint: var(--accent-faint);
+  --color-accent-faint-ink: var(--accent-fi);
+  --color-accent-soft: var(--accent-soft);
+  --color-halo: var(--halo);
+  --color-focus: var(--accent);
+  --color-focus-dark: var(--accent);
+  --color-glass: var(--glass);
+  --shadow-btn: 0 2px 12px var(--halo);
+
+  /* structure: prototype values (section 2) */
+  --r-1: 10px;
+  --r-2: 14px;
+  --r-3: 18px;
+  --tr: 180ms cubic-bezier(.2, .8, .3, 1);
+  --nav-w: 248px;
+  --topbar-h: 54px;
+  --content-max: none;
+}
+
+/* --- 2. Page wash: the tinted gradient over the canvas, only the content column scrolls --- */
+body {
+  background: var(--wash), var(--bg);
+  background-attachment: fixed;
+}
+
+/* --- 3. Top bar --- */
+.topbar {
+  height: var(--topbar-h);
+  padding: 0 22px;
+  gap: 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--bdr);
+  backdrop-filter: none;
+}
+:root[data-theme="dark"] .topbar {
+  border-bottom-color: var(--bdr-s);
+}
+.topbar .brand {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+.topbar .cmd-search {
+  height: 36px;
+  max-width: 440px;
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-radius: var(--r-1);
+  box-shadow: var(--sh-card);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.topbar .cmd-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.topbar .env-badge {
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  color: var(--ink3);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.topbar .btn-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--bdr);
+  background: var(--surface);
+  color: var(--ink3);
+}
+.topbar .btn-icon:hover {
+  border-color: var(--bdr-s);
+  box-shadow: var(--sh-1);
+}
+.topbar .avatar-btn {
+  padding: 3px 9px 3px 3px;
+  border-radius: 9px;
+  border: 1px solid var(--bdr);
+  background: var(--surface);
+}
+.topbar .avatar-circle {
+  width: 26px;
+  height: 26px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  color: var(--on-accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+/* the DS ThemePicker popover anchors under the top bar */
+.topbar .ip-cpop-wrap {
+  position: relative;
+}
+.topbar .ip-cpop {
+  right: 0;
+  top: calc(100% + 10px);
+}
+
+/* --- 4. Side nav: logo block, uppercase group titles, icon pills, count badges --- */
+.sidenav {
+  width: var(--nav-w);
+  background: var(--surface);
+  border-right: 1px solid var(--bdr);
+  padding: 0 8px 8px;
+}
+.sidenav .sb-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 8px 20px;
+}
+.sidenav .sb-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -.03em;
+  color: var(--ink);
+}
+.sidenav .sb-ver {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink3);
+}
+.shell-collapsed .sidenav .sb-text {
+  display: none;
+}
+.sidenav .nav-group {
+  margin-bottom: 14px;
+}
+.sidenav .nav-group + .nav-group {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+.sidenav .nav-title {
+  padding: 4px 10px 6px;
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+.shell-collapsed .sidenav .nav-title {
+  visibility: hidden;
+}
+.sidenav .nav-item {
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink3);
+}
+.sidenav .nav-item:hover {
+  background: var(--accent-soft);
+  color: var(--ink2);
+}
+.sidenav .nav-item-active {
+  background: var(--accent-faint);
+  color: var(--accent-ink);
+}
+.sidenav .nav-icon-pill {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--muted);
+  color: var(--ink3);
+}
+.sidenav .nav-item:hover .nav-icon-pill {
+  background: var(--raised);
+}
+.sidenav .nav-item-active .nav-icon-pill {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 2px 8px var(--halo);
+}
+.sidenav .nav-count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--muted);
+  color: var(--ink3);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.6;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.sidenav .nav-count-danger {
+  background: var(--err-bg);
+  color: var(--err-t);
+}
+.shell-collapsed .sidenav .nav-count {
+  display: none;
+}
+
+/* --- 5. Content column + page header typography --- */
+main.content {
+  max-width: none;
+  padding: 24px 26px 40px;
+}
+main.content :where(h1) {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  line-height: 1.2;
+}
+.page-header {
+  margin-bottom: 22px;
+}
+/* focus lands on the page heading by script after a route change (route-focus.ts); it is not a control */
+main.content h1:focus,
+main.content h1.ip-ph-title:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* --- 6. Glass surfaces: every existing card / panel / tile adopts the GlassCard look --- */
+.tile,
+.dashboard-panel,
+:is(.flows-page, .versions-page) :is(.flows-card, .flows-grid, .flows-empty),
+.versions-page .versions-panel,
+.operator-page :is(.op-card, .op-panel, .op-empty),
+.contracts-page :is(.contracts-card, .contracts-pane, .contracts-empty),
+.systems-page :is(.systems-grid, .systems-empty),
+.mapping-page :is(.mapping-card, .mapping-grid),
+:is(.rules-home, .rules-editor) .rules-card {
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-radius: var(--r-2);
+  box-shadow: var(--sh-glass);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .tile,
+  .dashboard-panel,
+  .operator-page :is(.op-card, .op-panel) {
+    background: var(--surface);
+  }
+}
+
+/* tables inside cards: the DataTable header look */
+main.content :where(th):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  background: var(--raised);
+  border-bottom: 1px solid var(--bdr);
+  color: var(--ink3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+main.content :where(tbody tr):hover {
+  background: var(--accent-soft);
+}
+
+/* primary buttons: the accent gradient, text on-accent (AA in dark, spec section 10.2) */
+.btn-primary,
+main.content :where(button[type="submit"]):not(:where([data-decision-table], [data-canvas], .raw-expression) *) {
+  background: linear-gradient(135deg, var(--btn-from), var(--accent-h));
+  color: var(--on-accent);
+  border-color: transparent;
+  box-shadow: 0 2px 12px var(--halo);
+}
+.btn-primary:hover {
+  box-shadow: 0 4px 20px var(--halo);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}

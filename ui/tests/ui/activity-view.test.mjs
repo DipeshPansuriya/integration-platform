@@ -123,5 +123,5 @@ test('the page source: labelled filters, the view-model actor label, no raw HTML
   assert.doesNotMatch(page, /tenantId|tenantCode/, 'no client-side tenant filtering - the server scopes');
   const app = readFileSync(new URL('../../src/section-tabs.ts', import.meta.url), 'utf8'); // row 575 S1: S6: the Reports tabs
   assert.match(app, /key: 'activity', label: 'Activity', href: '#\/activity', page: 'activity', nav: 'activity'/, 'one nav entry');
-  assert.match(readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8'), /shown === 'activity' && <Activity \/>/, 'one route branch');
+  assert.match(readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8'), /shown === 'activity' && <ActivityPage \/>/, 'one route branch (W6: the container renders <Activity /> for #/activity/<eventId>)');
 });

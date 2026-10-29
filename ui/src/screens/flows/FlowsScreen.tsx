@@ -14,18 +14,21 @@ export default function FlowsScreen({
   onRetry,
   onOpenFlow,
   onNewFlow,
+  headerClassName,
+  newFlowProps,
 }: FlowsScreenProps) {
   const hasData = Boolean(flows?.length);
   const flowRows = flows ?? [];
   return (
     <div className="lb-page" data-page="flows">
       <PageHeader
+        className={headerClassName}
         title="Flows"
         subtitle={`${flows?.length ?? 0} integration flows configured`}
         actions={
           <>
             <Button data-action="filter-flows">Filter</Button>
-            <Button variant="primary" data-action="new-flow" onClick={onNewFlow}>
+            <Button variant="primary" data-action="new-flow" onClick={onNewFlow} {...newFlowProps}>
               New Flow
             </Button>
           </>

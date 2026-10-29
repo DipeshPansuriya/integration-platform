@@ -19,13 +19,13 @@ test('reports hub: Queue, Daily delivery, Activity in that order, each a link to
   assert.deepEqual(REPORT_TABS.map((t) => [t.label, t.href]), [['Queue', '#/queue'], ['Daily delivery', '#/reports'], ['Activity', '#/activity']]);
 });
 
-test('systems tabs: Systems and Contracts, each a link to its legacy hash', () => {
-  assert.deepEqual(SYSTEMS_TABS.map((t) => [t.label, t.href]), [['Systems', '#/systems'], ['Contracts', '#/contracts']]);
+test('systems tabs: Systems, Contracts and Destinations, each a link to its legacy hash', () => {
+  assert.deepEqual(SYSTEMS_TABS.map((t) => [t.label, t.href]), [['Systems', '#/systems'], ['Contracts', '#/contracts'], ['Destinations', '#/destinations']]);
 });
 
-test('data-nav stays on the tabs for queue, activity and contracts; the tabs for reports and systems carry none (the menu item owns it)', () => {
+test('data-nav stays on the tabs for queue, activity, contracts and destinations; the tabs for reports and systems carry none (the menu item owns it)', () => {
   assert.deepEqual(REPORT_TABS.map((t) => t.nav ?? null), ['queue', null, 'activity']);
-  assert.deepEqual(SYSTEMS_TABS.map((t) => t.nav ?? null), [null, 'contracts']);
+  assert.deepEqual(SYSTEMS_TABS.map((t) => t.nav ?? null), [null, 'contracts', 'destinations']);
 });
 
 test('sectionTabs: exactly one tab is current on each page, and only on hub pages', () => {
@@ -93,5 +93,6 @@ test('App.tsx puts the tabs above the unchanged pages and highlights the owning 
   const app = read('App.tsx');
   assert.ok(app.includes('<SectionTabs page={route.page}'));
   assert.ok(app.includes('sectionOf(route.page)'));
-  for (const page of ['QueueDashboard', 'Activity', 'DeliveryReport', 'Systems', 'ContractVersions']) assert.ok(app.includes(`<${page} />`), page);
+  // W6: the hub pages are the redesigned containers (src/console/pages), still under the same tabs.
+  for (const page of ['QueuePage', 'ActivityPage', 'ReportsPage', 'SystemsPage', 'ContractsPage']) assert.ok(app.includes(`<${page} />`), page);
 });

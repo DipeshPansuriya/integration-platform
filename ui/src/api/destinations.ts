@@ -2,7 +2,7 @@ import { consoleFetch } from './client';
 
 export type HostEntry = { id: string; pattern: string };
 
-const BASE = '/api/v1/admin/operator/allowed-hosts';
+const BASE = '/api/v1/admin/destinations';
 
 export async function listAllowedHosts(): Promise<HostEntry[]> {
   const res = await consoleFetch(BASE);

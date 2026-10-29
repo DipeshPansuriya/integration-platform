@@ -113,12 +113,14 @@ services:
       kafka:
         condition: service_healthy
     environment:
-      KAFKA_CLUSTERS_0_NAME: platform
+      KAFKA_CLUSTERS_0_NAME: "Integration Platform"
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_DEFAULTKEYSERDE: org.apache.kafka.common.serialization.Serdes$StringSerde
+      KAFKA_CLUSTERS_0_DEFAULTVALUESERDE: org.apache.kafka.common.serialization.Serdes$StringSerde
       AUTH_TYPE: LOGIN_FORM
       SPRING_SECURITY_USER_NAME: ${KAFBAT_UI_USER:?set KAFBAT_UI_USER}
       SPRING_SECURITY_USER_PASSWORD: ${KAFBAT_UI_PASSWORD:?set KAFBAT_UI_PASSWORD}
-      DYNAMIC_CONFIG_ENABLED: "false"
+      DYNAMIC_CONFIG_ENABLED: "true"
       TZ: Etc/UTC
     ports:
       - "127.0.0.1:${IPASS_KAFKA_UI_PORT:-8090}:8080"

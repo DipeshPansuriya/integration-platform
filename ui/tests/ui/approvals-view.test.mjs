@@ -127,6 +127,7 @@ test('screen: makes exactly the two list reads and nothing else', async () => {
 
 test('App.tsx renders the Approvals screen; the stub landing is gone', () => {
   const app = readFileSync(fileURLToPath(new URL('../../src/App.tsx', import.meta.url)), 'utf8');
-  assert.ok(app.includes("shown === 'approvals' && <Screen title={titleOf('approvals')}><Approvals /></Screen>"));
+  // W6: no <Screen> envelope around pages that render their own heading (it would add a second h1).
+  assert.ok(app.includes("shown === 'approvals' && <Approvals />"));
   assert.ok(!app.includes('ApprovalsLanding'));
 });
