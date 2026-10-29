@@ -77,6 +77,19 @@ public abstract class TenantScopedRepository {
         return bound;
     }
 
+    /**
+     * Like {@link #query} but with a trailing constant ORDER BY and a hard row limit. The ordering and limit are supplied
+     * by the caller as compile-time constants; they are appended after the tenant predicate so row-level security and
+     * the bound tenant gate still apply (the base query is unchanged for those keys).
+     */
+    protected final <T> List<T> query(String selectFrom, String condition, Map<String, ?> parameters,
+            RowMapper<T> rowMapper, String orderBy, int limit) {
+        Map<String, Object> bound = bindTenant(parameters);
+        String sql = scoped(selectFrom, condition) + " ORDER BY " + Objects.toString(orderBy) + " LIMIT :__limit";
+        bound.put("__limit", limit);
+        return jdbcClient.sql(sql).params(bound).query(rowMapper).list();
+    }
+
     private static String scoped(String statement, String condition) {
         String scoped = statement + " WHERE " + TENANT_PREDICATE;
         return condition == null || condition.isBlank() ? scoped : scoped + " AND (" + condition + ")";
