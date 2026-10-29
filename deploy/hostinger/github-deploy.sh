@@ -27,17 +27,40 @@ fi
 echo "MemAvailable ${mem_kb} KB (>= 4 GB) OK"
 
 echo "=== preflight: database (read-only) ==="
-db_check_ok=0
+# The real POSTGRES_USER/POSTGRES_DB live in the host .env; compose.yaml defaults
+# (ipass_admin/ipass) may not match. Read them from $ENV_FILE without printing any
+# value. DB_USER/DB_NAME environment overrides still win.
+db_user_default="$(awk -F= '/^POSTGRES_USER=/{ sub(/\r$/, ""); v=$2; sub(/^"/, "", v); sub(/"$/, "", v); print v; exit }' "$ENV_FILE")"
+db_name_default="$(awk -F= '/^POSTGRES_DB=/{ sub(/\r$/, ""); v=$2; sub(/^"/, "", v); sub(/"$/, "", v); print v; exit }' "$ENV_FILE")"
+db_user="${DB_USER:-${db_user_default:-ipass_admin}}"
+db_name="${DB_NAME:-${db_name_default:-ipass}}"
+db_host_psql="no"
+db_compose_exec="no"
+db_container_exec="no"
+postgres_container="$(docker ps --filter name=^/postgres$ --format '{{.ID}}' 2>/dev/null | head -1)"
 if command -v psql >/dev/null 2>&1; then
-  if PGPASSWORD="$DB_PASSWORD" psql -h 127.0.0.1 -p 5432 -U "${DB_USER:-ipass}" -d "${DB_NAME:-ipass}" -X -A -t -c 'SELECT 1' >/dev/null 2>&1; then
-    db_check_ok=1
+  if PGPASSWORD="$DB_PASSWORD" psql -h 127.0.0.1 -p 5432 -U "$db_user" -d "$db_name" -X -A -t -c 'SELECT 1' >/dev/null 2>&1; then
+    db_host_psql="yes"
   fi
 else
-  if docker compose exec -T postgres env PGPASSWORD="$DB_PASSWORD" psql -U "${DB_USER:-ipass}" -d "${DB_NAME:-ipass}" -X -A -t -c 'SELECT 1' >/dev/null 2>&1; then
-    db_check_ok=1
-  fi
+  db_host_psql="skipped (no psql on host)"
 fi
-[ "$db_check_ok" = 1 ] || { echo "ERROR: read-only database preflight failed" >&2; exit 2; }
+if [ -n "$postgres_container" ]; then
+  if docker exec -T "$postgres_container" env PGPASSWORD="$DB_PASSWORD" psql -U "$db_user" -d "$db_name" -X -A -t -c 'SELECT 1' >/dev/null 2>&1; then
+    db_container_exec="yes"
+  fi
+else
+  db_container_exec="skipped (no running postgres container)"
+fi
+if docker compose exec -T postgres env PGPASSWORD="$DB_PASSWORD" psql -U "$db_user" -d "$db_name" -X -A -t -c 'SELECT 1' >/dev/null 2>&1; then
+  db_compose_exec="yes"
+fi
+if [ "$db_host_psql" != "yes" ] && [ "$db_container_exec" != "yes" ] && [ "$db_compose_exec" != "yes" ]; then
+  echo "ERROR: db preflight failed (host psql 127.0.0.1:5432 as ${db_user}/${db_name}: ${db_host_psql}; docker exec ${postgres_container:-none} as ${db_user}/${db_name}: ${db_container_exec}; docker compose exec postgres as ${db_user}/${db_name}: ${db_compose_exec})" >&2
+  echo "--- docker compose ps ---" >&2
+  docker compose ps >&2 || true
+  exit 2
+fi
 echo "database preflight OK"
 
 echo "=== backup ==="
