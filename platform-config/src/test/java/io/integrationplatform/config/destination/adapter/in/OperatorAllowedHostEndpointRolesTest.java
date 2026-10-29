@@ -1,6 +1,8 @@
 package io.integrationplatform.config.destination.adapter.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,7 +12,6 @@ import io.integrationplatform.config.destination.DbBackedAllowList.HostEntry;
 import io.integrationplatform.tenancy.Role;
 import io.integrationplatform.tenancy.RolePolicy;
 import io.integrationplatform.tenancy.RolePolicy.Caller;
-import io.integrationplatform.tenancy.RolePolicy.Operation;
 import io.integrationplatform.tenancy.port.ApiOperationRules.Rule;
 import java.util.EnumSet;
 import java.util.List;
@@ -33,9 +34,9 @@ class OperatorAllowedHostEndpointRolesTest {
     @DisplayName("every allow-list route maps to an operator-agent operation")
     void everyRouteMapsToItsOperatorOperation() {
         assertThat(new OperatorAllowedHostEndpointRoles().rules()).containsExactlyInAnyOrder(
-                new Rule("GET", HOSTS, Operation.READ_ALLOWED_HOSTS),
-                new Rule("POST", HOSTS, Operation.EDIT_ALLOWED_HOSTS),
-                new Rule("DELETE", HOSTS + "/{id}", Operation.EDIT_ALLOWED_HOSTS));
+                new Rule("GET", HOSTS, RolePolicy.Operation.READ_ALLOWED_HOSTS),
+                new Rule("POST", HOSTS, RolePolicy.Operation.EDIT_ALLOWED_HOSTS),
+                new Rule("DELETE", HOSTS + "/{id}", RolePolicy.Operation.EDIT_ALLOWED_HOSTS));
         assertThat(OperatorAllowedHostController.PATH).isEqualTo(HOSTS);
     }
 
@@ -59,13 +60,13 @@ class OperatorAllowedHostEndpointRolesTest {
         DbBackedAllowList list = mock(DbBackedAllowList.class);
         UUID id = UUID.randomUUID();
         when(list.list()).thenReturn(List.of(new HostEntry(id, "*.example.com")));
-        when(list.add("api.example.com")).thenReturn(new HostEntry(id, "api.example.com"));
-        when(list.remove(id)).thenReturn(true);
+        when(list.add(eq("api.example.com"), anyString())).thenReturn(new HostEntry(id, "api.example.com"));
+        when(list.remove(eq(id), anyString())).thenReturn(true);
         OperatorAllowedHostController controller = new OperatorAllowedHostController(list);
 
         assertThat(controller.list().getBody()).containsExactly(Map.of("id", id.toString(), "pattern", "*.example.com"));
         assertThat(controller.add(Map.of("pattern", "api.example.com")).getStatusCode().value()).isEqualTo(201);
         assertThat(controller.remove(id).getStatusCode().value()).isEqualTo(204);
-        verify(list).remove(id);
+        verify(list).remove(eq(id), anyString());
     }
 }
