@@ -1,0 +1,192 @@
+<!doctype html>
+<!-- W3 evidence page — NOT part of the app build. Spot-renders the DS library
+     (src/ds/styles.css) across all 12 mode x accent combinations (data-theme
+     light|dark x data-accent) so a human can verify the token engine:
+     accent fills, faints, halos, text contrast and the accent-ink role.
+     Open directly in a browser; nothing imports this file. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>DS preview — 12 combos (light/dark x 6 accents)</title>
+  <link rel="stylesheet" href="../src/ds/styles.css" />
+  <style>
+    body { margin: 0; background: #e8e8e8; padding: 16px; font-family: sans-serif; }
+    .combo { margin: 0 0 8px 0; padding: 14px; border: 1px solid #999; }
+    .combo .head { font: 12px monospace; opacity: .8; margin-bottom: 8px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <h1 style="font: 700 20px sans-serif">12 combos — data-theme x data-accent</h1>
+  <!-- Each block mounts the DS on its own subtree (data-* on the block, like
+       <html> carries them in the real app); the accent engine keys both. -->
+  <div class="combo" data-theme="light" data-accent="indigo">
+    <div class="head">light × indigo</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="light" data-accent="emerald">
+    <div class="head">light × emerald</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="light" data-accent="rose">
+    <div class="head">light × rose</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="light" data-accent="amber">
+    <div class="head">light × amber</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="light" data-accent="cyan">
+    <div class="head">light × cyan</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="light" data-accent="violet">
+    <div class="head">light × violet</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="dark" data-accent="indigo">
+    <div class="head">dark × indigo</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="dark" data-accent="emerald">
+    <div class="head">dark × emerald</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="dark" data-accent="rose">
+    <div class="head">dark × rose</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="dark" data-accent="amber">
+    <div class="head">dark × amber</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="dark" data-accent="cyan">
+    <div class="head">dark × cyan</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+  <div class="combo" data-theme="dark" data-accent="violet">
+    <div class="head">dark × violet</div>
+    <div class="row">
+      <button class="ip-btn ip-btn--primary">Primary</button>
+      <button class="ip-btn ip-btn--danger">Danger</button>
+      <button class="ip-btn">Secondary</button>
+      <span class="ip-badge">Badge</span>
+      <div class="ip-card" style="max-width:260px">
+        <div class="ip-card-title">Card title</div>
+        Body copy on the card surface.
+      </div>
+      <span>Plain <b>text</b> uses --ink of this mode.</span>
+    </div>
+  </div>
+</body>
+</html>

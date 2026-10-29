@@ -6,7 +6,7 @@
 #           HEALTH_SERVICES (default "postgres keycloak platform-app edge"), HEALTH_TIMEOUT (seconds, default 300).
 # The Flyway image <prefix>/flyway-migrate:<tag> must exist locally or be pullable (build it on the build PC, README "Migration
 # pipeline"; or `docker save ... | ssh <vps> docker load`). Nothing changes (tag, containers) before the migration has succeeded.
-# The app still runs Flyway at its own start-up; after this script migrated, that run finds nothing to do.
+# Since row 570 the hosted app does NOT run Flyway (compose.yaml: SPRING_FLYWAY_ENABLED=false, no owner login in its environment); this script is the only migration path.
 # EXPAND/CONTRACT RULE: the old app keeps serving while the migration runs (steps 3-4, before `up -d`), so every migration of a
 # release must work with the PREVIOUS app version too (add columns/tables first, drop things in a later release).
 # No explicit `compose pull`: `up -d` pulls what is missing (pull_policy: missing / digest pins), and images brought in with

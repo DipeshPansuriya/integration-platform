@@ -1,0 +1,8 @@
+/* iPaaS Console design system — fonts.
+   Original tokens/fonts.css declared two @font-face rules pointing at
+   assets/fonts/Inter-Variable.woff2 and assets/fonts/JetBrainsMono-Variable.woff2
+   (OFL, variable). This repo is text-only (no binary font files committed), so the
+   faces are NOT shipped here: the Inter + JetBrains Mono @font-face families are
+   loaded through the Google Fonts <link> in ui/index.html instead.
+   When the design system moves to a packaged build that may carry binaries,
+   restore the original file from the ipaas-console-design skill. */

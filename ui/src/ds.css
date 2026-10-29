@@ -1,0 +1,56 @@
+/*
+ * iPaaS Console design-system shim (W3, plan row "Import the system stylesheet ONCE").
+ *
+ * App-owned compat layer. Imported AFTER src/ui/base.css in main.tsx so the DS
+ * stylesheet resolves after the app chrome, then this file re-asserts the app's
+ * own values for every name the DS also defines — the current app stays
+ * visually and behaviourally untouched while DS tokens + classes become
+ * available to the W6+ console screens.
+ *
+ * Collisions (app tokens.css vs ds tokens/*, checked 28-Oct):
+ *   --font-mono, --nav-w, --topbar-h, --r-1, --r-2, --r-3, --tr  → differ, re-asserted
+ *   --r-pill → identical (999px), not re-asserted
+ *
+ * Class-level collisions (Varun post-merge review, PR #104):
+ *   .badge — DS typography.css sets 10.5px/1.5, the app .badge is 12.5px/1.35;
+ *   re-asserted below so existing app badges stay byte-identical in size.
+ *
+ * Globals DS would restyle (components.css) → neutralised below:
+ *   html { height: 100% } and body { 13px, var(--ink)/var(--bg) }
+ *
+ * The shim is removed in W6 when the console adopts the DS tokens wholesale.
+ */
+
+@import './ds/styles.css';
+
+/* --- app token values win every collision --- */
+:root {
+  --font-mono: 'JetBrains Mono', ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  --nav-w: 252px;
+  --topbar-h: 52px;
+  --r-1: 8px;
+  --r-2: 12px;
+  --r-3: 14px;
+  --tr: 150ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+/* --- neutralise DS global element rules --- */
+html {
+  height: auto;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* the DS .badge (components.css) collides with the app .badge — the app wins */
+.badge {
+  font-size: 12.5px;
+  line-height: 1.35;
+}

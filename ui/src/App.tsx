@@ -49,7 +49,11 @@ import { canOpen, moreFor, navFor, platformTools, showPlatformTools, titleOf, ty
 import { NoAccess } from './ui/NoAccess';
 import { PageHeader } from './ui/PageHeader';
 import { focusMainHeading, skipToMain } from './route-focus';
-import { ApprovalsLanding, MessagesLanding } from './pages/GuidedLandings';
+import { MessagesLanding } from './pages/GuidedLandings';
+import { Approvals } from './pages/Approvals';
+import { SectionTabs } from './ui/SectionTabs';
+import { sectionOf } from './section-tabs';
+import { canOperate } from './pages/message-guide';
 import { sessionStateOf, type SessionState } from './pages/dashboard-counts';
 // E6 (lane D, T-025/T-028): the rules editor - #/rules lists and creates a flow's rule sets,
 // #/rules/<ruleSetId> authors one as decision tables beside the always-visible test panel. Loaded on
@@ -320,7 +324,10 @@ export function App() {
   const shown = open ? route.page : null;
 
   function renderNavItem(entry: NavItem) {
-    const active = route.page === entry.page;
+    const exact = route.page === entry.page;
+    // Row 575 S6: a hub tab's page (queue, activity, contracts) keeps its owning item highlighted - aria-current="true" (the section), while the tab itself is the page.
+    const owns = !exact && sectionOf(route.page) === entry.page;
+    const active = exact || owns;
     return (
       <a
         key={entry.nav}
@@ -329,7 +336,7 @@ export function App() {
         data-initial={entry.initial}
         href={entry.hash}
         title={entry.label}
-        aria-current={active ? 'page' : undefined}
+        aria-current={exact ? 'page' : owns ? 'true' : undefined}
       >
         <span className="nav-icon-pill" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d={NAV_ICONS[entry.nav] || ''} /></svg></span>
         <span className="nav-label">{entry.label}</span>
@@ -441,18 +448,19 @@ export function App() {
               <NoAccess refusal="ROLE_NOT_GRANTED" />
             </>
           )}
+          {shown && <SectionTabs page={route.page} />}
           {shown === 'flows' &&
             (route.flowId ? (
-              <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} />
+              <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} roles={roles} />
             ) : (
               <FlowsList />
             ))}
           {shown === 'versions' && <Versions selectId={route.flowId} />}
           {shown === 'systems' && <Systems />}
           {shown === 'queue' && <QueueDashboard />}
-          {shown === 'failures' && <Failures />}
-          {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} />)}
-          {shown === 'approvals' && <ApprovalsLanding />}
+          {shown === 'failures' && <Failures canOperate={canOperate(roles)} />}
+          {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
+          {shown === 'approvals' && <Approvals />}
           {shown === 'activity' && <Activity />}
           {shown === 'reports' && <DeliveryReport />}
           {shown === 'contracts' && <ContractVersions />}
@@ -464,7 +472,7 @@ export function App() {
           {shown === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
           {shown === 'destinations' && <Destinations />}
           {shown === 'home' &&
-            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} />)}
+            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} roles={roles} />)}
         </main>
       </div>
     </div>

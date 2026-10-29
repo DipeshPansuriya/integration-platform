@@ -211,3 +211,47 @@ test('@negative a refused Retry now (409) does not refresh the timeline', async 
   assert.equal(reads(), 1, 'nothing moved, so nothing is re-read');
   assert.match(answerText(), /^Not retried/);
 });
+
+// Row 582: the Failures list hides Replay from roles that cannot operate (READ_ONLY, CONFIGURATOR, APPROVER). UX only: the server
+// still answers 403 (REPLAY_DEAD_LETTER). Same gate as the detail screen's Retry/Replay (row 575 S3, canOperate in message-guide.ts).
+const DEAD = {
+  trackingId: M1,
+  deliveryId: D1,
+  flowId: FLOW,
+  targetId: 't-1',
+  failingStage: 'DELIVER',
+  errorClass: 'PERMANENT',
+  lastError: 'HTTP 422',
+  origin: 'TARGET',
+  failedAt: '2026-10-17T12:05:00Z'
+};
+
+async function failuresScreen(props) {
+  const screen = await mount('pages/Failures.tsx', 'Failures', props, {
+    listFlows: async () => ({ ok: true, data: [{ id: FLOW, code: 'F1', name: 'Orders' }] }),
+    messageFailures: async () => ({ ok: true, data: [DEAD] })
+  }, [...API, '../api/operator']);
+  await screen.settle();
+  return screen;
+}
+
+test('Row 582 failures: Replay shows for an operator (and by default, roles not loaded); a non-operator sees the row but no Replay or Action column', async () => {
+  for (const props of [{}, { canOperate: true }]) {
+    const operator = await failuresScreen(props);
+    assert.equal(findAll(operator.tree(), byData('data-failure-row')).length, 1);
+    assert.equal(findAll(operator.tree(), byData('data-action', 'replay')).length, 1, `positive control ${JSON.stringify(props)}`);
+    assert.equal(findAll(operator.tree(), byData('data-action-cell')).length, 1);
+  }
+  const reader = await failuresScreen({ canOperate: false });
+  assert.equal(findAll(reader.tree(), byData('data-failure-row')).length, 1, 'the failure itself is still listed');
+  assert.equal(findAll(reader.tree(), byData('data-action', 'replay')).length, 0, 'no Replay button');
+  assert.equal(findAll(reader.tree(), byData('data-action-cell')).length, 0, 'no empty action cell');
+  assert.equal(findAll(reader.tree(), (n) => n.type === 'th' && n.props.children === 'Action').length, 0, 'no empty Action column');
+});
+
+test('Row 582 App.tsx hands the Failures screen the role fact', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const app = readFileSync(fileURLToPath(new URL('../../src/App.tsx', import.meta.url)), 'utf8');
+  assert.ok(/<Failures[^>]*canOperate=\{canOperate\(roles\)\}/.test(app));
+});
