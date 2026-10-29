@@ -95,6 +95,22 @@ export interface SystemsScreenProps {
   onRetry?: () => void;
   onOpenSystem?: (system: SystemRow) => void;
   onRegisterSystem?: () => void;
+  /** Optional row under the header (e.g. a filter); absent renders nothing. */
+  toolbar?: import('react').ReactNode;
+  /** Count shown in the subtitle when `systems` is a filtered subset; defaults to systems.length. */
+  total?: number;
+  /** Replaces the empty-state wording (e.g. when a filter matches nothing). */
+  emptyText?: string;
+  /** Optional pass-through attributes for the page root (e.g. data-* hooks). */
+  pageProps?: Record<string, string | undefined>;
+  /** data-action of the header Register System button; defaults to 'register-system'. */
+  registerAction?: string;
+  /** Optional data-action on the empty-state button. */
+  emptyAction?: string;
+  /** Optional pass-through attributes per card root. */
+  cardProps?: (system: SystemRow) => Record<string, string | undefined>;
+  /** Optional extra content per card, after its rows. */
+  renderCardExtra?: (system: SystemRow) => import('react').ReactNode;
 }
 
 export interface SystemDetailDrawerProps {

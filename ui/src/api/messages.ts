@@ -80,3 +80,17 @@ export async function messageFailures(params: { flowId?: string; date?: string }
   return answer((data ?? []) as unknown as Failure[], error, response);
 }
 
+export type Delivered = {
+  trackingId: string;
+  deliveryId: string;
+  flowId: string;
+  targetId: string | null;
+  outcome: string | null;
+  deliveredAt: string;
+};
+
+export async function messageDelivered(params: { flowId?: string; date?: string }): Promise<ApiAnswer<Delivered[]>> {
+  const { data, error, response } = await api.GET('/api/v1/admin/messages/delivered', { params: { query: params } });
+  return answer((data ?? []) as unknown as Delivered[], error, response);
+}
+

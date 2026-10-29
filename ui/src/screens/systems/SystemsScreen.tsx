@@ -19,16 +19,24 @@ export default function SystemsScreen({
   onRetry,
   onOpenSystem,
   onRegisterSystem,
+  toolbar,
+  total,
+  emptyText,
+  pageProps,
+  registerAction = 'register-system',
+  emptyAction,
+  cardProps,
+  renderCardExtra,
 }: SystemsScreenProps) {
   const hasData = Boolean(systems?.length);
   const systemRows = systems ?? [];
   return (
-    <div className="lb-page" data-page="systems">
+    <div {...pageProps} className="lb-page" data-page="systems">
       <PageHeader
         title="Systems"
-        subtitle={`${systems?.length ?? 0} registered endpoints`}
+        subtitle={`${total ?? systems?.length ?? 0} registered endpoints`}
         actions={
-          <Button variant="primary" data-action="register-system" onClick={onRegisterSystem}>
+          <Button variant="primary" data-action={registerAction} onClick={onRegisterSystem}>
             Register System
           </Button>
         }
@@ -43,6 +51,7 @@ export default function SystemsScreen({
           </Button>
         </div>
       )}
+      {toolbar}
       {stale && hasData && <p className="lb-stale">Showing the last loaded list — it may be out of date.</p>}
       {loading && !hasData ? (
         <div className="lb-grid" data-loading="systems">
@@ -61,13 +70,16 @@ export default function SystemsScreen({
               typeLine={s.protocol}
               rows={rowsOf(s)}
               onOpen={onOpenSystem ? () => onOpenSystem(s) : undefined}
-            />
+              cardProps={cardProps?.(s)}
+            >
+              {renderCardExtra?.(s)}
+            </EntityCard>
           ))}
         </div>
       ) : (
         <div className="lb-grid">
-          <button type="button" className="lb-empty" onClick={onRegisterSystem}>
-            No systems yet — register the first one with Register System.
+          <button type="button" className="lb-empty" data-action={emptyAction} onClick={onRegisterSystem}>
+            {emptyText ?? 'No systems yet — register the first one with Register System.'}
           </button>
         </div>
       )}

@@ -61,6 +61,11 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
             Instant finishedAt, String outcomeClass) {
     }
 
+    /** A successfully delivered message with the last attempt's outcome class. */
+    record DeliveredRow(String trackingId, String deliveryId, String flowId, String targetId,
+            String outcomeClass, Instant deliveredAt) {
+    }
+
     /** T108: a message's payload body and the masked-field list of the interface version it was accepted on. */
     record MaskedSource(String bodyJson, String maskedFieldsJson) {
     }
@@ -163,6 +168,22 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
                         instant(rs, "updated_at")));
     }
 
+    List<DeliveredRow> deliveredMessages(UUID flowId, Instant dayStart, Instant dayEnd) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        return query("select d.message_id::text as tracking_id, d.id::text as delivery_id,"
+                        + " d.interface_id::text as interface_id, d.target_id::text as target_id,"
+                        + " d.updated_at,"
+                        + " (select a.outcome_class from public.delivery_attempt a"
+                        + "   where a.delivery_id = d.id and a.tenant_id = d.tenant_id"
+                        + "   order by a.finished_at desc nulls last, a.id desc limit 1) as outcome_class"
+                        + " from public.delivery d",
+                narrowed("d.state = 'DELIVERED'", "d.interface_id", "d.created_at", flowId, dayStart, dayEnd, params),
+                params,
+                (rs, n) -> new DeliveredRow(rs.getString("tracking_id"), rs.getString("delivery_id"),
+                        rs.getString("interface_id"), rs.getString("target_id"),
+                        rs.getString("outcome_class"), instant(rs, "updated_at")));
+    }
+
     /** The base condition, narrowed to one flow and one UTC day when given (constant fragments only). */
     private static String narrowed(String base, String flowColumn, String timeColumn, UUID flowId,
             Instant dayStart, Instant dayEnd, Map<String, Object> params) {
@@ -178,6 +199,29 @@ final class JdbcMessageTrackingStore extends TenantScopedRepository {
             params.put("day_end", OffsetDateTime.ofInstant(dayEnd, ZoneOffset.UTC));
         }
         return String.join(" and ", conditions);
+    }
+
+    List<MessageRow> search(String businessKey, java.util.UUID flowId, java.time.Instant dayStart, java.time.Instant dayEnd) {
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        StringBuilder cond = new StringBuilder("true");
+        if (businessKey != null && !businessKey.isBlank()) {
+            cond.append(" and business_key = :business_key");
+            params.put("business_key", businessKey.trim());
+        }
+        if (flowId != null) {
+            cond.append(" and interface_id = :flow_id::uuid");
+            params.put("flow_id", flowId.toString());
+        }
+        if (dayStart != null && dayEnd != null) {
+            cond.append(" and accepted_at >= :day_start and accepted_at < :day_end");
+            params.put("day_start", java.time.OffsetDateTime.ofInstant(dayStart, java.time.ZoneOffset.UTC));
+            params.put("day_end", java.time.OffsetDateTime.ofInstant(dayEnd, java.time.ZoneOffset.UTC));
+        }
+        return query("select id::text as id, interface_id::text as interface_id, state, accepted_at"
+                + " from public.message",
+                cond.toString(), params,
+                (rs, n) -> new MessageRow(rs.getString("id"), rs.getString("interface_id"), rs.getString("state"),
+                        instant(rs, "accepted_at")));
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {

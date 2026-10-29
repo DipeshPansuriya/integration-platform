@@ -2,7 +2,7 @@
 // ROUTE_PAGES is the one list of screens: nav-model.test.mjs fails when a page here has no role need (or allow-all) entry.
 export const ROUTE_PAGES = [
   'home', 'login', 'flows', 'versions', 'systems', 'contracts', 'rules', 'mappings',
-  'queue', 'failures', 'messages', 'activity', 'reports', 'approvals', 'destinations',
+  'queue', 'failures', 'messages', 'delivered', 'activity', 'reports', 'approvals', 'destinations',
 ] as const;
 
 export type Route = {

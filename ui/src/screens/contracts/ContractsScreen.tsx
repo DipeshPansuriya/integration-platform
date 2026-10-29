@@ -61,6 +61,10 @@ export interface ContractsScreenProps {
   onDetailClose?: () => void;
   onDownloadSchema?: () => void;
   onEditContract?: () => void;
+  /** Optional data-action on the header Import Contract button. */
+  importAction?: string;
+  /** Optional data-action on the empty-state Import Contract button. */
+  emptyImportAction?: string;
 }
 
 /** Drawer.Section is a runtime-only export (Drawer.d.ts declares only the Drawer function). */
@@ -78,7 +82,7 @@ export default function ContractsScreen(props: ContractsScreenProps) {
     importOpen, onImportOpen, onImportClose,
     importFileName, importUploading, importErrors, onSchemaUpload, onImportSubmit,
     detailOpen, detail, detailLoading, detailError, onDetailClose,
-    onDownloadSchema, onEditContract
+    onDownloadSchema, onEditContract, importAction, emptyImportAction
   } = props;
 
   const [draft, setDraft] = useState<ImportDraft>({ ...DEFAULT_DRAFT });
@@ -102,7 +106,7 @@ export default function ContractsScreen(props: ContractsScreenProps) {
         title="Contracts"
         subtitle="Message schema definitions"
         actions={
-          <Button variant="primary" icon="plus" onClick={() => onImportOpen?.()}>Import Contract</Button>
+          <Button variant="primary" icon="plus" data-action={importAction} onClick={() => onImportOpen?.()}>Import Contract</Button>
         }
       />
 
@@ -125,7 +129,7 @@ export default function ContractsScreen(props: ContractsScreenProps) {
             <p className="lane-c-empty-title">No contracts yet</p>
             <p className="lane-c-note">Import a contract schema to get started.</p>
             <div className="lane-c-colrow">
-              <Button variant="secondary" onClick={() => onImportOpen?.()}>Import Contract</Button>
+              <Button variant="secondary" data-action={emptyImportAction} onClick={() => onImportOpen?.()}>Import Contract</Button>
             </div>
           </div>
         </div>

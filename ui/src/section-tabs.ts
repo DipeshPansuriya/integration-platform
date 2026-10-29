@@ -17,7 +17,8 @@ export const REPORT_TABS: readonly TabDef[] = [
 
 export const SYSTEMS_TABS: readonly TabDef[] = [
   { key: 'systems', label: 'Systems', href: '#/systems', page: 'systems' },
-  { key: 'contracts', label: 'Contracts', href: '#/contracts', page: 'contracts', nav: 'contracts' }
+  { key: 'contracts', label: 'Contracts', href: '#/contracts', page: 'contracts', nav: 'contracts' },
+  { key: 'destinations', label: 'Destinations', href: '#/destinations', page: 'destinations', nav: 'destinations' }
 ];
 
 const SECTIONS: Record<'reports' | 'systems', { label: string; tabs: readonly TabDef[] }> = {

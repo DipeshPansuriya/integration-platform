@@ -138,11 +138,12 @@ test('titleOf names the screen for the NoAccess heading', () => {
   assert.equal(titleOf('home'), 'Home');
 });
 
-test('Destinations (PR #88) is in neither the menu nor PAGE_NEEDS; refused for every tenant caller, roles known or not', () => {
-  assert.deepEqual([...REFUSED_PAGES], ['destinations']);
-  assert.ok(!('destinations' in PAGE_NEEDS));
-  assert.ok(![...PRIMARY_NAV, ...LEGACY_NAV].some((i) => i.page === 'destinations'));
-  for (const role of ['TENANT_ADMIN', 'CONFIGURATOR', 'APPROVER', 'SUPPORT', 'READ_ONLY']) assert.equal(canOpen([role], 'destinations'), false);
-  assert.equal(canOpen(null, 'destinations'), false);
+test('Destinations is open to READ_CONFIGURATION roles (TENANT_ADMIN, CONFIGURATOR, APPROVER, READ_ONLY) and refused for SUPPORT', () => {
+  assert.deepEqual([...REFUSED_PAGES], []);
+  assert.equal(PAGE_NEEDS['destinations'], 'READ_CONFIGURATION');
+  assert.equal(canOpen(['TENANT_ADMIN'], 'destinations'), true);
+  assert.equal(canOpen(['CONFIGURATOR'], 'destinations'), true);
+  assert.equal(canOpen(['SUPPORT'], 'destinations'), false);
+  assert.equal(canOpen(null, 'destinations'), true);
   assert.equal(canOpen([], 'destinations'), false);
 });

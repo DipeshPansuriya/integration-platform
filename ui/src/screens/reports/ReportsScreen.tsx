@@ -15,6 +15,8 @@ import './reports.css';
 const RANGES = ['1H', '24H', '7D', '30D'];
 
 export interface ReportsScreenProps {
+  /** Optional page title (default "Reports"); the console passes the shipped "Delivery report" h1 the e2e suite reads. */
+  title?: string;
   range?: string;
   rows?: ReportRow[];
   loading?: boolean;
@@ -40,6 +42,7 @@ const columns: DataTableColumn<ReportRow>[] = [
 ];
 
 export function ReportsScreen({
+  title = 'Reports',
   range,
   rows = [],
   loading,
@@ -110,7 +113,7 @@ export function ReportsScreen({
   return (
     <div className={'scr-reports' + (className ? ' ' + className : '')}>
       <PageHeader
-        title="Reports"
+        title={title}
         subtitle="Delivery performance across flows"
         actions={
           error ? undefined : (

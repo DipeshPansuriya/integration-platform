@@ -37,6 +37,8 @@ export interface DashboardSystem { name: string; latency: string; status?: 'Heal
 export interface QuickActionEntry { key: string; icon: IconName; title: string; description: string; tone?: Tone; }
 
 export interface DashboardScreenProps {
+  /** Optional page title (default "Dashboard"); the console passes the shipped "Home" h1 the e2e suite reads. */
+  title?: string;
   stats: DashboardStat[];
   period?: string;
   periods?: string[];
@@ -91,7 +93,7 @@ function DashboardScreen(props: DashboardScreenProps): ReactElement {
   return (
     <div className={['scr-page', 'scr-dashboard', props.className].filter(Boolean).join(' ')} data-test="dashboard">
       <PageHeader
-        title="Dashboard"
+        title={props.title ?? 'Dashboard'}
         subtitle="Real-time integration overview"
         actions={(
           <>

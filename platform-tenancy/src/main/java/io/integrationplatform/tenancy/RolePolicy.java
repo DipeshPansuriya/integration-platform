@@ -96,7 +96,11 @@ public final class RolePolicy {
         // row 578 (CWE-862 / CWE-918): the destination allow-list is ONE global list that bounds every tenant's
         // outbound calls, so editing or reading it is the operator's alone - never a tenant role, READ_ONLY included
         READ_ALLOWED_HOSTS(Caller.OPERATOR_AGENT),
-        EDIT_ALLOWED_HOSTS(Caller.OPERATOR_AGENT);
+        EDIT_ALLOWED_HOSTS(Caller.OPERATOR_AGENT),
+        // Tenant-scoped view of the destination allow-list (Dipesh, 2026-10-29): TENANT_ADMIN can read and edit
+        // the DB-stored allowed hosts through the tenant path; the operator endpoints remain unchanged.
+        READ_DESTINATIONS(Caller.ROLE, TENANT_ADMIN),
+        EDIT_DESTINATIONS(Caller.ROLE, TENANT_ADMIN);
 
         private final Caller caller;
         private final Set<Role> roles;

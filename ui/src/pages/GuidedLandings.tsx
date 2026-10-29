@@ -34,6 +34,7 @@ export function MessagesLanding() {
       {/* Tabs are links (spec section 5). The Needs attention tab opens today's Failures screen; the menu's own Failures entry keeps data-nav until S10. */}
       <nav aria-label="Messages views" data-message-tabs className="op-tabs">
         <a href="#/messages" aria-current="page">Results</a>
+        <a href="#/delivered">Delivered</a>
         <a href="#/failures">Needs attention</a>
       </nav>
       <p className="dashboard-muted">

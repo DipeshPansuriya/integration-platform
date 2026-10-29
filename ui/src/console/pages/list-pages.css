@@ -1,0 +1,72 @@
+/* Console wiring for the three list containers (FlowsPage, RulesPage, MappingsPage). The old list
+   controls (filter, flow picker, create card) sit between the screen's PageHeader and its body, and a
+   container's own table stands in for a screen table that has no column for the real data. The
+   screens are not edited: the screen root is flattened (display: contents) so its header and body join
+   this flex column, and `order` puts the container's tools right under the header. */
+
+.cp-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+}
+.cp-list > .lb-page,
+.cp-list > .rules-screen,
+.cp-list > .mappings-screen { display: contents; }
+.cp-list > .lb-page > *,
+.cp-list > .rules-screen > *,
+.cp-list > .mappings-screen > * { order: 2; }
+.cp-list > .lb-page > .ip-ph,
+.cp-list > .rules-screen > .ip-ph,
+.cp-list > .mappings-screen > .ip-ph { order: 0; }
+.cp-list > .cp-list-tools { order: 1; }
+.cp-list > .cp-list-body { order: 3; }
+
+/* The screen's own table region, when the container renders the real-columns table instead. */
+.cp-own-table [data-region='table'] { display: none; }
+/* Flows: a filtered-to-nothing list is not "No flows yet" (the container says it instead). */
+.cp-filtered-out .lb-empty { display: none; }
+
+.cp-list-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.cp-list-tools .ip-field { margin-bottom: 0; min-width: 220px; }
+.cp-list-tools > .cp-list-wide { flex-basis: 100%; }
+
+.cp-list-card {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+}
+.cp-list-card h2 {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.cp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cp-muted {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink3);
+}
+.cp-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--ink3);
+}

@@ -72,9 +72,18 @@ public class MessageTrackingService {
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) DeliveryState state) {
     }
 
+    /** S8 search hit: a bound-tenant message within the requested day; no payload. */
+    public record SearchResult(String trackingId, String flowId, String state, String acceptedAt) {
+    }
+
     /** One failed or dead-lettered message: where it failed, the error class and the last error text. */
     public record Failure(String trackingId, String deliveryId, String flowId, String targetId, String failingStage,
             String errorClass, String lastError, String origin, String failedAt) {
+    }
+
+    /** One successfully delivered message: tracking id, flow, target and the last attempt's outcome. */
+    public record Delivered(String trackingId, String deliveryId, String flowId, String targetId,
+            String outcome, String deliveredAt) {
     }
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -131,6 +140,29 @@ public class MessageTrackingService {
         });
     }
 
+    /** Bounded business-key (or recent) search in a single UTC day for the bound tenant; never payload. */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true, timeout = 1)
+    public List<SearchResult> search(String businessKey, UUID flowId, LocalDate day) {
+        LocalDate d = day == null ? LocalDate.now(java.time.ZoneOffset.UTC) : day;
+        java.time.Instant dayStart = d.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        java.time.Instant dayEnd = d.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        UUID flowUuid = flowId;
+        List<JdbcMessageTrackingStore.MessageRow> rows = store.search(
+                (businessKey == null || businessKey.isBlank()) ? null : businessKey,
+                flowUuid,
+                dayStart,
+                dayEnd);
+        List<SearchResult> result = new ArrayList<>();
+        for (JdbcMessageTrackingStore.MessageRow row : rows) {
+            try {
+                result.add(new SearchResult(row.id(), row.flowId(), row.state(), text(row.acceptedAt())));
+            } catch (IllegalArgumentException ignored) {
+                // ignore malformed ids
+            }
+        }
+        return result;
+    }
+
     /** The bound tenant's failed work, optionally narrowed to one flow and one UTC day, newest first. */
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<Failure> failures(UUID flowId, LocalDate day) {
@@ -159,6 +191,19 @@ public class MessageTrackingService {
         return failures.stream()
                 .sorted(Map.Entry.<Instant, Failure>comparingByKey().reversed())
                 .map(Map.Entry::getValue)
+                .toList();
+    }
+
+    /** The bound tenant's successfully delivered messages, optionally narrowed to one flow and one UTC day, newest first. */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public List<Delivered> delivered(UUID flowId, LocalDate day) {
+        Instant dayStart = day == null ? null : day.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant dayEnd = day == null ? null : day.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        return store.deliveredMessages(flowId, dayStart, dayEnd).stream()
+                .sorted(Comparator.comparing(JdbcMessageTrackingStore.DeliveredRow::deliveredAt).reversed())
+                .map(row -> new Delivered(row.trackingId(), row.deliveryId(), row.flowId(),
+                        row.targetId(), row.outcomeClass(),
+                        row.deliveredAt() == null ? null : row.deliveredAt().toString()))
                 .toList();
     }
 

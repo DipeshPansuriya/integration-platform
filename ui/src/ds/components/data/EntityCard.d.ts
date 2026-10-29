@@ -11,5 +11,9 @@ export type Accent = 'indigo' | 'emerald' | 'rose' | 'amber' | 'cyan' | 'violet'
 export type Mode = 'light' | 'dark';
 
 export interface EntityRow { label: string; value: React.ReactNode; tone?: Tone; mono?: boolean }
-export interface EntityCardProps { icon: IconName; tone?: Tone; name: string; typeLine?: string; rows?: EntityRow[]; onOpen?: () => void }
+export interface EntityCardProps { icon: IconName; tone?: Tone; name: string; typeLine?: string; rows?: EntityRow[]; onOpen?: () => void;
+  /** Optional pass-through attributes for the card root (e.g. data-* hooks). */
+  cardProps?: Record<string, string | undefined>;
+  /** Optional content after the rows (e.g. card actions). */
+  children?: React.ReactNode }
 export declare function EntityCard(props: EntityCardProps): React.ReactElement;

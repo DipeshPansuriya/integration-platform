@@ -230,6 +230,11 @@ export function Failures({ canOperate = true }: { canOperate?: boolean }) {
           Reload
         </button>
       </header>
+      <nav aria-label="Messages views" data-message-tabs className="op-tabs">
+        <a href="#/messages">Results</a>
+        <a href="#/delivered">Delivered</a>
+        <a href="#/failures" aria-current="page">Needs attention</a>
+      </nav>
       <div className="op-toolbar">
         <label htmlFor="failures-flow">
           Flow

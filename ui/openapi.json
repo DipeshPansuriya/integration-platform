@@ -366,6 +366,29 @@
         },
         "type": "object"
       },
+      "Delivered": {
+        "properties": {
+          "deliveredAt": {
+            "type": "string"
+          },
+          "deliveryId": {
+            "type": "string"
+          },
+          "flowId": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "string"
+          },
+          "trackingId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "DeliveryConflict": {
         "properties": {
           "error": {
@@ -786,6 +809,23 @@
           },
           "reason": {
             "description": "Why the table is refused (the engine's own reason)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SearchResult": {
+        "properties": {
+          "acceptedAt": {
+            "type": "string"
+          },
+          "flowId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "trackingId": {
             "type": "string"
           }
         },
@@ -2434,6 +2474,127 @@
         },
         "tags": [
           "mapping-test-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/messages": {
+      "get": {
+        "operationId": "search",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "businessKey",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "flowId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Up to 50 bound-tenant messages matching the search"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "Invalid or missing arguments"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED"
+          }
+        },
+        "tags": [
+          "message-tracking-controller"
+        ]
+      }
+    },
+    "/api/v1/admin/messages/delivered": {
+      "get": {
+        "operationId": "delivered",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "flowId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Delivered"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigErrorBody"
+                }
+              }
+            },
+            "description": "NO_BOUND_USER, or ROLE_NOT_GRANTED: a message-timeline read"
+          }
+        },
+        "tags": [
+          "message-tracking-controller"
         ]
       }
     },

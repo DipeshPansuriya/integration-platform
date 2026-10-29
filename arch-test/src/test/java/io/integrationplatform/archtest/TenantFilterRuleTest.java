@@ -15,7 +15,7 @@ import org.junit.jupiter.params.provider.CsvSource;
  *
  * <pre>
  * Scenario: Compliant queries pass
- *   Given repository queries in every module that carry the tenant predicate
+ *	Given repository queries in every module that carry the tenant predicate
  *   When the build runs the ArchUnit rule
  *   Then it passes
  *
@@ -219,6 +219,20 @@ class TenantFilterRuleTest {
                 .hasMessageContaining("PlantedUnlistedReasonCrossing.readAllTenants()");
         assertThatThrownBy(() -> TenantFilterRule.BOUNDARY_CROSSINGS_ARE_REVIEWED.check(crossing))
                 .hasMessageContaining("PlantedUnlistedReasonCrossing");
+    }
+
+    /**
+     * Row 587/591 release-unblock presence check: the two reviewed platform-wide SQL-access classes are exempt as exact
+     * top-level classes only, and a rename must not leave a dead exemption.
+     */
+    @Test
+    void theReviewedPlatformWideSqlAccessClassesExistInTheProductionScan() {
+        JavaClasses production = TenantFilterRule.importProductionClasses();
+
+        assertThat(production.contain(TenantFilterRule.AUDIT_LEDGER_LOCKDOWN_GUARD))
+                .as("the exempt class still exists (a rename must not leave a dead exemption)").isTrue();
+        assertThat(production.contain(TenantFilterRule.DB_BACKED_ALLOW_LIST))
+                .as("the exempt class still exists (a rename must not leave a dead exemption)").isTrue();
     }
 
     @Test
