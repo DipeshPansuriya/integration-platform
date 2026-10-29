@@ -1,0 +1,24 @@
+# Gitleaks config for integration-platform.
+#
+# Extends the default gitleaks ruleset and allowlists ONLY the six test
+# fixture files that deliberately contain FAKE credentials. The tests in
+# these fixtures assert that no real secret is ever present —
+# KafkaSecretLeakTest.java is exactly that assertion.
+#
+# The allowlist is path-scoped and anchored ON PURPOSE (least privilege):
+# no value-based allowlisting, no broad .* patterns. A real secret in ANY
+# other file — including any of these paths' future siblings — still fails.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deliberate FAKE credentials planted in test fixtures; the tests themselves assert no real secret is ever present. Six exact paths only, anchored - a real secret in any other file still fails the scan."
+paths = [
+  '''(?i)^deploy/hostinger/test/kcadm-client-hosts-stub\.sh$''',
+  '''(?i)^deploy/hostinger/test/test-scripts\.sh$''',
+  '''(?i)^e2e-ui/tests/base-suite/unit/target-db\.test\.mjs$''',
+  '''(?i)^platform-routing/src/test/java/io/integrationplatform/routing/adapter/kafkatopic/KafkaSecretLeakTest\.java$''',
+  '''(?i)^platform-routing/src/test/java/io/integrationplatform/routing/publish/KafkaPublishPortMetricsTest\.java$''',
+  '''(?i)^platform-routing/src/test/java/io/integrationplatform/routing/publish/KafkaPublishPortTest\.java$''',
+]
