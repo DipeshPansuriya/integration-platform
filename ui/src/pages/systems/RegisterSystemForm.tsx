@@ -8,12 +8,20 @@ import { ERRORS_ID, SettingsFields, TypeField, ValidationErrors, type FormValues
 import { topFieldHasError } from './systems-view';
 import { useDrawerSaved } from '../../ui/Drawer';
 
-export function RegisterSystemForm({ onRegistered }: { onRegistered: () => Promise<void> }) {
-  const [code, setCode] = useState('');
-  const [name, setName] = useState('');
-  const [direction, setDirection] = useState<'INBOUND' | 'OUTBOUND'>('OUTBOUND');
-  const [type, setType] = useState('');
-  const [values, setValues] = useState<FormValues>({});
+export type RegisterSystemFormInitial = {
+  code?: string;
+  name?: string;
+  direction?: 'INBOUND' | 'OUTBOUND';
+  type?: string;
+  values?: FormValues;
+};
+
+export function RegisterSystemForm({ onRegistered, initial }: { onRegistered: () => Promise<void>; initial?: RegisterSystemFormInitial }) {
+  const [code, setCode] = useState(initial?.code ?? '');
+  const [name, setName] = useState(initial?.name ?? '');
+  const [direction, setDirection] = useState<'INBOUND' | 'OUTBOUND'>(initial?.direction ?? 'OUTBOUND');
+  const [type, setType] = useState(initial?.type ?? '');
+  const [values, setValues] = useState<FormValues>(initial?.values ?? {});
   const [errors, setErrors] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
