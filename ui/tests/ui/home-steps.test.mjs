@@ -163,7 +163,7 @@ test('TA sees all three blocks with real counts; every count links to a list', a
   const { screen } = await home(['TENANT_ADMIN']);
   const setup = block(screen, 'setup'), approvals = block(screen, 'approvals'), messages = block(screen, 'messages');
   assert.ok(setup && approvals && messages);
-  assert.match(text(approvals), /Waiting for your approval \(2\)/);
+  assert.match(text(approvals), /Waiting for approval \(2\)/);
   assert.match(text(messages), /2 failed/);
   const hrefs = (b) => findAll(b, (n) => typeof n.props?.href === 'string').map((n) => n.props.href);
   assert.ok(hrefs(approvals).includes('#/versions'));

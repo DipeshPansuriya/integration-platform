@@ -213,7 +213,7 @@ export function Dashboard({ user, readsConfiguration = true, roles = null }: { u
 
       {lists !== null && blocks.approvals && waiting && (
         <section className="dashboard-panel home-block" data-home-block="approvals" aria-labelledby="home-approvals">
-          <h2 id="home-approvals">Waiting for your approval ({waiting.total})</h2>
+          <h2 id="home-approvals">Waiting for approval ({waiting.total})</h2>
           {/* Plain links: the Versions and Contracts screens do not read a status filter yet (S3/S5 add it); ?date= below does work. */}
           {waiting.total === 0 ? (
             <p className="dashboard-muted">Nothing waits for approval.</p>

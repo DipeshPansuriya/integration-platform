@@ -1,7 +1,7 @@
 // Row 575 (S2, Home "Next steps") - the Home blocks per role, in the real console against the real backend and Keycloak.
 // Each role signs in through the realm login form in its own fresh context (users: global-setup.mjs, CONSOLE_MENU_USERS).
 //   Set up an integration                  : tenant admin + configurator
-//   Waiting for your approval              : tenant admin + approver
+//   Waiting for approval              : tenant admin + approver
 //   Find a message + Needs attention today : tenant admin + support + read-only
 // UX only: a hidden block is never the gate; a block whose API answers 403 is simply not rendered (no error banner).
 
@@ -19,7 +19,7 @@ const SHOWN = {
   SUPPORT: ['messages'],
   READ_ONLY: ['messages'],
 };
-const HEADING = { setup: 'Set up an integration', approvals: /^Waiting for your approval \(\d+\)$/, messages: 'Find a message' };
+const HEADING = { setup: 'Set up an integration', approvals: /^Waiting for approval \(\d+\)$/, messages: 'Find a message' };
 
 function userFor(role) {
   if (role === 'TENANT_ADMIN') return { username: process.env.CONSOLE_LOGIN_USER, password: process.env.CONSOLE_LOGIN_PASSWORD };
