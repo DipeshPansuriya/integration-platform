@@ -34,6 +34,7 @@ import type { Route } from './route-types';
 import { canOpen, moreFor, navFor, platformTools, showPlatformTools, titleOf, type NavItem } from './nav-model';
 import { NoAccess } from './ui/NoAccess';
 import { PageHeader } from './ui/PageHeader';
+import { DashboardRoute, FlowsRoute, SystemsRoute, ContractsRoute, RulesRoute, MappingsRoute, QueueRoute, FailuresRoute, ActivityRoute, ReportsRoute } from './console/adapters';
 import { focusMainHeading, skipToMain } from './route-focus';
 import { MessagesLanding } from './pages/GuidedLandings';
 import { Approvals } from './pages/Approvals';
@@ -130,6 +131,7 @@ function parseHash(): Route {
 }
 
 export function App() {
+  const consoleEnabled = new URLSearchParams(window.location.search).get("console") === "1";
   const [route, setRoute] = useState<Route>(parseHash());
   // Row 310 B11: one count per routed address change - the editor is keyed by it, so #/flow/A -> #/flow/new
   // (or a saved create-mode editor -> #/flow/new again) remounts it empty instead of keeping A's state.
@@ -482,27 +484,42 @@ export function App() {
             </>
           )}
           {shown && <SectionTabs page={route.page} />}
-          {shown === 'flows' &&
+          {!consoleEnabled && shown === 'flows' &&
             (route.flowId ? (
               <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} roles={roles} />
             ) : (
               <FlowsPage />
             ))}
-          {shown === 'versions' && <Versions selectId={route.flowId} />}
-          {shown === 'systems' && <SystemsPage />}
-          {shown === 'queue' && <QueuePage />}
-          {shown === 'failures' && <FailuresPage canOperate={canOperate(roles)} />}
-          {shown === 'delivered' && <DeliveredMessages />}
-          {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
-          {shown === 'approvals' && <Approvals />}
-          {shown === 'activity' && <ActivityPage />}
-          {shown === 'reports' && <ReportsPage />}
-          {shown === 'contracts' && <ContractsPage />}
-          {shown === 'rules' && <RulesPage ruleSetId={route.ruleSetId ?? null} />}
-          {shown === 'mappings' && <MappingsPage routeId={route.routeId ?? null} />}
-          {shown === 'destinations' && <Destinations />}
-          {shown === 'home' &&
-            (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <DashboardPage readsConfiguration={canOpen(roles, 'flows')} roles={roles} />)}
+{consoleEnabled && (
+    <>
+      {shown === 'home' && <DashboardRoute />}
+      {shown === 'flows' && !route.flowId && <FlowsRoute />}
+      {shown === 'systems' && <SystemsRoute />}
+      {shown === 'queue' && <QueueRoute />}
+      {shown === 'failures' && <FailuresRoute />}
+      {shown === 'activity' && <ActivityRoute />}
+      {shown === 'reports' && <ReportsRoute />}
+      {shown === 'contracts' && <ContractsRoute />}
+      {shown === 'rules' && <RulesRoute />}
+      {shown === 'mappings' && <MappingsRoute />}
+    </>
+  )}
+  {!consoleEnabled && shown === 'versions' && <Versions selectId={route.flowId} />}
+  {!consoleEnabled && shown === 'systems' && <SystemsPage />}
+  {!consoleEnabled && shown === 'queue' && <QueuePage />}
+  {!consoleEnabled && shown === 'failures' && <FailuresPage canOperate={canOperate(roles)} />}
+  {!consoleEnabled && shown === 'delivered' && <DeliveredMessages />}
+  {!consoleEnabled && shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
+  {!consoleEnabled && shown === 'approvals' && <Approvals />}
+  {!consoleEnabled && shown === 'activity' && <ActivityPage />}
+  {!consoleEnabled && shown === 'reports' && <ReportsPage />}
+  {!consoleEnabled && shown === 'contracts' && <ContractsPage />}
+  {!consoleEnabled && shown === 'rules' && <RulesPage ruleSetId={route.ruleSetId ?? null} />}
+  {!consoleEnabled && shown === 'mappings' && <MappingsPage routeId={route.routeId ?? null} />}
+  {!consoleEnabled && shown === 'destinations' && <Destinations />}
+  {!consoleEnabled && shown === 'home' &&
+    (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <DashboardPage readsConfiguration={canOpen(roles, 'flows')} roles={roles} />)}
+
         </main>
       </div>
     </div>

@@ -5,13 +5,16 @@
 // POST .../rule-sets with the kind's starter table, then #/rules/<id>), the refusal sentence, worded
 // load errors with Retry, kind badges and Open links. The screen's own table and New Rule drawer have
 // no kind column / kind choice and a Hit Rate / Updated the API does not carry, so the screen draws the
-// header and the loading / empty / error states and this container draws the rule-set table.
+// header and the loading / empty / error states and this container draws the rule-set table. Its
+// condition / output (and column / row) counts walk the stored ZEN content through the ONE editor
+// seam (JdmEditorAdapter) - hit rate and updated time stay TODO until the API carries them.
 // A non-null ruleSetId (same props as RulesEditor) opens the existing editor unchanged.
 
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useFlows, useRuleSets } from '../../api/hooks';
 import { createRuleSet, type RuleSet } from '../../rules/ruleSets';
 import { homeLoadError } from '../../rules/rules-home-view';
+import { JdmEditorAdapter } from '../../rules/jdm/JdmEditorAdapter';
 import { KIND_LABELS, RULE_KINDS, kindBadge, starterJdm, type RuleKind } from '../../rules/templates';
 import RulesScreen, { type RuleRowVM } from '../../screens/rules/RulesScreen';
 import { Button } from '../../ds/components/actions/Button.jsx';
@@ -33,23 +36,38 @@ function flowFromHash(): string {
 
 const ruleHref = (id: string) => `#/rules/${id}`;
 
-/** Condition / output columns summed over the rule set's decision tables (from its stored ZEN content). */
-function columnCounts(ruleSet: RuleSet): { conditions: number; outputs: number } {
+/** The rule set's stored ZEN content walked through the ONE editor seam (JdmEditorAdapter - the same
+ * load/tables() path the editor uses, never a hand-read of the nodes): columns = condition + output
+ * columns, rows = decision rules, conditions = input columns, outputs = output columns, summed over
+ * the graph's decision tables. A rule set without readable content counts as nothing. */
+function contentCounts(ruleSet: RuleSet): { columns: number; rows: number; conditions: number; outputs: number } {
+  if (!ruleSet.content || typeof ruleSet.content !== 'object') {
+    return { columns: 0, rows: 0, conditions: 0, outputs: 0 };
+  }
+  const adapter = new JdmEditorAdapter();
+  adapter.load(ruleSet.content);
+  let columns = 0;
+  let rows = 0;
   let conditions = 0;
   let outputs = 0;
-  for (const node of ruleSet.content?.nodes ?? []) {
-    if (node.type !== 'decisionTableNode') continue;
-    const table = (node.content ?? {}) as { inputs?: unknown[]; outputs?: unknown[] };
-    conditions += table.inputs?.length ?? 0;
-    outputs += table.outputs?.length ?? 0;
+  for (const { table } of adapter.tables()) {
+    if (!table || typeof table !== 'object') continue;
+    const cols = table as { inputs?: unknown[]; outputs?: unknown[]; rules?: unknown[] };
+    conditions += cols.inputs?.length ?? 0;
+    outputs += cols.outputs?.length ?? 0;
+    rows += cols.rules?.length ?? 0;
   }
-  return { conditions, outputs };
+  columns = conditions + outputs;
+  return { columns, rows, conditions, outputs };
 }
 
 /** The screen only uses these rows for its loading / empty / table decision (its table is hidden):
- * no hit rate or edit time exists, so none is invented - those two cells stay empty. */
+ * the counts come from the rule set's content; no hit rate or edit time is carried by the API
+ * (TODO until the summary shape exposes them), so none is invented - those two cells stay empty. */
 function screenRow(ruleSet: RuleSet): RuleRowVM {
-  return { name: ruleSet.name, ...columnCounts(ruleSet), hitRate: null as unknown as number, updated: '' };
+  const { conditions, outputs } = contentCounts(ruleSet);
+  // TODO: hitRate and updated - not carried by GET .../rule-sets; empty until the API answers them.
+  return { name: ruleSet.name, conditions, outputs, hitRate: null as unknown as number, updated: '' };
 }
 
 export function RulesPage({ ruleSetId = null }: { ruleSetId?: string | null } = {}) {
@@ -180,7 +198,7 @@ function RulesList() {
                   <tbody>
                     {shown.map((ruleSet) => {
                       const badge = kindBadge(ruleSet.kind);
-                      const counts = columnCounts(ruleSet);
+                      const counts = contentCounts(ruleSet);
                       return (
                         <tr key={ruleSet.id} data-rule-set-row={ruleSet.id} className="is-clickable" onClick={() => goTo(ruleHref(ruleSet.id))}>
                           <td><span className="ip-id">{ruleSet.name}</span></td>
