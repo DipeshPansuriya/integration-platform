@@ -109,9 +109,10 @@ test('a dead-lettered message: every stage with times, duration and gap, the tot
   seedAttempt(tenantId, delivery, 1, 'TRANSIENT', 1400, 1500);
   seedAttempt(tenantId, delivery, 2, 'PERMANENT', 3000, 3412);
 
-  // reached from Failures (the detail screen has no menu entry)
+  // reached from the Messages landing's Needs attention tab (the detail screen has no menu entry)
   await page.goto(consoleUrl());
-  await page.click('[data-nav="failures"]');
+  await page.click('[data-nav="messages"]');
+  await page.getByRole('link', { name: 'Needs attention' }).click();
   await page.getByRole('combobox', { name: 'Flow', exact: true }).selectOption(flow.id);
   await page.click(`[data-message-link="${msg}"]`);
   await expect(page).toHaveURL(new RegExp(`#/messages/${msg}\\?failed=DELIVER$`));
