@@ -96,8 +96,9 @@ final class TenantFilterRule {
      * Row 586/587 release unblock: exact-class exemptions for reviewed platform-wide SQL access (neither consults tenant
      * data, so R08's tenant predicate has nothing to apply to). Unlike {@link #TARGET_DB_SENDER}, these classes run
      * against the platform datasource / Spring JDBC types and are therefore exempt as whole classes through
-     * {@link #isExempt} rather than through {@link #isTargetConnectionCall}. The reasons are documented with each
-     * constant; a rename must not leave a dead exemption (the production scan asserts presence).
+     * {@link #isExempt} rather than through {@link #isTargetConnectionCall}. The exemption is EXACT-CLASS AND TOP-LEVEL ONLY:
+     * the constants hold fully qualified top-level names and never match a nested type. The reasons are documented with
+     * each constant; a rename must not leave a dead exemption (the production scan asserts presence).
      */
     static final String AUDIT_LEDGER_LOCKDOWN_GUARD = "io.integrationplatform.app.audit.AuditLedgerLockdownGuard";
     static final String DB_BACKED_ALLOW_LIST = "io.integrationplatform.config.destination.DbBackedAllowList";
@@ -183,13 +184,18 @@ final class TenantFilterRule {
     }
 
     private static boolean isExempt(JavaClass javaClass) {
+        // Platform-wide SQL access is reviewed as EXACT TOP-LEVEL CLASSES ONLY: the constants in
+        // REVIEWED_PLATFORM_WIDE_SQL_ACCESS hold fully qualified top-level names; a nested type must never inherit the
+        // exemption merely because it sits inside one of those classes. The top-level guard below enforces this by class
+        // name alone (R08; E16-T2; row 586/587).
         JavaClass outermost = javaClass;
         while (outermost.getEnclosingClass().isPresent()) {
             outermost = outermost.getEnclosingClass().get();
         }
         return outermost.getName().equals(REPOSITORY_BASE)
                 || isReviewedCrossing(outermost)
-                || REVIEWED_PLATFORM_WIDE_SQL_ACCESS.contains(outermost.getName());
+                || (javaClass.getEnclosingClass().isEmpty()
+                        && REVIEWED_PLATFORM_WIDE_SQL_ACCESS.contains(javaClass.getName()));
     }
 
     private static boolean isReviewedCrossing(JavaClass javaClass) {
