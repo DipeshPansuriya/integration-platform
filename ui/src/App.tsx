@@ -124,6 +124,7 @@ function parseHash(): Route {
 }
 
 export function App() {
+  const consoleEnabled = new URLSearchParams(window.location.search).get("console") === "1";
   const [route, setRoute] = useState<Route>(parseHash());
   // Row 310 B11: one count per routed address change - the editor is keyed by it, so #/flow/A -> #/flow/new
   // (or a saved create-mode editor -> #/flow/new again) remounts it empty instead of keeping A's state.
@@ -449,29 +450,29 @@ export function App() {
             </>
           )}
           {shown && <SectionTabs page={route.page} />}
-          {shown === 'flows' &&
+          {!consoleEnabled && shown === 'flows' &&
             (route.flowId ? (
               <FlowDefinition key={`${route.flowId}#${routeSeq}`} openFlowId={route.flowId} guard={editorGuard} roles={roles} />
             ) : (
               <FlowsList />
             ))}
-          {shown === 'versions' && <Versions selectId={route.flowId} />}
-          {shown === 'systems' && <Systems />}
-          {shown === 'queue' && <QueueDashboard />}
-          {shown === 'failures' && <Failures canOperate={canOperate(roles)} />}
-          {shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
-          {shown === 'approvals' && <Approvals />}
-          {shown === 'activity' && <Activity />}
-          {shown === 'reports' && <DeliveryReport />}
-          {shown === 'contracts' && <ContractVersions />}
-          {shown === 'rules' && (
+          {!consoleEnabled && shown === 'versions' && <Versions selectId={route.flowId} />}
+          {!consoleEnabled && shown === 'systems' && <Systems />}
+          {!consoleEnabled && shown === 'queue' && <QueueDashboard />}
+          {!consoleEnabled && shown === 'failures' && <Failures canOperate={canOperate(roles)} />}
+          {!consoleEnabled && shown === 'messages' && (route.trackingId === undefined ? <MessagesLanding /> : <MessageDetail trackingId={route.trackingId} failedHint={route.failedHint ?? null} canReadConfiguration={canOpen(roles, 'flows')} canOperate={canOperate(roles)} />)}
+          {!consoleEnabled && shown === 'approvals' && <Approvals />}
+          {!consoleEnabled && shown === 'activity' && <Activity />}
+          {!consoleEnabled && shown === 'reports' && <DeliveryReport />}
+          {!consoleEnabled && shown === 'contracts' && <ContractVersions />}
+          {!consoleEnabled && shown === 'rules' && (
             <Suspense fallback={<p>Loading the rules editor...</p>}>
               <RulesEditor ruleSetId={route.ruleSetId ?? null} />
             </Suspense>
           )}
-          {shown === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
-          {shown === 'destinations' && <Destinations />}
-          {shown === 'home' &&
+          {!consoleEnabled && shown === 'mappings' && <MappingDesigner routeId={route.routeId ?? null} />}
+          {!consoleEnabled && shown === 'destinations' && <Destinations />}
+          {!consoleEnabled && shown === 'home' &&
             (session === 'checking' ? <p>Checking your session...</p> : session !== 'signed-out' && <Dashboard readsConfiguration={canOpen(roles, 'flows')} roles={roles} />)}
         </main>
       </div>
