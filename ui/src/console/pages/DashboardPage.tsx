@@ -265,7 +265,7 @@ export function DashboardPage({ user, readsConfiguration = true, roles = null }:
 
         {lists !== null && blocks.approvals && waiting && (
           <section className="dashboard-panel home-block" data-home-block="approvals" aria-labelledby="home-approvals">
-            <h2 id="home-approvals">Waiting for your approval ({waiting.total})</h2>
+            <h2 id="home-approvals">Waiting for approval ({waiting.total})</h2>
             {waiting.total === 0 ? (
               <p className="dashboard-muted">Nothing waits for approval.</p>
             ) : (
