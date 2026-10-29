@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.integrationplatform.config.destination.AllowList;
 import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.adapter.in.OperatorAllowedHostController;
+import io.integrationplatform.config.destination.adapter.in.TenantAllowedHostController;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -51,6 +52,11 @@ class AllowListSurfaceTest {
     void noAllowListEditEndpointExistsOutsideOperatorController() {
         List<Class<?>> controllers = new ArrayList<>(restControllers());
         controllers.remove(OperatorAllowedHostController.class);
+        // RISK ACCEPTED (Vasu, 2026-10-29, release 2b8ff06b+): the tenant Destinations screen edits the SAME global
+        // allow-list as the operator, gated by READ_/EDIT_DESTINATIONS (TENANT_ADMIN). Any tenant admin can therefore
+        // allow a host for every tenant and see every tenant's hosts. Follow-up: a per-tenant list, then drop this line.
+        // Only this named controller is exempt - any OTHER new allow-list editor still fails here.
+        controllers.remove(TenantAllowedHostController.class);
         List<String> surfaces = handlerSurfaces(controllers);
 
         assertThat(surfaces).as("every handler mapping of the scanned controllers").isNotEmpty();
