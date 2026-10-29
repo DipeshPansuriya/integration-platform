@@ -1,0 +1,152 @@
+{
+  "id": "nested-appointment-showcase",
+  "name": "Nested appointment showcase",
+  "title": "Nested appointment showcase",
+  "description": "Showcase flow that ingests one appointment with VehicleList and ContainerList arrays and delivers one flat record per container. Template only: review systems, contracts, mapping and flow, then save.",
+  "systems": [
+    {
+      "code": "nested-source",
+      "name": "Nested appointment source",
+      "direction": "INBOUND",
+      "type": "API",
+      "settings": {
+        "baseUrl": "http://wiremock:8089/nested-source/"
+      },
+      "values": {
+        "baseUrl": "http://wiremock:8089/nested-source/",
+        "timeoutMs": "",
+        "followRedirects": false
+      }
+    },
+    {
+      "code": "nested-target",
+      "name": "Nested appointment target (API, one record per container)",
+      "direction": "OUTBOUND",
+      "type": "API",
+      "settings": {
+        "baseUrl": "http://wiremock:8089/nested-target/"
+      },
+      "values": {
+        "baseUrl": "http://wiremock:8089/nested-target/",
+        "timeoutMs": "",
+        "followRedirects": false
+      }
+    }
+  ],
+  "contracts": [
+    {
+      "system": "nested-source",
+      "role": "SOURCE_REQUEST",
+      "versionLabel": "1.0",
+      "format": "JSON_SCHEMA",
+      "document": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"required\":[\"AppointmentId\",\"VehicleList\"],\"properties\":{\"TerminalOpsId\":{\"type\":\"number\"},\"TerminalId\":{\"type\":\"number\"},\"AppointmentId\":{\"type\":\"number\"},\"AppointmentDate\":{\"type\":\"string\",\"format\":\"date-time\"},\"AppointmentStatus\":{\"type\":\"string\"},\"NoofVehicle\":{\"type\":\"number\"},\"BerthNo\":{\"type\":\"string\"},\"VehicleList\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"SlotDate\":{\"type\":\"string\",\"format\":\"date-time\"},\"SlotStartTime\":{\"type\":\"string\",\"format\":\"date-time\"},\"SlotEndTime\":{\"type\":\"string\",\"format\":\"date-time\"},\"DriverPortId\":{\"type\":\"string\"},\"ContainerList\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"required\":[\"ContainerNo\"],\"properties\":{\"BookingType\":{\"type\":\"string\"},\"TransactionID\":{\"type\":\"number\"},\"ContainerNo\":{\"type\":\"string\"},\"Size\":{\"type\":\"string\"},\"Type\":{\"type\":\"string\"},\"ISOCode\":{\"type\":\"string\"},\"NoOfPackages\":{\"type\":\"number\"},\"GrossWeight\":{\"type\":\"number\"},\"ActualWeight\":{\"type\":\"number\"}}}}}}}}}"
+    },
+    {
+      "system": "nested-target",
+      "role": "TARGET_REQUEST",
+      "versionLabel": "1.0",
+      "format": "JSON_SCHEMA",
+      "document": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"required\":[\"appointmentId\",\"containerNo\"],\"properties\":{\"terminalOpsId\":{\"type\":\"number\"},\"terminalId\":{\"type\":\"number\"},\"appointmentId\":{\"type\":\"number\"},\"appointmentDate\":{\"type\":\"string\",\"format\":\"date-time\"},\"appointmentStatus\":{\"type\":\"string\"},\"noOfVehicles\":{\"type\":\"number\"},\"berthNo\":{\"type\":\"string\"},\"slotDate\":{\"type\":\"string\",\"format\":\"date-time\"},\"slotStartTime\":{\"type\":\"string\",\"format\":\"date-time\"},\"slotEndTime\":{\"type\":\"string\",\"format\":\"date-time\"},\"driverPortId\":{\"type\":\"string\"},\"bookingType\":{\"type\":\"string\"},\"transactionId\":{\"type\":\"number\"},\"containerNo\":{\"type\":\"string\"},\"size\":{\"type\":\"string\"},\"type\":{\"type\":\"string\"},\"isoCode\":{\"type\":\"string\"},\"noOfPackages\":{\"type\":\"number\"},\"grossWeight\":{\"type\":\"number\"},\"actualWeight\":{\"type\":\"number\"}}}"
+    }
+  ],
+  "flow": {
+    "name": "NESTED-APPOINTMENT",
+    "description": "Created from the Nested appointment showcase template. Review and save before deploying.",
+    "sourceSystemId": "nested-source",
+    "targetSystemId": "nested-target",
+    "trigger": "Message Received",
+    "contractId": "",
+    "mappingId": "",
+    "ruleId": "",
+    "retryCount": 3,
+    "retryDelay": "Exponential backoff",
+    "deadLetterQueue": true,
+    "alertOnFailure": true,
+    "businessKeyRule": "AppointmentId"
+  },
+  "mapping": {
+    "expression": "[VehicleList.($v := $; $v.ContainerList[$type($) = 'object'].{'terminalOpsId': $$.TerminalOpsId, 'terminalId': $$.TerminalId, 'appointmentId': $$.AppointmentId, 'appointmentDate': $$.AppointmentDate, 'appointmentStatus': $$.AppointmentStatus, 'noOfVehicles': $$.NoofVehicle, 'berthNo': $$.BerthNo, 'slotDate': $v.SlotDate, 'slotStartTime': $v.SlotStartTime, 'slotEndTime': $v.SlotEndTime, 'driverPortId': $v.DriverPortId, 'bookingType': BookingType, 'transactionId': TransactionID, 'containerNo': ContainerNo, 'size': Size, 'type': Type, 'isoCode': ISOCode, 'noOfPackages': NoOfPackages, 'grossWeight': GrossWeight, 'actualWeight': ActualWeight})]",
+    "fieldMappings": [
+      {
+        "source": "TerminalOpsId",
+        "target": "terminalOpsId"
+      },
+      {
+        "source": "TerminalId",
+        "target": "terminalId"
+      },
+      {
+        "source": "AppointmentId",
+        "target": "appointmentId"
+      },
+      {
+        "source": "AppointmentDate",
+        "target": "appointmentDate"
+      },
+      {
+        "source": "AppointmentStatus",
+        "target": "appointmentStatus"
+      },
+      {
+        "source": "NoofVehicle",
+        "target": "noOfVehicles"
+      },
+      {
+        "source": "BerthNo",
+        "target": "berthNo"
+      },
+      {
+        "source": "VehicleList.SlotDate",
+        "target": "slotDate"
+      },
+      {
+        "source": "VehicleList.SlotStartTime",
+        "target": "slotStartTime"
+      },
+      {
+        "source": "VehicleList.SlotEndTime",
+        "target": "slotEndTime"
+      },
+      {
+        "source": "VehicleList.DriverPortId",
+        "target": "driverPortId"
+      },
+      {
+        "source": "VehicleList.ContainerList.BookingType",
+        "target": "bookingType"
+      },
+      {
+        "source": "VehicleList.ContainerList.TransactionID",
+        "target": "transactionId"
+      },
+      {
+        "source": "VehicleList.ContainerList.ContainerNo",
+        "target": "containerNo"
+      },
+      {
+        "source": "VehicleList.ContainerList.Size",
+        "target": "size"
+      },
+      {
+        "source": "VehicleList.ContainerList.Type",
+        "target": "type"
+      },
+      {
+        "source": "VehicleList.ContainerList.ISOCode",
+        "target": "isoCode"
+      },
+      {
+        "source": "VehicleList.ContainerList.NoOfPackages",
+        "target": "noOfPackages"
+      },
+      {
+        "source": "VehicleList.ContainerList.GrossWeight",
+        "target": "grossWeight"
+      },
+      {
+        "source": "VehicleList.ContainerList.ActualWeight",
+        "target": "actualWeight"
+      }
+    ]
+  }
+}

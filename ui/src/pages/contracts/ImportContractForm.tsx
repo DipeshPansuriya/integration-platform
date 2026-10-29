@@ -11,14 +11,23 @@ import { useDrawerSaved } from '../../ui/Drawer';
 import { refusalWords } from '../../ui/refusal-words';
 import { roleWord } from './contracts-view';
 
-export function ImportContractForm({ onImported }: { onImported: () => Promise<void> }) {
+export type ImportContractFormInitial = {
+  system?: string;
+  role?: ContractRole;
+  versionLabel?: string;
+  format?: ContractFormat;
+  schemaName?: string;
+  document?: string;
+};
+
+export function ImportContractForm({ onImported, initial }: { onImported: () => Promise<void>; initial?: ImportContractFormInitial }) {
   const [systems, setSystems] = useState<SystemView[]>([]);
-  const [system, setSystem] = useState('');
-  const [role, setRole] = useState<ContractRole>('TARGET_REQUEST');
-  const [versionLabel, setVersionLabel] = useState('');
-  const [format, setFormat] = useState<ContractFormat>('OPENAPI');
-  const [schemaName, setSchemaName] = useState('');
-  const [document, setDocument] = useState('');
+  const [system, setSystem] = useState(initial?.system ?? '');
+  const [role, setRole] = useState<ContractRole>(initial?.role ?? 'TARGET_REQUEST');
+  const [versionLabel, setVersionLabel] = useState(initial?.versionLabel ?? '');
+  const [format, setFormat] = useState<ContractFormat>(initial?.format ?? 'OPENAPI');
+  const [schemaName, setSchemaName] = useState(initial?.schemaName ?? '');
+  const [document, setDocument] = useState(initial?.document ?? '');
   const [imported, setImported] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<{ error: string; parserErrors: string[] } | null>(null);
   const [busy, setBusy] = useState(false);

@@ -21,11 +21,12 @@ export default function NewFlowDrawer({
   mappings = [],
   rules = [],
   draft = null,
+  initial = null,
   onClose,
   onSaveDraft,
   onCreateDeploy,
 }: NewFlowDrawerProps) {
-  const [form, setForm] = useState<FlowDraft>({ ...DEFAULT_FLOW_DRAFT, ...(draft ?? {}) });
+  const [form, setForm] = useState<FlowDraft>({ ...DEFAULT_FLOW_DRAFT, ...(initial ?? draft ?? {}) });
   const [attempted, setAttempted] = useState(false);
   const set = (patch: Partial<FlowDraft>) => setForm((f) => ({ ...f, ...patch }));
   const nameMissing = !form.name.trim();

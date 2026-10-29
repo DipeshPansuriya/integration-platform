@@ -1,0 +1,70 @@
+{
+  "id": "blank-api-to-api",
+  "name": "Blank API-to-API",
+  "title": "Blank API-to-API",
+  "description": "A minimal inbound API to outbound API flow. Fill in systems, contracts and mapping after choosing it; nothing is created until you save.",
+  "systems": [
+    {
+      "code": "source-api",
+      "name": "Source API",
+      "direction": "INBOUND",
+      "type": "API",
+      "settings": {
+        "baseUrl": "https://source.example.com/api"
+      },
+      "values": {
+        "baseUrl": "https://source.example.com/api",
+        "timeoutMs": "",
+        "followRedirects": false
+      }
+    },
+    {
+      "code": "target-api",
+      "name": "Target API",
+      "direction": "OUTBOUND",
+      "type": "API",
+      "settings": {
+        "baseUrl": "https://target.example.com/api"
+      },
+      "values": {
+        "baseUrl": "https://target.example.com/api",
+        "timeoutMs": "",
+        "followRedirects": false
+      }
+    }
+  ],
+  "contracts": [
+    {
+      "system": "source-api",
+      "role": "SOURCE_REQUEST",
+      "versionLabel": "1.0",
+      "format": "JSON_SCHEMA",
+      "document": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"required\":[\"messageId\"],\"properties\":{\"messageId\":{\"type\":\"string\"},\"body\":{\"type\":\"object\"}}}"
+    },
+    {
+      "system": "target-api",
+      "role": "TARGET_REQUEST",
+      "versionLabel": "1.0",
+      "format": "JSON_SCHEMA",
+      "document": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"required\":[\"messageId\"],\"properties\":{\"messageId\":{\"type\":\"string\"},\"body\":{\"type\":\"object\"}}}"
+    }
+  ],
+  "flow": {
+    "name": "Blank API-to-API flow",
+    "description": "Created from the Blank API-to-API template. Review and save before deploying.",
+    "sourceSystemId": "source-api",
+    "targetSystemId": "target-api",
+    "trigger": "Message Received",
+    "contractId": "",
+    "mappingId": "",
+    "ruleId": "",
+    "retryCount": 3,
+    "retryDelay": "Exponential backoff",
+    "deadLetterQueue": true,
+    "alertOnFailure": true
+  },
+  "mapping": {
+    "expression": "$",
+    "fieldMappings": []
+  }
+}

@@ -45,6 +45,9 @@ export function FlowsList() {
         <a className="btn btn-primary" href={NEW_FLOW_HASH} data-action="define-flow">
           Define a flow
         </a>
+        <a className="btn" href="#/flows?start-from-template=1" data-action="start-from-template" data-template-entry="true">
+          Start from template
+        </a>
       </div>
 
       {load === 'loading' && <p className="flows-muted" aria-live="polite">Loading flows...</p>}
