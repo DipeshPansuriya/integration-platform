@@ -95,7 +95,8 @@ const QUICK_ACTIONS = [
   { label: 'Register a system', href: '#/systems', primary: true },
   { label: 'Import a contract', href: '#/contracts', primary: false },
   { label: 'Define a flow', href: '#/flows', primary: false },
-  { label: 'Create a rule set', href: '#/rules', primary: false }
+  { label: 'Create a rule set', href: '#/rules', primary: false },
+  { label: 'Start from template', href: '#/flows', primary: false }
 ];
 
 // Row 575 (S1, Karan Low 2): `readsConfiguration` is false only when the roles are KNOWN and lack READ_CONFIGURATION (Support, no
@@ -212,7 +213,7 @@ export function Dashboard({ user, readsConfiguration = true, roles = null }: { u
 
       {lists !== null && blocks.approvals && waiting && (
         <section className="dashboard-panel home-block" data-home-block="approvals" aria-labelledby="home-approvals">
-          <h2 id="home-approvals">Waiting for your approval ({waiting.total})</h2>
+          <h2 id="home-approvals">Waiting for approval ({waiting.total})</h2>
           {/* Plain links: the Versions and Contracts screens do not read a status filter yet (S3/S5 add it); ?date= below does work. */}
           {waiting.total === 0 ? (
             <p className="dashboard-muted">Nothing waits for approval.</p>

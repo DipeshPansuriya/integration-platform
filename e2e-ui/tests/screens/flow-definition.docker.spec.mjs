@@ -240,7 +240,8 @@ test('B12 an in-app link away from a dirty editor is held by the confirm until L
   await openFlow(page, idA, 'a_key');
   await page.fill('[data-field="business-key-rule"]', 'edited');
 
-  await page.click('[data-nav="versions"]');
+  // S10 pre-condition: Versions is opened by the flow workspace's Versions tab link (the legacy menu group is gone).
+  await page.click('[data-flow-tab="versions"]');
   await expect(confirmBox(page)).toBeVisible();
   await expect(editor(page)).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`#/flow/${idA}$`));
@@ -248,10 +249,10 @@ test('B12 an in-app link away from a dirty editor is held by the confirm until L
   await expect(confirmBox(page)).toBeHidden();
   await expect(page.locator('[data-field="business-key-rule"]'), 'Stay keeps the edits').toHaveValue('edited');
 
-  await page.click('[data-nav="versions"]');
+  await page.click('[data-flow-tab="versions"]');
   await page.click('[data-action="leave-without-saving"]');
   await expect(editor(page)).toBeHidden();
-  await expect(page).toHaveURL(/#\/versions$/);
+  await expect(page).toHaveURL(new RegExp(`#/versions/${idA}$`));
 });
 
 test('B12 browser Back away from a dirty editor shows the confirm, keeps the editor and the flow address', async ({ page }) => {
@@ -347,15 +348,15 @@ test('B13 the leave dialog is modal, takes focus, closes on Escape and gives foc
   await openFlow(page, idA, 'a_key');
   await page.fill('[data-field="business-key-rule"]', 'edited');
 
-  // Opened by a link: focus returns to that link.
-  await page.click('[data-nav="versions"]');
+  // Opened by a link: focus returns to that link. S10 pre-condition: the opener is the flow workspace's Versions tab link.
+  await page.click('[data-flow-tab="versions"]');
   await expect(confirmBox(page)).toBeVisible();
   await expect(confirmBox(page)).toHaveAttribute('aria-modal', 'true');
   await expect(page.locator('[data-action="stay"]'), 'focus moves into the dialog').toBeFocused();
   await page.keyboard.press('Escape');
   await expect(confirmBox(page), 'Escape = Stay').toBeHidden();
   await expect(page.locator('[data-field="business-key-rule"]')).toHaveValue('edited');
-  await expect(page.locator('[data-nav="versions"]'), 'focus returns to the opener').toBeFocused();
+  await expect(page.locator('[data-flow-tab="versions"]'), 'focus returns to the opener').toBeFocused();
 
   // Opened by a typed address (no opener element): focus goes to the editor heading.
   await page.goto(`${consoleUrl()}/#/versions`);

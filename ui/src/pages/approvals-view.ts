@@ -1,6 +1,6 @@
 // Row 575 S5 (guided flow, plan S5): the Approvals list rows - flow versions that are SUBMITTED and contracts that have a version
 // waiting for approval, from the lists Home already reads. One row per flow and one per contract (a contract with two versions
-// waiting is one row that says so), so the count equals Home's "Waiting for your approval" block. Approving is unchanged: each row
+// waiting is one row that says so), so the count equals Home's "Waiting for approval" block. Approving is unchanged: each row
 // links to the existing screen. No DOM, no fetch.
 
 import { statusWord } from '../ui/status-words';

@@ -36,13 +36,20 @@ function Count({ value }: { value: number }) {
 
 /** Success % to one decimal, from the day's own counts; a row with no delivery attempt has no rate (0). */
 function screenRows(rows: readonly ReportRow[]): ScreenReportRow[] {
-  return rows.map((row) => ({
-    flow: `${row.interfaceId} → ${row.targetId}`,
-    sent: row.deliveries,
-    delivered: row.successes,
-    failed: row.failures,
-    successPct: row.deliveries > 0 ? Math.round((row.successes / row.deliveries) * 1000) / 10 : 0
-  }));
+  return rows.map((row) => {
+    // The row-data join: one flow label per interface/target pair, built from the ids the row itself
+    // carries (no lookup, no invented names). An absent id is skipped; both absent falls back to the
+    // row's own key, and the label never dangles on a stray arrow.
+    const parts = [row.interfaceId, row.targetId].map((part) => part.trim()).filter((part) => part !== '');
+    const flow = parts.length > 0 ? parts.join(' → ') : row.key;
+    return {
+      flow,
+      sent: row.deliveries,
+      delivered: row.successes,
+      failed: row.failures,
+      successPct: row.deliveries > 0 ? Math.round((row.successes / row.deliveries) * 1000) / 10 : 0
+    };
+  });
 }
 
 function download(day: string, rows: readonly ReportRow[]): void {

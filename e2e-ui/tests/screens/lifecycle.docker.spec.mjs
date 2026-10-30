@@ -15,6 +15,13 @@ test.beforeEach(async ({ page }) => {
   await page.goto(consoleUrl());
 });
 
+/** S10 pre-condition: Versions is reached through the flow workspace's Versions tab (the legacy menu group is gone). */
+async function openVersions(page, flowId) {
+  await page.goto(`${consoleUrl()}/#/flow/${flowId}`);
+  await expect(page.locator('[data-page="flow-definition"]')).toBeVisible();
+  await page.click('[data-flow-tab="versions"]');
+}
+
 test('submit for approval sends the changeNote body through the real API and lists the submitted version', async ({ page }) => {
   await openFreshDraft(page);
 
@@ -52,7 +59,7 @@ test('the published bundle equals the snapshot taken at submit, byte for byte, o
   if (!flowId) throw new Error('the publishable draft was refused');
   await bindMappings(page, flowId, seed);
 
-  await page.click('[data-nav="versions"]');
+  await openVersions(page, flowId);
   await page.click(`[data-flow-row="${flowId}"]`);
   await page.click('[data-action="submit-for-approval"]');
   await page.click('[data-action="approve-as-approver"]');
@@ -108,7 +115,7 @@ test('submit, approve and publish walk the row that was clicked, never the pinne
   }, { url: consoleUrl(), publishable: seed.flowBody });
   await bindMappings(page, clickedId, seed); // the user binds the clicked flow's mapping before submitting it
 
-  await page.click('[data-nav="versions"]');
+  await openVersions(page, clickedId);
   await page.click(`[data-flow-row="${clickedId}"]`); // the user's row - NOT the pinned first-draft row
 
   await page.fill('[data-field="change-note"]', 'the clicked row, never the pinned first draft');
@@ -124,9 +131,11 @@ test('submit, approve and publish walk the row that was clicked, never the pinne
   await expect(page.locator('[data-bundle-equals-snapshot="true"]')).toBeVisible(); // the clicked flow's own submit snapshot
 
   // A fresh mount re-lists from the server: the clicked row is PUBLISHED, the pinned
-  // first-draft row was never acted on and still reads DRAFT.
+  // first-draft row was never acted on and still reads DRAFT. S10 pre-condition: walk away to the
+  // flows screen, then re-mount Versions through the flow workspace's Versions tab (the legacy
+  // Versions menu group is gone).
   await page.click('[data-nav="flows"]');
-  await page.click('[data-nav="versions"]');
+  await openVersions(page, pinnedId);
   await expect(page.locator(`[data-flow-row="${pinnedId}"] [data-version-status="DRAFT"]`)).toBeVisible();
   await expect(page.locator(`[data-flow-row="${clickedId}"] [data-version-status="PUBLISHED"]`)).toBeVisible();
 });
@@ -218,7 +227,7 @@ test('a publish the server refuses shows the refusal on the screen and the versi
   const flowId = created.data?.id;
   if (!flowId) throw new Error(`the fresh draft was refused (${created.status})`);
 
-  await page.click('[data-nav="versions"]');
+  await openVersions(page, flowId);
   await page.click(`[data-flow-row="${flowId}"]`);
   await page.fill('[data-field="change-note"]', 'a publish the gate refuses');
   await page.click('[data-action="submit-for-approval"]');
@@ -242,7 +251,7 @@ test('a publish the server refuses shows the refusal on the screen and the versi
  */
 async function openFreshDraft(page) {
   const flowId = must(await inBrowser(page, 'POST', '/api/v1/admin/flows', { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' }), 'draft flow').id;
-  await page.click('[data-nav="versions"]');
+  await openVersions(page, flowId);
   await page.click(`[data-flow-row="${flowId}"]`);
   await expect(page.locator(`[data-flow-row="${flowId}"] [data-version-status="DRAFT"]`)).toBeVisible();
   return flowId;
@@ -257,7 +266,7 @@ test('the selected version row is perceivable without colour and to assistive te
   const draft = { sourceSystem: 'S', destinations: ['T1'], businessKeyRule: 'customer_id' };
   const firstId = must(await inBrowser(page, 'POST', '/api/v1/admin/flows', draft), 'draft flow 1').id;
   const secondId = must(await inBrowser(page, 'POST', '/api/v1/admin/flows', draft), 'draft flow 2').id;
-  await page.click('[data-nav="versions"]');
+  await openVersions(page, firstId);
   const first = page.locator(`[data-flow-row="${firstId}"]`);
   const second = page.locator(`[data-flow-row="${secondId}"]`);
 

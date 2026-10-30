@@ -1,0 +1,168 @@
+# Release automation for iPaaS on Hostinger.
+# Bug fix note for YAML parsers/runners: keep every multiline `script:` value block-indented
+# and quoted where it contains `${{ }}`; never inline a secret, only reference `${{ secrets.* }}`.
+name: release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional short commit tag override (must match HEAD)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: docker.io
+  APP_IMAGE_NAME: ipass-platform-app
+  UI_IMAGE_NAME: ipass-ui
+
+jobs:
+  tests:
+    name: Maven full reactor
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+      - name: Full reactor verify
+        run: ./mvnw -B clean verify
+
+  secrets-scan:
+    name: Gitleaks secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks detect
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-push:
+    name: Build and push images
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: [tests, secrets-scan]
+    runs-on: ubuntu-latest
+    outputs:
+      short_sha: ${{ steps.sha.outputs.short }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+      - name: Build platform-app jar
+        run: ./mvnw -B -pl platform-app -am package -DskipTests
+      - name: Build UI
+        working-directory: ui
+        run: npm ci && npm run build
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      - name: Trivy filesystem report (advisory)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+      - name: Build and push platform-app
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: platform-app/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.APP_IMAGE_NAME }}:${{ steps.sha.outputs.short }}
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.APP_IMAGE_NAME }}:${{ github.sha }}
+      - name: Build and push UI
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ui/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.UI_IMAGE_NAME }}:${{ steps.sha.outputs.short }}
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.UI_IMAGE_NAME }}:${{ github.sha }}
+      - name: Build and push Flyway migration image
+        # The Flyway CLI image deploy.sh runs migrations with. Built through
+        # flyway/build-image.sh, which assembles the context from `git archive HEAD`
+        # (flyway/ + every module's db/migration folder), runs the migration-folder
+        # guard, and labels the image with org.opencontainers.image.revision=<full sha>
+        # and ipass.flyway.manifest=<sha256> - the labels migrate.sh verifies against
+        # the release tag before the database password is ever used. The registry
+        # prefix comes from IPASS_IMAGE_PREFIX, resolved at run time, never hardcoded.
+        # Pinned short-SHA tag only, no latest, same convention as app/ui.
+        env:
+          IPASS_IMAGE_PREFIX: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}
+        run: |
+          sh deploy/hostinger/flyway/build-image.sh "${{ steps.sha.outputs.short }}"
+          docker push "${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/flyway-migrate:${{ steps.sha.outputs.short }}"
+
+  deploy:
+    name: Deploy to VPS
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: build-push
+    runs-on: ubuntu-latest
+    environment: Production Deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Resolve release tag
+        id: tag
+        run: echo "value=${{ github.event.inputs.release_tag || needs.build-push.outputs.short_sha }}" >> "$GITHUB_OUTPUT"
+      - name: Provision deploy script on VPS
+        # Self-provisioning: copy the authoritative repo copy of github-deploy.sh
+        # to the VPS before every deploy so no host-side manual step is ever needed.
+        # strip_components: 2 drops deploy/hostinger/ so the file lands at
+        # /docker/ipass/github-deploy.sh exactly where github-deploy.sh expects it.
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "deploy/hostinger/github-deploy.sh"
+          target: "/docker/ipass/"
+          strip_components: 2
+          overwrite: true
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.value }}
+          APP_IMAGE: ${{ secrets.DOCKER_USERNAME }}/${{ env.APP_IMAGE_NAME }}:${{ steps.tag.outputs.value }}
+          UI_IMAGE: ${{ secrets.DOCKER_USERNAME }}/${{ env.UI_IMAGE_NAME }}:${{ steps.tag.outputs.value }}
+          IPASS_IMAGE_PREFIX: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: IMAGE_TAG,APP_IMAGE,UI_IMAGE,IPASS_IMAGE_PREFIX,DB_PASSWORD
+          script: |
+            chmod 700 /docker/ipass/github-deploy.sh
+            /docker/ipass/github-deploy.sh
+      - name: Smoke status
+        run: echo "Deploy job finished; deploy.sh health gate is the smoke check."

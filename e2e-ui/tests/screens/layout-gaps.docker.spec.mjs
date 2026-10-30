@@ -99,7 +99,9 @@ test('Flows list: Clear lines up with the filter input, and the header button wi
 
 test('Versions: 8px between neighbouring action buttons on the action row', async ({ page }) => {
   const flowId = must(await inBrowser(page, 'POST', '/api/v1/admin/flows', DRAFT), 'draft flow').id;
-  await page.click('[data-nav="versions"]');
+  // S10 pre-condition: Versions is reached through the flow workspace's Versions tab (the legacy menu group is gone).
+  await page.goto(`${consoleUrl()}/#/flow/${flowId}`);
+  await page.click('[data-flow-tab="versions"]');
   await page.click(`[data-flow-row="${flowId}"]`);
   await expect(page.locator(`[data-flow-row="${flowId}"] [data-version-status="DRAFT"]`)).toBeVisible();
 

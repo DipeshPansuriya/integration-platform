@@ -71,6 +71,11 @@ export interface FlowsScreenProps {
   headerClassName?: string;
   /** Pass-through: extra attributes on the header New Flow button (may override data-action). */
   newFlowProps?: Record<string, string | boolean | undefined>;
+  onStartFromTemplate?: () => void;
+  onTemplate?: () => void;
+  onNewFromTemplate?: () => void;
+  onChooseTemplate?: () => void;
+
 }
 
 export interface FlowDetailDrawerProps {
@@ -97,6 +102,7 @@ export interface NewFlowDrawerProps {
   mappings?: FlowOption[];
   rules?: FlowOption[];
   draft?: FlowDraft | null;
+  initial?: FlowDraft | null;
   onClose?: () => void;
   onSaveDraft?: (draft: FlowDraft) => void;
   onCreateDeploy?: (draft: FlowDraft) => void;

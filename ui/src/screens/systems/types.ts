@@ -8,6 +8,8 @@ export interface SystemRow {
   protocol: string;
   latencyMs?: number;
   lastCheck?: string;
+  /** Flow names/codes that reference this system (source or destination), derived client-side. */
+  usedBy?: string[];
 }
 
 /** Full detail for the System detail drawer (extends the grid row). */
