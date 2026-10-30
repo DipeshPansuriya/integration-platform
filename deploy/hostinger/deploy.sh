@@ -150,9 +150,9 @@ waited=0
 while :; do
   bad=""
   for svc in $HEALTH_SERVICES; do
-    cid="$(\"$DOCKER\" compose ps -q \"$svc\" 2>/dev/null || true)"
+    cid="$("$DOCKER" compose ps -q "$svc" 2>/dev/null || true)"
     st="none"
-    [ -n "$cid" ] && st="$(\"$DOCKER\" inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \"$cid\" 2>/dev/null || echo unknown)"
+    [ -n "$cid" ] && st="$("$DOCKER" inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid" 2>/dev/null || echo unknown)"
     case "$st" in healthy|running) ;; *) bad="$bad $svc=$st" ;; esac
   done
   [ -z "$bad" ] && break
