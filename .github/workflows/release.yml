@@ -135,16 +135,21 @@ jobs:
         id: tag
         run: echo "value=${{ github.event.inputs.release_tag || needs.build-push.outputs.short_sha }}" >> "$GITHUB_OUTPUT"
       - name: Provision deploy script on VPS
-        # Self-provisioning: copy the authoritative repo copy of github-deploy.sh
-        # to the VPS before every deploy so no host-side manual step is ever needed.
-        # strip_components: 2 drops deploy/hostinger/ so the file lands at
-        # /docker/ipass/github-deploy.sh exactly where github-deploy.sh expects it.
+        # Self-provisioning: copy the authoritative repo copies of github-deploy.sh and
+        # deploy.sh to the VPS before every deploy so no host-side manual step is ever
+        # needed and the host always runs the released deploy.sh - including its
+        # up-failure diagnostics (#134's fix is inert without this, run 41011376632).
+        # strip_components: 2 drops deploy/hostinger/ so both files land at
+        # /docker/ipass/<name> where github-deploy.sh expects deploy.sh. Both sources
+        # are at deploy/hostinger/<file> depth, so strip_components: 2 stays correct
+        # for the pair. Only these two scripts ship on purpose; compose.yaml and
+        # flyway/ scripts stay host-managed (host drift there is a separate follow-up).
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "deploy/hostinger/github-deploy.sh"
+          source: "deploy/hostinger/github-deploy.sh,deploy/hostinger/deploy.sh"
           target: "/docker/ipass/"
           strip_components: 2
           overwrite: true
@@ -162,7 +167,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: IMAGE_TAG,APP_IMAGE,UI_IMAGE,IPASS_IMAGE_PREFIX,DB_PASSWORD
           script: |
-            chmod 700 /docker/ipass/github-deploy.sh
+            chmod 700 /docker/ipass/github-deploy.sh /docker/ipass/deploy.sh
             /docker/ipass/github-deploy.sh
       - name: Smoke status
         run: echo "Deploy job finished; deploy.sh health gate is the smoke check."
