@@ -13,6 +13,7 @@ import { api } from '../../api/client';
 import { useFlows, useResource } from '../../api/hooks';
 import type { ApiAnswer } from '../../api/flows';
 import { flowsErrorText, loadRoutes, mappingHref, NO_FLOWS, routeLabel, type FlowRoute } from '../../mapping/routesList';
+import { RouteCallbackForm } from '../../mapping/RouteCallbackForm';
 import { MappingDesigner } from '../../pages/MappingDesigner';
 import MappingsScreen, { type MappingRowVM } from '../../screens/mappings/MappingsScreen';
 import { Button } from '../../ds/components/actions/Button.jsx';
@@ -40,6 +41,7 @@ function MappingsList() {
   const flows = useFlows();
   const [selected, setSelected] = useState<string | null>(null);
   const [hint, setHint] = useState(false);
+  const [expandedCb, setExpandedCb] = useState<string | null>(null);
   const routes = useResource<FlowRoute[], ApiAnswer<FlowRoute[]>>(
     () => (selected === null ? Promise.resolve(NO_ROUTES) : flowRoutes(selected)),
     [selected]
@@ -131,37 +133,74 @@ function MappingsList() {
                     <th scope="col">Interface</th>
                     <th scope="col">Target system</th>
                     <th scope="col">Mapping</th>
+                    <th scope="col">Callback</th>
                     <th scope="col">Open</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {list.map((route) => (
-                    <tr key={route.id} data-mapping-route={route.id} className="is-clickable" onClick={() => goTo(mappingHref(route.id))}>
-                      <td>
-                        <span className="ip-id">{routeName(route)}</span>
-                        {route.targetEndpointCode && <span className="cp-sub">{route.targetEndpointCode}</span>}
-                      </td>
-                      <td>
-                        {current?.name}
-                        {current?.code && <span className="cp-sub">{current.code}</span>}
-                      </td>
-                      <td><span className="ip-id">{route.targetSystem ?? 'unknown system'}</span></td>
-                      <td>
-                        <span className={`badge badge-${route.mappingId ? 'success' : 'neutral'}`}>{route.mappingId ? 'Saved' : 'Not saved'}</span>
-                      </td>
-                      <td>
-                        <a
-                          className="ip-btn ip-btn--secondary ip-btn--sm"
-                          data-action="open-mapping"
-                          href={mappingHref(route.id)}
-                          aria-label={`Open mapping: ${routeLabel(route)}`}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          Open mapping
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
+                  {list.map((route) => {
+                    const cbWord = !route.callbackMode ? 'Off' : route.callbackMode === 'IMMEDIATE' ? 'Immediate' : 'Scheduled';
+                    const cbTone = !route.callbackMode ? 'neutral' : route.callbackMode === 'IMMEDIATE' ? 'success' : 'info';
+                    const cbOpen = expandedCb === route.id;
+                    return (
+                      <tr key={route.id} data-mapping-route={route.id} className="is-clickable" onClick={() => goTo(mappingHref(route.id))}>
+                        <td>
+                          <span className="ip-id">{routeName(route)}</span>
+                          {route.targetEndpointCode && <span className="cp-sub">{route.targetEndpointCode}</span>}
+                        </td>
+                        <td>
+                          {current?.name}
+                          {current?.code && <span className="cp-sub">{current.code}</span>}
+                        </td>
+                        <td><span className="ip-id">{route.targetSystem ?? 'unknown system'}</span></td>
+                        <td>
+                          <span className={`badge badge-${route.mappingId ? 'success' : 'neutral'}`}>{route.mappingId ? 'Saved' : 'Not saved'}</span>
+                        </td>
+                        <td>
+                          <span className={`badge badge-${cbTone}`}>{cbWord}</span>
+                          <button
+                            className="ip-btn ip-btn--ghost ip-btn--sm"
+                            data-action="toggle-callback"
+                            aria-expanded={cbOpen}
+                            aria-label={`Configure callback: ${routeLabel(route)}`}
+                            onClick={(e) => { e.stopPropagation(); setExpandedCb(cbOpen ? null : route.id); }}
+                          >
+                            {cbOpen ? '▲' : '▼'}
+                          </button>
+                        </td>
+                        <td>
+                          <a
+                            className="ip-btn ip-btn--secondary ip-btn--sm"
+                            data-action="open-mapping"
+                            href={mappingHref(route.id)}
+                            aria-label={`Open mapping: ${routeLabel(route)}`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Open mapping
+                          </a>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {expandedCb && selected && (() => {
+                    const route = list.find((r) => r.id === expandedCb);
+                    if (!route) return null;
+                    return (
+                      <tr key={`${expandedCb}-cb`} data-callback-row={expandedCb}>
+                        <td colSpan={6} style={{ padding: '12px 16px', background: 'var(--surface-raised, #1a1a2e)' }}>
+                          <RouteCallbackForm
+                            flowId={selected}
+                            route={route}
+                            onSaved={(mode, url) => {
+                              route.callbackMode = mode;
+                              route.callbackUrl = url;
+                              routes.reload();
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })()}
                 </tbody>
               </table>
             </div>

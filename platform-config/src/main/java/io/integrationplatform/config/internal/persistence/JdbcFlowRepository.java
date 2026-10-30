@@ -36,7 +36,7 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
     }
 
     public record RouteRow(String id, int sequence, String condition, boolean isPrimary, String status,
-            String targetEndpointId) {
+            String targetEndpointId, String callbackMode, String callbackUrl) {
     }
 
     public record MappingRow(String id, String routeId, String fieldMappingsJson, String compiledExpression,
@@ -67,7 +67,8 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
             + " from public.target_endpoint te";
 
     private static final String READ_ROUTES = "select r.id::text as id, r.sequence, r.condition,"
-            + " r.is_primary, r.status, r.target_endpoint_id::text as target_endpoint_id from public.route r";
+            + " r.is_primary, r.status, r.target_endpoint_id::text as target_endpoint_id,"
+            + " r.callback_mode, r.callback_url from public.route r";
 
     private static final String READ_MAPPINGS = "select m.id::text as id, m.route_id::text as route_id,"
             + " m.field_mappings::text as field_mappings, m.compiled_expression,"
@@ -84,16 +85,18 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
             "m.route_id in (select r.id from public.route r where r.interface_id = :interface_id::uuid)";
 
     private static final String INSERT_ROUTE = "with ins as ("
-            + "insert into public.route (tenant_id, interface_id, target_endpoint_id, sequence)"
+            + "insert into public.route (tenant_id, interface_id, target_endpoint_id, sequence,"
+            + "    callback_mode, callback_url)"
             + " values (current_setting('app.tenant_id')::uuid, :interface_id::uuid,"
-            + "    :endpoint_id::uuid, :sequence::integer)"
+            + "    :endpoint_id::uuid, :sequence::integer, :callback_mode, :callback_url)"
             + " returning id, tenant_id) select id::text from ins";
 
     private static final String INSERT_ROUTE_FROM_SNAPSHOT = "with ins as ("
             + "insert into public.route (id, tenant_id, interface_id, target_endpoint_id, sequence,"
-            + "    condition, is_primary, status)"
+            + "    condition, is_primary, status, callback_mode, callback_url)"
             + " values (:id::uuid, current_setting('app.tenant_id')::uuid, :interface_id::uuid,"
-            + "    :endpoint_id::uuid, :sequence::integer, :condition::text, :is_primary, :status)"
+            + "    :endpoint_id::uuid, :sequence::integer, :condition::text, :is_primary, :status,"
+            + "    :callback_mode, :callback_url)"
             + " returning id, tenant_id) select id::text from ins";
 
     private static final String INSERT_MAPPING = "with ins as ("
@@ -110,7 +113,8 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
             + " returning id, tenant_id) select id::text from ins";
 
     private static final String UPDATE_ROUTE_FROM_SNAPSHOT = "update public.route set sequence = :sequence::integer,"
-            + " condition = :condition::text, is_primary = :is_primary, status = :status, updated_at = now()";
+            + " condition = :condition::text, is_primary = :is_primary, status = :status,"
+            + " callback_mode = :callback_mode, callback_url = :callback_url, updated_at = now()";
 
     private static final String UPDATE_MAPPING_FROM_SNAPSHOT =
             "update public.mapping set field_mappings = :field_mappings::jsonb,"
@@ -178,7 +182,8 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
 
     private static final RowMapper<RouteRow> ROUTE_ROW = (rs, n) -> new RouteRow(
             rs.getString("id"), rs.getInt("sequence"), rs.getString("condition"), rs.getBoolean("is_primary"),
-            rs.getString("status"), rs.getString("target_endpoint_id"));
+            rs.getString("status"), rs.getString("target_endpoint_id"),
+            rs.getString("callback_mode"), rs.getString("callback_url"));
 
     private static final RowMapper<MappingRow> MAPPING_ROW = (rs, n) -> new MappingRow(
             rs.getString("id"), rs.getString("route_id"), rs.getString("field_mappings"),
@@ -269,7 +274,8 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
 
     public String insertRoute(String interfaceId, String endpointId, int sequence) {
         return orRow(query(INSERT_ROUTE, null,
-                Params.of("interface_id", interfaceId, "endpoint_id", endpointId, "sequence", sequence),
+                Params.of("interface_id", interfaceId, "endpoint_id", endpointId, "sequence", sequence,
+                        "callback_mode", null, "callback_url", null),
                 FIRST_COLUMN));
     }
 
@@ -291,18 +297,28 @@ public final class JdbcFlowRepository extends TenantScopedRepository {
     }
 
     public String insertRouteFromSnapshot(String routeId, String interfaceId, String endpointId, int sequence,
-            String condition, boolean isPrimary, String status) {
+            String condition, boolean isPrimary, String status, String callbackMode, String callbackUrl) {
         return orRow(query(INSERT_ROUTE_FROM_SNAPSHOT, null,
                 Params.of("id", routeId, "interface_id", interfaceId, "endpoint_id", endpointId,
-                        "sequence", sequence, "condition", condition, "is_primary", isPrimary, "status", status),
+                        "sequence", sequence, "condition", condition, "is_primary", isPrimary, "status", status,
+                        "callback_mode", callbackMode, "callback_url", callbackUrl),
                 FIRST_COLUMN));
     }
 
     public int updateRouteFromSnapshot(String routeId, int sequence, String condition, boolean isPrimary,
-            String status) {
+            String status, String callbackMode, String callbackUrl) {
         return update(UPDATE_ROUTE_FROM_SNAPSHOT, "id = :id::uuid",
                 Params.of("id", routeId, "sequence", sequence, "condition", condition,
-                        "is_primary", isPrimary, "status", status));
+                        "is_primary", isPrimary, "status", status,
+                        "callback_mode", callbackMode, "callback_url", callbackUrl));
+    }
+
+    private static final String UPDATE_ROUTE_CALLBACK = "update public.route set"
+            + " callback_mode = :callback_mode, callback_url = :callback_url, updated_at = now()";
+
+    public int updateRouteCallback(String routeId, String callbackMode, String callbackUrl) {
+        return update(UPDATE_ROUTE_CALLBACK, "id = :id::uuid",
+                Params.of("id", routeId, "callback_mode", callbackMode, "callback_url", callbackUrl));
     }
 
     public String insertMappingFromSnapshot(String mappingId, String routeId, String fieldMappingsJson,

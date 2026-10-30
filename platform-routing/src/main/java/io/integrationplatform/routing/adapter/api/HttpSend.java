@@ -35,13 +35,14 @@ public interface HttpSend {
     /**
      * @param status the answer's HTTP status
      * @param body the answer's body (bounded read); empty for status-only answers
+     * @param contentType the answer's Content-Type header; null when absent (IB08 Phase 1)
      * @param retryAfter the answer's Retry-After (delta-seconds or HTTP-date, floor zero); null when absent or
      *        unparseable (T96)
      */
-    record Response(int status, byte[] body, Duration retryAfter) {
+    record Response(int status, byte[] body, String contentType, Duration retryAfter) {
 
         public Response(int status, byte[] body) {
-            this(status, body, null);
+            this(status, body, null, null);
         }
     }
 }

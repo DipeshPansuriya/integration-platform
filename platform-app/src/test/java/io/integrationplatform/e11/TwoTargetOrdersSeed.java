@@ -96,8 +96,8 @@ public final class TwoTargetOrdersSeed {
         mapping(owner, tenantId, routeB, mappingB, mappingVersionB, EXPRESSION_B, sourceCv, targetCvB, author);
 
         String snapshot = FlowBundle.serialize(INTERFACE_CODE, "Orders", "PER_KEY", BUSINESS_KEY_RULE,
-                List.of(new RouteRow(routeA.toString(), 1, null, false, "ACTIVE", endpointA.toString()),
-                        new RouteRow(routeB.toString(), 2, null, false, "ACTIVE", endpointB.toString())),
+                List.of(new RouteRow(routeA.toString(), 1, null, false, "ACTIVE", endpointA.toString(), null, null),
+                        new RouteRow(routeB.toString(), 2, null, false, "ACTIVE", endpointB.toString(), null, null)),
                 List.of(new MappingRow(mappingA.toString(), routeA.toString(), "[]", EXPRESSION_A,
                                 sourceCv.toString(), targetCvA.toString(), mappingVersionA.toString()),
                         new MappingRow(mappingB.toString(), routeB.toString(), "[]", EXPRESSION_B,

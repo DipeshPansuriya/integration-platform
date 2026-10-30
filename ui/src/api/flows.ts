@@ -87,6 +87,16 @@ export async function publishFlow(flowId: string): Promise<ApiAnswer<unknown>> {
   return answer(data, error, response);
 }
 
+export type RouteCallbackBody = { callbackMode: string | null; callbackUrl: string | null };
+
+export async function patchRouteCallback(flowId: string, routeId: string, body: RouteCallbackBody): Promise<ApiAnswer<unknown>> {
+  const { data, error, response } = await api.PATCH('/api/v1/admin/flows/{flowId}/routes/{routeId}/callback' as never, {
+    params: { path: { flowId, routeId } },
+    body: body as never
+  });
+  return answer(data, error, response);
+}
+
 /** Maps a designed 400 answer to the data-validation-error attribute the screens show. */
 export function validationFieldOf(error: string | undefined): string | null {
   if (!error) return null;

@@ -110,7 +110,7 @@ class Stage1FanOutPlanTest {
 
     private static FlowBundle.SnapshotRoute route(String id, int sequence, String condition, String status,
             String endpoint) {
-        return new FlowBundle.SnapshotRoute(id, sequence, condition, false, status, endpoint);
+        return new FlowBundle.SnapshotRoute(id, sequence, condition, false, status, endpoint, null, null);
     }
 
     private static FlowBundle.SnapshotMapping mapping(String routeId, String versionId, String targetContractVersionId) {

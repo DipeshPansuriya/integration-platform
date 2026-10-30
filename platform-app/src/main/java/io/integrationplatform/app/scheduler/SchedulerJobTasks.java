@@ -25,6 +25,7 @@ public class SchedulerJobTasks {
     public static final String PAYLOAD_PURGE = "PAYLOAD_PURGE";
     public static final String DAILY_REPORT = "DAILY_REPORT";
     public static final String CREDENTIAL_CLEANUP = "CREDENTIAL_CLEANUP";
+    public static final String CALLBACK_SEND = "CALLBACK_SEND";
 
     /** The recurring task of a register row: row-driven schedule, wrapper body, upstream reschedules. */
     public static RecurringTask<Void> recurringTask(String jobType, JobDefinitionRepository repository,
@@ -51,6 +52,11 @@ public class SchedulerJobTasks {
     @Bean
     Task<Void> credentialCleanupTask(JobDefinitionRepository repository, JobRunWrapper wrapper) {
         return recurringTask(CREDENTIAL_CLEANUP, repository, wrapper);
+    }
+
+    @Bean
+    Task<Void> callbackSendTask(JobDefinitionRepository repository, JobRunWrapper wrapper) {
+        return recurringTask(CALLBACK_SEND, repository, wrapper);
     }
 
     /** The sync seam: at start db-scheduler runs the same reconcile; T-060's API calls this bean on row change. */

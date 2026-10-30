@@ -4,6 +4,8 @@ import io.integrationplatform.config.destination.DestinationGuard;
 import io.integrationplatform.config.destination.SocketDialer;
 import io.integrationplatform.delivery.port.TargetHalfOpenCap;
 import io.integrationplatform.delivery.replay.ActiveTargetContracts;
+import io.integrationplatform.routing.callback.CallbackImmediateNotifier;
+import io.integrationplatform.routing.stage2.ResponseCapturePort;
 import io.integrationplatform.routing.stage2.TargetCall;
 import io.integrationplatform.tenancy.TenantContext;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -56,9 +58,16 @@ public class ApiAdapterConfiguration {
     }
 
     @Bean
+    ResponseCapturePort responseCapturePort(JdbcClient jdbcClient, TenantContext tenantContext,
+            ObjectProvider<CallbackImmediateNotifier> immediateNotifier) {
+        return new JdbcResponseCapture(jdbcClient, tenantContext, immediateNotifier.getIfAvailable());
+    }
+
+    @Bean
     TargetCall apiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort,
             HttpSend send, ObjectProvider<MeterRegistry> meters, ObjectProvider<ObservationRegistry> observations,
-            ObjectProvider<PlatformTransactionManager> transactionManager, OAuth2TokenFetcher tokenFetcher) {
+            ObjectProvider<PlatformTransactionManager> transactionManager, OAuth2TokenFetcher tokenFetcher,
+            ResponseCapturePort responseCapturePort) {
         PlatformTransactionManager transactions = transactionManager.getIfAvailable();
         if (transactions != null) {
             // E9-C9 (T71): the endpoint and body reads each run in their OWN short tenant-stamped transaction. The
@@ -69,9 +78,12 @@ public class ApiAdapterConfiguration {
             ApiTargetBody body = bodyPort;
             views = endpointId -> tx.execute(status -> endpointViews.byEndpointId(endpointId));
             bodyPort = delivery -> tx.execute(status -> body.bodyFor(delivery));
+            ResponseCapturePort capture = responseCapturePort;
+            responseCapturePort = (deliveryId, httpStatus, contentType, responseBody) ->
+                    tx.executeWithoutResult(s -> capture.capture(deliveryId, httpStatus, contentType, responseBody));
         }
         return new ApiTargetCall(views, guard, bodyPort, send, ApiTargetCall.defaultBreakers(),
                 meters.getIfAvailable(SimpleMeterRegistry::new),
-                observations.getIfAvailable(() -> ObservationRegistry.NOOP), tokenFetcher);
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP), tokenFetcher, responseCapturePort);
     }
 }
