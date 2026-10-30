@@ -1,8 +1,8 @@
 #!/bin/sh
 # Automated GitHub Actions release helper for iPaaS on Hostinger.
 # Isolated from deploy.sh so it can be read/tested independently.
-# Inputs (environment only, never on argv): IMAGE_TAG, APP_IMAGE, UI_IMAGE, DB_PASSWORD.
-# It performs preflight checks, updates exactly two .env lines, then delegates to deploy.sh.
+# Inputs (environment only, never on argv): IMAGE_TAG, APP_IMAGE, UI_IMAGE, IPASS_IMAGE_PREFIX, DB_PASSWORD.
+# It performs preflight checks, updates exactly three .env lines, then delegates to deploy.sh.
 set -eu
 umask 077
 
@@ -13,6 +13,7 @@ ENV_FILE="${ENV_FILE:-$STACK_DIR/.env}"
 : "${IMAGE_TAG:?IMAGE_TAG is required}"
 : "${APP_IMAGE:?APP_IMAGE is required}"
 : "${UI_IMAGE:?UI_IMAGE is required}"
+: "${IPASS_IMAGE_PREFIX:?IPASS_IMAGE_PREFIX is required}"
 : "${DB_PASSWORD:?DB_PASSWORD is required}"
 [ -r "$ENV_FILE" ] || { echo "ERROR: cannot read $ENV_FILE" >&2; exit 2; }
 [ -x "$STACK_DIR/deploy.sh" ] || { echo "ERROR: deploy.sh not found/executable" >&2; exit 2; }
@@ -72,22 +73,24 @@ cp "$ENV_FILE" "$BACKUP_DIR/.env.bak"
 chmod 600 "$BACKUP_DIR/.env.bak"
 echo "backup written to $BACKUP_DIR/.env.bak"
 
-echo "=== env swap (two lines only) ==="
+echo "=== env swap (three lines only) ==="
 tmp="$(mktemp "$STACK_DIR/.env.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
-awk -v a="$APP_IMAGE" -v u="$UI_IMAGE" '
-  /^IPASS_APP_IMAGE=/ { print "IPASS_APP_IMAGE=" a; seen_app=1; next }
-  /^IPASS_UI_IMAGE=/  { print "IPASS_UI_IMAGE=" u;  seen_ui=1;  next }
+awk -v a="$APP_IMAGE" -v u="$UI_IMAGE" -v p="$IPASS_IMAGE_PREFIX" '
+  /^IPASS_APP_IMAGE=/    { print "IPASS_APP_IMAGE=" a;    seen_app=1;    next }
+  /^IPASS_UI_IMAGE=/     { print "IPASS_UI_IMAGE=" u;     seen_ui=1;     next }
+  /^IPASS_IMAGE_PREFIX=/ { print "IPASS_IMAGE_PREFIX=" p; seen_prefix=1; next }
   { print }
   END {
-    if (!seen_app) print "IPASS_APP_IMAGE=" a
-    if (!seen_ui)  print "IPASS_UI_IMAGE=" u
+    if (!seen_app)    print "IPASS_APP_IMAGE=" a
+    if (!seen_ui)     print "IPASS_UI_IMAGE=" u
+    if (!seen_prefix) print "IPASS_IMAGE_PREFIX=" p
   }
 ' "$ENV_FILE" > "$tmp"
 chmod 600 "$tmp"
 mv "$tmp" "$ENV_FILE"
 tmp=""
-echo "IPASS_APP_IMAGE and IPASS_UI_IMAGE updated (IMAGE_TAG left for deploy.sh)"
+echo "IPASS_APP_IMAGE, IPASS_UI_IMAGE and IPASS_IMAGE_PREFIX updated (IMAGE_TAG left for deploy.sh)"
 
 echo "=== deploy via deploy.sh ==="
 IMAGE_TAG="$IMAGE_TAG" "$STACK_DIR/deploy.sh"
