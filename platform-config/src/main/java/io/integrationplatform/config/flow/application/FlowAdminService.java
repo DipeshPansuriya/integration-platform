@@ -292,10 +292,11 @@ public class FlowAdminService {
         for (SnapshotRoute route : bundle.routes()) {
             if (flows.routeExists(route.id())) {
                 flows.updateRouteFromSnapshot(route.id(), route.sequence(), route.condition(),
-                        route.isPrimary(), route.status());
+                        route.isPrimary(), route.status(), route.callbackMode(), route.callbackUrl());
             } else {
                 flows.insertRouteFromSnapshot(route.id(), interfaceRow.id(), route.targetEndpointId(),
-                        route.sequence(), route.condition(), route.isPrimary(), route.status());
+                        route.sequence(), route.condition(), route.isPrimary(), route.status(),
+                        route.callbackMode(), route.callbackUrl());
             }
         }
         for (SnapshotMapping mapping : bundle.mappings()) {
@@ -318,6 +319,47 @@ public class FlowAdminService {
         events.publishEvent(new InterfacePublished(tenants.requireTenantId(), UUID.fromString(interfaceRow.id()),
                 approved.version()));
         return new Published(interfaceRow.id(), approved);
+    }
+
+    // ------------------------------------------------------------------ IB08: route callback configuration
+
+    private static final List<String> CALLBACK_MODES = List.of("IMMEDIATE", "SCHEDULED");
+
+    @Transactional
+    public Map<String, Object> configureRouteCallback(String flowId, String routeId, JsonNode body) {
+        requireInterface(flowId);
+        if (!isCanonicalUuid(routeId)) {
+            throw ConfigApiException.notFound();
+        }
+        String callbackMode = null;
+        String callbackUrl = null;
+        JsonNode modeNode = body == null ? null : body.path("callbackMode");
+        if (modeNode != null && !modeNode.isMissingNode() && !modeNode.isNull()) {
+            callbackMode = modeNode.asString().toUpperCase();
+            if (!CALLBACK_MODES.contains(callbackMode)) {
+                throw ConfigApiException.validation("callbackMode must be one of " + CALLBACK_MODES + " or null");
+            }
+            if ("SCHEDULED".equals(callbackMode)) {
+                JsonNode urlNode = body.path("callbackUrl");
+                if (urlNode == null || urlNode.isMissingNode() || urlNode.isNull()
+                        || urlNode.asString().isBlank()) {
+                    throw ConfigApiException.validation(
+                            "callbackUrl is required when callbackMode is SCHEDULED");
+                }
+                callbackUrl = urlNode.asString().strip();
+                try {
+                    new java.net.URI(callbackUrl);
+                } catch (java.net.URISyntaxException malformed) {
+                    throw ConfigApiException.validation("callbackUrl is not a valid URI");
+                }
+            }
+        }
+        int updated = flows.updateRouteCallback(routeId, callbackMode, callbackUrl);
+        if (updated == 0) {
+            throw ConfigApiException.notFound();
+        }
+        return ConfigApiException.body("routeId", routeId, "callbackMode", callbackMode,
+                "callbackUrl", callbackUrl);
     }
 
     // ------------------------------------------------------------------ shared steps
@@ -465,7 +507,7 @@ public class FlowAdminService {
                 RouteRow route = existing.get();
                 if (route.sequence() != sequence) {
                     flows.updateRouteFromSnapshot(route.id(), sequence, route.condition(), route.isPrimary(),
-                            route.status());
+                            route.status(), route.callbackMode(), route.callbackUrl());
                 }
             } else {
                 String routeId = flows.insertRoute(interfaceId, endpointId, sequence);

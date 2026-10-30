@@ -17,6 +17,8 @@ export type FlowRoute = {
   targetEndpointCode?: string | null;
   targetSystem?: string | null;
   mappingId?: string | null;
+  callbackMode?: string | null;
+  callbackUrl?: string | null;
 };
 
 export type RoutesResult = { state: 'ok'; routes: FlowRoute[] } | { state: 'error'; text: string };

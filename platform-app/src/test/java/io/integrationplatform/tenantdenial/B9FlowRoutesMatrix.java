@@ -23,6 +23,13 @@ final class B9FlowRoutesMatrix implements LaneMatrix {
                         s -> FLOWS + "/" + s.b().config().flowMainId() + ROUTES,
                         null,
                         // the answer carries the flow id (and its version's id); the seeded main flow has no routes
-                        s -> List.of(s.a().config().flowMainId().toString())));
+                        s -> List.of(s.a().config().flowMainId().toString())),
+                new Entry("PATCH", FLOWS + "/{flowId}" + ROUTES + "/{routeId}/callback", true,
+                        s -> FLOWS + "/" + s.a().config().flowPublishId() + ROUTES + "/"
+                                + s.a().config().pubRouteId() + "/callback",
+                        s -> FLOWS + "/" + s.b().config().flowPublishId() + ROUTES + "/"
+                                + s.b().config().pubRouteId() + "/callback",
+                        s -> "{\"callbackMode\":null}",
+                        s -> List.of(s.a().config().pubRouteId().toString())));
     }
 }

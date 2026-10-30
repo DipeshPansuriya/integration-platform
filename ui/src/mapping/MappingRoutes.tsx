@@ -9,17 +9,26 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { listFlows, type FlowSummary } from '../api/flows';
 import { flowsErrorText, loadRoutes, mappingHref, NO_FLOWS, routeLabel, type FlowRoute, type RoutesResult } from './routesList';
+import { RouteCallbackForm } from './RouteCallbackForm';
 
 /** The worklist's Mapping column (10-screens s8 "Saved badge"): the routes listing carries the saved
  * mapping's id - the word is the carrier, the tone only repeats it. */
 const mappingBadge = (route: FlowRoute) =>
   route.mappingId ? { word: 'Saved', tone: 'success' } : { word: 'Not saved', tone: 'neutral' };
 
+const callbackBadge = (route: FlowRoute) => {
+  if (!route.callbackMode) return { word: 'Off', tone: 'neutral' };
+  return route.callbackMode === 'IMMEDIATE'
+    ? { word: 'Immediate', tone: 'info' }
+    : { word: 'Scheduled', tone: 'warning' };
+};
+
 export function MappingRoutes() {
   const [flows, setFlows] = useState<FlowSummary[] | null>(null);
   const [flowsError, setFlowsError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [routes, setRoutes] = useState<RoutesResult | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const latest = useRef<string | null>(null); // a later selection wins over a slower earlier answer
 
   useEffect(() => {
@@ -85,13 +94,16 @@ export function MappingRoutes() {
                 <th scope="col">Interface</th>
                 <th scope="col">Target system</th>
                 <th scope="col">Mapping</th>
+                <th scope="col">Callback</th>
                 <th scope="col">Open</th>
               </tr>
             </thead>
             <tbody>
               {routes.routes.map((route) => {
                 const badge = mappingBadge(route);
-                return (
+                const cb = callbackBadge(route);
+                const isExpanded = expanded === route.id;
+                return [
                   <tr key={route.id} data-mapping-route={route.id}>
                     <td>
                       {route.name ?? route.targetEndpointCode ?? 'unnamed endpoint'}
@@ -106,12 +118,36 @@ export function MappingRoutes() {
                       <span className={`badge badge-${badge.tone}`}>{badge.word}</span>
                     </td>
                     <td>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        data-action="toggle-callback"
+                        aria-expanded={isExpanded}
+                        onClick={() => setExpanded(isExpanded ? null : route.id)}
+                      >
+                        <span className={`badge badge-${cb.tone}`}>{cb.word}</span>
+                      </button>
+                    </td>
+                    <td>
                       <a className="btn" data-action="open-mapping" href={mappingHref(route.id)} aria-label={`Open mapping: ${routeLabel(route)}`}>
                         Open mapping
                       </a>
                     </td>
-                  </tr>
-                );
+                  </tr>,
+                  isExpanded && selected && (
+                    <tr key={`${route.id}-cb`} data-callback-row={route.id}>
+                      <td colSpan={6}>
+                        <RouteCallbackForm flowId={selected} route={route} onSaved={(mode, url) => {
+                          if (routes?.state === 'ok') {
+                            setRoutes({ state: 'ok', routes: routes.routes.map((r) =>
+                              r.id === route.id ? { ...r, callbackMode: mode, callbackUrl: url } : r
+                            )});
+                          }
+                        }} />
+                      </td>
+                    </tr>
+                  )
+                ];
               })}
             </tbody>
           </table>

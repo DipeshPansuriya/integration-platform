@@ -161,7 +161,7 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
 
         // publishing a new target on the live interface: version 2 adds a route to target D
         UUID endpointD = seed.targetEndpoint("https://target-d.example/v1");
-        RouteRow routeD = new RouteRow(UUID.randomUUID().toString(), 4, null, false, "ACTIVE", endpointD.toString());
+        RouteRow routeD = new RouteRow(UUID.randomUUID().toString(), 4, null, false, "ACTIVE", endpointD.toString(), null, null);
         seed.approvedVersion(2, List.of(routeA, routeB, routePaused, routeD), List.of(mappingA, mappingB));
 
         spring.getBean(FlowAdminService.class).publish(seed.interfaceId.toString());
@@ -303,7 +303,7 @@ class InterfacePublishedRoutesFromConfigRowsContainerTest {
 
         RouteRow draftRoute(UUID endpoint, int sequence, String status) {
             RouteRow route = new RouteRow(UUID.randomUUID().toString(), sequence, null, false, status,
-                    endpoint.toString());
+                    endpoint.toString(), null, null);
             write("insert into public.route (id, tenant_id, interface_id, target_endpoint_id, sequence, status)"
                     + " values (:id::uuid, :tenant::uuid, :interface::uuid, :endpoint::uuid, :sequence, :status)",
                     "id", route.id(), "interface", interfaceId, "endpoint", endpoint, "sequence", sequence,

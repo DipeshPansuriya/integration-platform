@@ -6,7 +6,7 @@
 set -eu
 BOOT="${KAFKA_BOOTSTRAP:-kafka:9092}"
 PARTS="${KAFKA_PARTITIONS:-3}"
-TOPICS="platform.message.accepted platform.delivery.due platform.poison"
+TOPICS="platform.message.accepted platform.delivery.due platform.callback.due platform.poison"
 BIN="${KAFKA_BIN:-/opt/kafka/bin/kafka-topics.sh}"
 run() { if [ "${DRY_RUN:-0}" = 1 ]; then echo "$@"; else "$@"; fi; }
 for t in $TOPICS; do

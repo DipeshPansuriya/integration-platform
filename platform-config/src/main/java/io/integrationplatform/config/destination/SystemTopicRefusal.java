@@ -19,7 +19,7 @@ public final class SystemTopicRefusal {
 
     /** The platform's record topics: the closed register of ADR-005 (the value the relay publishes onto). */
     public static final List<String> PLATFORM_TOPICS = List.of("platform.message.accepted", "platform.delivery.due",
-            "platform.poison");
+            "platform.callback.due", "platform.poison");
 
     private SystemTopicRefusal() {
     }

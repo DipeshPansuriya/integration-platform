@@ -14,9 +14,11 @@ import org.springframework.stereotype.Component;
 public class FlowRoutesEndpointRoles implements ApiOperationRules {
 
     static final String FLOW_ROUTES = FlowAdminController.PATH + "/{flowId}/routes";
+    static final String ROUTE_CALLBACK = FLOW_ROUTES + "/{routeId}/callback";
 
     @Override
     public List<Rule> rules() {
-        return List.of(new Rule("GET", FLOW_ROUTES, Operation.READ_CONFIGURATION));
+        return List.of(new Rule("GET", FLOW_ROUTES, Operation.READ_CONFIGURATION),
+                new Rule("PATCH", ROUTE_CALLBACK, Operation.EDIT_CONFIGURATION));
     }
 }

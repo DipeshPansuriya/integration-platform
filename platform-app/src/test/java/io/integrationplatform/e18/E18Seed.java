@@ -107,7 +107,7 @@ final class E18Seed {
             version.executeUpdate();
         }
         String snapshot = FlowBundle.serialize(INTERFACE_CODE, "Orders", "PER_KEY", BUSINESS_KEY_RULE,
-                List.of(new RouteRow(routeId.toString(), 1, null, false, "ACTIVE", endpointId.toString())),
+                List.of(new RouteRow(routeId.toString(), 1, null, false, "ACTIVE", endpointId.toString(), null, null)),
                 List.of(new MappingRow(mappingId.toString(), routeId.toString(), "[]", EXPRESSION,
                         sourceCv.toString(), targetCv.toString(), mappingVersionId.toString())));
         execute(owner, "INSERT INTO public.interface_version (id, tenant_id, interface_id, version, status,"

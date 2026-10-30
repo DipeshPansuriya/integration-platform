@@ -50,7 +50,7 @@ class ApiTargetContractSurfaceTest {
 
     @Test
     void httpSendResponseCarriesStatusBodyAndRetryAfter() {
-        HttpSend.Response withRetry = new HttpSend.Response(503, new byte[]{}, java.time.Duration.ofSeconds(2));
+        HttpSend.Response withRetry = new HttpSend.Response(503, new byte[]{}, null, java.time.Duration.ofSeconds(2));
         assertEquals(503, withRetry.status());
         assertNotNull(withRetry.body());
         assertEquals(java.time.Duration.ofSeconds(2), withRetry.retryAfter());

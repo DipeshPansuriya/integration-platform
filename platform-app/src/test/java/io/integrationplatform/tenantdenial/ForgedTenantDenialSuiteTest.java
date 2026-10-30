@@ -797,7 +797,7 @@ class ForgedTenantDenialSuiteTest {
         return FlowBundle.serialize(c.flowCode("publish"), c.flowCode("publish") + " publish", "PER_KEY",
                 "$.orderId",
                 List.of(new RouteRow(c.pubRouteId().toString(), 1, null, false, "ACTIVE",
-                        c.dstEndpointId().toString())),
+                        c.dstEndpointId().toString(), null, null)),
                 List.of(new MappingRow(c.pubMappingId().toString(), c.pubRouteId().toString(), "[]", "$",
                         source, target, E7MappingMatrix.publishMappingVersionIdOf(tenant).toString())));
     }

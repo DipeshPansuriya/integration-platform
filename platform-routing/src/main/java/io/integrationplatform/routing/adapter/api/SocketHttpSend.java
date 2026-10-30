@@ -107,6 +107,7 @@ public class SocketHttpSend implements HttpSend {
         List<String> head = readHead(in);
         int status = parseStatus(head.get(0));
         Integer contentLength = null;
+        String contentType = null;
         Duration retryAfter = null;
         for (String line : head.subList(1, head.size())) {
             int colon = line.indexOf(':');
@@ -117,6 +118,8 @@ public class SocketHttpSend implements HttpSend {
             String value = line.substring(colon + 1).trim();
             if (name.equals("content-length")) {
                 contentLength = Integer.parseInt(value);
+            } else if (name.equals("content-type")) {
+                contentType = value;
             } else if (name.equals("retry-after")) {
                 retryAfter = retryAfter(value);
             } else if (name.equals("transfer-encoding") && value.toLowerCase(Locale.ROOT).contains("chunked")) {
@@ -124,7 +127,7 @@ public class SocketHttpSend implements HttpSend {
             }
         }
         return new Response(status, contentLength == null ? readToClose(in) : readBounded(in, contentLength),
-                retryAfter);
+                contentType, retryAfter);
     }
 
     /** RFC 9110 section 10.2.3: delta-seconds or an HTTP-date; anything else is ignored, never a failure. */

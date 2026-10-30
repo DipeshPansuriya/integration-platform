@@ -8,6 +8,7 @@ import io.integrationplatform.domain.delivery.OutcomeClass;
 import io.integrationplatform.domain.delivery.OutcomeClassifier;
 import io.integrationplatform.routing.credential.OpenedCredentials;
 import io.integrationplatform.routing.credential.TargetCallCredentialHolder;
+import io.integrationplatform.routing.stage2.ResponseCapturePort;
 import io.integrationplatform.routing.stage2.Stage2Send;
 import io.integrationplatform.routing.stage2.TargetCall;
 import io.integrationplatform.routing.stage2.TargetFaultException;
@@ -58,6 +59,7 @@ public class ApiTargetCall implements TargetCall {
     private final MeterRegistry meters;
     private final ObservationRegistry observations;
     private final OAuth2TokenFetcher tokenFetcher;
+    private final ResponseCapturePort responseCapture;
 
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender) {
         this(views, guard, bodyPort, sender, defaultBreakers());
@@ -87,6 +89,12 @@ public class ApiTargetCall implements TargetCall {
     public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
             CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations,
             OAuth2TokenFetcher tokenFetcher) {
+        this(views, guard, bodyPort, sender, breakers, meters, observations, tokenFetcher, ResponseCapturePort.NOOP);
+    }
+
+    public ApiTargetCall(TargetEndpointViews views, DestinationGuard guard, ApiTargetBody bodyPort, HttpSend sender,
+            CircuitBreakerRegistry breakers, MeterRegistry meters, ObservationRegistry observations,
+            OAuth2TokenFetcher tokenFetcher, ResponseCapturePort responseCapture) {
         this.views = views;
         this.guard = guard;
         this.bodyPort = bodyPort;
@@ -95,6 +103,7 @@ public class ApiTargetCall implements TargetCall {
         this.meters = meters;
         this.observations = observations;
         this.tokenFetcher = tokenFetcher;
+        this.responseCapture = responseCapture;
         TaggedCircuitBreakerMetrics.ofCircuitBreakerRegistry(breakers).bindTo(meters);
     }
 
@@ -188,6 +197,9 @@ public class ApiTargetCall implements TargetCall {
         }
         OutcomeClass outcome = OutcomeClassifier.ofHttpStatus(response.status(), view.idempotentReceive(),
                 view.errorDictionary());
+        if (outcome == OutcomeClass.SUCCESS) {
+            responseCapture.capture(send.deliveryId(), response.status(), response.contentType(), response.body());
+        }
         if (outcome != OutcomeClass.SUCCESS) {
             throw fault(outcome, "the target answered HTTP " + response.status() + " for"
                     + " delivery " + send.deliveryId() + ": class " + outcome);

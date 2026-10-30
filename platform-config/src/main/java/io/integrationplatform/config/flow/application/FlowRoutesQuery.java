@@ -69,7 +69,9 @@ public class FlowRoutesQuery {
                     "targetEndpointId", route.targetEndpointId(),
                     "targetEndpointCode", endpoint == null ? null : endpoint.code(),
                     "targetSystem", endpoint == null ? null : endpoint.systemCode(),
-                    "mappingId", mappingByRoute.get(route.id())));
+                    "mappingId", mappingByRoute.get(route.id()),
+                    "callbackMode", route.callbackMode(),
+                    "callbackUrl", route.callbackUrl()));
         }
         return ConfigApiException.body(
                 "flowId", flowId,

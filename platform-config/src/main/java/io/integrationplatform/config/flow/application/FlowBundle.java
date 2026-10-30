@@ -30,7 +30,7 @@ public final class FlowBundle {
 
     /** One route entry of a parsed snapshot. */
     public record SnapshotRoute(String id, int sequence, String condition, boolean isPrimary, String status,
-            String targetEndpointId) {
+            String targetEndpointId, String callbackMode, String callbackUrl) {
     }
 
     /** One mapping entry of a parsed snapshot; {@code fieldMappingsJson} is the stored JSON text.
@@ -81,6 +81,12 @@ public final class FlowBundle {
             entry.put("isPrimary", route.isPrimary());
             entry.put("status", route.status());
             entry.put("targetEndpointId", route.targetEndpointId());
+            if (route.callbackMode() != null) {
+                entry.put("callbackMode", route.callbackMode());
+            }
+            if (route.callbackUrl() != null) {
+                entry.put("callbackUrl", route.callbackUrl());
+            }
         }
 
         ArrayNode mappingsNode = snapshot.putArray("mappings");
@@ -123,7 +129,9 @@ public final class FlowBundle {
                     condition.isMissingNode() || condition.isNull() ? null : condition.asString(),
                     entry.path("isPrimary").asBoolean(),
                     entry.path("status").asString(),
-                    entry.path("targetEndpointId").asString()));
+                    entry.path("targetEndpointId").asString(),
+                    textOrNull(entry.path("callbackMode")),
+                    textOrNull(entry.path("callbackUrl"))));
         }
         List<SnapshotMapping> mappings = new ArrayList<>();
         for (JsonNode entry : snapshot.path("mappings")) {

@@ -48,7 +48,7 @@ class MappingPublishPinCheckTest {
     private final VersionInfo approved = new VersionInfo("v2", 2, "APPROVED", "$.orderId", "{}", SOURCE, "SRC");
 
     private Parsed snapshotNaming(String mappingId) {
-        return new Parsed(List.of(new SnapshotRoute(ROUTE, 1, null, true, "ACTIVE", ENDPOINT)),
+        return new Parsed(List.of(new SnapshotRoute(ROUTE, 1, null, true, "ACTIVE", ENDPOINT, null, null)),
                 List.of(new SnapshotMapping(mappingId, ROUTE, FIELDS, EXPRESSION, SOURCE, TARGET, VERSION_OF_Y)));
     }
 

@@ -15,6 +15,9 @@ public final class Topics {
     /** Work topic - a delivery became {@code DUE}: stage 1, release, re-drive or replay ({@code platform.delivery.due}). */
     public static final String DELIVERY_DUE = "platform.delivery.due";
 
+    /** Work topic - a callback-configured delivery captured a response; the callback engine picks it up. */
+    public static final String CALLBACK_DUE = "platform.callback.due";
+
     /**
      * The one poison topic ({@code platform.poison}): an unreadable record is written here once, the partition
      * moves on, and nothing is ever retried from there - Kafka carries work only, no retry or delayed-retry

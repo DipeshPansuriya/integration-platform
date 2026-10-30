@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -97,6 +98,19 @@ public class FlowAdminController {
             @RequestParam(required = false) String versionId) {
         actors.requireActor();
         return ResponseEntity.ok(routes.routes(flowId, versionId));
+    }
+
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "OK"),
+        @ApiResponse(responseCode = "400", description = "callbackMode or callbackUrl validation failed",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class))),
+        @ApiResponse(responseCode = "404", description = "Not found: the route is not visible to the bound tenant",
+                content = @Content(mediaType = "application/json", schema = @Schema(implementation = ConfigErrorBody.class)))})
+    @PatchMapping("/{flowId}/routes/{routeId}/callback")
+    public ResponseEntity<Map<String, Object>> configureRouteCallback(@PathVariable String flowId,
+            @PathVariable String routeId, @RequestBody JsonNode body) {
+        actors.requireActor();
+        return ResponseEntity.ok(service.configureRouteCallback(flowId, routeId, body));
     }
 
     @ApiResponses({
