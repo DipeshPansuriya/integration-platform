@@ -107,6 +107,20 @@ jobs:
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/${{ env.UI_IMAGE_NAME }}:${{ steps.sha.outputs.short }}
             ${{ secrets.DOCKER_USERNAME }}/${{ env.UI_IMAGE_NAME }}:${{ github.sha }}
+      - name: Build and push Flyway migration image
+        # The Flyway CLI image deploy.sh runs migrations with. Built through
+        # flyway/build-image.sh, which assembles the context from `git archive HEAD`
+        # (flyway/ + every module's db/migration folder), runs the migration-folder
+        # guard, and labels the image with org.opencontainers.image.revision=<full sha>
+        # and ipass.flyway.manifest=<sha256> - the labels migrate.sh verifies against
+        # the release tag before the database password is ever used. The registry
+        # prefix comes from IPASS_IMAGE_PREFIX, resolved at run time, never hardcoded.
+        # Pinned short-SHA tag only, no latest, same convention as app/ui.
+        env:
+          IPASS_IMAGE_PREFIX: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}
+        run: |
+          sh deploy/hostinger/flyway/build-image.sh "${{ steps.sha.outputs.short }}"
+          docker push "${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/flyway-migrate:${{ steps.sha.outputs.short }}"
 
   deploy:
     name: Deploy to VPS
@@ -140,12 +154,13 @@ jobs:
           IMAGE_TAG: ${{ steps.tag.outputs.value }}
           APP_IMAGE: ${{ secrets.DOCKER_USERNAME }}/${{ env.APP_IMAGE_NAME }}:${{ steps.tag.outputs.value }}
           UI_IMAGE: ${{ secrets.DOCKER_USERNAME }}/${{ env.UI_IMAGE_NAME }}:${{ steps.tag.outputs.value }}
+          IPASS_IMAGE_PREFIX: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: IMAGE_TAG,APP_IMAGE,UI_IMAGE,DB_PASSWORD
+          envs: IMAGE_TAG,APP_IMAGE,UI_IMAGE,IPASS_IMAGE_PREFIX,DB_PASSWORD
           script: |
             chmod 700 /docker/ipass/github-deploy.sh
             /docker/ipass/github-deploy.sh
