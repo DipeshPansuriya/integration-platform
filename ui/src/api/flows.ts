@@ -93,7 +93,7 @@ export async function patchRouteCallback(flowId: string, routeId: string, body: 
   const { data, error, response } = await api.PATCH('/api/v1/admin/flows/{flowId}/routes/{routeId}/callback' as never, {
     params: { path: { flowId, routeId } },
     body: body as never
-  });
+  } as never);
   return answer(data, error, response);
 }
 
