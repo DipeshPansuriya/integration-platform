@@ -32,7 +32,7 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   old="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
   if [ -n "$old" ] && ! kill -0 "$old" 2>/dev/null; then
     echo "NOTE: stale deploy lock (process $old is gone): taking it over"; rm -f "$LOCK_DIR/pid"; rmdir "$LOCK_DIR" 2>/dev/null; mkdir "$LOCK_DIR" 2>/dev/null || old=""
-    [ -n "$old" ] || { echo "ERROR: cannot take over the stale lock $LOCK_DIR" >&2; exit 2; }
+    [ -n "$old" ] || { echo "ERROR: cannot take over the stale lock $LOCK_DIR exists. Check with ps; remove the folder only if no deploy is running." >&2; exit 2; }
   else echo "ERROR: another deploy.sh is running (or died without cleaning up): $LOCK_DIR exists. Check with ps; remove the folder only if no deploy is running." >&2; exit 2
   fi
 fi
@@ -50,7 +50,7 @@ case "$NEW_TAG" in
 esac
 # the tag currently recorded in the env file (kept separately: IMAGE_TAG itself is the NEW tag from here on)
 TAG_LINE='^[[:space:]]*(export[[:space:]]+)?IMAGE_TAG='      # the ONE pattern for reading and rewriting the tag line
-OLD_TAG="$(grep -E "$TAG_LINE" "$ENV_FILE" | tail -n 1 | tr -d '\r' | cut -d= -f2- | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\\(.*\\)'\$/\\1/")" || true
+OLD_TAG="$(grep -E "$TAG_LINE" "$ENV_FILE" | tail -n 1 | tr -d '\r' | cut -d= -f2- | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")" || true
 OLD_TAG="${OLD_TAG:-unknown}"
 KEEP_BACKUPS="${RELEASE_BACKUPS_KEEP:-5}"
 case "$KEEP_BACKUPS" in ''|*[!0-9]*|0) echo "ERROR: RELEASE_BACKUPS_KEEP must be a whole number of 1 or more (default 5)" >&2; exit 2 ;; esac
@@ -87,7 +87,7 @@ fi
 
 echo "=== 2/6 Flyway image ==="
 PREFIX="${IPASS_IMAGE_PREFIX:-}"
-if [ -z "$PREFIX" ]; then PREFIX="$(grep -E '^[[:space:]]*(export[[:space:]]+)?IPASS_IMAGE_PREFIX=' "$ENV_FILE" | tail -n 1 | tr -d '\r' | cut -d= -f2- | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\\(.*\\)'\$/\\1/")" || true; fi
+if [ -z "$PREFIX" ]; then PREFIX="$(grep -E '^[[:space:]]*(export[[:space:]]+)?IPASS_IMAGE_PREFIX=' "$ENV_FILE" | tail -n 1 | tr -d '\r' | cut -d= -f2- | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")" || true; fi
 FLYWAY_IMAGE="${FLYWAY_IMAGE:-${PREFIX:-acsnewacr.azurecr.io/ipass}/flyway-migrate:$NEW_TAG}"
 export FLYWAY_IMAGE
 export FW_EXPECT_REVISION="$NEW_TAG"      # migrate.sh refuses an image whose revision label is not this commit (build with flyway/build-image.sh)
@@ -128,6 +128,15 @@ if ! "$DOCKER" compose up -d; then
   echo "ERROR: 'docker compose up -d' failed. The database IS migrated (migrations are expand-only, the old app still works); the env file was restored to $OLD_TAG." >&2
   echo "WARNING: 'up -d' recreates services one by one, so SOME services may already run $NEW_TAG while .env says $OLD_TAG. Current state:" >&2
   "$DOCKER" compose ps >&2 || true
+  # Diagnostics for the failing services, before any roll-back decision. Each guarded
+  # so a diagnostics failure can never mask the real error or trip set -e. App text only:
+  # compose logs never print the env file, so no secret is emitted here.
+  echo "=== diagnostics: platform-app (last 80 lines) ===" >&2
+  "$DOCKER" compose logs --no-color --tail 80 platform-app >&2 || true
+  echo "=== diagnostics: kafka-init (last 40 lines) ===" >&2
+  "$DOCKER" compose logs --no-color --tail 40 kafka-init >&2 || true
+  echo "=== diagnostics: docker compose ps -a (all services, including exited/unhealthy) ===" >&2
+  "$DOCKER" compose ps -a >&2 || true
   echo "Do NOT run another plain 'compose up -d' / rotate-secret.sh before deciding: it would recreate those services on $OLD_TAG against the migrated database. Either fix the cause and re-run IMAGE_TAG=$NEW_TAG ./deploy.sh, or finish the roll-back below." >&2
   rollback_note
   exit 6
