@@ -107,7 +107,11 @@ fi
 echo "COMPOSE_FILE=${COMPOSE_FILE:-(from $ENV_FILE)}"
 
 echo "=== deploy via deploy.sh ==="
-IMAGE_TAG="$IMAGE_TAG" "$STACK_DIR/deploy.sh"
+# DB_PASSWORD here is the preflight's SUPERUSER password (the workflow secret). It must NOT reach deploy.sh:
+# docker compose lets a process variable override the env file, so `${DB_PASSWORD}` in compose.yaml - the
+# application login ipass_app - would become the superuser password, and the app could not log in (the
+# 2026-10-30 outages: "password authentication failed for user ipass_app"). The env file stays the only source.
+env -u DB_PASSWORD IMAGE_TAG="$IMAGE_TAG" "$STACK_DIR/deploy.sh"
 
 echo "=== smoke ==="
 echo "deploy.sh completed and its health gate passed; release $IMAGE_TAG is live."
