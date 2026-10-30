@@ -54,7 +54,10 @@ jobs:
 
   build-push:
     name: Build and push images
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    # Only the deploying repository publishes images and releases. A fork (no Docker Hub / VPS secrets)
+    # still runs the tests and the secret scan, and must never push images or deploy to the same VPS -
+    # two repositories deploying one server raced each other on 2026-10-30.
+    if: github.repository == 'DipeshPansuriya/integration-platform' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [tests, secrets-scan]
     runs-on: ubuntu-latest
     outputs:
@@ -124,7 +127,7 @@ jobs:
 
   deploy:
     name: Deploy to VPS
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.repository == 'DipeshPansuriya/integration-platform' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: build-push
     runs-on: ubuntu-latest
     environment: Production Deploy

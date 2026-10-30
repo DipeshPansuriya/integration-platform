@@ -263,3 +263,4 @@ COMPOSE_FILE=compose.yaml:demo/compose.demo.yaml:kafka-public/compose.kafka-publ
 | Date (UTC) | Tag | Migrations applied | By | Notes |
 |---|---|---|---|---|
 | 2026-10-28 10:16 | `7b080ea4` | V2_4_1490, V2_4_1500, V2_4_1510 | Vasu | First run of `deploy.sh` on this server; `IPASS_DESTINATION_HOSTS` set to `wiremock,bialuat.cargobyblr.in` afterwards |
+| 2026-10-29 13:46 | `c9fed065` | V2_4_1550 (V2_4_1530 + V2_4_1540 were already applied 08:01 UTC by a manual migrate run) | Vasu | Console redesign (W6) + Delivered/search endpoints + tenant Destinations (risk accepted: edits the global allow-list). New `compose.yaml`: app runs with `SPRING_FLYWAY_ENABLED=false` (row 570 M1). `rotate-secret.sh` on the server not updated (older copy kept) |

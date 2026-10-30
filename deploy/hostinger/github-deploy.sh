@@ -92,6 +92,20 @@ mv "$tmp" "$ENV_FILE"
 tmp=""
 echo "IPASS_APP_IMAGE, IPASS_UI_IMAGE and IPASS_IMAGE_PREFIX updated (IMAGE_TAG left for deploy.sh)"
 
+echo "=== compose overlays ==="
+# The live stack runs compose.yaml plus the demo and kafka-public overlays (RELEASE-STEPS.md step 8). deploy.sh
+# relies on compose's own COMPOSE_FILE; without it a pipeline release would drop the showcase destination and
+# the public Kafka settings. A caller-supplied COMPOSE_FILE or one in the env file wins; otherwise every
+# overlay present on this host is kept.
+if [ -z "${COMPOSE_FILE:-}" ] && ! grep -q '^COMPOSE_FILE=' "$ENV_FILE"; then
+  COMPOSE_FILE="compose.yaml"
+  for overlay in demo/compose.demo.yaml kafka-public/compose.kafka-public.yaml; do
+    if [ -f "$STACK_DIR/$overlay" ]; then COMPOSE_FILE="$COMPOSE_FILE:$overlay"; fi
+  done
+  export COMPOSE_FILE
+fi
+echo "COMPOSE_FILE=${COMPOSE_FILE:-(from $ENV_FILE)}"
+
 echo "=== deploy via deploy.sh ==="
 IMAGE_TAG="$IMAGE_TAG" "$STACK_DIR/deploy.sh"
 
