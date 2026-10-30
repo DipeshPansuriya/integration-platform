@@ -221,7 +221,7 @@ export function GoLiveSourceCredentials({ systemId, systemName, canIssue }: Prop
       {dialogOpen && (
         <div role="dialog" aria-labelledby="sc-dialog-title" data-dialog="source-credential">
           <h4 id="sc-dialog-title">Source credential issued for {systemName}</h4>
-          {dialogOpen && issuedSecret !== null && <p data-secret-display="true">{issuedSecret}</p>}
+          {dialogOpen && issuedSecret !== null && <p data-secret-display="true">Secret redacted for security.</p>}
           {issuedSecret === null && copied && <p role="status">Copied — secret cleared.</p>}
           {copyError && <p role="alert" className="systems-alert">Could not copy</p>}
           <button data-action="copy-secret" autoFocus onClick={onCopy}>Copy</button>
